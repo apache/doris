@@ -678,6 +678,24 @@ public:
         }
     }
 
+    // the pattern is a constant checked in FE: either a literal or a value only BE can evaluate.
+    // A literal NULL pattern is rejected by FE; reject a BE-evaluated NULL here too, and validate
+    // the pattern syntax eagerly. Both checks are normally done lazily in add(), but the nullable
+    // wrapper above can skip every row (and so skip add() entirely) when any argument, including
+    // a non-constant one such as the timestamp, is NULL for every row.
+    void check_nullable_input_columns(const IColumn** columns) const {
+        if (columns[0]->empty()) {
+            return;
+        }
+        if (columns[0]->is_null_at(0)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "the pattern argument of {} must not be null", this->get_name());
+        }
+        std::string pattern = columns[0]->get_data_at(0).to_string();
+        AggregateFunctionSequenceMatchData<T, Derived> validator;
+        validator.init(pattern, arg_count);
+    }
+
 private:
     size_t arg_count;
 };
