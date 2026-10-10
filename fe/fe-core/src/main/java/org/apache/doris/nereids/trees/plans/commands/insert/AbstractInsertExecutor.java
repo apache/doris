@@ -295,6 +295,11 @@ public abstract class AbstractInsertExecutor {
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
             }
+            long beforeOnCompleteSleepMs = DebugPointUtil.getDebugParamOrDefault(
+                    "AbstractInsertExecutor.beforeOnComplete.sleep", 0L);
+            if (beforeOnCompleteSleepMs > 0) {
+                Thread.sleep(beforeOnCompleteSleepMs);
+            }
             // Every transaction-owning executor commits inside onComplete(). Re-fence the first terminal
             // status here so a cancellation/TIMEOUT that landed after execImpl()'s last status read cannot
             // be committed by a path such as row-level UPDATE/DELETE/MERGE, which has no command-level
@@ -303,6 +308,7 @@ public abstract class AbstractInsertExecutor {
             if (!preCommitStatus.ok()) {
                 throw new UserException(preCommitStatus.getErrorMsg());
             }
+            executor.beginTransactionCommit();
             onComplete();
             for (InsertExecutorListener listener : listeners) {
                 try {

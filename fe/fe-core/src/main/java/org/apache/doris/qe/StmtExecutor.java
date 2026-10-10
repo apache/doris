@@ -201,6 +201,8 @@ public class StmtExecutor {
     private volatile Boolean profileEnabled;
 
     private volatile Coordinator coord = null;
+    private final Object cancellationLock = new Object();
+    private boolean transactionCommitStarted = false;
     // A statement can be cancelled while it is still planning and has no coordinator yet.
     // Keep this state scoped to the coordinator publication handoff: other execution targets
     // retain their existing cancellation contracts.
@@ -1434,6 +1436,21 @@ public class StmtExecutor {
         }
     }
 
+    /**
+     * Establish the linearization point between cancelling a statement and committing its transaction.
+     */
+    public void beginTransactionCommit() throws UserException {
+        Status pendingCancelReason;
+        synchronized (cancellationLock) {
+            pendingCancelReason = pendingCoordinatorCancelReason.get();
+            if (pendingCancelReason == null) {
+                transactionCommitStarted = true;
+                return;
+            }
+        }
+        throw new UserException(pendingCancelReason.getErrorMsg());
+    }
+
     // Because this is called by other thread
     /**
      * Routes cancellation of this (outer) executor to a nested internal executor, e.g. the
@@ -1448,8 +1465,13 @@ public class StmtExecutor {
         this.cancelDelegate = null;
     }
 
-    public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
-        pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
+    public boolean cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        synchronized (cancellationLock) {
+            if (transactionCommitStarted) {
+                return false;
+            }
+            pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
+        }
         Status coordinatorCancelReason = pendingCoordinatorCancelReason.get();
         Consumer<Status> delegate = cancelDelegate;
         if (delegate != null) {
@@ -1457,11 +1479,10 @@ public class StmtExecutor {
         }
         if (masterOpExecutor != null) {
             try {
-                masterOpExecutor.cancel();
+                return masterOpExecutor.cancel();
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
-            return;
         }
         Optional<CancelableCommand> cancelableCommand = getCancelableCommand();
         if (cancelableCommand.isPresent()) {
@@ -1479,6 +1500,7 @@ public class StmtExecutor {
             // Wait for the command to run or cancel completion
             cancelableCommand.get().waitNotRunning();
         }
+        return true;
     }
 
     public void setCoord(Coordinator coordinator) {
@@ -1498,8 +1520,8 @@ public class StmtExecutor {
         return pendingCoordinatorCancelReason.get();
     }
 
-    public void cancel(Status cancelReason) {
-        cancel(cancelReason, true);
+    public boolean cancel(Status cancelReason) {
+        return cancel(cancelReason, true);
     }
 
     private Optional<CancelableCommand> getCancelableCommand() {
