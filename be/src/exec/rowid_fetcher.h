@@ -82,6 +82,14 @@ public:
 
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
+    // Runs read_by_rowids() for the multiget_data_v2 RPC and serializes the outcome into the
+    // response status. The remote scan scheduler runs the RPC callback on a plain ThreadPool
+    // worker, which has no exception boundary of its own, so a doris::Exception thrown while
+    // reading (for example by a slot of the request whose PTypeNode this BE does not know) is
+    // converted into an error status here instead of terminating the process.
+    static void read_by_rowids_for_rpc(const PMultiGetRequestV2& request,
+                                       PMultiGetResponseV2* response);
+
 private:
     static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
                                            const TFileScanRangeParams& scan_params,

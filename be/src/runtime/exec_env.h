@@ -402,6 +402,7 @@ public:
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
     IdManager* get_id_manager() { return _id_manager; }
+    void set_id_manager(IdManager* id_manager) { this->_id_manager = id_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
     HeapProfiler* get_heap_profiler() { return _heap_profiler; }
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {

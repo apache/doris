@@ -2044,9 +2044,7 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                         MonotonicStopWatch watch;
                         watch.start();
                         brpc::ClosureGuard closure_guard(done);
-                        response->mutable_status()->set_status_code(0);
-                        Status st = RowIdStorageReader::read_by_rowids(*request, response);
-                        st.to_protobuf(response->mutable_status());
+                        RowIdStorageReader::read_by_rowids_for_rpc(*request, response);
                         LOG(INFO) << "multiget_data finished, cost(us):"
                                   << watch.elapsed_time() / 1000;
                         return true;
