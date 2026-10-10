@@ -445,6 +445,26 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
                                    RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
                                    std::string& values, bool write_to_cache,
                                    const io::IOContext* io_ctx) {
+    return _lookup_row_data(encoded_key, row_location, nullptr, std::move(input_rowset), stats,
+                            values, write_to_cache, io_ctx);
+}
+
+Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                                   const segment_v2::SegmentSharedPtr& segment,
+                                   RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
+                                   std::string& values, bool write_to_cache,
+                                   const io::IOContext* io_ctx) {
+    DCHECK(segment != nullptr);
+    DCHECK_EQ(segment->id(), row_location.segment_id);
+    return _lookup_row_data(encoded_key, row_location, &segment, std::move(input_rowset), stats,
+                            values, write_to_cache, io_ctx);
+}
+
+Status BaseTablet::_lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                                    const segment_v2::SegmentSharedPtr* segment,
+                                    RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
+                                    std::string& values, bool write_to_cache,
+                                    const io::IOContext* io_ctx) const {
     MonotonicStopWatch watch;
     size_t row_size = 1;
     watch.start();
@@ -459,9 +479,14 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
-    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
-                                                 &segment_cache_handle, &column_iterator, &stats,
-                                                 io_ctx));
+    if (segment != nullptr) {
+        RETURN_IF_ERROR(
+                _init_segment_column_iterator(*segment, column, &column_iterator, &stats, io_ctx));
+    } else {
+        RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
+                                                     &segment_cache_handle, &column_iterator,
+                                                     &stats, io_ctx));
+    }
     // get and parse tuple row
     MutableColumnPtr column_ptr = ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
@@ -484,7 +509,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
                                   std::string* encoded_seq_value, OlapReaderStatistics* stats,
-                                  DeleteBitmapPtr delete_bitmap, const io::IOContext* io_ctx) {
+                                  DeleteBitmapPtr delete_bitmap, const io::IOContext* io_ctx,
+                                  segment_v2::SegmentSharedPtr* segment) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     // use the latest tablet schema to decide if the tablet has sequence column currently
@@ -569,6 +595,9 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             }
             TEST_SYNC_POINT_CALLBACK("BaseTablet::lookup_row_key:found", this, rs.get(),
                                      with_seq_col, s.code());
+            if (segment) {
+                *segment = segments[id];
+            }
             // find it and return
             return s;
         }
