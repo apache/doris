@@ -186,4 +186,30 @@ public class TimeV2LiteralTest {
         Assertions.assertEquals(59, dateTime.getSecond());
     }
 
+    @Test
+    public void testCastToDateTimeV2AppliesTargetScale() {
+        TimeV2Literal literal = new TimeV2Literal(TimeV2Type.of(6), "12:34:56.123556");
+
+        DateTimeV2Literal dateTime = (DateTimeV2Literal) literal.uncheckedCastTo(DateTimeV2Type.of(3));
+
+        Assertions.assertEquals(DateTimeV2Type.of(3), dateTime.getDataType());
+        Assertions.assertEquals(12, dateTime.getHour());
+        Assertions.assertEquals(34, dateTime.getMinute());
+        Assertions.assertEquals(56, dateTime.getSecond());
+        Assertions.assertEquals(124000, dateTime.getMicroSecond());
+    }
+
+    @Test
+    public void testCastToDateTimeV2TargetScaleCarriesToNextSecond() {
+        TimeV2Literal literal = new TimeV2Literal(TimeV2Type.of(6), "23:59:59.999500");
+
+        DateTimeV2Literal dateTime = (DateTimeV2Literal) literal.uncheckedCastTo(DateTimeV2Type.of(3));
+
+        Assertions.assertEquals(DateTimeV2Type.of(3), dateTime.getDataType());
+        Assertions.assertEquals(0, dateTime.getHour());
+        Assertions.assertEquals(0, dateTime.getMinute());
+        Assertions.assertEquals(0, dateTime.getSecond());
+        Assertions.assertEquals(0, dateTime.getMicroSecond());
+    }
+
 }
