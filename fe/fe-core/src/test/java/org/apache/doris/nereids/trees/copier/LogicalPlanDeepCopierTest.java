@@ -18,15 +18,23 @@
 package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.JoinSkewInfo;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -34,11 +42,13 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class LogicalPlanDeepCopierTest {
@@ -182,5 +192,69 @@ public class LogicalPlanDeepCopierTest {
         Assertions.assertNotSame(aggregate, copiedAggregate);
         Assertions.assertEquals(aggregate.getGroupByExpressions().size(),
                 copiedAggregate.getGroupByExpressions().size());
+    }
+
+    @Test
+    public void testDeepCopyJoinClonesTheDistributeHintOfTheCopy() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        Slot skew = left.getOutput().get(0);
+        DistributeHint hint = new DistributeHint(DistributeType.NONE,
+                new JoinSkewInfo(skew, ImmutableList.of(new BigIntLiteral(0)), false));
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(left.getOutput().get(0), right.getOutput().get(0))),
+                ImmutableList.of(), hint, Optional.empty(), left, right, null);
+
+        LogicalJoin<?, ?> copy = (LogicalJoin<?, ?>) join.accept(
+                LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+
+        // the copy reads its own slots, and SaltJoin records its status on the hint of the branch it
+        // salted: neither the hint nor the skew expression may be shared between the two branches
+        Assertions.assertNotSame(join.getDistributeHint(), copy.getDistributeHint());
+        Assertions.assertNotSame(join.getDistributeHint().getSkewExpr(),
+                copy.getDistributeHint().getSkewExpr());
+        assertSkewExprReadsTheSlotsOfItsOwnBranch(join);
+        assertSkewExprReadsTheSlotsOfItsOwnBranch(copy);
+    }
+
+    private static void assertSkewExprReadsTheSlotsOfItsOwnBranch(LogicalJoin<?, ?> join) {
+        Set<ExprId> output = join.getOutput().stream().map(Slot::getExprId).collect(ImmutableSet.toImmutableSet());
+        for (Slot slot : join.getDistributeHint().getSkewExpr().getInputSlots()) {
+            Assertions.assertTrue(output.contains(slot.getExprId()),
+                    "the hint of a join has to read the slots of its own branch: " + slot);
+        }
+    }
+
+    @Test
+    public void testTheHintOfACopyReportsItsRewritesToTheHintWhichItWasCopiedFrom() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        Slot skew = left.getOutput().get(0);
+        DistributeHint hint = new DistributeHint(DistributeType.NONE,
+                new JoinSkewInfo(skew, ImmutableList.of(new BigIntLiteral(0)), false));
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(left.getOutput().get(0), right.getOutput().get(0))),
+                ImmutableList.of(), hint, Optional.empty(), left, right, null);
+
+        LogicalJoin<?, ?> copy = (LogicalJoin<?, ?>) join.accept(
+                LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+
+        // SaltJoin rewrites the join of the copy and records that rewrite on the hint of the copy (see
+        // SaltJoin.transform), and the copy reports it to the hint which the query wrote: the explain
+        // of the query prints the hint of the query (see LeadingHint.getExplainString), so without
+        // that report the explain would print the hint as if its skew had never been rewritten
+        copy.getDistributeHint().setStatus(Hint.HintStatus.SUCCESS);
+        copy.getDistributeHint().setSkewInfo(copy.getDistributeHint().getSkewInfo().withSuccessInSaltJoin(true));
+        copy.getDistributeHint().reportTheRewritesToTheHintWhichWasCopied();
+
+        Assertions.assertEquals(Hint.HintStatus.SUCCESS, join.getDistributeHint().getStatus());
+        Assertions.assertTrue(join.getDistributeHint().isSuccessInSkewRewrite(),
+                "the hint of the query has to report the skew rewrite of the copy");
+        // the report does not share the skew expression: the two branches keep the expression which
+        // reads their own slots
+        Assertions.assertNotSame(join.getDistributeHint().getSkewExpr(),
+                copy.getDistributeHint().getSkewExpr());
+        assertSkewExprReadsTheSlotsOfItsOwnBranch(join);
+        assertSkewExprReadsTheSlotsOfItsOwnBranch(copy);
     }
 }

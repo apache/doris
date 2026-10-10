@@ -480,6 +480,24 @@ class CountLoopbackIPv6UDAF:
                                GROUP BY category
                                ORDER BY category; """
 
+        // ========================================
+        // Test 10: A UDAF whose state starts at 0 in a correlated subquery
+        // ========================================
+        // The value of a UDAF for an empty input is written in the UDAF itself: the state of
+        // udaf_sum_inline starts at 0, so its value for a correlated domain without a row is 0 and
+        // not the null which the left outer join of the rewrite keeps. The rewrite cannot read that
+        // value, so it reports the subquery instead of rewriting it into a join which would compare
+        // the outer value with the null of the empty domain.
+        test {
+            sql """ SELECT t1.id,
+                           t1.id IN (SELECT udaf_sum_inline(t2.value)
+                                     FROM test_pythonudaf_inline_table t2
+                                     WHERE t2.id = t1.id
+                                     HAVING udaf_sum_inline(t2.value) IS NOT NULL) as m
+                    FROM test_pythonudaf_inline_table t1 ORDER BY t1.id; """
+            exception "Unsupported correlated subquery with grouping and/or aggregation"
+        }
+
     } finally {
         try_sql("DROP GLOBAL FUNCTION IF EXISTS udaf_sum_global(INT);")
         try_sql("DROP FUNCTION IF EXISTS udaf_sum_inline(INT);")
