@@ -48,7 +48,7 @@ class SpillDataDir;
 /// Part boundaries are transparent to the caller. When the current part is
 /// exhausted, the reader automatically opens the next part.
 ///
-/// Parts are opened on the SpillDataDir's file system (local disk or object storage).
+/// Parts are opened on the file system pinned in the SpillFile (local disk or object storage).
 /// Part sizes are known from the writer, so no size lookup is needed on open.
 ///
 /// On object storage every read is a GET, so the reader keeps the request count low:

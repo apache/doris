@@ -47,12 +47,12 @@ class SpillFile;
 /// directory. A part is closed synchronously when it is rotated out or when close() is called.
 /// If the SpillFile is destroyed before the writer is closed, the unfinished part is discarded.
 ///
-/// Files are created on the SpillDataDir's file system, which is either a local disk or
+/// Files are created on the file system pinned in the SpillFile, which is either a local disk or
 /// the object storage of a cloud storage vault. For object storage the writer additionally
 /// appends at most one upload buffer at a time and pauses while the S3 upload queue holds
-/// more than spill_s3_max_inflight_upload_bytes of buffers, which bounds the upload memory of
-/// a spill that produces faster than object storage takes it, and reports request statistics
-/// derived from the closed part.
+/// at least spill_s3_max_inflight_upload_bytes of buffers, which slows down a spill that
+/// produces faster than object storage takes it, and reports request statistics derived from
+/// the closed part.
 class SpillFileWriter {
 public:
     SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, RuntimeState* state,
@@ -65,9 +65,9 @@ public:
     /// and rotates to a new part when the current one exceeds max_part_size.
     Status write_block(RuntimeState* state, const Block& block);
 
-    /// Finalize: close the current part, wait for all parts, record cumulative stats
-    /// in SpillFile. After close(), no more writes are allowed. After a failed write_block()
-    /// the file cannot be completed: close() drops the current part and returns that failure.
+    /// Finalize: close the current part, record cumulative stats in SpillFile. After close(),
+    /// no more writes are allowed. After a failed write_block() the file cannot be completed:
+    /// close() drops the current part and returns that failure.
     Status close();
 
 private:

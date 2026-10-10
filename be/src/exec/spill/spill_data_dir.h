@@ -35,8 +35,9 @@ using IntGauge = AtomicGauge<int64_t>;
 class MetricEntity;
 
 /// A spill store: one local disk (LocalSpillDataDir) or the object storage of a cloud storage
-/// vault (RemoteSpillDataDir). All file system access of spill goes through fs() so that
-/// SpillFile / SpillFileWriter / SpillFileReader share one code path. The base class owns
+/// vault (RemoteSpillDataDir). The IO of a spill file goes through the file system pinned in its
+/// SpillFile when it was created, so that SpillFile / SpillFileWriter / SpillFileReader share one
+/// code path for both kinds and a remote file stays on its vault. The base class owns
 /// what both kinds share: the spill root, the byte accounting against a limit, and the metrics.
 class SpillDataDir {
 public:
@@ -50,7 +51,8 @@ public:
     /// ready once its storage vault is bound.
     virtual bool ready() const { return true; }
 
-    /// File system used for all spill IO of this store. Remote stores return nullptr until ready.
+    /// Current file system of this store, used for new spill files and local query directories.
+    /// Existing files keep the one they were created on. Remote stores return nullptr until ready.
     virtual io::FileSystemSPtr fs() const = 0;
 
     /// Refresh capacity and the byte limit from the disk / the configs.
@@ -86,8 +88,9 @@ public:
 
     int64_t get_spill_data_bytes();
 
-    // Successfully closed remote objects only. Capacity reservations remain tracked separately
-    // in get_spill_data_bytes() and must not be published as persisted storage usage.
+    // Bytes of remote objects that exist or may exist: successfully closed parts, plus the upper
+    // bound of a part whose close failed until it is reconciled. Capacity reservations remain
+    // tracked separately in get_spill_data_bytes() and must not be published as persisted usage.
     virtual void record_persisted_bytes(int64_t bytes) {}
     virtual void release_persisted_bytes(int64_t bytes) {}
     virtual int64_t get_persisted_bytes() { return 0; }

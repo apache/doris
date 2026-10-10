@@ -179,10 +179,11 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
         }
     }
 
-    // Close synchronously. Spilling already runs on an IO thread that blocks on every
-    // append, and with the default part size the wait at a part boundary (the tail of the
-    // uploads plus one CompleteMultipartUpload) is negligible against the part itself, so
-    // overlapping it with the next part is not worth an async close pipeline.
+    // Close synchronously. Spilling already runs on a thread that may block on every append
+    // (the pipeline execution thread running the revoke task, or the async result-writer
+    // thread for Iceberg), and with the default part size the wait at a part boundary (the
+    // tail of the uploads plus one CompleteMultipartUpload) is negligible against the part
+    // itself, so overlapping it with the next part is not worth an async close pipeline.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
     MultipartUploadId upload = _multipart_upload_id(writer.get());
     if (status.ok()) {

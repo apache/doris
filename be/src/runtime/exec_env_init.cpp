@@ -902,8 +902,8 @@ void ExecEnv::destroy() {
         static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
     }
 
-    // The spill manager's GC thread resolves its remote store through the storage engine and
-    // deletes spill data through the vault file systems: stop it while the engine is alive.
+    // The spill manager's GC thread retries remote deletions through the pinned vault file
+    // systems: stop it while the storage engine is alive.
     SAFE_STOP(_spill_file_mgr);
 
     // StorageEngine must be destoried before _cache_manager destory.

@@ -61,8 +61,10 @@ public class AuditStreamLoaderTest {
         StringBuilder rows = new StringBuilder();
         for (String id : List.of("first", "second")) {
             Deencapsulation.invoke(loader, "fillLogBuffer", new AuditEvent.AuditEventBuilder()
-                    .setQueryId(id).setSpillWriteBytesToRemoteStorage(17)
-                    .setSpillReadBytesFromRemoteStorage(19).setStmt("select 1").build(), rows);
+                    .setQueryId(id).setSpillWriteBytesToLocalStorage(11)
+                    .setSpillReadBytesFromLocalStorage(12).setSpillWriteBytesToRemoteStorage(17)
+                    .setSpillReadBytesFromRemoteStorage(19).setScanBytesFromLocalStorage(15)
+                    .setScanBytesFromRemoteStorage(16).setStmt("select 1").build(), rows);
         }
         AuditStreamLoader.PreparedBatch oldBatch = AuditStreamLoader.prepareBatch(rows, false);
         AuditStreamLoader.PreparedBatch newBatch = AuditStreamLoader.prepareBatch(rows, true);
@@ -74,14 +76,34 @@ public class AuditStreamLoaderTest {
         Assertions.assertFalse(oldNames.contains("spill_read_bytes_from_remote_storage"));
         Assertions.assertEquals(rows.toString(), newBatch.payload.toString());
         Assertions.assertEquals(String.join(",", allNames), newBatch.columns);
-        for (String row : Splitter.on(AuditLoader.AUDIT_TABLE_LINE_DELIMITER)
-                .omitEmptyStrings().split(oldBatch.payload)) {
-            List<String> fields = Splitter.on(AuditLoader.AUDIT_TABLE_COL_SEPARATOR).splitToList(row);
+        List<String> fullRows = Splitter.on(AuditLoader.AUDIT_TABLE_LINE_DELIMITER)
+                .omitEmptyStrings().splitToList(rows);
+        List<String> oldRows = Splitter.on(AuditLoader.AUDIT_TABLE_LINE_DELIMITER)
+                .omitEmptyStrings().splitToList(oldBatch.payload);
+        Assertions.assertEquals(2, fullRows.size());
+        Assertions.assertEquals(fullRows.size(), oldRows.size());
+        for (int r = 0; r < fullRows.size(); r++) {
+            List<String> full = Splitter.on(AuditLoader.AUDIT_TABLE_COL_SEPARATOR).splitToList(fullRows.get(r));
+            List<String> fields = Splitter.on(AuditLoader.AUDIT_TABLE_COL_SEPARATOR).splitToList(oldRows.get(r));
+            Assertions.assertEquals("17", full.get(allNames.indexOf("spill_write_bytes_to_remote_storage")));
+            Assertions.assertEquals("19", full.get(allNames.indexOf("spill_read_bytes_from_remote_storage")));
             Assertions.assertEquals(oldNames.size(), fields.size());
-            Assertions.assertEquals("select 1", fields.get(oldNames.indexOf("stmt")));
+            // Every kept column carries the value of the same column in the full row.
+            for (int i = 0; i < oldNames.size(); i++) {
+                Assertions.assertEquals(full.get(allNames.indexOf(oldNames.get(i))), fields.get(i),
+                        oldNames.get(i));
+            }
+            Assertions.assertEquals("11", fields.get(oldNames.indexOf("spill_write_bytes_from_local_storage")));
+            Assertions.assertEquals("12", fields.get(oldNames.indexOf("spill_read_bytes_from_local_storage")));
+            Assertions.assertEquals("15", fields.get(oldNames.indexOf("scan_bytes_from_local_storage")));
+            Assertions.assertEquals("16", fields.get(oldNames.indexOf("scan_bytes_from_remote_storage")));
+            Assertions.assertFalse(fields.contains("17"));
+            Assertions.assertFalse(fields.contains("19"));
         }
-        Assertions.assertTrue(oldBatch.payload.toString().contains("first"));
-        Assertions.assertTrue(oldBatch.payload.toString().contains("second"));
+        Assertions.assertEquals("first", Splitter.on(AuditLoader.AUDIT_TABLE_COL_SEPARATOR)
+                .splitToList(oldRows.get(0)).get(oldNames.indexOf("query_id")));
+        Assertions.assertEquals("second", Splitter.on(AuditLoader.AUDIT_TABLE_COL_SEPARATOR)
+                .splitToList(oldRows.get(1)).get(oldNames.indexOf("query_id")));
     }
 
     @Test

@@ -119,8 +119,8 @@ private:
     // Size of every completed part, in part order. Passed to readers so that they never
     // have to ask the storage for the file size (one HEAD request per part on S3).
     std::vector<int64_t> _part_sizes;
-    // Set by SpillFileWriter once the first part has been created. Files that were never
-    // written have nothing to delete.
+    // Set by SpillFileWriter when it creates the directory of the first part, before the part
+    // itself is created. Files that were never written have nothing to delete.
     bool _dir_created = false;
     bool _ready_for_reading = false;
     // Pointer to the currently-active writer. Mutable to allow checks from const

@@ -187,7 +187,8 @@ private:
     SpillDataDir* _get_local_store_for_external_spill();
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
-    // Views of _spill_store_map by kind: a BE has either local stores or one remote store.
+    // Views of _spill_store_map by kind. With spill_storage_type=s3 a BE has the remote store
+    // for query spill and keeps its local stores for external writers.
     std::vector<LocalSpillDataDir*> _local_stores;
     RemoteSpillDataDir* _remote_store = nullptr;
 
