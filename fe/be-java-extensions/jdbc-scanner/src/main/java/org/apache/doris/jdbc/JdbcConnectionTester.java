@@ -29,7 +29,6 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.Collections;
 import java.util.Map;
 
@@ -160,6 +159,9 @@ public class JdbcConnectionTester extends JniScanner {
             rs.close();
             LOG.info("JdbcConnectionTester: connection test succeeded for " + jdbcUrl);
         } catch (Exception e) {
+            // BE never calls close() on a tester whose open() failed, which is exactly when the
+            // test failed, so the connection borrowed from the pool has to be given back here.
+            closeInternal();
             throw new IOException("Failed to test JDBC connection: " + e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
@@ -176,23 +178,16 @@ public class JdbcConnectionTester extends JniScanner {
 
     @Override
     protected void closeInternal() throws IOException {
-        try {
-            if (stmt != null && !stmt.isClosed()) {
-                stmt.close();
-            }
-            if (conn != null && !conn.isClosed()) {
-                conn.close();
-            }
-        } catch (SQLException e) {
-            LOG.warn("JdbcConnectionTester close error: " + e.getMessage(), e);
-        } finally {
-            stmt = null;
-            conn = null;
-            if (cleanDatasource && hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey());
-                hikariDataSource = null;
-            }
+        // One by one, so that a statement that fails to close does not keep the connection from
+        // going back to the pool.
+        JdbcResources.closeQuietly(stmt, "JdbcConnectionTester statement");
+        JdbcResources.closeQuietly(conn, "JdbcConnectionTester connection");
+        stmt = null;
+        conn = null;
+        if (cleanDatasource && hikariDataSource != null) {
+            hikariDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey());
+            hikariDataSource = null;
         }
     }
 
