@@ -70,7 +70,7 @@ Token* ICUTokenizer::next(Token* token) {
         subString.toUTF8String(sourceUtf8Str_);
     }
     if (this->lowercase) {
-        subString.toLower().toUTF8String(utf8Str_);
+        subString.toLower(icu::Locale::getRoot()).toUTF8String(utf8Str_);
     } else {
         subString.toUTF8String(utf8Str_);
     }
