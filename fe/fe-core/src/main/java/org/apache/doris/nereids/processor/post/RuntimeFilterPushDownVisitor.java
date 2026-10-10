@@ -116,11 +116,15 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
 
         /**
-         * A context is valid if probeExpr references exactly one input slot.
+         * A context is valid if probeExpr references exactly one input slot and both expressions
+         * have non-Variant types. Scalar runtime filters cannot express Variant canonical equality;
+         * explicit casts to supported scalar types can still produce runtime filters.
          * Invalid when probeExpr is a constant (e.g., from OneRowRelation) or multi-slot.
          */
         public boolean isValid() {
-            return probeExpr.getInputSlots().size() == 1;
+            return !srcExpr.getDataType().isVariantType()
+                    && !probeExpr.getDataType().isVariantType()
+                    && probeExpr.getInputSlots().size() == 1;
         }
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
@@ -147,8 +151,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
-        // Variant hash keys use canonical equality. The scalar RF implementations do not
-        // support that encoding; a cast to a supported scalar type can still produce an RF.
+        // Recheck types after the probe expression is rewritten through Projects/SetOps/joins.
         if (ctx.srcExpr.getDataType().isVariantType() || ctx.probeExpr.getDataType().isVariantType()) {
             return false;
         }
