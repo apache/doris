@@ -33,6 +33,8 @@ public:
 
     Status init() override;
 
+    Status commit_txn() override;
+
     virtual void update_tablet_stats();
 
     const RowsetMetaSharedPtr& rowset_meta();

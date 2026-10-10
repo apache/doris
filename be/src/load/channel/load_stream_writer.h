@@ -51,7 +51,8 @@ public:
 
     ~LoadStreamWriter();
 
-    Status init();
+    // is_empty is true for tablets first seen when closing the load.
+    Status init(bool is_empty = false);
 
     Status append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf,
                        FileType file_type = FileType::SEGMENT_FILE);
