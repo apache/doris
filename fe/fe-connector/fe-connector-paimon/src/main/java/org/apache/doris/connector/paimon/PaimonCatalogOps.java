@@ -308,11 +308,9 @@ public interface PaimonCatalogOps {
          */
         @Override
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
-            // Doris owns the outer table-metadata cache and only reaches this method on an outer-cache
-            // load. Paimon's CachingCatalog owns a second cache for the Table and its lower-level readers.
-            // Invalidate that inner entry before reloading, otherwise REFRESH or outer-cache expiry can
-            // immediately repopulate Doris with the same stale bucket, path, or table options.
-            catalog.invalidateTable(identifier);
+            // Every metadata, scan and write lookup lands here, several times per statement. The wrapped
+            // catalog is the Doris table cache (PaimonMetaCacheCatalog; the SDK CachingCatalog is disabled),
+            // so this must not invalidate: REFRESH, Doris writes and DDL invalidate through CatalogMetaCache.
             Table table = catalog.getTable(identifier);
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
             return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
