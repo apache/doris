@@ -42,8 +42,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.EnumSet;
-import java.util.Map;
 
 public class RoutineLoadJobPersistenceTest {
     private MockedStatic<Env> envMock;
@@ -112,7 +112,7 @@ public class RoutineLoadJobPersistenceTest {
     }
 
     private void setSourceProgress(RoutineLoadJob job) {
-        job.progress = new KafkaProgress(Map.of(0, 100L));
+        job.progress = new KafkaProgress(Collections.singletonMap(0, 100L));
         Deencapsulation.setField(job, "currentKafkaPartitions", Lists.newArrayList(0));
     }
 
