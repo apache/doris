@@ -25,6 +25,7 @@
 #include "common/config.h"
 #include "core/block/block.h"
 #include "io/fs/local_file_system.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/column_reader.h"
@@ -189,7 +190,9 @@ Status has_bloom_filter_index(const TabletSchemaSPtr& schema, std::string_view f
 
     std::shared_ptr<ColumnReader> column_reader;
     OlapReaderStatistics stats;
-    RETURN_IF_ERROR(segment->get_column_reader(1, &column_reader, &stats));
+    StorageReadOptions read_options(stats);
+    RETURN_IF_ERROR(segment->get_column_reader_for_pruning(schema->column_by_uid(1), read_options,
+                                                           &column_reader));
     has_bloom_filter = column_reader->has_bloom_filter_index(false);
     return Status::OK();
 }

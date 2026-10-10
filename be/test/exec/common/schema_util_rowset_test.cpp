@@ -531,7 +531,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // key3 is in the sparse column, return variant type
-    StorageReadOptions type_opts;
+    StorageReadOptions type_opts(olap_reader_stats);
     type_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     TabletColumn non_variant_column;
     non_variant_column.set_name("non_variant_column");

@@ -352,6 +352,14 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     }
 
     rowset->set_version(Version(version, version));
+    if (rowset->tablet_schema()->is_tso_enabled() && rowset->commit_tso().start_tso() == -1) {
+        DORIS_CHECK_EQ(rowset->commit_tso().end_tso(), -1);
+        // FE allocates the real commit TSO after delete-bitmap calculation. Partial-update
+        // alignment reads this pending rowset with its assigned version, so use the physical
+        // COMMIT_TSO placeholder here. MS overwrites it when committing the transaction; TSO
+        // tablets fetch the published metadata instead of using the BE fast-publish cache.
+        rowset->rowset_meta()->set_commit_tso(0);
+    }
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
     txn_info.delete_bitmap = delete_bitmap;

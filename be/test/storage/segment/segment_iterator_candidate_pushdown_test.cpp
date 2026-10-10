@@ -48,6 +48,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/tablet/tablet_schema.h"
@@ -269,8 +270,9 @@ VExprContextSPtr make_capturing_ctx(const VExprSPtr& expr) {
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     ColumnIteratorOptions column_iter_opts;
-    auto index_ctx = std::make_shared<IndexExecContext>(index_iters, storage_types, status_map,
-                                                        nullptr, nullptr, column_iter_opts);
+    auto index_ctx = std::make_shared<IndexExecContext>(
+            index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
     ctx->set_index_context(index_ctx);
     return ctx;
 }
@@ -309,7 +311,8 @@ VExprContextSPtr make_virtual_slot_ctx(const VExprSPtr& virtual_expr) {
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     ColumnIteratorOptions column_iter_opts;
     ctx->set_index_context(std::make_shared<IndexExecContext>(
-            index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts));
+            index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {})));
     return ctx;
 }
 
@@ -322,7 +325,8 @@ protected:
         _tablet_schema = make_tablet_schema();
         _segment = make_stub_segment(100, _tablet_schema);
         _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
-        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
+        StorageReadOptions opts(_stats);
+        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema, opts);
 
         TQueryOptions query_options;
         query_options.__set_enable_inverted_index_query(true);
@@ -330,7 +334,6 @@ protected:
         _runtime_state.set_query_options(query_options);
 
         _iter->_opts.runtime_state = &_runtime_state;
-        _iter->_opts.stats = &_stats;
         _iter->_index_query_context = std::make_shared<IndexQueryContext>();
         _iter->_index_query_context->stats = &_stats;
         _iter->_column_states.resize(_read_schema->num_read_columns());
@@ -442,9 +445,9 @@ TEST_F(SegmentIteratorCandidatePushdownTest, delete_bitmap_engages_candidate_bef
 TEST_F(SegmentIteratorCandidatePushdownTest, versioned_deletes_do_not_publish_condition_cache) {
     ScopedConditionCache cache;
     constexpr uint64_t digest = 12345;
-    auto older_reader = std::make_unique<SegmentIterator>(_segment, _read_schema);
     OlapReaderStatistics older_stats;
-    older_reader->_opts.stats = &older_stats;
+    StorageReadOptions older_opts(older_stats);
+    auto older_reader = std::make_unique<SegmentIterator>(_segment, _read_schema, older_opts);
     older_reader->_opts.condition_cache_digest = digest;
     older_reader->_common_expr_ctxs_push_down = {
             make_capturing_ctx(std::make_shared<CapturingExpr>(older_reader.get()))};

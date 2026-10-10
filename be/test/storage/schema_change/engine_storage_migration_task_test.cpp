@@ -282,8 +282,8 @@ protected:
         }
     }
 
-    static void publish_group_transaction(const RowBinlogGroupLoadContext& context,
-                                          int64_t version) {
+    static void publish_group_transaction(const RowBinlogGroupLoadContext& context, int64_t version,
+                                          int64_t commit_tso) {
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rowsets;
         std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>> tablet_related_txn_infos;
         engine_ref->txn_manager()->get_txn_related_tablets(
@@ -299,10 +299,11 @@ protected:
                   context.row_binlog_tablet.get());
         ASSERT_NE(txn_info_it->second->attach_row_binlog.rowset, nullptr);
 
-        TabletPublishTxnTask publish_task(
-                *engine_ref, nullptr, context.base_tablet, rowset_it->second,
-                txn_info_it->second->attach_row_binlog, context.data_request.partition_id,
-                context.data_request.txn_id, Version(version, version), base_tablet_info, -1);
+        TabletPublishTxnTask publish_task(*engine_ref, nullptr, context.base_tablet,
+                                          rowset_it->second, txn_info_it->second->attach_row_binlog,
+                                          context.data_request.partition_id,
+                                          context.data_request.txn_id, Version(version, version),
+                                          base_tablet_info, commit_tso);
         publish_task.handle();
         ASSERT_TRUE(publish_task.result().ok()) << publish_task.result();
     }
@@ -511,13 +512,16 @@ TEST_F(TestEngineStorageMigrationTask, row_binlog_committed_txn_blocks_migration
     ASSERT_EQ(current_tablet->tablet_path(), old_path);
 
     constexpr int64_t publish_version = 2;
-    publish_group_transaction(context, publish_version);
+    constexpr int64_t commit_tso = 123456;
+    ASSERT_NO_FATAL_FAILURE(publish_group_transaction(context, publish_version, commit_tso));
     assert_related_transaction(context, false);
-    ASSERT_NE(context.base_tablet->get_rowset_by_version(Version(publish_version, publish_version)),
-              nullptr);
-    ASSERT_NE(context.row_binlog_tablet->get_rowset_by_version(
-                      Version(publish_version, publish_version)),
-              nullptr);
+    const Version version(publish_version, publish_version);
+    auto base_rowset = context.base_tablet->get_rowset_by_version(version);
+    ASSERT_NE(base_rowset, nullptr);
+    EXPECT_EQ(base_rowset->commit_tso(), TsoRange(commit_tso, commit_tso));
+    auto binlog_rowset = context.row_binlog_tablet->get_rowset_by_version(version);
+    ASSERT_NE(binlog_rowset, nullptr);
+    EXPECT_EQ(binlog_rowset->commit_tso(), TsoRange(commit_tso, commit_tso));
 
     // Give the reloaded tablet a newer creation time than the source tablet.
     sleep(1);
@@ -531,8 +535,9 @@ TEST_F(TestEngineStorageMigrationTask, row_binlog_committed_txn_blocks_migration
     ASSERT_NE(migrated_tablet.get(), context.row_binlog_tablet.get());
     ASSERT_NE(migrated_tablet->tablet_uid(), old_uid);
     ASSERT_EQ(migrated_tablet->data_dir(), dest_store);
-    ASSERT_NE(migrated_tablet->get_rowset_by_version(Version(publish_version, publish_version)),
-              nullptr);
+    auto migrated_rowset = migrated_tablet->get_rowset_by_version(version);
+    ASSERT_NE(migrated_rowset, nullptr);
+    EXPECT_EQ(migrated_rowset->commit_tso(), TsoRange(commit_tso, commit_tso));
 
     drop_row_binlog_group(context);
 }

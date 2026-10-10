@@ -147,9 +147,8 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
 }
 
 ColumnWriter::ColumnWriter(TabletColumnPtr column, bool is_nullable, ColumnMetaPB* meta)
-        : _column(std::move(column)), _is_nullable(is_nullable), _column_meta(meta) {
-    _data_type = DataTypeFactory::instance().create_data_type(*_column_meta);
-}
+        : _column(std::move(column)), _is_nullable(is_nullable), _column_meta(meta) {}
+
 Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer) {
@@ -527,8 +526,11 @@ Status ScalarColumnWriter::init() {
         _null_bitmap_builder = std::make_unique<NullBitmapBuilder>();
     }
     if (_opts.need_zone_map) {
-        RETURN_IF_ERROR(
-                ZoneMapIndexWriter::create(_data_type, get_column(), _zone_map_index_builder));
+        // Physical helper writers, such as ARRAY/MAP offsets, disable zone maps and do not have a
+        // logical IDataType. Create the type only for writers that actually build a zone map.
+        auto data_type = DataTypeFactory::instance().create_data_type(*get_column_meta());
+        RETURN_IF_ERROR(ZoneMapIndexWriter::create(std::move(data_type), get_column(),
+                                                   _zone_map_index_builder));
     }
 
     if (_opts.need_inverted_index) {

@@ -293,10 +293,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache) const {
-    static const std::unordered_map<std::string, int> empty_field_to_column_id;
-    return evaluate_inverted_index_with_search_param(
-            search_param, data_type_with_names, std::move(iterators), num_rows, bitmap_result,
-            enable_cache, nullptr, empty_field_to_column_id);
+    return evaluate_inverted_index_with_search_param(search_param, data_type_with_names,
+                                                     std::move(iterators), num_rows, bitmap_result,
+                                                     enable_cache, nullptr, nullptr);
 }
 
 Status FunctionSearch::evaluate_inverted_index_with_search_param(
@@ -304,8 +303,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
-        const IndexExecContext* index_exec_ctx,
-        const std::unordered_map<std::string, int>& field_name_to_column_id,
+        const IndexExecContext* index_exec_ctx, const TabletColumn* nested_column,
         const std::shared_ptr<IndexQueryContext>& index_query_context) const {
     // VSearchExpr enters here directly, outside IFunction::execute() and its exception boundary,
     // so this is where a failure inside the search, such as an analyzer whose first token
@@ -313,7 +311,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     try {
         return evaluate_inverted_index_with_search_param_unguarded(
                 search_param, data_type_with_names, std::move(iterators), num_rows, bitmap_result,
-                enable_cache, index_exec_ctx, field_name_to_column_id, index_query_context);
+                enable_cache, index_exec_ctx, nested_column, index_query_context);
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("search failed: {}",
                                                                        e.what());
@@ -327,8 +325,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
-        const IndexExecContext* index_exec_ctx,
-        const std::unordered_map<std::string, int>& field_name_to_column_id,
+        const IndexExecContext* index_exec_ctx, const TabletColumn* nested_column,
         const std::shared_ptr<IndexQueryContext>& index_query_context) const {
     const bool is_nested_query = search_param.root.clause_type == "NESTED";
     if (is_nested_query && !is_nested_group_search_supported()) {
@@ -430,8 +427,8 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
         std::shared_ptr<roaring::Roaring> row_bitmap;
         VariantNestedSearchEvaluator nested_evaluator(*this);
         RETURN_IF_ERROR(nested_evaluator.evaluate(search_param, search_param.root, context,
-                                                  resolver, num_rows, index_exec_ctx,
-                                                  field_name_to_column_id, row_bitmap));
+                                                  resolver, num_rows, index_exec_ctx, nested_column,
+                                                  row_bitmap));
         bitmap_result = InvertedIndexResultBitmap(std::move(row_bitmap),
                                                   std::make_shared<roaring::Roaring>());
         bitmap_result.mask_out_null();

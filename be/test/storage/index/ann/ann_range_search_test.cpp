@@ -44,6 +44,7 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 
@@ -62,9 +63,9 @@ static std::shared_ptr<IndexExecContext> create_index_context(
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                 common_expr_index_status) {
     segment_v2::ColumnIteratorOptions column_iter_opts;
-    return std::make_shared<IndexExecContext>(index_iterators, storage_name_and_type,
-                                              common_expr_index_status, nullptr, nullptr,
-                                              column_iter_opts);
+    return std::make_shared<IndexExecContext>(
+            index_iterators, storage_name_and_type, common_expr_index_status, nullptr, nullptr,
+            column_iter_opts, std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
 }
 
 TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
