@@ -41,7 +41,6 @@ suite("test_predefine_typed_to_sparse_1shard", "p0,nonConcurrent") {
             cast(var['char_1'] as text)"""
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_doc_mode = false """
-    // sql """ set enable_variant_schema_auto_cast = false """
 
      def load_json_data = {table_name, file_name ->
         // load the json data
