@@ -48,7 +48,7 @@ suite("test_lance_prepared_vector_search", "p0,external") {
             for (String useIndex : ["false", "true"]) {
                 String fixedProperties = """'table'='test_lance_prepared_vector_search.doris.vs_ivf_pq_f32',
                     'column'='embedding', 'metric'='l2', 'use_index'='${useIndex}',
-                    'nprobes'='4', 'refine_factor'='10'"""
+                    'nprobes'='4', 'refine_factor'='10', 'prefilter'='true'"""
                 def statement = prepareStatement("""SELECT row_id, _distance
                     FROM vector_search(${fixedProperties}, "query_vector"=?, "top_k"=?, "offset"=?, "filter"=?)
                     WHERE row_id > ? ORDER BY _distance, row_id""")

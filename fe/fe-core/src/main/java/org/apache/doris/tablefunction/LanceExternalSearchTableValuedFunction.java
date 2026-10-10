@@ -71,6 +71,7 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
     protected static final String TOP_K = "top_k";
     protected static final String OFFSET = "offset";
     protected static final String FILTER = "filter";
+    protected static final String PREFILTER = "prefilter";
     protected static final String VERSION = "version";
     protected static final String TIMESTAMP = "timestamp";
     protected static final String TAG = "tag";
@@ -206,6 +207,10 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
                     .setFormat(TSearchFilterFormat.SQL)
                     .setPayload(validateAndEncodeSqlFilter(common.params.get(FILTER))));
         }
+        // Keep the search-filter timing common to vector and full-text TVFs. Omission defaults
+        // to postfilter for both kinds of search.
+        searchRequest.setPrefilter(common.params.containsKey(PREFILTER)
+                && parseBoolean(common.params.get(PREFILTER), PREFILTER));
         List<Column> columns = buildOutputColumns(
                 common.metadata, resultColumn, searchDescription);
         return new PreparedSearch(common, fieldId, searchRequest, columns);
@@ -413,6 +418,17 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
         } catch (NumberFormatException e) {
             throw new AnalysisException("'" + property + "' must be an integer", e);
         }
+    }
+
+    protected static boolean parseBoolean(String value, String property)
+            throws AnalysisException {
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return false;
+        }
+        throw new AnalysisException("'" + property + "' must be 'true' or 'false'");
     }
 
     protected static final class CommonSearch {

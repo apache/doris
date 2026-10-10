@@ -887,6 +887,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                     filter.__set_format(TSearchFilterFormat::SQL);
                     filter.__set_payload("row_id >= 2");
                     request.__set_search_filter(filter);
+                    request.__set_prefilter(true);
                     search.__set_offset(1);
                     search.__set_top_k(2);
                 }
@@ -944,18 +945,24 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                     }
                     // Read metrics after close: lance-c publishes its final execution summary
                     // when the stream is released, including for an early top-k stop.
-                    for (const char* name : {"LancePrefilterLoads", "LancePrefilterInputRows",
-                                             "LancePrefilterInputBatches", "LancePrefilterRowIds",
-                                             "LancePrefilterLoadTime", "LancePrefilterInputTime",
-                                             "LancePrefilterBuildTime"}) {
+                    for (const char* name : {"RowIdPrefilterLoads", "RowIdPrefilterInputRows",
+                                             "RowIdPrefilterInputBatches", "RowIdPrefilterIds",
+                                             "RowIdPrefilterLoadTime", "RowIdPrefilterInputTime",
+                                             "RowIdPrefilterBuildTime"}) {
                         auto* counter = profile.get_counter(name);
-                        ASSERT_NE(nullptr, counter) << name;
                         if (filtered) {
+                            ASSERT_NE(nullptr, counter) << name;
                             EXPECT_GT(counter->value(), 0) << name;
-                        } else {
+                        } else if (counter != nullptr) {
                             EXPECT_EQ(counter->value(), 0) << name;
                         }
                     }
+                } else {
+                    // Flat splits still expose the same metric tree so FE aggregation can merge
+                    // later indexed splits even when this task reports no vector-index metrics.
+                    auto* counter = profile.get_counter("LanceIndexPartitionLoadTime");
+                    ASSERT_NE(nullptr, counter);
+                    EXPECT_EQ(0, counter->value());
                 }
             }
         }
@@ -1047,6 +1054,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorSegmentTopKMatchesIndependentG
                         filter.__set_format(TSearchFilterFormat::SQL);
                         filter.__set_payload("row_id % 5 = 0");
                         request.__set_search_filter(filter);
+                        request.__set_prefilter(true);
                     }
                     auto range =
                             make_lance_range(uri, fixture.version, {fixture.fragment_ids[split]});
@@ -1129,7 +1137,7 @@ TEST(LanceTableReaderVectorSearchTest, SplitWithoutIndexSegmentsSearchesFlat) {
         results[mode] = read_vector_search_rows(&reader, &block);
         ASSERT_EQ(5, results[mode].size());
         EXPECT_TRUE(reader.close().ok());
-        auto* partitions = profile.get_counter("LanceIVFPartitionsSearched");
+        auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
         ASSERT_NE(nullptr, partitions);
         auto* flat = profile.get_counter("LancePlannedFlatSearchFragmentCount");
         ASSERT_NE(nullptr, flat);
@@ -1450,7 +1458,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
             EXPECT_NEAR(indexed ? 2.0F - std::sqrt(2.0F) : 1e-8F, rows[0].second,
                         indexed ? 1e-6F : 1e-13F);
             EXPECT_TRUE(reader.close().ok());
-            EXPECT_EQ(indexed, profile.get_counter("LanceIVFPartitionsSearched")->value() > 0);
+            auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+            ASSERT_NE(nullptr, partitions);
+            EXPECT_EQ(indexed, partitions->value() > 0);
         }
     }
 }
@@ -1501,7 +1511,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
                                : std::vector<std::pair<int64_t, float>> {{2, 1}, {3, 1}};
             EXPECT_EQ(expected, rows);
             EXPECT_TRUE(reader.close().ok());
-            EXPECT_EQ(indexed, profile.get_counter("LanceIVFPartitionsSearched")->value() > 0);
+            auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+            ASSERT_NE(nullptr, partitions);
+            EXPECT_EQ(indexed, partitions->value() > 0);
         }
     }
 }
@@ -1541,7 +1553,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcros
         auto rows = read_vector_search_rows(&reader, &block);
         all_rows.insert(all_rows.end(), rows.begin(), rows.end());
         EXPECT_TRUE(reader.close().ok());
-        EXPECT_EQ(0, profile.get_counter("LanceIVFPartitionsSearched")->value());
+        auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+        ASSERT_NE(nullptr, partitions);
+        EXPECT_EQ(0, partitions->value());
     }
     std::sort(all_rows.begin(), all_rows.end());
     EXPECT_EQ((std::vector<std::pair<int64_t, float>> {{1, 0}, {2, 1}, {3, 4}, {6, 1}}), all_rows);
@@ -1832,7 +1846,7 @@ TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistanc
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopK) {
+TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopKWhenPrefilterEnabled) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
@@ -1849,6 +1863,7 @@ TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopK) {
     state.set_query_options(query_options);
     RuntimeProfile profile("lance_vector_search_prefilter_fixture");
     auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 1, 0, "row_id >= 3");
+    scan_params.lance_scan_params.external_search_request.__set_prefilter(true);
 
     LanceTableReader reader;
     ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
@@ -1861,6 +1876,46 @@ TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopK) {
     EXPECT_EQ(4, rows[0].first);
     EXPECT_FLOAT_EQ(8.25F, rows[0].second);
     EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderVectorSearchTest, SearchFilterDefaultsToPostfilter) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_distance", TYPE_FLOAT, true),
+    };
+    TQueryOptions query_options;
+    query_options.__set_batch_size(2);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_vector_search_postfilter_default_fixture");
+    auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 1, 0, "row_id >= 3");
+    const auto& request = scan_params.lance_scan_params.external_search_request;
+    ASSERT_FALSE(request.__isset.prefilter);
+
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    const auto rows = read_vector_search_rows(&reader, &block);
+    EXPECT_TRUE(rows.empty());
+    EXPECT_TRUE(reader.close().ok());
+
+    for (const char* name :
+         {"RowIdPrefilterLoads", "RowIdPrefilterInputRows", "RowIdPrefilterInputBatches",
+          "RowIdPrefilterIds", "RowIdPrefilterLoadTime", "RowIdPrefilterInputTime",
+          "RowIdPrefilterBuildTime"}) {
+        auto* counter = profile.get_counter(name);
+        ASSERT_NE(nullptr, counter) << name;
+        EXPECT_EQ(0, counter->value()) << name;
+    }
 }
 
 TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
