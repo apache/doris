@@ -99,6 +99,13 @@ suite('test_manager_interface_3',"p0") {
             def validCluster = clusters[0][0]
             sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user1}""";
             sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user2}""";
+
+            // Database CREATE privilege also needs access to the default vault in cloud mode.
+            def defaultVaultNames = (sql "SHOW STORAGE VAULTS").findAll {
+                it[3].toString().equalsIgnoreCase("true")
+            }.collect { it[0] }
+            assertEquals(1, defaultVaultNames.size())
+            sql """GRANT USAGE_PRIV ON STORAGE VAULT '${defaultVaultNames[0]}' TO ROLE '${role1}'"""
         }
 
         connectToDoris(user1, "${pwd}", url) {
