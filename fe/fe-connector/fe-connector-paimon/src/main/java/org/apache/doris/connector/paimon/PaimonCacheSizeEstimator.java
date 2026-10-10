@@ -82,11 +82,12 @@ final class PaimonCacheSizeEstimator {
     private static final long STORE_GROWTH_PARTIAL_UPDATE_FIELD_BYTES = 256L;
     // A table can own its FileIO: a REST catalog gives each table a RESTTokenFileIO (holding the vended token it
     // fetches on first data access, an STS key id, secret and security token of about 2 KB) or a ResolvingFileIO,
-    // and a Hive catalog resolves a FileIO for each table location. Their tokens and backend maps appear only after
-    // admission, and Paimon offers no IO-free way to read that state or to tell an owned FileIO from one the
-    // catalog shares. Every table is therefore charged a fixed 16 KB for its FileIO, several times any STS token
-    // seen so far; a token refresh replaces the token rather than adding to it. Charging a catalog-shared FileIO
-    // to each table only makes the estimate conservative.
+    // and an external table of any kind (format, object, Lance and Iceberg tables included) always a
+    // ResolvingFileIO; a Hive catalog resolves a FileIO for each table location. Their tokens and backend maps
+    // appear only after admission, and Paimon offers no IO-free way to read that state or to tell an owned FileIO
+    // from one the catalog shares. Every table, whatever its kind, is therefore charged a fixed 16 KB for its
+    // FileIO, several times any STS token seen so far; a token refresh replaces the token rather than adding to
+    // it. Charging a catalog-shared FileIO to each table only makes the estimate conservative.
     private static final long FILE_IO_BYTES = 16L * 1024L;
 
     private PaimonCacheSizeEstimator() {
@@ -113,6 +114,7 @@ final class PaimonCacheSizeEstimator {
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.options()));
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.comment()));
             bytes = add(bytes, JvmSizeUtils.stringSize(location(table)));
+            bytes = add(bytes, estimateFileIO(table.fileIO()));
         }
         return MetaCacheSizeEstimate.complete(bytes);
     }
