@@ -3343,8 +3343,9 @@ public class Config extends ConfigBase {
             + "whether to enable the active tablet priority scheduling strategy. " + "Default is true.")
     public static boolean enable_cloud_active_tablet_priority_scheduling = true;
 
-    @ConfField(masterOnly = true, description = "Whether to enable active tablet sliding window access statistics "
-            + "feature. Default is true.")
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether to enable active tablet sliding window access statistics "
+                    + "feature. Default is true.")
     public static boolean enable_active_tablet_sliding_window_access_stats = true;
 
     @ConfField(mutable = true, masterOnly = true, description = "Time window size in seconds for active tablet "
@@ -3355,7 +3356,10 @@ public class Config extends ConfigBase {
             + "partition-level scheduling processes TopN active "
             + "partitions first, then other active partitions, then "
             + "inactive partitions, and internal databases last. "
-            + "Default is 10000. <=0 disables TopN segmentation.")
+            + "Default is 10000. <=0 disables TopN segmentation. "
+            + "A BE reports at most report_active_tablet_max_num tablets per dimension, so a BE holding "
+            + "a concentrated hot set cannot fill this budget on its own unless that be config is >= this "
+            + "value; watch the BE bvar report.active_tablet_truncated before raising this one.")
     public static int cloud_active_partition_scheduling_topn = 10000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Refresh interval in seconds for the active-tablet "

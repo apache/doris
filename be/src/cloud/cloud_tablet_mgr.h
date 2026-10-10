@@ -32,6 +32,7 @@ namespace doris {
 
 class CloudTablet;
 class CloudStorageEngine;
+class ActiveTabletCollector;
 class LRUCachePolicy;
 class CountDownLatch;
 struct SyncRowsetStats;
@@ -96,7 +97,8 @@ public:
      * @param tablet_num tablets in be tabletMgr, total num
      */
     void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
-                                       uint64_t* tablet_num);
+                                       uint64_t* tablet_num,
+                                       ActiveTabletCollector* active = nullptr);
 
     void get_tablet_info(int64_t num_tablets, std::vector<TabletInfo>* tablets_info);
 
