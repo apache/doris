@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.StructField;
@@ -27,9 +28,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeNode;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTypeNodeType;
 
@@ -121,6 +124,40 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
+    public void testCsvSchemaIncludesPathPartitionColumns() throws AnalysisException {
+        ExternalFileTableValuedFunction tvf = new TestExternalFileTableValuedFunction();
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_CSV);
+        properties.put(FileFormatConstants.PROP_CSV_SCHEMA, "id:int;name:string");
+        properties.put(FileFormatConstants.PROP_PATH_PARTITION_KEYS, "pt,region");
+
+        tvf.parseCommonProperties(properties);
+
+        List<Column> columns = tvf.getTableColumns();
+        Assertions.assertEquals(4, columns.size());
+        Assertions.assertEquals("id", columns.get(0).getName());
+        Assertions.assertEquals("name", columns.get(1).getName());
+        Assertions.assertEquals("pt", columns.get(2).getName());
+        Assertions.assertEquals("region", columns.get(3).getName());
+    }
+
+    @Test
+    public void testCsvSchemaRejectsConflictingPathPartitionColumn() throws AnalysisException {
+        ExternalFileTableValuedFunction tvf = new TestExternalFileTableValuedFunction();
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_CSV);
+        properties.put(FileFormatConstants.PROP_CSV_SCHEMA, "id:int;name:string");
+        properties.put(FileFormatConstants.PROP_PATH_PARTITION_KEYS, "ID");
+
+        tvf.parseCommonProperties(properties);
+
+        NotSupportedException exception = Assertions.assertThrows(
+                NotSupportedException.class, tvf::getTableColumns);
+        Assertions.assertTrue(exception.getMessage()
+                .contains("Path partition column conflicts with an existing column: ID"));
+    }
+
+    @Test
     public void testCsvSchemaParse() {
         Config.enable_date_conversion = true;
         Map<String, String> properties = Maps.newHashMap();
@@ -201,6 +238,28 @@ public class ExternalFileTableValuedFunctionTest {
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assertions.fail();
+        }
+    }
+
+    private static class TestExternalFileTableValuedFunction extends ExternalFileTableValuedFunction {
+        @Override
+        public TFileType getTFileType() {
+            return TFileType.FILE_LOCAL;
+        }
+
+        @Override
+        public String getFilePath() {
+            return "";
+        }
+
+        @Override
+        public BrokerDesc getBrokerDesc() {
+            return null;
+        }
+
+        @Override
+        public String getTableName() {
+            return "test_external_file_tvf";
         }
     }
 }
