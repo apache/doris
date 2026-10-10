@@ -75,6 +75,7 @@ public class FederationBackendPolicy {
     private static final long FIXED_SHUFFLE_SEED = 123456789L;
 
     protected final List<Backend> backends = Lists.newArrayList();
+    private final Map<String, List<Backend>> backendMap = Maps.newHashMap();
 
     public Map<Backend, Long> getAssignedWeightPerBackend() {
         return assignedWeightPerBackend;
@@ -190,6 +191,8 @@ public class FederationBackendPolicy {
                 throw new UserException("No available backends for compute group: " + computeGroup.toString());
             }
         }
+        backendMap.clear();
+        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
         for (Backend backend : backends) {
             assignedWeightPerBackend.put(backend, 0L);
         }
@@ -220,11 +223,9 @@ public class FederationBackendPolicy {
                 "ordered backends must be a non-empty subset of the initialized candidates");
         backends.clear();
         backends.addAll(orderedBackends);
+        backendMap.clear();
+        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
         nextBe = 0;
-    }
-
-    private Map<String, List<Backend>> activeBackendMap() {
-        return backends.stream().collect(Collectors.groupingBy(Backend::getHost));
     }
 
     @VisibleForTesting
@@ -245,8 +246,6 @@ public class FederationBackendPolicy {
 
         Collections.shuffle(splits, new Random(FIXED_SHUFFLE_SEED));
         List<Split> remainingSplits;
-        Map<String, List<Backend>> activeBackendMap = activeBackendMap();
-
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
@@ -255,7 +254,7 @@ public class FederationBackendPolicy {
             remainingSplits = new ArrayList<>(splits.size());
             for (Split split : splits) {
                 if (split.isRemotelyAccessible() && (split.getHosts() != null && split.getHosts().length > 0)) {
-                    List<Backend> candidateNodes = selectExactNodes(activeBackendMap, split.getHosts());
+                    List<Backend> candidateNodes = selectExactNodes(backendMap, split.getHosts());
 
                     Optional<Backend> chosenNode = candidateNodes.stream()
                             .min(Comparator.comparingLong(ownerNode -> assignedWeightPerBackend.get(ownerNode)));
@@ -277,7 +276,7 @@ public class FederationBackendPolicy {
         for (Split split : remainingSplits) {
             List<Backend> candidateNodes;
             if (!split.isRemotelyAccessible()) {
-                candidateNodes = selectExactNodes(activeBackendMap, split.getHosts());
+                candidateNodes = selectExactNodes(backendMap, split.getHosts());
             } else {
                 switch (nodeSelectionStrategy) {
                     case ROUND_ROBIN: {
