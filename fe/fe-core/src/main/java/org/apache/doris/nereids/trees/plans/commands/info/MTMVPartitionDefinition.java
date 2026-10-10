@@ -132,6 +132,9 @@ public class MTMVPartitionDefinition {
                         .map(Pair::value)
                         .collect(Collectors.toList());
                 mtmvPartitionInfo.setExpr(new FunctionCallExpr(dateTrunc.getName(), params, false));
+                if (mtmvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
+                    mtmvPartitionInfo.setUserSpecifiedExpr(false);
+                }
                 mtmvPartitionInfo.setPartitionType(MTMVPartitionType.EXPR);
                 this.partitionType = MTMVPartitionType.EXPR;
             }
