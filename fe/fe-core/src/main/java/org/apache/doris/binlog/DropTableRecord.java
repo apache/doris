@@ -59,6 +59,10 @@ public class DropTableRecord {
         return tableId;
     }
 
+    public String getTableName() {
+        return tableName;
+    }
+
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
     }

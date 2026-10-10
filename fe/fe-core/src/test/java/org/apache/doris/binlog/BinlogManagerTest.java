@@ -22,10 +22,12 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -259,6 +261,32 @@ public class BinlogManagerTest {
         pair = manager.getBinlog(dbBaseId, tableBaseId, 999);
         Assertions.assertEquals(TStatusCode.BINLOG_TOO_NEW_COMMIT_SEQ, pair.first.getStatusCode());
         Assertions.assertNull(pair.second);
+    }
+
+    @Test
+    public void testDropTemporaryTableNotInBinlog() {
+        enableDbBinlog = true;
+        BinlogManager manager = new BinlogManager();
+
+        long tableId = dbBaseId + tableBaseId;
+        long tempTableId = dbBaseId + tableBaseId * 2;
+        String tempTableName = "session" + FeNameFormat.TEMPORARY_TABLE_SIGN + "tmp_tbl";
+        manager.addDropTableRecord(new DropTableRecord(1L,
+                new DropInfo(dbBaseId, tableId, "tbl", false, false, 0L)));
+        manager.addDropTableRecord(new DropTableRecord(2L,
+                new DropInfo(dbBaseId, tempTableId, tempTableName, false, false, 0L)));
+
+        // only the drop of the ordinary table enters the db binlog and the dropped-table records
+        Pair<TStatus, TBinlog> pair = manager.getBinlog(dbBaseId, -1, 0L);
+        Assertions.assertEquals(TStatusCode.OK, pair.first.getStatusCode());
+        Assertions.assertEquals(TBinlogType.DROP_TABLE, pair.second.getType());
+        Assertions.assertEquals(1L, pair.second.getCommitSeq());
+        pair = manager.getBinlog(dbBaseId, -1, 1L);
+        Assertions.assertEquals(TStatusCode.BINLOG_TOO_NEW_COMMIT_SEQ, pair.first.getStatusCode());
+
+        List<Pair<Long, Long>> droppedTables = manager.getDroppedTables(dbBaseId);
+        Assertions.assertEquals(1, droppedTables.size());
+        Assertions.assertEquals(tableId, droppedTables.get(0).first);
     }
 
     @Test
