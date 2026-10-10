@@ -15,6 +15,5 @@
     <mapping directory="$PROJECT_DIR$/../contrib/apache-orc" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../contrib/clucene" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../contrib/faiss" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/../contrib/openblas" vcs="Git" />
   </component>
 </project>

@@ -17,9 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <DataSketches/hll.hpp>
 #include <algorithm>
 #include <cmath>
-#include <hll.hpp>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
