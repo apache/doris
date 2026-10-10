@@ -32,9 +32,13 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 class AbstractJobProcessorTest {
     @Test
@@ -66,6 +70,33 @@ class AbstractJobProcessorTest {
     }
 
     @Test
+    void publishesReportDiagnosticsBeforeFailedStatusAndFinalReport() {
+        long backendId = 9;
+        int fragmentId = 7;
+        String trackingUrl = "http://127.0.0.1/error-log";
+        List<String> events = new ArrayList<>();
+        CoordinatorContext coordinatorContext = Mockito.mock(CoordinatorContext.class);
+        TestJobProcessor processor = new TestJobProcessor(coordinatorContext);
+        processor.setReportEventRecorder(events::add);
+        processor.setBackendFragmentTask(backendId, fragmentId, Mockito.mock(SingleFragmentPipelineTask.class));
+        Mockito.when(coordinatorContext.updateStatusIfOk(Mockito.any(Status.class))).thenAnswer(invocation -> {
+            events.add("cancel");
+            return Status.OK;
+        });
+
+        TReportExecStatusParams params = new TReportExecStatusParams()
+                .setBackendId(backendId)
+                .setFragmentId(fragmentId)
+                .setDone(true)
+                .setStatus(new TStatus(TStatusCode.DATA_QUALITY_ERROR))
+                .setTrackingUrl(trackingUrl);
+
+        processor.updateFragmentExecStatus(params);
+
+        Assertions.assertEquals(Arrays.asList("publish:" + trackingUrl, "cancel", "final"), events);
+    }
+
+    @Test
     void opaqueConnectorDataRequiresARegisteredFragmentHandler() {
         TestJobProcessor processor = new TestJobProcessor(Mockito.mock(CoordinatorContext.class));
         processor.setBackendFragmentTasks(Collections.emptyMap());
@@ -88,6 +119,8 @@ class AbstractJobProcessorTest {
     }
 
     private static class TestJobProcessor extends AbstractJobProcessor {
+        private Consumer<String> reportEventRecorder = ignored -> {};
+
         TestJobProcessor(CoordinatorContext coordinatorContext) {
             super(coordinatorContext);
         }
@@ -96,13 +129,29 @@ class AbstractJobProcessorTest {
             this.executionTask = Optional.of(executionTask);
         }
 
+        void setBackendFragmentTask(long backendId, int fragmentId, SingleFragmentPipelineTask fragmentTask) {
+            this.backendFragmentTasks = Optional.of(Collections.singletonMap(
+                    new BackendFragmentId(backendId, fragmentId), fragmentTask));
+        }
+
+        void setReportEventRecorder(Consumer<String> reportEventRecorder) {
+            this.reportEventRecorder = reportEventRecorder;
+        }
+
+        @Override
+        protected void publishReportDiagnosticsBeforeStatus(TReportExecStatusParams params) {
+            reportEventRecorder.accept("publish:" + params.getTrackingUrl());
+        }
+
         void setBackendFragmentTasks(Map<BackendFragmentId, SingleFragmentPipelineTask> tasks) {
             this.backendFragmentTasks = Optional.of(tasks);
         }
 
         @Override
         protected void doProcessReportExecStatus(
-                TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {}
+                TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
+            reportEventRecorder.accept("final");
+        }
 
         @Override
         public void cancel(Status cancelReason) {}
