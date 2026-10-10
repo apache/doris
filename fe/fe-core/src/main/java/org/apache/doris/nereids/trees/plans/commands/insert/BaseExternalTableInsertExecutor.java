@@ -122,6 +122,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
                 transactionManager.commit(txnId);
             }
             txnStatus = TransactionStatus.COMMITTED;
+            markCommitted();
             long t2 = System.currentTimeMillis();
 
             try {
