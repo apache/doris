@@ -17,70 +17,82 @@
 
 #pragma once
 
-#include "storage/index/index_query_context.h"
-#include "storage/index/inverted/query_v2/nullable_scorer.h"
-#include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
+#include <cstdint>
+#include <optional>
+#include <roaring/roaring.hh>
+#include <string>
+#include <vector>
+
+#include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/weight.h"
-#include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/query/boolean/truth_set.h"
+#include "storage/index/query/phrase/phrase_verifier.h"
+#include "storage/index/query/spi/index_source.h"
+#include "storage/index/query/spi/scoring_context.h"
+#include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-constexpr uint32_t LOADED_POSTINGS_DOC_FREQ_THRESHOLD = 100;
+// The terms a phrase clause at `offset` matches: `terms`, or with `expand` the first
+// `max_expansions` terms (every one when not positive) that its one text matches as that
+// pattern, in dictionary order.
+struct PhraseSlot {
+    uint32_t offset = 0;
+    std::vector<std::string> terms;
+    std::optional<index_query::TermPatternKind> expand = std::nullopt;
+    int32_t max_expansions = 0;
+};
 
-class PhraseWeight : public Weight {
+// Executes phrases whose clauses each accept one term from a slot.
+// Forward sources verify one document at a time; batched sources verify candidate rows after grouped reads.
+class SlotPhraseWeight : public Weight {
 public:
-    PhraseWeight(IndexQueryContextPtr context, std::wstring field, std::vector<TermInfo> term_infos,
-                 SimilarityPtr similarity, bool enable_scoring, bool nullable)
-            : _context(std::move(context)),
-              _field(std::move(field)),
-              _term_infos(std::move(term_infos)),
-              _similarity(std::move(similarity)),
-              _enable_scoring(enable_scoring),
-              _nullable(nullable) {}
-    ~PhraseWeight() override = default;
+    ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override;
+    bool lists_rows(const QueryExecutionContext& ctx,
+                    const std::string& binding_key) const override;
+    index_query::TruthSet listed_rows(const QueryExecutionContext& ctx,
+                                      const std::string& binding_key,
+                                      const roaring::Roaring* candidates) override;
 
-    ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
-        auto scorer = phrase_scorer(ctx, binding_key);
-        if (_nullable) {
-            auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
-            return make_nullable_scorer(scorer, logical_field, ctx.null_resolver);
-        }
-        return scorer;
-    }
+protected:
+    SlotPhraseWeight(std::wstring field, index_query::PhraseQueryOptions options,
+                     index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
+                     bool nullable);
 
-private:
-    ScorerPtr phrase_scorer(const QueryExecutionContext& ctx, const std::string& binding_key) {
-        auto reader = lookup_reader(_field, ctx, binding_key);
-        if (!reader) {
-            throw Exception(ErrorCode::NOT_FOUND, "Reader not found for field '{}'",
-                            StringHelper::to_string(_field));
-        }
-
-        std::vector<std::pair<size_t, SegmentPostingsPtr>> term_postings_list;
-        for (const auto& term_info : _term_infos) {
-            size_t offset = term_info.position;
-            auto posting =
-                    create_position_posting(reader.get(), _field, term_info.get_single_term(),
-                                            _enable_scoring, _similarity, _context->io_ctx);
-            if (posting) {
-                term_postings_list.emplace_back(offset, std::move(posting));
-            } else {
-                return std::make_shared<EmptyScorer>();
-            }
-        }
-        uint32_t num_docs = ctx.segment_num_rows;
-        return PhraseScorer<SegmentPostingsPtr>::create(term_postings_list, _similarity, 0,
-                                                        num_docs);
-    }
-
-    IndexQueryContextPtr _context;
+    // The phrase's slots, in clause order.
+    virtual std::vector<PhraseSlot> _slots() const = 0;
+    // The phrase run one document at a time over the slots' postings.
+    virtual ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) = 0;
 
     std::wstring _field;
-    std::vector<TermInfo> _term_infos;
-    SimilarityPtr _similarity;
+    index_query::PhraseQueryOptions _options;
+    index_query::ScoringContextPtr<float> _similarity;
     bool _enable_scoring = false;
     bool _nullable = true;
+
+private:
+    index_query::IndexSourcePtr _source(const QueryExecutionContext& ctx,
+                                        const std::string& binding_key) const;
+    static bool _lists(const index_query::IndexSource& source) { return source.batches_reads(); }
+    void _list_matches(index_query::IndexSource& source, const roaring::Roaring* candidates,
+                       std::vector<uint32_t>* matched, std::vector<float>* frequencies);
+    ScorerPtr _listed_scorer(index_query::IndexSource& source, const roaring::Roaring* candidates);
+};
+
+// A phrase of single terms.
+class PhraseWeight final : public SlotPhraseWeight {
+public:
+    PhraseWeight(std::wstring field, std::vector<TermInfo> term_infos,
+                 index_query::PhraseQueryOptions options,
+                 index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
+                 bool nullable);
+
+private:
+    std::vector<PhraseSlot> _slots() const override;
+    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) override;
+
+    std::vector<TermInfo> _term_infos;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

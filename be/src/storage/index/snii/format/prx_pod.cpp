@@ -45,9 +45,8 @@ void PrxDecodeStats::merge(const PrxDecodeStats& other) {
     selected_docs += other.selected_docs;
     total_positions += other.total_positions;
     selected_positions += other.selected_positions;
-    fetch_ns += other.fetch_ns;
+    streaming_frames += other.streaming_frames;
     decode_ns += other.decode_ns;
-    phrase_verify_ns += other.phrase_verify_ns;
 }
 
 Status validate_prx_window_limits(const PrxWindowLimits& limits) {
@@ -1148,9 +1147,7 @@ Status read_prx_window_csr_impl(ByteSource* source, std::span<const uint32_t> do
                                      context == nullptr ? nullptr : context->shape,
                                      context == nullptr ? nullptr : context->allocation_gate));
     if (collect_stats) {
-        // Stop inclusive decode timing before the logical-selection scan. Phrase
-        // execution wraps this call in PhraseVerifyTimer, so that scan remains
-        // part of verification rather than format decode.
+        // Exclude the logical-selection scan from decode timing.
         frame_stats.decode_ns = elapsed_ns(decode_start);
         if (decode_all_docs && !all_docs_selected) {
             uint64_t selected_positions = 0;

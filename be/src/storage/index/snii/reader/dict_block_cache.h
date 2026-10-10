@@ -45,6 +45,7 @@
 // LogicalIndexReader therefore stays const and lock-free -- no lock is ever held
 // across a decode/IO. (The cross-query, lock-striped variant that would let
 // queries share decoded blocks is deferred to the T26 concurrency work.)
+
 namespace doris::snii::reader {
 
 // A decoded DICT block with stable backing storage. Heap-allocated and owned by
@@ -52,6 +53,10 @@ namespace doris::snii::reader {
 // for the whole lifetime of any pin handed to a caller -- even after the block
 // has been evicted from the cache.
 struct DecodedDictBlock {
+    DecodedDictBlock() = default;
+    DecodedDictBlock(const DecodedDictBlock&) = delete;
+    DecodedDictBlock& operator=(const DecodedDictBlock&) = delete;
+
     std::vector<uint8_t> bytes;     // decompressed (or raw) block bytes
     format::DictBlockReader reader; // its Slice points into `bytes`
 };
@@ -81,7 +86,6 @@ public:
             *out = it->second->block;
             return Status::OK();
         }
-
         std::shared_ptr<const DecodedDictBlock> loaded;
         // decode happens here, never under a lock (explicit Status, header-safe:
         // RETURN_IF_ERROR would need a bare `Status` in scope).

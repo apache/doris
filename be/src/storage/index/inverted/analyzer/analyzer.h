@@ -18,12 +18,14 @@
 #pragma once
 
 #include <memory>
+#include <string_view>
 #include <vector>
 
+#include "common/status.h"
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
-#include "storage/index/inverted/query/query.h"
+#include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/util/reader.h"
 #include "storage/olap_common.h"
 
@@ -58,7 +60,19 @@ public:
                                                     lucene::analysis::Analyzer* analyzer);
 
     static std::vector<TermInfo> get_analyse_result(
-            const std::string& search_str, const std::map<std::string, std::string>& properties);
+            std::string_view search_str, const std::map<std::string, std::string>& properties);
+
+    // Tokenizes a query value: with the analyzer of `ctx` when it has one, as one untouched term
+    // when `ctx` does not analyze, and otherwise as the index `properties` describe.
+    static Status analyze(std::string_view value, const InvertedIndexAnalyzerCtx* ctx,
+                          const std::map<std::string, std::string>& properties,
+                          std::vector<TermInfo>* out);
+
+    // Normalizes a prefix or a wildcard pattern the way the index normalizes its terms, without
+    // splitting it: lowercase for a builtin analyzer unless lower_case is false, or the
+    // per-character part of a custom analyzer or normalizer.
+    static std::string normalize(const std::string& value,
+                                 const std::map<std::string, std::string>& properties);
 
     static bool should_analyzer(const std::map<std::string, std::string>& properties);
 };

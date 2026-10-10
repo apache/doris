@@ -17,31 +17,41 @@
 
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 
-#include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
+#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecutionContext& context,
                                    const std::string& binding_key,
                                    const std::shared_ptr<roaring::Roaring>& roaring,
-                                   const CollectionSimilarityPtr& similarity, bool enable_scoring) {
-    for_each_index_segment(context, binding_key,
-                           [&](const QueryExecutionContext& seg_ctx, uint32_t doc_base) {
-                               auto scorer = weight->scorer(seg_ctx, binding_key);
-                               if (!scorer) {
-                                   return;
-                               }
-
-                               uint32_t doc = scorer->doc();
-                               while (doc != TERMINATED) {
-                                   uint32_t global_doc = doc + doc_base;
-                                   roaring->add(global_doc);
-                                   if (enable_scoring && similarity) {
-                                       similarity->collect(global_doc, scorer->score());
-                                   }
-                                   doc = scorer->advance();
-                               }
-                           });
+                                   const CollectionSimilarityPtr& similarity, bool enable_scoring,
+                                   roaring::Roaring* null_rows) {
+    if (context.segment_num_rows == 0) {
+        return;
+    }
+    if (!enable_scoring && weight->lists_rows(context, binding_key)) {
+        auto rows = weight->listed_rows(context, binding_key, nullptr);
+        *roaring |= rows.true_rows;
+        if (null_rows != nullptr) {
+            *null_rows |= rows.null_rows;
+        }
+        return;
+    }
+    auto scorer = weight->scorer(context, binding_key);
+    if (!scorer) {
+        return;
+    }
+    if (null_rows != nullptr && scorer->has_null_bitmap(context.null_resolver)) {
+        const auto* nulls = scorer->get_null_bitmap(context.null_resolver);
+        if (nulls != nullptr) {
+            *null_rows |= *nulls;
+        }
+    }
+    if (enable_scoring && similarity != nullptr) {
+        *roaring |= collect_scored_rows(scorer, 0, *similarity);
+    } else {
+        collect_true_rows(scorer, roaring.get());
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

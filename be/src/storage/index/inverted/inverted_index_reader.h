@@ -19,8 +19,10 @@
 
 #include <CLucene/util/bkd/bkd_reader.h>
 
+#include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -36,6 +38,7 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/query/query_info.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 
@@ -49,6 +52,11 @@
         FINALIZE_INPUT(x)         \
     } catch (...) {               \
     }
+
+namespace doris::index_query {
+class IndexSource;
+using IndexSourcePtr = std::shared_ptr<IndexSource>;
+} // namespace doris::index_query
 
 namespace lucene {
 namespace store {
@@ -68,6 +76,9 @@ namespace doris {
 class KeyCoder;
 struct OlapReaderStatistics;
 class RuntimeState;
+namespace index_query::logical {
+struct Node;
+} // namespace index_query::logical
 
 namespace segment_v2 {
 
@@ -76,6 +87,9 @@ class InvertedIndexQueryCacheHandle;
 class IndexFileReader;
 class InvertedIndexQueryInfo;
 class IndexIterator;
+namespace inverted_index::query_v2 {
+class Query;
+} // namespace inverted_index::query_v2
 
 class InvertedIndexResultBitmap {
 private:
@@ -243,12 +257,43 @@ private:
     }
 };
 
+struct OpenedIndex;
+
 class InvertedIndexReader : public IndexReader {
 public:
+    // `rows_of_segment` and `column_is_array` describe the segment and the column rather than the
+    // index image: the count-only fast path fabricates row ids, so it needs a bound a corrupt
+    // image cannot move and one fact about how the column was written. A reader created without
+    // them (0, false) never takes that path.
     explicit InvertedIndexReader(const TabletIndex* index_meta,
-                                 std::shared_ptr<IndexFileReader> index_file_reader)
-            : _index_file_reader(std::move(index_file_reader)), _index_meta(*index_meta) {}
+                                 std::shared_ptr<IndexFileReader> index_file_reader,
+                                 uint64_t rows_of_segment = 0, bool column_is_array = false)
+            : _index_file_reader(std::move(index_file_reader)),
+              _index_meta(*index_meta),
+              _rows_of_segment(rows_of_segment),
+              _column_is_array(column_is_array) {}
     virtual ~InvertedIndexReader() = default;
+
+#ifdef BE_TEST
+    using SingleFlightFollowerJoinedObserver = void (*)(void*) noexcept;
+    using SingleFlightLeaderBeforeComputeObserver = void (*)(void*) noexcept;
+    using SearcherOpenObserver = void (*)(void*) noexcept;
+
+    void set_single_flight_follower_joined_observer_for_test(
+            SingleFlightFollowerJoinedObserver observer, void* opaque) {
+        _single_flight_follower_joined_observer = observer;
+        _single_flight_follower_joined_opaque = opaque;
+    }
+    void set_single_flight_leader_before_compute_observer_for_test(
+            SingleFlightLeaderBeforeComputeObserver observer, void* opaque) {
+        _single_flight_leader_before_compute_observer = observer;
+        _single_flight_leader_before_compute_opaque = opaque;
+    }
+    void set_searcher_open_observer_for_test(SearcherOpenObserver observer, void* opaque) {
+        _searcher_open_observer = observer;
+        _searcher_open_opaque = opaque;
+    }
+#endif
 
     IndexType index_type() override { return IndexType::INVERTED; }
 
@@ -265,6 +310,26 @@ public:
     virtual Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                              const Field& query_value, InvertedIndexQueryType query_type,
                              size_t* count) = 0;
+
+    // Runs a leaf SEARCH lowered, whose terms are taken as they are. Readers that only accept raw
+    // values keep the default.
+    virtual Status query_leaf(
+            const IndexQueryContextPtr& /*context*/, const std::string& /*column_name*/,
+            const index_query::logical::Node& /*leaf*/,
+            std::shared_ptr<roaring::Roaring>& /*bit_map*/,
+            InvertedIndexQueryCacheHandle* /*null_bitmap_cache_handle*/ = nullptr) {
+        return Status::NotSupported("this index reader does not run lowered leaves");
+    }
+
+    // Opens the index for a query and binds `field` as the engine's source; `opened` keeps
+    // the index alive for as long as the source is read. Readers the engine does not read
+    // keep the default.
+    virtual Status open_source(const IndexQueryContextPtr& /*context*/,
+                               const std::wstring& /*field*/,
+                               std::unique_ptr<OpenedIndex>* /*opened*/,
+                               index_query::IndexSourcePtr* /*source*/) {
+        return Status::NotSupported("this index reader has no source for the query engine");
+    }
 
     virtual Status read_null_bitmap(const IndexQueryContextPtr& context,
                                     InvertedIndexQueryCacheHandle* cache_handle,
@@ -297,7 +362,8 @@ public:
                             InvertedIndexQueryCacheHandle* cache_handler, bool enabled = true);
 
     virtual Status handle_searcher_cache(const IndexQueryContextPtr& context,
-                                         InvertedIndexCacheHandle* inverted_index_cache_handle);
+                                         InvertedIndexCacheHandle* inverted_index_cache_handle,
+                                         const std::string& index_file_key = {});
     std::string get_index_file_path();
     static Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
                                         lucene::store::Directory* dir, IndexSearcherPtr* searcher,
@@ -306,65 +372,228 @@ public:
     const TabletIndex& get_index_meta() const { return _index_meta; }
 
 protected:
-    Status match_index_search(const IndexQueryContextPtr& context,
-                              InvertedIndexQueryType query_type,
-                              const InvertedIndexQueryInfo& query_info,
-                              const FulltextIndexSearcherPtr& index_searcher,
-                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
-
     friend class InvertedIndexIterator;
     std::shared_ptr<IndexFileReader> _index_file_reader;
     TabletIndex _index_meta;
     bool _has_null = true;
+    uint64_t _rows_of_segment = 0;
+    bool _column_is_array = false;
+#ifdef BE_TEST
+    SingleFlightFollowerJoinedObserver _single_flight_follower_joined_observer = nullptr;
+    void* _single_flight_follower_joined_opaque = nullptr;
+    SingleFlightLeaderBeforeComputeObserver _single_flight_leader_before_compute_observer = nullptr;
+    void* _single_flight_leader_before_compute_opaque = nullptr;
+    SearcherOpenObserver _searcher_open_observer = nullptr;
+    void* _searcher_open_opaque = nullptr;
+#endif
 };
 using InvertedIndexReaderPtr = std::shared_ptr<InvertedIndexReader>;
 
-class FullTextIndexReader : public InvertedIndexReader {
-    ENABLE_FACTORY_CREATOR(FullTextIndexReader);
+// An index opened for one query and kept open until it finishes: a CLucene searcher or an SNII
+// logical reader, held through its cache handle.
+struct OpenedIndex {
+    virtual ~OpenedIndex() = default;
+};
 
+// A raw query or a borrowed leaf already lowered by the caller.
+struct LeafRequest {
+    InvertedIndexQueryType query_type;
+    // Null for a raw query, which is lowered only after a cache miss.
+    const index_query::logical::Node* leaf = nullptr;
+    // The longest value the STRING_TYPE ignore_above limit applies to.
+    size_t longest_value_bytes = 0;
+    // The value messages quote, and the pattern a gram query compiles.
+    std::string_view text;
+    // The analyzer that cuts a MATCH value; null when the index's own does, and for a leaf.
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
+};
+
+// What a format decides about a request before the result cache is read.
+struct Admission {
+    // Whether the result may enter the result cache.
+    bool cacheable = true;
+    // Whether concurrent identical full-segment queries share one execution.
+    bool coalesce = false;
+    // Whether the request is planned before the index opens, so a value its analyzer rejects
+    // fails without reading the index. A format whose analysis depends on the opened segment
+    // plans after it.
+    bool plan_before_open = true;
+    // Rewrites a failure to open the index; the failure stands when unset.
+    std::function<Status(Status)> open_failed;
+    // Rejects an opened index that cannot answer the request exactly.
+    std::function<Status(OpenedIndex&)> check_open;
+};
+
+// Runs MATCH queries and SEARCH leaves through shared caching, candidate filtering, and execution.
+// Format-specific hooks provide index access and admission rules.
+class TextIndexReader : public InvertedIndexReader {
 public:
-    explicit FullTextIndexReader(const TabletIndex* index_meta,
-                                 const std::shared_ptr<IndexFileReader>& index_file_reader)
-            : InvertedIndexReader(index_meta, index_file_reader) {}
-    ~FullTextIndexReader() override = default;
+    using InvertedIndexReader::InvertedIndexReader;
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const Field& query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
-    Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const Field& query_value, InvertedIndexQueryType query_type,
-                     size_t* count) override {
+    Status query_with_null_bitmap(const IndexQueryContextPtr& context,
+                                  const std::string& column_name, const Field& query_value,
+                                  InvertedIndexQueryType query_type,
+                                  std::shared_ptr<roaring::Roaring>& bit_map,
+                                  InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
+                                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
+    Status query_leaf(const IndexQueryContextPtr& context, const std::string& column_name,
+                      const index_query::logical::Node& leaf,
+                      std::shared_ptr<roaring::Roaring>& bit_map,
+                      InvertedIndexQueryCacheHandle* null_bitmap_cache_handle = nullptr) override;
+    Status try_query(const IndexQueryContextPtr& /*context*/, const std::string& /*column_name*/,
+                     const Field& /*query_value*/, InvertedIndexQueryType /*query_type*/,
+                     size_t* /*count*/) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                "FullTextIndexReader not support try_query");
+                "a text index reader does not support try_query");
     }
+    Status open_source(const IndexQueryContextPtr& context, const std::wstring& field,
+                       std::unique_ptr<OpenedIndex>* opened,
+                       index_query::IndexSourcePtr* source) override;
 
-    InvertedIndexReaderType type() override;
+protected:
+    // Lowers a MATCH value and runs it, keyed by the raw value.
+    Status _query_raw(const IndexQueryContextPtr& context, const std::string& column_name,
+                      const std::string& value, InvertedIndexQueryType query_type,
+                      std::shared_ptr<roaring::Roaring>& bit_map,
+                      InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
+                      const InvertedIndexAnalyzerCtx* analyzer_ctx);
+    Status _execute(const IndexQueryContextPtr& context, const std::string& column_name,
+                    const LeafRequest& request, std::shared_ptr<roaring::Roaring>& bit_map,
+                    InvertedIndexQueryCacheHandle* null_bitmap_cache_handle);
+    // Answers `request` into `bit_map`; `index` keeps what it opened, and `count_shaped` tells
+    // a count-only answer from row ids.
+    Status _run_request(const IndexQueryContextPtr& context, const std::string& column_name,
+                        const LeafRequest& request, std::shared_ptr<roaring::Roaring>& bit_map,
+                        std::unique_ptr<OpenedIndex>* index, bool* count_shaped);
+    // Lowers the raw value of `request`, analyzed unless the index or the analyzer keeps it whole.
+    Status _lower(const IndexQueryContextPtr& context, const LeafRequest& request, bool keyword,
+                  index_query::logical::Node* out);
+    // Answers a COUNT_ON_INDEX scan of one exact term from its document frequency: `out` holds
+    // that many ids, off the NULL rows, and never enters the cache. Declines a reader without the
+    // segment's row count and an ARRAY column on a segment with NULL rows, whose postings may
+    // hold them.
+    Status _count_from_df(const IndexQueryContextPtr& context, const std::string& column_name,
+                          OpenedIndex& index, const std::string& term, bool* handled,
+                          std::shared_ptr<roaring::Roaring>* out);
+
+    // Opens the index through the searcher cache, reusing an already constructed index key.
+    virtual Status _open_index(const IndexQueryContextPtr& context,
+                               std::unique_ptr<OpenedIndex>* out,
+                               const std::string& index_file_key = {}) = 0;
+    // The engine's source for `field` over the open index.
+    virtual index_query::IndexSourcePtr _bind_source(const IndexQueryContextPtr& context,
+                                                     const std::wstring& field,
+                                                     OpenedIndex& index) = 0;
+    // The number of documents holding `term`, read from the dictionary, and the number of
+    // documents the index covers.
+    virtual Status _term_document_frequency(const std::string& column_name, OpenedIndex& index,
+                                            const std::string& term, uint64_t* df,
+                                            uint64_t* document_count) = 0;
+    // Runs `leaf` over the open index into `out`. With `candidates`, a phrase matches only those
+    // rows; with `scoring`, the BM25 values reach the context's collection similarity.
+    virtual Status _run_leaf(const IndexQueryContextPtr& context, const std::string& column_name,
+                             OpenedIndex& index, const index_query::logical::Node& leaf,
+                             const roaring::Roaring* candidates, bool scoring,
+                             std::shared_ptr<roaring::Roaring>* out) = 0;
+    // Reads the null bitmap through the query cache, from `index` when it is open.
+    virtual Status _read_null_bitmap(const IndexQueryContextPtr& context,
+                                     InvertedIndexQueryCacheHandle* cache_handle,
+                                     OpenedIndex* /*index*/) {
+        return read_null_bitmap(context, cache_handle);
+    }
+    // Decides, before the result cache is read, whether the index answers `request` and what
+    // `admission` holds for it. A text index answers no gram query unless its format does.
+    virtual Status _admit(const IndexQueryContextPtr& context, const std::string& column_name,
+                          const LeafRequest& request, Admission* admission);
+    // Runs the gram query of `request` (LIKE or REGEXP over the index's grams) into `out`.
+    virtual Status _run_gram(const IndexQueryContextPtr& context, OpenedIndex& index,
+                             const LeafRequest& request, std::shared_ptr<roaring::Roaring>* out);
 };
 
-class StringTypeInvertedIndexReader : public InvertedIndexReader {
+// The CLucene text readers: an analyzed (FULLTEXT) or untokenized (STRING_TYPE) index answers a
+// leaf over its searcher.
+class CluceneTextIndexReader : public TextIndexReader {
+public:
+    using TextIndexReader::TextIndexReader;
+
+protected:
+    Status _open_index(const IndexQueryContextPtr& context, std::unique_ptr<OpenedIndex>* out,
+                       const std::string& index_file_key = {}) override;
+    index_query::IndexSourcePtr _bind_source(const IndexQueryContextPtr& context,
+                                             const std::wstring& field,
+                                             OpenedIndex& index) override;
+    Status _term_document_frequency(const std::string& column_name, OpenedIndex& index,
+                                    const std::string& term, uint64_t* df,
+                                    uint64_t* document_count) override;
+    Status _run_leaf(const IndexQueryContextPtr& context, const std::string& column_name,
+                     OpenedIndex& index, const index_query::logical::Node& leaf,
+                     const roaring::Roaring* candidates, bool scoring,
+                     std::shared_ptr<roaring::Roaring>* out) override;
+};
+
+// The query_v2 query that runs a logical leaf on the bound source of `field`. With `candidates`,
+// a phrase only matches those rows.
+Status plan_query(const index_query::logical::Node& leaf, const IndexQueryContextPtr& context,
+                  const std::wstring& field, const std::string& binding_key,
+                  const roaring::Roaring* candidates,
+                  std::shared_ptr<inverted_index::query_v2::Query>* out);
+
+// Adds the leaf's matching rows and optional BM25 scores, restricting phrase matches to candidates.
+// Exceptions from the query engine propagate to the caller.
+Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
+                const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
+                bool scoring, index_query::IndexSourcePtr source, uint32_t doc_count,
+                const std::shared_ptr<roaring::Roaring>& result);
+
+// run_leaf on the CLucene field `field` of `searcher`, its errors reported as CLucene ones.
+Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
+                        const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
+                        bool scoring, const FulltextIndexSearcherPtr& searcher,
+                        const std::shared_ptr<roaring::Roaring>& result);
+
+class FullTextIndexReader : public CluceneTextIndexReader {
+    ENABLE_FACTORY_CREATOR(FullTextIndexReader);
+
+public:
+    explicit FullTextIndexReader(const TabletIndex* index_meta,
+                                 const std::shared_ptr<IndexFileReader>& index_file_reader,
+                                 uint64_t rows_of_segment = 0, bool column_is_array = false)
+            : CluceneTextIndexReader(index_meta, index_file_reader, rows_of_segment,
+                                     column_is_array) {}
+    ~FullTextIndexReader() override = default;
+
+    InvertedIndexReaderType type() override { return InvertedIndexReaderType::FULLTEXT; }
+};
+
+// Range queries use CLucene directly; other query types use the shared MATCH path.
+class StringTypeInvertedIndexReader : public CluceneTextIndexReader {
     ENABLE_FACTORY_CREATOR(StringTypeInvertedIndexReader);
 
 public:
     explicit StringTypeInvertedIndexReader(
             const TabletIndex* index_meta,
-            const std::shared_ptr<IndexFileReader>& index_file_reader)
-            : InvertedIndexReader(index_meta, index_file_reader) {}
+            const std::shared_ptr<IndexFileReader>& index_file_reader, uint64_t rows_of_segment = 0,
+            bool column_is_array = false)
+            : CluceneTextIndexReader(index_meta, index_file_reader, rows_of_segment,
+                                     column_is_array) {}
     ~StringTypeInvertedIndexReader() override = default;
 
-    Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
                  const Field& query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
-    Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const Field& query_value, InvertedIndexQueryType query_type,
-                     size_t* count) override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                "StringTypeInvertedIndexReader not support try_query");
-    }
-    InvertedIndexReaderType type() override;
+    Status query_with_null_bitmap(const IndexQueryContextPtr& context,
+                                  const std::string& column_name, const Field& query_value,
+                                  InvertedIndexQueryType query_type,
+                                  std::shared_ptr<roaring::Roaring>& bit_map,
+                                  InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
+                                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
+    InvertedIndexReaderType type() override { return InvertedIndexReaderType::STRING_TYPE; }
 };
 
 template <InvertedIndexQueryType QT>

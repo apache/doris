@@ -24,7 +24,8 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 template <typename ScorerPtrT>
 class ConstScoreScorer : public Scorer {
 public:
-    ConstScoreScorer(ScorerPtrT scorer) : _scorer(std::move(scorer)) {}
+    ConstScoreScorer(ScorerPtrT scorer, float score = 1.0F)
+            : _scorer(std::move(scorer)), _score(score) {}
     ~ConstScoreScorer() override = default;
 
     uint32_t advance() override { return _scorer->advance(); }
@@ -33,6 +34,8 @@ public:
     uint32_t size_hint() const override { return _scorer->size_hint(); }
 
     float score() override { return _score; }
+
+    const roaring::Roaring* get_true_bitmap() const override { return _scorer->get_true_bitmap(); }
 
     bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
         return _scorer && _scorer->has_null_bitmap(resolver);

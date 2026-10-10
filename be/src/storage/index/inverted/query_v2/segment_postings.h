@@ -18,17 +18,17 @@
 #pragma once
 
 #include <limits>
-#include <variant>
+#include <memory>
+#include <utility>
+#include <vector>
 
-#include "CLucene/index/DocRange.h"
-#include "storage/index/inverted/inverted_index_common.h"
+#include "common/exception.h"
 #include "storage/index/inverted/query_v2/doc_set.h"
-#include "storage/index/inverted/similarity/similarity.h"
+#include "storage/index/query/exec/block_doc_set.h"
+#include "storage/index/query/spi/postings_cursor.h"
+#include "storage/index/query/spi/scoring_context.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
-
-using doris::segment_v2::Similarity;
-using doris::segment_v2::SimilarityPtr;
 
 class Postings : public DocSet {
 public:
@@ -45,221 +45,81 @@ public:
 
 using PostingsPtr = std::shared_ptr<Postings>;
 
-class SegmentPostings : public Postings {
+// The postings of one term, read through the cursor its index format opened.
+class SegmentPostings final : public Postings {
 public:
-    using IterVariant = std::variant<std::monostate, TermDocsPtr, TermPositionsPtr>;
+    SegmentPostings(std::unique_ptr<index_query::PostingsCursor> cursor, bool enable_scoring,
+                    index_query::ScoringContextPtr<float> similarity)
+            : _similarity(std::move(similarity)),
+              _cursor(std::move(cursor)),
+              _docs(*_cursor),
+              _enable_scoring(enable_scoring) {}
 
-    explicit SegmentPostings(TermDocsPtr iter, bool enable_scoring, SimilarityPtr similarity)
-            : _iter(std::move(iter)),
-              _enable_scoring(enable_scoring),
-              _similarity(std::move(similarity)) {
-        if (auto* p = std::get_if<TermDocsPtr>(&_iter)) {
-            _raw_iter = p->get();
-        }
-        _init_doc();
-    }
-
-    explicit SegmentPostings(TermPositionsPtr iter, bool enable_scoring, SimilarityPtr similarity)
-            : _iter(std::move(iter)),
-              _enable_scoring(enable_scoring),
-              _has_positions(true),
-              _similarity(std::move(similarity)) {
-        if (auto* p = std::get_if<TermPositionsPtr>(&_iter)) {
-            _raw_iter = p->get();
-        }
-        _init_doc();
-    }
-
-    uint32_t advance() override {
-        if (_block.doc_many && _cursor < _block.doc_many_size_) {
-            return _doc = (*_block.doc_many)[_cursor++];
-        }
-        if (!_refill()) {
-            return _doc = TERMINATED;
-        }
-        return _doc = (*_block.doc_many)[_cursor++];
-    }
-
+    uint32_t advance() override { return _docs.advance() ? _docs.doc() : TERMINATED; }
     uint32_t seek(uint32_t target) override {
-        if (target <= _doc) {
-            return _doc;
-        }
-
-        if (_block.doc_many) {
-            while (_cursor < _block.doc_many_size_) {
-                uint32_t curr = (*_block.doc_many)[_cursor++];
-                if (curr >= target) {
-                    return _doc = curr;
-                }
-            }
-        }
-
-        _raw_iter->skipToBlock(target);
-
-        while (_refill()) {
-            while (_cursor < _block.doc_many_size_) {
-                uint32_t curr = (*_block.doc_many)[_cursor++];
-                if (curr >= target) {
-                    return _doc = curr;
-                }
-            }
-        }
-
-        return _doc = TERMINATED;
+        return _docs.seek(target) ? _docs.doc() : TERMINATED;
     }
-
-    uint32_t doc() const override { return _doc; }
-
-    uint32_t size_hint() const override { return _raw_iter ? _raw_iter->docFreq() : 0; }
-
-    uint32_t freq() const override {
-        if (!_enable_scoring || !_block.freq_many || _cursor == 0) {
-            return 1;
-        }
-        return (*_block.freq_many)[_cursor - 1];
-    }
-
-    uint32_t norm() const override {
-        if (!_enable_scoring || !_block.norm_many || _cursor == 0) {
-            return 1;
-        }
-        return (*_block.norm_many)[_cursor - 1];
-    }
+    uint32_t doc() const override { return _docs.exhausted() ? TERMINATED : _docs.doc(); }
+    uint32_t size_hint() const override { return _docs.size_hint(); }
+    uint32_t freq() const override { return _enable_scoring ? _docs.freq() : 1; }
+    uint32_t norm() const override { return _enable_scoring ? _docs.norm() : 1; }
 
     void append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) override {
-        if (!_has_positions) {
-            throw Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
-                            "This posting type does not support position information");
-        }
-        if (!_block.freq_many) {
-            throw Exception(doris::ErrorCode::INTERNAL_ERROR,
-                            "Position information requested but freq data is missing");
-        }
-
-        auto* term_pos_ptr = std::get_if<TermPositionsPtr>(&_iter);
-        if (!term_pos_ptr || !*term_pos_ptr) {
-            throw Exception(doris::ErrorCode::INTERNAL_ERROR,
-                            "Position information requested but TermPositions iterator is missing");
-        }
-
-        uint32_t current_doc_idx = _cursor - 1;
-        if (current_doc_idx > _prox_cursor) {
-            int32_t skip_count = 0;
-            for (uint32_t i = _prox_cursor; i < current_doc_idx; ++i) {
-                skip_count += (*_block.freq_many)[i];
-            }
-            if (skip_count > 0) {
-                (*term_pos_ptr)->addLazySkipProxCount(skip_count);
-            }
-        }
-
-        uint32_t freq = (*_block.freq_many)[current_doc_idx];
-        int32_t position = 0;
-        for (uint32_t i = 0; i < freq; ++i) {
-            position += (*term_pos_ptr)->nextDeltaPosition();
-            output.push_back(position + offset);
-        }
-
-        _prox_cursor = current_doc_idx + 1;
+        THROW_IF_ERROR(
+                _cursor->append_positions(static_cast<uint32_t>(_docs.ordinal()), offset, output));
     }
+
+    index_query::BlockDocSet& doc_set() { return _docs; }
+    index_query::PostingsCursor& cursor() { return *_cursor; }
 
     bool scoring_enabled() const { return _enable_scoring; }
-
-    int64_t block_id() const { return _block_id; }
-
-    void seek_block(uint32_t target_doc) {
-        if (target_doc <= _doc) {
-            return;
-        }
-        if (_raw_iter->skipToBlock(target_doc)) {
-            _block_max_score_cache = -1.0F;
-            _cursor = 0;
-            _block.doc_many_size_ = 0;
-        }
-    }
+    int64_t block_id() const { return static_cast<int64_t>(_docs.generation()); }
+    void seek_block(uint32_t target) { _docs.shallow_seek(target); }
 
     uint32_t last_doc_in_block() const {
-        int32_t last_doc = _raw_iter->getLastDocInBlock();
-        if (last_doc == -1 || last_doc == 0x7FFFFFFFL) {
-            return TERMINATED;
-        }
-        return static_cast<uint32_t>(last_doc);
+        const auto bound = _cursor->current_block_bound();
+        return bound.last_doc_known ? bound.last_doc : TERMINATED;
     }
 
     float block_max_score() {
         if (!_enable_scoring || !_similarity) {
             return std::numeric_limits<float>::max();
         }
-        if (_block_max_score_cache >= 0.0F) {
+        if (_scored_generation == _docs.generation()) {
             return _block_max_score_cache;
         }
-        int32_t max_block_freq = _raw_iter->getMaxBlockFreq();
-        int32_t max_block_norm = _raw_iter->getMaxBlockNorm();
-        if (max_block_freq >= 0 && max_block_norm >= 0) {
-            _block_max_score_cache = _similarity->score(static_cast<float>(max_block_freq),
-                                                        static_cast<int64_t>(max_block_norm));
-            return _block_max_score_cache;
-        }
-        return _similarity->max_score();
+        const auto bound = _cursor->current_block_bound();
+        _block_max_score_cache =
+                bound.max_freq >= 0 && bound.max_norm >= 0
+                        ? _similarity->score(static_cast<float>(bound.max_freq), bound.max_norm)
+                        : _similarity->max_score();
+        _scored_generation = _docs.generation();
+        return _block_max_score_cache;
     }
 
     float max_score() const {
-        if (!_enable_scoring || !_similarity) {
-            return std::numeric_limits<float>::max();
-        }
-        return _similarity->max_score();
+        return _enable_scoring && _similarity ? _similarity->max_score()
+                                              : std::numeric_limits<float>::max();
     }
 
-    int32_t max_block_freq() const { return _raw_iter->getMaxBlockFreq(); }
-    int32_t max_block_norm() const { return _raw_iter->getMaxBlockNorm(); }
+    int32_t max_block_freq() const { return _cursor->current_block_bound().max_freq; }
+    int32_t max_block_norm() const { return _cursor->current_block_bound().max_norm; }
 
 private:
-    bool _refill() {
-        if (!_raw_iter->readBlock(&_block)) {
-            return false;
-        }
-        _cursor = 0;
-        _prox_cursor = 0;
-        _block_max_score_cache = -1.0F;
-        _block_id++;
-        return _block.doc_many_size_ > 0;
-    }
-
-    void _init_doc() {
-        if (!_raw_iter) {
-            throw Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                            "SegmentPostings requires a valid iterator");
-        }
-        if (_refill()) {
-            _doc = (*_block.doc_many)[_cursor++];
-        } else {
-            _doc = TERMINATED;
-        }
-    }
-
-    IterVariant _iter;
-    lucene::index::TermDocs* _raw_iter = nullptr;
-    uint32_t _doc = TERMINATED;
-    bool _enable_scoring = false;
-    bool _has_positions = false;
-
-    DocRange _block;
-    uint32_t _cursor = 0;
-    uint32_t _prox_cursor = 0;
-    mutable float _block_max_score_cache = -1.0F;
-    mutable int64_t _block_id = 0;
-    SimilarityPtr _similarity;
+    index_query::ScoringContextPtr<float> _similarity;
+    std::unique_ptr<index_query::PostingsCursor> _cursor;
+    index_query::BlockDocSet _docs;
+    bool _enable_scoring;
+    float _block_max_score_cache = 0.0F;
+    uint64_t _scored_generation = 0;
 };
 using SegmentPostingsPtr = std::shared_ptr<SegmentPostings>;
 
-inline SegmentPostingsPtr make_segment_postings(TermDocsPtr iter, bool enable_scoring,
-                                                SimilarityPtr similarity) {
-    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring, similarity);
-}
-
-inline SegmentPostingsPtr make_segment_postings(TermPositionsPtr iter, bool enable_scoring,
-                                                SimilarityPtr similarity) {
-    return std::make_shared<SegmentPostings>(std::move(iter), enable_scoring, similarity);
+inline SegmentPostingsPtr make_segment_postings(std::unique_ptr<index_query::PostingsCursor> cursor,
+                                                bool enable_scoring,
+                                                index_query::ScoringContextPtr<float> similarity) {
+    return std::make_shared<SegmentPostings>(std::move(cursor), enable_scoring,
+                                             std::move(similarity));
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

@@ -19,60 +19,11 @@
 
 #include <cstdint>
 
-// Bm25Scorer -- classic Okapi BM25 relevance scoring over SNII native stats.
-//
-// Per query term, idf is precomputed once from the collection statistics:
-//   idf = log(1 + (N - df + 0.5) / (df + 0.5))
-// where N = indexed doc count and df = the term's document frequency. The
-// per-document contribution of a term then is:
-//   score = idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avgdl))
-// where tf is the in-doc term frequency, dl the document length decoded from the
-// 1-byte encoded norm, and avgdl the average document length.
-//
-// Norm encode/decode (DOCUMENTED CONTRACT): the writer stores doc length as a
-// byte-quantized value floor-clamped to [1, 255]; decode is the identity map
-// back to a double length. encode_norm(len) = clamp(len, 1, 255);
-// decode_norm(b) = (b == 0 ? 1.0 : (double)b). This keeps short docs (len <= 255)
-// exact and saturates longer docs at 255, matching the reference oracle.
 namespace doris::snii::query {
 
-// BM25 free parameters. Defaults are the classic Lucene/Elasticsearch values.
-struct Bm25Params {
-    double k1 = 1.2;
-    double b = 0.75;
-};
-
-// Decodes a 1-byte encoded norm into a document length. byte 0 maps to 1.0 to
-// avoid a zero-length divisor; otherwise it is the byte value itself.
+// Document lengths use one byte in the range 1..255; a stored zero is read as one.
 double decode_norm(uint8_t encoded);
 
-// Encodes a document length into a 1-byte norm (clamped to [1, 255]). Provided
-// so writers and test oracles share one quantization.
 uint8_t encode_norm(uint64_t doc_length);
-
-// Per-term scoring context: the precomputed idf and the term's df. Built once per
-// query term, then reused for every candidate document of that term.
-class ScorerContext {
-public:
-    // Builds the context from collection size n (indexed doc count) and the term's
-    // document frequency df. avgdl and params are supplied per score call.
-    static ScorerContext make(uint64_t n, uint64_t df);
-
-    // Builds a context from a collection-scoped IDF that was computed outside
-    // the segment reader. This keeps segment-local TF/norm decoding separate
-    // from scanner-collection N/DF aggregation.
-    static ScorerContext from_idf(double idf);
-
-    double idf() const { return idf_; }
-    uint64_t df() const { return df_; }
-
-    // Scores one document occurrence: tf is the in-doc term frequency, encoded_norm
-    // the doc's 1-byte length norm, avgdl the collection average length.
-    double score(double tf, uint8_t encoded_norm, double avgdl, const Bm25Params& params) const;
-
-private:
-    double idf_ = 0.0;
-    uint64_t df_ = 0;
-};
 
 } // namespace doris::snii::query

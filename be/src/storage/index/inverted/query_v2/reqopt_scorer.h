@@ -30,7 +30,7 @@ public:
     RequiredOptionalScorer(ScorerPtr req_scorer, ScorerPtr opt_scorer, TScoreCombiner combiner)
             : _req_scorer(std::move(req_scorer)),
               _opt_scorer(std::move(opt_scorer)),
-              _combiner(std::move(combiner)) {}
+              _combiner(combiner->clone()) {}
 
     ~RequiredOptionalScorer() override = default;
 
@@ -48,17 +48,29 @@ public:
 
     uint32_t size_hint() const override { return _req_scorer->size_hint(); }
 
+    const roaring::Roaring* get_true_bitmap() const override {
+        return _req_scorer->get_true_bitmap();
+    }
+
+    bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
+        return _req_scorer->has_null_bitmap(resolver);
+    }
+
+    const roaring::Roaring* get_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
+        return _req_scorer->get_null_bitmap(resolver);
+    }
+
     float score() override {
         if (_score_cache.has_value()) {
             return _score_cache.value();
         }
         uint32_t current_doc = doc();
-        auto score_combiner = _combiner->clone();
-        score_combiner->update(_req_scorer);
+        _combiner->clear();
+        _combiner->update(_req_scorer);
         if (_opt_scorer->doc() <= current_doc && _opt_scorer->seek(current_doc) == current_doc) {
-            score_combiner->update(_opt_scorer);
+            _combiner->update(_opt_scorer);
         }
-        float combined_score = score_combiner->score();
+        float combined_score = _combiner->score();
         _score_cache = combined_score;
         return combined_score;
     }

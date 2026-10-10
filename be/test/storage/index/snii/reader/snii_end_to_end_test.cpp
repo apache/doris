@@ -30,10 +30,9 @@
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
-#include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 

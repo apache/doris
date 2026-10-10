@@ -35,36 +35,24 @@
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/bm25_scorer.h"
-#include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/scoring_query.h"
-#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/query/top_k_scores.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/reader/windowed_posting.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
 
-// PHASE B differential + byte-reduction test (design spec sections 1.4 & 2).
-//
-// Builds an index (~4000 docs, positions + scoring) with a HIGH-DF term spanning
-// MANY .frq windows plus low/mid-df terms and a planted 5-term phrase led by the
-// high-df term. Over a MeteredFileReader it asserts:
-//   (a) term_query and phrase_query docids equal a brute-force ORACLE (unchanged
-//       by the freq-skip optimization);
-//   (b) a docid-only term_query on the high-df term requests STRICTLY FEWER .frq
-//       bytes than the pre-PhaseB full-window path (sum of per-window frq_len),
-//       because the freq region is skipped on the wire;
-//   (c) scoring_query STILL reads the FULL windows (freq region present -> its
-//       .frq request bytes match the full-window total, strictly above the
-//       docid-only path) and returns the correct top-K.
+// Checks term and phrase results against an independent oracle.
+// Document-only queries skip frequency bytes; scored queries read them and verify top-k results.
 using namespace doris::snii;
 using namespace doris::snii::format;
 using namespace doris::snii::reader;
 using namespace doris::snii::writer;
-using doris::snii::query::Bm25Params;
-using doris::snii::query::ScoredDoc;
+using doris::snii::snii_test::Bm25Params;
+using doris::snii::snii_test::ScoredDoc;
 using doris::snii::stats::SniiStatsProvider;
 
 namespace {
@@ -397,7 +385,7 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
             << "docid-only vs windowed reader remote_bytes differ: a=" << a.remote_bytes
             << " b=" << b.remote_bytes;
 
-    // ---- (c) scoring_query reads positions on top of the frq span -------------
+    // ---- (c) scoring reads positions on top of the frq span -------------------
     SniiStatsProvider stats;
     ASSERT_TRUE(SniiStatsProvider::open(&idx, &stats).ok());
     const Bm25Params params; // defaults
@@ -405,14 +393,15 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
     const uint32_t kTopK = 10;
 
     std::vector<ScoredDoc> exhaustive;
-    ASSERT_TRUE(query::scoring_query_exhaustive(idx, stats, score_terms, kTopK, params, &exhaustive)
-                        .ok());
+    ASSERT_TRUE(
+            doris::snii::snii_test::top_k_scores(idx, stats, score_terms, kTopK, &exhaustive).ok());
 
     const std::vector<ScoredDoc> ref = ReferenceRanking(c, score_terms, kTopK, params);
     ASSERT_EQ(exhaustive.size(), ref.size());
     for (size_t i = 0; i < ref.size(); ++i) {
         EXPECT_EQ(exhaustive[i].docid, ref[i].docid) << "scoring docid mismatch at " << i;
-        EXPECT_NEAR(exhaustive[i].score, ref[i].score, 1e-9) << "scoring score mismatch at " << i;
+        // The engine scores in float; the reference in double.
+        EXPECT_NEAR(exhaustive[i].score, ref[i].score, 1e-5) << "scoring score mismatch at " << i;
     }
 
     // Scoring derives tf from positions, so a single-term scoring query over the
@@ -420,8 +409,7 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
     // same lookup + frq span, plus the prx windows (and norms).
     metered.reset_metrics();
     std::vector<ScoredDoc> hi_only;
-    ASSERT_TRUE(
-            query::scoring_query_exhaustive(idx, stats, {"aa_hi"}, kTopK, params, &hi_only).ok());
+    ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, {"aa_hi"}, kTopK, &hi_only).ok());
     const io::IoMetrics score_io = metered.metrics();
     const uint64_t score_frq_request = score_io.total_request_bytes;
     const uint64_t term_frq_request = a.total_request_bytes;

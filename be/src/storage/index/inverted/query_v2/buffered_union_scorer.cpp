@@ -18,19 +18,20 @@
 #include "storage/index/inverted/query_v2/buffered_union_scorer.h"
 
 #include <algorithm>
+#include <type_traits>
+
+#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 template <typename ScoreCombinerPtrT>
 UnionScorer<ScoreCombinerPtrT>::UnionScorer(std::vector<ScorerPtr> scorers,
                                             ScoreCombinerPtrT score_combiner,
-                                            uint32_t segment_num_rows,
+                                            uint32_t /*segment_num_rows*/,
                                             const NullBitmapResolver* resolver)
-        : _scorers(std::move(scorers)),
-          _score_combiner(std::move(score_combiner)),
-          _segment_num_rows(segment_num_rows),
-          _resolver(resolver) {
-    _collect_child_nulls();
+        : _scorers(std::move(scorers)), _score_combiner(std::move(score_combiner)) {
+    _null_bitmap = complete_null_bitmap(
+            _scorers, false, !std::is_same_v<ScoreCombinerPtrT, DoNothingCombinerPtr>, resolver);
 
     for (size_t idx = 0; idx < _scorers.size(); ++idx) {
         auto& scorer = _scorers[idx];
@@ -77,36 +78,6 @@ uint32_t UnionScorer<ScoreCombinerPtrT>::size_hint() const {
 }
 
 template <typename ScoreCombinerPtrT>
-bool UnionScorer<ScoreCombinerPtrT>::has_null_bitmap(const NullBitmapResolver* resolver) {
-    if (resolver != nullptr) {
-        _resolver = resolver;
-    }
-    _collect_child_nulls();
-    if (!_null_sources_checked) {
-        _null_sources_checked = true;
-        if (_resolver != nullptr) {
-            for (const auto& scorer : _scorers) {
-                if (scorer && scorer->has_null_bitmap(_resolver)) {
-                    _has_null_sources = true;
-                    break;
-                }
-            }
-        }
-    }
-    return _has_null_sources;
-}
-
-template <typename ScoreCombinerPtrT>
-const roaring::Roaring* UnionScorer<ScoreCombinerPtrT>::get_null_bitmap(
-        const NullBitmapResolver* resolver) {
-    if (resolver != nullptr) {
-        _resolver = resolver;
-    }
-    _ensure_null_bitmap(_resolver);
-    return _null_bitmap.isEmpty() ? nullptr : &_null_bitmap;
-}
-
-template <typename ScoreCombinerPtrT>
 bool UnionScorer<ScoreCombinerPtrT>::_prepare_next() {
     if (_heap.empty()) {
         return false;
@@ -142,35 +113,7 @@ bool UnionScorer<ScoreCombinerPtrT>::_prepare_next() {
 
     _doc = current_doc;
     _current_score = combiner->score();
-    _true_bitmap.add(_doc);
-    _null_ready = false;
     return true;
-}
-
-template <typename ScoreCombinerPtrT>
-void UnionScorer<ScoreCombinerPtrT>::_collect_child_nulls() {
-    if (_nulls_collected || _resolver == nullptr) {
-        return;
-    }
-    _nulls_collected = true;
-    for (const auto& scorer : _scorers) {
-        if (scorer && scorer->has_null_bitmap(_resolver)) {
-            const auto* bitmap = scorer->get_null_bitmap(_resolver);
-            if (bitmap != nullptr) {
-                _candidate_null |= *bitmap;
-            }
-        }
-    }
-}
-
-template <typename ScoreCombinerPtrT>
-void UnionScorer<ScoreCombinerPtrT>::_ensure_null_bitmap(const NullBitmapResolver* resolver) {
-    if (!has_null_bitmap(resolver) || _null_ready) {
-        return;
-    }
-    _null_bitmap = _candidate_null;
-    _null_bitmap -= _true_bitmap;
-    _null_ready = true;
 }
 
 template <typename ScoreCombinerPtrT>

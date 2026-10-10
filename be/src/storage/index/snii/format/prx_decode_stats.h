@@ -48,12 +48,11 @@ struct PrxDecodeStats {
     uint64_t selected_docs = 0;
     uint64_t total_positions = 0;
     uint64_t selected_positions = 0;
-    uint64_t fetch_ns = 0;
+    // Frames whose documents' positions were decoded as they were read.
+    uint64_t streaming_frames = 0;
     // Inclusive successful-frame time: header/CRC validation, optional
     // decompression, and payload decode.
     uint64_t decode_ns = 0;
-    // Phrase verification excluding only the inclusive decode_ns delta.
-    uint64_t phrase_verify_ns = 0;
 
     void merge(const PrxDecodeStats& other);
     [[nodiscard]] uint64_t frame_count() const { return raw_frames + zstd_frames + pfor_frames; }
@@ -70,20 +69,9 @@ struct PrxDecodedShape {
     bool has_zero_frequency = false;
 };
 
-// Query-plan and matcher calibration inputs are deliberately separate from PrxDecodeStats: the
-// latter's 11 production counters remain a stable decode contract.
-struct PhraseQueryExecutionStats {
-    uint64_t exact_candidate_docs = 0;
-    uint64_t exact_candidate_visits = 0;
-    uint64_t prx_streaming_frames = 0;
-    uint64_t prefix_leading_candidate_docs = 0;
-    uint64_t prefix_tail_candidate_visits = 0;
-};
-
 struct PrxDecodeContext {
     PrxDecodeStats* stats = nullptr;
     PrxDecodedShape* shape = nullptr;
-    PhraseQueryExecutionStats* query_stats = nullptr;
     PrxCsrAllocationGate* allocation_gate = nullptr;
 };
 

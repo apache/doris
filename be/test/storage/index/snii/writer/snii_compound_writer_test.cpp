@@ -55,10 +55,9 @@
 #include "storage/index/snii/format/tail_pointer.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
-#include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/logical_index_writer.h"
 #include "util/defer_op.h"
 
@@ -433,7 +432,7 @@ public:
         return inner_->read_at(offset, len, out);
     }
     Status read_batch(const std::vector<io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override {
+                      doris::index_query::IoReadResult* outs) override {
         for (const auto& r : ranges) {
             account(r.offset, r.len);
         }
@@ -473,7 +472,7 @@ public:
     }
 
     Status read_batch(const std::vector<io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override {
+                      doris::index_query::IoReadResult* outs) override {
         return inner_->read_batch(ranges, outs);
     }
 

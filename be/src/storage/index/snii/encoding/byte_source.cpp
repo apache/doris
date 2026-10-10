@@ -18,7 +18,6 @@
 #include "storage/index/snii/encoding/byte_source.h"
 
 #include <algorithm>
-#include <array>
 #include <limits>
 
 #include "storage/index/snii/encoding/varint.h"
@@ -161,22 +160,15 @@ Status ByteSource::decode_delta_run(size_t count, std::vector<uint32_t>* out) {
 
 Status ByteSource::decode_delta_batch(std::span<uint32_t> out, uint32_t* previous,
                                       bool* first_position) {
-    constexpr size_t kBatchCapacity = 16;
-    if (out.size() > kBatchCapacity) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "byte_source: delta batch exceeds fixed capacity");
-    }
-    std::array<uint32_t, kBatchCapacity> scratch {};
     const uint8_t* const begin = s_.data();
     const uint8_t* const end = begin + s_.size();
     const uint8_t* p = begin + pos_;
     uint32_t local_previous = *previous;
     bool local_first_position = *first_position;
-    for (size_t i = 0; i < out.size(); ++i) {
+    for (uint32_t& value : out) {
         RETURN_IF_ERROR(
-                decode_delta_value(&p, end, &local_previous, &local_first_position, &scratch[i]));
+                decode_delta_value(&p, end, &local_previous, &local_first_position, &value));
     }
-    std::copy_n(scratch.begin(), out.size(), out.begin());
     pos_ = static_cast<size_t>(p - begin);
     *previous = local_previous;
     *first_position = local_first_position;

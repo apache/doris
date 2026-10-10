@@ -63,13 +63,8 @@ struct IndexQueryContext {
 
     // ---- Reply direction: fields a READER writes and the CALLER reads back ----
     //
-    // A caller that hands a reader a COPY of this context rather than the context itself must
-    // fold the copy back with merge_reader_outputs(), or the reader's reply is dropped in
-    // silence: nothing fails to compile, no test goes red, the query simply takes the wrong plan.
-    // FunctionSearch's SNII leaf builder is such a caller -- it copies the context so the reader
-    // publishes its BM25 into a throwaway CollectionSimilarity instead of the query's own.
-    //
-    // Every field added below this line must also be merged in merge_reader_outputs().
+    // A reader writes them on the context it was given, never on a copy: a copy's reply would
+    // be dropped in silence and the query would take the wrong plan.
 
     // G03 reply direction of the same handshake. Set by a reader iff it DID
     // answer with such a fabricated count bitmap (never on a query-cache hit,
@@ -87,13 +82,6 @@ struct IndexQueryContext {
     // that never consumes the candidate (MATCH_ANY/ALL, term, regexp, single
     // term phrase) still computes the full-segment bitmap and stays cacheable.
     bool candidate_rows_consumed = false;
-
-    // Folds the reply-direction fields a reader wrote on a copy of this context back into it.
-    // Latching (never clearing) is what makes this safe to call for each of several readers.
-    void merge_reader_outputs(const IndexQueryContext& reader_context) {
-        count_on_index_fastpath_hit |= reader_context.count_on_index_fastpath_hit;
-        candidate_rows_consumed |= reader_context.candidate_rows_consumed;
-    }
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 

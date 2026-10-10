@@ -53,7 +53,12 @@ using rocksdb::Iterator;
 using rocksdb::NewFixedPrefixTransform;
 
 namespace doris {
-using namespace ErrorCode;
+using ErrorCode::META_DELETE_ERROR;
+using ErrorCode::META_GET_ERROR;
+using ErrorCode::META_ITERATOR_ERROR;
+using ErrorCode::META_KEY_NOT_FOUND;
+using ErrorCode::META_OPEN_DB_ERROR;
+using ErrorCode::META_PUT_ERROR;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 

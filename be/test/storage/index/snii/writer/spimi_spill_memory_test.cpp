@@ -26,9 +26,10 @@
 #include <string>
 #include <vector>
 
+#include "storage/index/query/exec/cursor_chained_postings.h"
 #include "storage/index/snii/format/prx_pod.h"
 #include "storage/index/snii/io/local_file.h"
-#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/writer/logical_index_writer.h"
 #include "storage/index/snii/writer/memory_reporter.h"
@@ -355,7 +356,18 @@ void verify_inline_document_list(reader::LogicalIndexReader* index, const char* 
     EXPECT_FALSE(entry.frq_bytes.empty());
     EXPECT_GT(entry.frq_bytes.size() * 60'000U, 8 * kMiB);
     std::vector<uint32_t> actual;
-    ASSERT_TRUE(query::term_query(*index, term, &actual).ok());
+    reader::SniiIndexSource source(*index);
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    ASSERT_TRUE(source.open_term(term, /*positions=*/false, /*scoring=*/false, &cursor).ok());
+    ASSERT_NE(cursor, nullptr);
+    ASSERT_TRUE(
+            index_query::for_each_block(*cursor, [&actual](
+                                                         const index_query::PostingsBlock& block) {
+                for (size_t i = 0; i < block.size(); ++i) {
+                    actual.push_back(block.doc_at(i));
+                }
+                return Status::OK();
+            }).ok());
     EXPECT_EQ(actual, expected);
 }
 

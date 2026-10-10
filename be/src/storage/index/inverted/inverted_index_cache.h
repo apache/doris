@@ -27,15 +27,16 @@
 #include <roaring/roaring.hh>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
-#include "io/fs/path.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/inverted/query/query_info.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/snii_bkd_searcher.h"
 #include "util/lru_cache.h"
@@ -43,6 +44,9 @@
 #include "util/time.h"
 
 namespace doris {
+namespace index_query::logical {
+struct Node;
+} // namespace index_query::logical
 namespace segment_v2 {
 class InvertedIndexCacheHandle;
 class IndexFileReader;
@@ -217,7 +221,8 @@ private:
 class InvertedIndexQueryCacheHandle;
 
 // v2: Result cache keys no longer include the removed CommonGrams query-plan flags.
-inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 2;
+// v3: A phrase's slop is no longer a separate field; the raw query bytes hold it.
+inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 3;
 
 // Stable identity shared by result-cache and row-accurate single-flight. It intentionally contains
 // no analyzer output or internal plan kind: those are segment-local implementation details below
@@ -225,10 +230,20 @@ inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 2;
 struct InvertedIndexRawQuerySemantic {
     std::string_view raw_query_bytes;
     InvertedIndexQueryType query_type;
-    int32_t slop = 0;
-    bool ordered = false;
     int32_t max_expansions = 0;
     uint32_t cache_semantics_version = INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION;
+};
+
+// The lowered-leaf layout has its own version word, so its keys never encode like a raw
+// query's. 1003: the leaf replaces the analyzed terms.
+inline constexpr uint32_t INVERTED_INDEX_LEAF_CACHE_SEMANTICS_VERSION = 1003;
+
+// Identity of a leaf the caller lowered: the leaf's kind, terms and options replace the raw
+// query bytes.
+struct InvertedIndexLeafSemantic {
+    const index_query::logical::Node* leaf = nullptr;
+    int32_t max_expansions = 0;
+    uint32_t cache_semantics_version = INVERTED_INDEX_LEAF_CACHE_SEMANTICS_VERSION;
 
     std::string encode() const;
 };
@@ -237,15 +252,19 @@ class InvertedIndexQueryCache : public LRUCachePolicy {
 public:
     using LRUCachePolicy::insert;
 
-    // cache key
-    struct CacheKey {
-        io::Path index_path;               // index file path
-        std::string column_name;           // column name
-        InvertedIndexQueryType query_type; // query type
-        std::string value;                 // query value
+    // Owns the complete binary key shared by cache lookups, insertion and single-flight.
+    class CacheKey {
+    public:
+        CacheKey() = default;
+        CacheKey(std::string_view index_path, std::string_view column_name,
+                 InvertedIndexQueryType query_type, std::string_view value);
+        CacheKey(std::string_view index_path, std::string_view column_name,
+                 InvertedIndexQueryType query_type, const InvertedIndexRawQuerySemantic& value);
 
-        // Encode to an unambiguous flat binary which can be used as LRUCache's key.
-        std::string encode() const;
+        const std::string& encode() const { return _encoded; }
+
+    private:
+        std::string _encoded;
     };
 
     class CacheValue : public LRUCacheValueBase {

@@ -41,6 +41,7 @@
 #include "storage/index/inverted/analyzer/ik/IKAnalyzer.h"
 #include "storage/index/inverted/analyzer/kuromoji/KuromojiAnalyzer.h"
 #include "storage/index/inverted/char_filter/char_replace_char_filter_factory.h"
+#include "util/string_util.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {
@@ -233,12 +234,12 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 }
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
-        const std::string& search_str, const std::map<std::string, std::string>& properties) {
+        std::string_view search_str, const std::map<std::string, std::string>& properties) {
     if (!should_analyzer(properties)) {
         // Keyword index: all strings (including empty) are valid tokens for exact match.
         // Empty string is a valid value in keyword index and should be matchable.
         std::vector<TermInfo> result;
-        result.emplace_back(search_str);
+        result.emplace_back(std::string(search_str));
         return result;
     }
     InvertedIndexAnalyzerConfig config;
@@ -253,6 +254,56 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
     auto reader = create_reader(config.char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader, analyzer.get());
+}
+
+Status InvertedIndexAnalyzer::analyze(std::string_view value, const InvertedIndexAnalyzerCtx* ctx,
+                                      const std::map<std::string, std::string>& properties,
+                                      std::vector<TermInfo>* out) {
+    try {
+        if (ctx == nullptr) {
+            *out = get_analyse_result(value, properties);
+        } else if (!ctx->requires_analysis()) {
+            // Every string, the empty one included, is a term of an untokenized index.
+            *out = {TermInfo {.term = std::string(value)}};
+        } else if (const auto analyzer = ctx->get_analyzer(); analyzer != nullptr) {
+            auto reader = create_reader(ctx->char_filter_map);
+            reader->init(value.data(), static_cast<int32_t>(value.size()), true);
+            *out = get_analyse_result(reader, analyzer.get());
+        } else {
+            *out = get_analyse_result(value, properties);
+        }
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("analyzing '{}' failed: {}",
+                                                                       value, e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("analyzing '{}' failed: {}",
+                                                                       value, e.what());
+    }
+    return Status::OK();
+}
+
+std::string InvertedIndexAnalyzer::normalize(const std::string& value,
+                                             const std::map<std::string, std::string>& properties) {
+    const std::string analyzer_name = get_analyzer_name_from_properties(properties);
+    if (analyzer_name.empty() || is_builtin_analyzer(analyzer_name)) {
+        // The index writers lowercase a builtin analyzer's terms unless lower_case is false.
+        return get_parser_lowercase_from_properties<true>(properties) == INVERTED_INDEX_PARSER_TRUE
+                       ? to_lower(value)
+                       : value;
+    }
+    auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
+    if (index_policy_mgr == nullptr) {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "Index policy manager is not initialized");
+    }
+    const auto normalizer = index_policy_mgr->get_normalizer_by_name(analyzer_name);
+    if (normalizer == nullptr) {
+        return value;
+    }
+    auto reader = create_reader({});
+    reader->init(value.data(), static_cast<int32_t>(value.size()), true);
+    const auto terms = get_analyse_result(reader, normalizer.get());
+    return terms.empty() ? std::string() : terms.front().get_single_term();
 }
 
 bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {

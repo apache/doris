@@ -28,9 +28,9 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii_query_test_util.h"
 
 // Integrated crc32c.h pulls in the thirdparty `namespace crc32c`, so a blanket

@@ -31,6 +31,7 @@
 #include "storage/index/inverted/query_v2/boolean_query/occur.h"
 #include "storage/index/inverted/query_v2/boolean_query/occur_boolean_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(search)
@@ -147,8 +148,8 @@ TEST_F(OccurBooleanQueryRealIndexTest, NotPhraseQuery) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -203,8 +204,8 @@ TEST_F(OccurBooleanQueryRealIndexTest, PhraseQueryOnly) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -265,8 +266,8 @@ TEST_F(OccurBooleanQueryRealIndexTest, NotPhraseQueryNonExistent) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -318,8 +319,8 @@ TEST_F(OccurBooleanQueryRealIndexTest, NotPhraseQueryExcludesPartial) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);

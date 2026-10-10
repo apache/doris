@@ -33,17 +33,30 @@ std::vector<float> BM25Similarity::LENGTH_TABLE = []() {
     return table;
 }();
 
-BM25Similarity::BM25Similarity() : _cache(256) {}
+BM25Similarity::BM25Similarity() : _lengths(LENGTH_TABLE), _cache(256) {}
 
-BM25Similarity::BM25Similarity(float idf, float avgdl) : _idf(idf), _avgdl(avgdl), _cache(256) {
+BM25Similarity::BM25Similarity(float idf, float avgdl)
+        : _idf(idf), _avgdl(avgdl), _lengths(LENGTH_TABLE), _cache(256) {
     _weight = _boost * _idf * (_k1 + 1.0F);
     compute_tf_cache();
 }
 
 void BM25Similarity::compute_tf_cache() {
     for (int i = 0; i < _cache.size(); i++) {
-        _cache[i] = 1.0F / (_k1 * ((1 - _b) + _b * LENGTH_TABLE[i] / _avgdl));
+        _cache[i] = 1.0F / (_k1 * ((1 - _b) + _b * _lengths[i] / _avgdl));
     }
+}
+
+void BM25Similarity::bind_norms(std::span<const float> lengths) {
+    if (lengths.data() == _lengths.data()) {
+        return;
+    }
+    _lengths = lengths;
+    compute_tf_cache();
+}
+
+std::span<const float> BM25Similarity::lucene_norm_lengths() {
+    return LENGTH_TABLE;
 }
 
 void BM25Similarity::for_one_term(const IndexQueryContextPtr& context,
@@ -83,10 +96,8 @@ float BM25Similarity::score(float freq, int64_t encoded_norm) {
 }
 
 float BM25Similarity::max_score() {
-    // 2013265944 = byte4_to_int(int_to_byte4(MAX_INT32)) from Lucene's SmallFloat encoding,
-    // representing the maximum possible term frequency. Combined with norm=255 (shortest
-    // document length), this yields the theoretical upper-bound BM25 score for this term.
-    return score(static_cast<float>(2013265944), 255);
+    // Use the saturation limit so norm quantization cannot lower the bound.
+    return _weight;
 }
 
 int32_t BM25Similarity::number_of_leading_zeros(uint64_t value) {

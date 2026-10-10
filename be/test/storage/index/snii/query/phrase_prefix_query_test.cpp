@@ -20,18 +20,20 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
+#include "roaring/roaring.hh"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
-#include "storage/index/snii/query/internal/phrase_query_split.h"
-#include "storage/index/snii/query/internal/query_test_counters.h"
-#include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
@@ -147,6 +149,54 @@ struct Corpus {
         }
         return out;
     }
+
+    // Matches adjacent terms with suffix expansion at the first slot and prefix expansion at the last.
+    // Expansion limits apply per end; a single-term phrase matches substrings without a limit.
+    std::vector<uint32_t> phrase_edge_docs(const std::vector<std::string>& terms,
+                                           int32_t max_expansions) const {
+        std::set<std::string> vocab;
+        for (const std::vector<std::string>& doc : docs) {
+            vocab.insert(doc.begin(), doc.end());
+        }
+        const auto expand = [&](const std::function<bool(const std::string&)>& matches) {
+            std::set<std::string> kept;
+            for (const std::string& term : vocab) {
+                if (max_expansions > 0 && std::cmp_greater_equal(kept.size(), max_expansions)) {
+                    break;
+                }
+                if (matches(term)) {
+                    kept.insert(term);
+                }
+            }
+            return kept;
+        };
+        std::vector<uint32_t> out;
+        for (uint32_t d = 0; d < docs.size(); ++d) {
+            const std::vector<std::string>& doc = docs[d];
+            bool match = false;
+            if (terms.size() == 1) {
+                match = std::ranges::any_of(doc, [&](const std::string& term) {
+                    return term.find(terms.front()) != std::string::npos;
+                });
+            } else {
+                const std::set<std::string> heads = expand(
+                        [&](const std::string& term) { return term.ends_with(terms.front()); });
+                const std::set<std::string> tails = expand(
+                        [&](const std::string& term) { return term.starts_with(terms.back()); });
+                for (size_t start = 0; start + terms.size() <= doc.size() && !match; ++start) {
+                    match = heads.contains(doc[start]) &&
+                            tails.contains(doc[start + terms.size() - 1]);
+                    for (size_t i = 1; match && i + 1 < terms.size(); ++i) {
+                        match = doc[start + i] == terms[i];
+                    }
+                }
+            }
+            if (match) {
+                out.push_back(d);
+            }
+        }
+        return out;
+    }
 };
 
 Corpus BuildPhraseCorpus() {
@@ -198,37 +248,6 @@ Corpus BuildWideNonAdjacentTailCorpus() {
         char term[16];
         std::snprintf(term, sizeof(term), "aa_%03u", d % 96);
         c.docs[d] = {"lead", "gap", term};
-    }
-    return c;
-}
-
-Corpus BuildLeadingPrefilterCorpus(uint32_t tail_docs) {
-    DCHECK_LE(tail_docs, 1024U);
-    Corpus c;
-    c.docs.resize(1024);
-    for (uint32_t d = 0; d < c.docs.size(); ++d) {
-        if (d < tail_docs) {
-            char term[16];
-            std::snprintf(term, sizeof(term), "aa_%03u", d % 64);
-            c.docs[d] = {"lead", term};
-        } else {
-            c.docs[d] = {"lead", "other"};
-        }
-    }
-    return c;
-}
-
-Corpus BuildNearEqualLeadingAndTailDfCorpus() {
-    Corpus c;
-    c.docs.resize(2048, {"other"});
-    for (uint32_t d = 0; d < 256; ++d) {
-        if (d == 255) {
-            c.docs[d] = {"lead", "other"};
-            continue;
-        }
-        char term[16];
-        std::snprintf(term, sizeof(term), "aa_%03u", d % 50);
-        c.docs[d] = {"lead", term};
     }
     return c;
 }
@@ -445,6 +464,62 @@ TEST(SniiPhrasePrefixQuery, MatchesPositionOracle) {
     std::remove(path.c_str());
 }
 
+TEST(SniiPhraseEdgeQuery, MatchesPositionOracleUnderEachLimit) {
+    const Corpus corpus = BuildPhraseCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    // "row" is held by "brown" and "brownish"; the others end or start edge phrases.
+    const std::vector<std::vector<std::string>> cases = {{"ick", "bro"},
+                                                         {"e", "fo"},
+                                                         {"own", "fo"},
+                                                         {"ck", "brown", "fo"},
+                                                         {"ick", "absent", "fo"},
+                                                         {"zzz", "fo"},
+                                                         {"ick", "zzz"},
+                                                         {"row"},
+                                                         {"zzz"}};
+    for (const std::vector<std::string>& terms : cases) {
+        for (int32_t limit : {0, 1, 2, 3, 50}) {
+            std::vector<uint32_t> got;
+            const Status st =
+                    query::phrase_edge_query(idx, terms, &got, nullptr, {.max_expansions = limit});
+            ASSERT_TRUE(st.ok()) << st.to_string();
+            EXPECT_EQ(got, corpus.phrase_edge_docs(terms, limit))
+                    << "terms " << terms.front() << ".." << terms.back() << ", limit " << limit;
+        }
+    }
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPhraseEdgeQuery, CandidatesRestrictTheResult) {
+    const Corpus corpus = BuildPhraseCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    // "ick bro" matches docs 0, 2, 4, 5, 6 and 7.
+    roaring::Roaring candidates;
+    candidates.add(2);
+    candidates.add(3);
+    candidates.add(5);
+    std::vector<uint32_t> got;
+    ASSERT_TRUE(query::phrase_edge_query(idx, {"ick", "bro"}, &got, nullptr,
+                                         {.candidates = &candidates})
+                        .ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {2, 5}));
+
+    std::remove(path.c_str());
+}
+
 TEST(SniiPhrasePrefixQuery, WideTailPrefixAvoidsPerExpansionLookup) {
     const Corpus corpus = BuildWideTailCorpus();
     const std::string path = TempPath();
@@ -490,124 +565,6 @@ TEST(SniiPhrasePrefixQuery, RepeatedExactTermsMatchPositionOracle) {
     std::remove(path.c_str());
 }
 
-TEST(SniiPhrasePrefixQuery, HighTfSingleTailExactPlanStaysMaterialized) {
-    Corpus corpus;
-    corpus.docs.resize(64);
-    for (auto& doc : corpus.docs) {
-        for (size_t repetition = 0; repetition < 8; ++repetition) {
-            doc.insert(doc.end(), {"lead", "tail_exact"});
-        }
-    }
-    const std::string path = TempPath();
-    WriteCorpus(corpus, path);
-
-    io::LocalFileReader file;
-    SniiSegmentReader segment;
-    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
-
-    query::internal::testing::reset_streaming_exact_phrase_execution_count();
-    query::QueryProfile profile;
-    std::vector<uint32_t> got;
-    ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "tail_exact"}, &got, &profile).ok());
-    EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "tail_exact"}));
-    EXPECT_EQ(query::internal::testing::streaming_exact_phrase_execution_count(), 0U);
-    EXPECT_EQ(profile.phrase_query_stats.prx_streaming_frames, 0U);
-    query::internal::testing::reset_streaming_exact_phrase_execution_count();
-
-    std::remove(path.c_str());
-}
-
-TEST(SniiPhrasePrefixQuery, WideTailPrefixReusesExactTermPostingReads) {
-    const Corpus corpus = BuildSharedExactWideTailCorpus();
-    const std::string path = TempPath();
-    WriteCorpus(corpus, path);
-
-    io::LocalFileReader local;
-    ASSERT_TRUE(local.open(path).ok());
-    io::MeteredFileReader metered(&local, /*block_size=*/4096);
-    SniiSegmentReader segment;
-    LogicalIndexReader idx = OpenMeteredIndex(&metered, &segment);
-
-    metered.reset_metrics();
-    const std::vector<std::string> terms = {"lead", "aa_"};
-    std::vector<uint32_t> got;
-    const Status st = query::phrase_prefix_query(idx, terms, &got);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
-    EXPECT_EQ(got, corpus.phrase_prefix_docs(terms));
-    EXPECT_LT(metered.metrics().read_at_calls, corpus.docs.size() / 4)
-            << "wide phrase-prefix must not re-read exact term postings for every tail hit";
-
-    std::remove(path.c_str());
-}
-
-TEST(SniiPhrasePrefixQuery, SegmentRelativeDfGatePrefiltersLeadingPositions) {
-    const Corpus corpus = BuildLeadingPrefilterCorpus(/*tail_docs=*/128);
-    const std::string path = TempPath();
-    WriteCorpus(corpus, path);
-
-    io::LocalFileReader file;
-    SniiSegmentReader segment;
-    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
-
-    query::QueryProfile profile;
-    std::vector<uint32_t> got;
-    ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "aa_"}, &got, &profile).ok());
-    EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "aa_"}));
-    EXPECT_EQ(profile.phrase_query_stats.prefix_leading_candidate_docs, 128U);
-
-    std::remove(path.c_str());
-}
-
-TEST(SniiPhrasePrefixQuery, HalfDfTailKeepsDirectLeadingDecode) {
-    const Corpus corpus = BuildLeadingPrefilterCorpus(/*tail_docs=*/512);
-    const std::string path = TempPath();
-    WriteCorpus(corpus, path);
-
-    io::LocalFileReader file;
-    SniiSegmentReader segment;
-    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
-
-    query::QueryProfile profile;
-    std::vector<uint32_t> got;
-    ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "aa_"}, &got, &profile).ok());
-    EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "aa_"}));
-    EXPECT_EQ(profile.phrase_query_stats.prefix_leading_candidate_docs, 1024U);
-
-    std::remove(path.c_str());
-}
-
-TEST(SniiPhrasePrefixQuery, NearEqualTailDfKeepsDirectLeadingDecode) {
-    const Corpus corpus = BuildNearEqualLeadingAndTailDfCorpus();
-    const std::string path = TempPath();
-    WriteCorpus(corpus, path);
-
-    io::LocalFileReader file;
-    SniiSegmentReader segment;
-    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
-
-    query::QueryProfile profile;
-    std::vector<uint32_t> got;
-    ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "aa_"}, &got, &profile).ok());
-    EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "aa_"}));
-    EXPECT_EQ(profile.phrase_query_stats.prefix_leading_candidate_docs, 256U);
-
-    std::remove(path.c_str());
-}
-
-// ---------------------------------------------------------------------------
-// Merged multi-tail path (collect_merged_tail_matches): the per-tail verify+union
-// loop was replaced by a single batched, forward-merge sweep. Every case below
-// asserts the merged result equals the independent position oracle -- i.e. is
-// identical to the old per-tail semantics -- across the 0/1/many-expansion
-// trichotomy, max_expansions truncation, an empty expected set, cross-window
-// positions and CJK/unicode terms.
-// ---------------------------------------------------------------------------
-
-namespace qinternal = doris::snii::query::internal;
-
-// Zero expansions: the tail prefix matches no real term -> empty result. Also
-// exercises the single-expansion (untouched) branch for comparison.
 TEST(SniiPhrasePrefixMerge, ZeroAndSingleExpansionMatchOracle) {
     const Corpus corpus = BuildSharedExactWideTailCorpus();
     const std::string path = TempPath();
@@ -630,12 +587,10 @@ TEST(SniiPhrasePrefixMerge, ZeroAndSingleExpansionMatchOracle) {
     EXPECT_TRUE(std::ranges::is_sorted(single_got));
     EXPECT_EQ(single_got, corpus.phrase_prefix_docs(single_terms));
 
-    qinternal::query_test_counters() = qinternal::QueryTestCounters {};
     std::vector<query::PhraseMatch> single_matches;
     ASSERT_TRUE(
             query::phrase_prefix_query_with_frequencies(idx, single_terms, &single_matches).ok());
     EXPECT_EQ(single_matches, (std::vector<query::PhraseMatch> {{.docid = 0, .frequency = 1}}));
-    EXPECT_EQ(qinternal::query_test_counters().expected_docids_build, 0U);
 
     std::remove(path.c_str());
 }
@@ -656,14 +611,48 @@ TEST(SniiPhrasePrefixMerge, ManyExpansionGroupsMatchOracle) {
     ASSERT_TRUE(query::phrase_prefix_query(idx, terms, &got).ok());
     EXPECT_TRUE(std::ranges::is_sorted(got));
     EXPECT_EQ(got, corpus.phrase_prefix_docs(terms));
-    // The expected-docid projection must still be built exactly once per query
-    // (hoisted out of the per-tail loop), proving the multi-tail branch ran.
-    qinternal::query_test_counters() = qinternal::QueryTestCounters {};
-    ASSERT_TRUE(query::phrase_prefix_query(idx, terms, &got).ok());
-    EXPECT_EQ(qinternal::query_test_counters().expected_docids_build, 1U);
-    EXPECT_EQ(qinternal::query_test_counters().resolved_term_entry_copies, 0U);
-    constexpr uint64_t baseline_group_visits = 768U * (768U / 32U);
-    EXPECT_EQ(qinternal::query_test_counters().prefix_expected_doc_visits, baseline_group_visits);
+
+    std::remove(path.c_str());
+}
+
+// Ninety-six tails, each right after "lead" and repeated, so they read far more than "lead": they
+// gather in three waves, and the phrase holds "lead" and one wave's reads at a time.
+TEST(SniiPhrasePrefixMerge, ManyTailWavesHoldOneWaveAtATime) {
+    Corpus corpus;
+    corpus.docs.resize(96 * 520);
+    for (uint32_t d = 0; d < corpus.docs.size(); ++d) {
+        char term[16];
+        std::snprintf(term, sizeof(term), "bb_%02u", d % 96);
+        corpus.docs[d] = {"lead"};
+        corpus.docs[d].insert(corpus.docs[d].end(), 8, term);
+    }
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    io::MeteredFileReader metered(&local, /*block_size=*/4096);
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenMeteredIndex(&metered, &segment);
+    metered.reset_metrics();
+
+    namespace query_v2 = doris::segment_v2::inverted_index::query_v2;
+    auto source = std::make_shared<SniiIndexSource>(idx);
+    query_v2::PhrasePrefixWeight weight(L"content", {{0, "lead"}}, {1, "bb_"}, nullptr,
+                                        /*enable_scoring=*/false, /*max_expansions=*/0, {},
+                                        /*suffix=*/false, /*nullable=*/false);
+    query_v2::QueryExecutionContext execution;
+    execution.segment_num_rows = source->doc_count();
+    execution.field_sources.emplace(L"content", source);
+    auto scorer = weight.scorer(execution, "");
+    std::vector<uint32_t> got;
+    for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+        got.push_back(doc);
+    }
+    EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "bb_"}));
+    EXPECT_EQ(source->held_bytes(), 0U);
+    EXPECT_GT(source->peak_held_bytes(), 0U);
+    EXPECT_LT(source->peak_held_bytes() * 3, metered.metrics().total_request_bytes * 2);
 
     std::remove(path.c_str());
 }
@@ -677,11 +666,9 @@ TEST(SniiPhrasePrefixMerge, NonAdjacentTailGroupsScanStableCandidateSet) {
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment, path);
 
-    qinternal::query_test_counters() = qinternal::QueryTestCounters {};
     std::vector<uint32_t> got;
     ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "aa_"}, &got).ok());
     EXPECT_TRUE(got.empty());
-    EXPECT_EQ(qinternal::query_test_counters().prefix_expected_doc_visits, 256U * 3U);
 
     std::remove(path.c_str());
 }
@@ -695,13 +682,11 @@ TEST(SniiPhrasePrefixMerge, DefaultExpansionCapKeepsSingleRemainingGroupDirect) 
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment, path);
 
-    qinternal::query_test_counters() = qinternal::QueryTestCounters {};
     std::vector<uint32_t> got;
     ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "aa_"}, &got,
                                            /*max_expansions=*/50)
                         .ok());
     EXPECT_EQ(got, corpus.phrase_prefix_docs_capped({"lead", "aa_"}, 50));
-    EXPECT_EQ(qinternal::query_test_counters().prefix_expected_doc_visits, 1024U * 2U);
 
     std::remove(path.c_str());
 }
@@ -715,13 +700,11 @@ TEST(SniiPhrasePrefixMerge, SparseFirstGroupMatchScansStableCandidateSet) {
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment, path);
 
-    qinternal::query_test_counters() = qinternal::QueryTestCounters {};
     std::vector<uint32_t> got;
     ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "aa_"}, &got,
                                            /*max_expansions=*/50)
                         .ok());
     EXPECT_EQ(got, corpus.phrase_prefix_docs_capped({"lead", "aa_"}, 50));
-    EXPECT_EQ(qinternal::query_test_counters().prefix_expected_doc_visits, 1024U * 2U);
 
     std::remove(path.c_str());
 }
@@ -735,11 +718,9 @@ TEST(SniiPhrasePrefixMerge, AllDocsMatchedBeforeFinalGroupStopsEarly) {
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment, path);
 
-    qinternal::query_test_counters() = qinternal::QueryTestCounters {};
     std::vector<uint32_t> got;
     ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "aa_"}, &got).ok());
     EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "aa_"}));
-    EXPECT_EQ(qinternal::query_test_counters().prefix_expected_doc_visits, 1024U);
 
     std::remove(path.c_str());
 }
@@ -753,11 +734,9 @@ TEST(SniiPhrasePrefixMerge, AllDocsMatchedAfterPartialGroupEmitOnce) {
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment, path);
 
-    qinternal::query_test_counters() = qinternal::QueryTestCounters {};
     std::vector<uint32_t> got;
     ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "aa_"}, &got).ok());
     EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "aa_"}));
-    EXPECT_EQ(qinternal::query_test_counters().prefix_expected_doc_visits, 1024U * 2U);
 
     std::remove(path.c_str());
 }

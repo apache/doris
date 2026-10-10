@@ -21,9 +21,9 @@
 
 namespace doris::snii {
 
-// Populated by snii_prx_profile.h from a per-execution query::QueryProfile, and read back out by
-// SniiPrxRuntimeProfileCounters / SniiPhraseRuntimeProfileCounters into the scan node's
-// RuntimeProfile. Lives in its own header, mirroring InvertedIndexStatistics
+// Populated by snii_prx_profile.h from the PRX decode stats of a query, and read back out by
+// SniiPrxRuntimeProfileCounters into the scan node's RuntimeProfile. Lives in its own header,
+// mirroring InvertedIndexStatistics
 // (storage/index/inverted/inverted_index_stats.h), so OlapReaderStatistics -- shared by every
 // storage format -- holds one named field here instead of one field per counter.
 struct SniiQueryStats {
@@ -35,15 +35,8 @@ struct SniiQueryStats {
     int64_t prx_selected_docs = 0;
     int64_t prx_total_positions = 0;
     int64_t prx_selected_positions = 0;
-    int64_t prx_fetch_ns = 0;
-    int64_t prx_decode_ns = 0;
-    int64_t prx_phrase_verify_ns = 0;
-
-    int64_t phrase_candidate_docs = 0;
-    int64_t phrase_candidate_visits = 0;
     int64_t prx_streaming_frames = 0;
-    int64_t phrase_prefix_leading_candidate_docs = 0;
-    int64_t phrase_prefix_tail_candidate_visits = 0;
+    int64_t prx_decode_ns = 0;
 };
 
 } // namespace doris::snii

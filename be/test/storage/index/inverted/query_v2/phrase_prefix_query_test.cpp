@@ -21,15 +21,19 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
 
+#include <array>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <set>
 #include <string>
 
 #include "io/fs/local_file_system.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
-#include "storage/index/inverted/query_v2/prefix_query/prefix_weight.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_weight.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(store)
@@ -174,15 +178,15 @@ TEST_F(PhrasePrefixQueryV2Test, single_term_fallback_to_prefix) {
     auto w = q.weight(false);
     ASSERT_NE(w, nullptr);
 
-    // Should be a PrefixWeight, not PhrasePrefixWeight
-    auto prefix_w = std::dynamic_pointer_cast<PrefixWeight>(w);
+    // Should be an ExpandWeight, not PhrasePrefixWeight
+    auto prefix_w = std::dynamic_pointer_cast<ExpandWeight>(w);
     EXPECT_NE(prefix_w, nullptr);
 
     // Execute it
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, "");
     auto docs = collect_docs(scorer);
@@ -228,8 +232,8 @@ TEST_F(PhrasePrefixQueryV2Test, phrase_prefix_match) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, "");
     auto docs = collect_docs(scorer);
@@ -239,6 +243,31 @@ TEST_F(PhrasePrefixQueryV2Test, phrase_prefix_match) {
     std::set<uint32_t> expected = {0, 1, 6, 10, 11, 19};
     std::set<uint32_t> actual(docs.begin(), docs.end());
     EXPECT_EQ(actual, expected);
+
+    _CLDECDELETE(dir);
+}
+
+TEST_F(PhrasePrefixQueryV2Test, prefix_expansions_follow_the_session_limit) {
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 1;
+    RuntimeState runtime_state;
+    runtime_state.set_query_options(query_options);
+    auto ctx = std::make_shared<IndexQueryContext>();
+    ctx->runtime_state = &runtime_state;
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", "bro"}));
+    auto w = q.weight(false);
+
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+
+    // One expansion keeps "brother", the first term that starts with "bro".
+    EXPECT_EQ(collect_docs(w->scorer(exec_ctx, "")), std::vector<uint32_t> {10});
 
     _CLDECDELETE(dir);
 }
@@ -282,8 +311,8 @@ TEST_F(PhrasePrefixQueryV2Test, phrase_term_not_found_returns_empty) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, "");
     EXPECT_EQ(scorer->doc(), TERMINATED);
@@ -310,8 +339,8 @@ TEST_F(PhrasePrefixQueryV2Test, prefix_no_expansion_returns_empty) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, "");
     EXPECT_EQ(scorer->doc(), TERMINATED);
@@ -343,8 +372,8 @@ TEST_F(PhrasePrefixQueryV2Test, scorer_with_scoring) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, "");
     auto docs = collect_docs(scorer);
@@ -372,8 +401,8 @@ TEST_F(PhrasePrefixQueryV2Test, scorer_nullable) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
     // null_resolver is nullptr → make_nullable_scorer returns inner scorer
 
     auto scorer = w->scorer(exec_ctx, "");
@@ -402,8 +431,8 @@ TEST_F(PhrasePrefixQueryV2Test, scorer_with_binding_key) {
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
     std::string binding_key = "content#0";
-    exec_ctx.reader_bindings[binding_key] = reader;
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.source_bindings[binding_key] = clucene_index_source(reader, field, nullptr);
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, binding_key);
     auto docs = collect_docs(scorer);
@@ -431,8 +460,8 @@ TEST_F(PhrasePrefixQueryV2Test, three_term_phrase_prefix) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, "");
     auto docs = collect_docs(scorer);
@@ -465,8 +494,8 @@ TEST_F(PhrasePrefixQueryV2Test, phrase_prefix_no_adjacent_match) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, "");
     auto docs = collect_docs(scorer);
@@ -475,6 +504,74 @@ TEST_F(PhrasePrefixQueryV2Test, phrase_prefix_no_adjacent_match) {
     // But let's just verify it runs without error
     // The exact result depends on the data
     SUCCEED();
+
+    _CLDECDELETE(dir);
+}
+
+// "quick bro*" matches docs 0, 1, 6, 10, 11 and 19.
+TEST_F(PhrasePrefixQueryV2Test, candidates_restrict_the_phrase_prefix) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+
+    roaring::Roaring candidates;
+    candidates.addMany(3, std::array<uint32_t, 3> {6, 10, 12}.data());
+    PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", "bro"}), &candidates);
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+    auto docs = collect_docs(q.weight(false)->scorer(exec_ctx, ""));
+    EXPECT_EQ(std::set<uint32_t>(docs.begin(), docs.end()), (std::set<uint32_t> {6, 10}));
+
+    _CLDECDELETE(dir);
+}
+
+// With `suffix` the first slot takes the terms that end with it: "s ar" finds "dogs are" and
+// "cats are", and "ts are pe" finds "cats are pets".
+TEST_F(PhrasePrefixQueryV2Test, suffix_expands_the_first_slot) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+
+    PhrasePrefixQuery two(ctx, field, make_term_infos({"s", "ar"}), nullptr, /*suffix=*/true);
+    EXPECT_EQ(collect_docs(two.weight(false)->scorer(exec_ctx, "")),
+              (std::vector<uint32_t> {1, 7}));
+    PhrasePrefixQuery three(ctx, field, make_term_infos({"ts", "are", "pe"}), nullptr,
+                            /*suffix=*/true);
+    EXPECT_EQ(collect_docs(three.weight(false)->scorer(exec_ctx, "")), (std::vector<uint32_t> {7}));
+    PhrasePrefixQuery none(ctx, field, make_term_infos({"xyz", "ar"}), nullptr, /*suffix=*/true);
+    EXPECT_TRUE(collect_docs(none.weight(false)->scorer(exec_ctx, "")).empty());
+
+    _CLDECDELETE(dir);
+}
+
+// The first slot keeps the first terms in dictionary order that end with it: "animals" and
+// "barks" under a limit of two, and "cats" too under a limit of three.
+TEST_F(PhrasePrefixQueryV2Test, suffix_expansions_follow_the_session_limit) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+
+    for (const auto& [limit, expected] :
+         {std::pair {2, std::vector<uint32_t> {}}, std::pair {3, std::vector<uint32_t> {7}}}) {
+        TQueryOptions query_options;
+        query_options.inverted_index_max_expansions = limit;
+        RuntimeState runtime_state;
+        runtime_state.set_query_options(query_options);
+        auto ctx = std::make_shared<IndexQueryContext>();
+        ctx->runtime_state = &runtime_state;
+        PhrasePrefixQuery q(ctx, field, make_term_infos({"s", "ar"}), nullptr, /*suffix=*/true);
+        EXPECT_EQ(collect_docs(q.weight(false)->scorer(exec_ctx, "")), expected)
+                << "limit " << limit;
+    }
 
     _CLDECDELETE(dir);
 }

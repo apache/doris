@@ -1,0 +1,53 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <vector>
+
+#include "common/status.h"
+
+namespace doris::index_query {
+
+// One term of a chained conjunction, listed against the documents the cheaper
+// terms kept. A term reads what its listing needs when it starts.
+class ChainedPostings {
+public:
+    virtual ~ChainedPostings() = default;
+
+    // Documents holding the term; the chain lists cheaper terms first.
+    virtual uint64_t doc_freq() const = 0;
+
+    // Begins listing the term's documents that are in `candidates`, or all of its
+    // documents when `candidates` is null, reading what the listing needs in one
+    // round. The candidates stay unchanged until the listing ends.
+    virtual Status start(const std::vector<uint32_t>* candidates) = 0;
+
+    // Appends the term's documents that are in the candidates, ascending, to `out`.
+    virtual Status collect(std::vector<uint32_t>* out) = 0;
+};
+
+// Intersects terms in ascending document frequency, reading only rows that survive earlier terms.
+// The batch must start empty and remains empty; visited records the term order.
+Status chained_conjunction(std::span<ChainedPostings* const> terms,
+                           const std::vector<uint32_t>* initial_candidates,
+                           std::vector<uint32_t>* result, std::vector<size_t>* visited = nullptr);
+
+} // namespace doris::index_query

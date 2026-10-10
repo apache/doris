@@ -18,6 +18,11 @@
 #include "exprs/function/variant_inverted_index_search.h"
 
 #include <CLucene/config/repl_wchar.h>
+
+// clang-format off
+#include "exprs/function/lazy_leaf_compiler.h"
+#include "exprs/function/scalar_leaf_compiler.h"
+// clang-format on
 #include <fmt/format.h>
 #include <glog/logging.h>
 
@@ -25,7 +30,6 @@
 #include <memory>
 #include <utility>
 
-#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "exprs/function/function_search.h"
@@ -33,8 +37,8 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/inverted/inverted_index_selector.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
@@ -48,8 +52,6 @@
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/utils.h"
-#include "util/debug_points.h"
-#include "util/time.h"
 
 namespace doris {
 
@@ -243,7 +245,8 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     FieldReaderBinding resolved;
     resolved.logical_field_name = field_name;
     resolved.stored_field_name = stored_field_name;
-    resolved.stored_field_wstr = StringHelper::to_wstring(resolved.stored_field_name);
+    resolved.stored_field_wstr =
+            segment_v2::inverted_index::StringHelper::to_wstring(resolved.stored_field_name);
     resolved.column_type = column_type;
     resolved.query_type = effective_query_type;
     resolved.inverted_reader = inverted_reader;
@@ -269,7 +272,8 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     }
 
     if (inverted_reader->type() == InvertedIndexReaderType::BKD) {
-        resolved.execution_mode = SearchFieldExecutionMode::DIRECT_INDEX;
+        resolved.leaf_compiler = std::make_shared<ScalarLeafCompiler>(
+                inverted_iterator, column_type, stored_field_name);
         _cache.emplace(binding_key, resolved);
         if (is_variant_sub) {
             bool index_file_exists = false;
@@ -294,117 +298,19 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
         return Status::OK();
     }
 
-    if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
-        resolved.execution_mode = SearchFieldExecutionMode::SNII_NATIVE;
-        _cache.emplace(binding_key, resolved);
-        if (is_variant_sub) {
-            add_search_binding_diagnostic(
-                    _context,
-                    fmt::format("[VariantSearchBinding] phase=field_resolve "
-                                "result=selected_snii_native logical_field={} stored_field={} "
-                                "query_type={} effective_query_type={} index_id={} suffix={} "
-                                "reader_type={} analyzer_key={} index_file={}",
-                                field_name, stored_field_name, query_type_to_string(query_type),
-                                query_type_to_string(effective_query_type),
-                                inverted_reader->get_index_id(),
-                                inverted_reader->get_index_meta().get_index_suffix(),
-                                reader_type_to_string(inverted_reader->type()),
-                                resolved.analyzer_key,
-                                index_file_reader->get_index_file_path(
-                                        &inverted_reader->get_index_meta())));
-        }
-        *binding = resolved;
-        return Status::OK();
-    }
-
-    auto index_file_key =
-            index_file_reader->get_index_file_cache_key(&inverted_reader->get_index_meta());
-    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
-    InvertedIndexCacheHandle searcher_cache_handle;
-
-    bool searcher_cache_enabled =
-            _context->runtime_state != nullptr &&
-            _context->runtime_state->query_options().enable_inverted_index_searcher_cache;
-
-    bool cache_hit = false;
-    if (searcher_cache_enabled) {
-        int64_t lookup_dummy = 0;
-        SCOPED_RAW_TIMER(_context->stats ? &_context->stats->inverted_index_lookup_timer
-                                         : &lookup_dummy);
-        cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
-                                                                   &searcher_cache_handle);
-    }
-
-    std::shared_ptr<lucene::index::IndexReader> reader_holder;
-    if (cache_hit) {
-        if (_context->stats) {
-            _context->stats->inverted_index_searcher_cache_hit++;
-        }
-        auto searcher_variant = searcher_cache_handle.get_index_searcher();
-        auto* searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
-        if (searcher_ptr != nullptr && *searcher_ptr != nullptr) {
-            reader_holder = std::shared_ptr<lucene::index::IndexReader>(
-                    (*searcher_ptr)->getReader(), [](lucene::index::IndexReader*) {});
-        }
-    }
-
-    if (!reader_holder) {
-        if (_context->stats) {
-            _context->stats->inverted_index_searcher_cache_miss++;
-        }
-        int64_t dummy_timer = 0;
-        SCOPED_RAW_TIMER(_context->stats ? &_context->stats->inverted_index_searcher_open_timer
-                                         : &dummy_timer);
-        RETURN_IF_ERROR(
-                index_file_reader->init(config::inverted_index_read_buffer_size, _context->io_ctx));
-        auto directory = DORIS_TRY(
-                index_file_reader->open(&inverted_reader->get_index_meta(), _context->io_ctx));
-        auto index_searcher_builder = DORIS_TRY(
-                IndexSearcherBuilder::create_index_searcher_builder(inverted_reader->type()));
-        auto searcher_result =
-                DORIS_TRY(index_searcher_builder->get_index_searcher(directory.get()));
-        auto reader_size = index_searcher_builder->get_reader_size();
-
-        auto* stream = static_cast<DorisCompoundReader*>(directory.get())->getDorisIndexInput();
-        DBUG_EXECUTE_IF(
-                "FieldReaderResolver.resolve.io_ctx", ({
-                    const auto* cur_io_ctx = (const io::IOContext*)stream->getIoContext();
-                    if (cur_io_ctx->file_cache_stats) {
-                        if (cur_io_ctx->file_cache_stats != &_context->stats->file_cache_stats) {
-                            LOG(FATAL) << "search: io_ctx file_cache_stats mismatch: "
-                                       << cur_io_ctx->file_cache_stats << " vs "
-                                       << &_context->stats->file_cache_stats;
-                        }
-                    }
-                }));
-        stream->setIoContext(nullptr);
-        stream->setIndexFile(false);
-
-        auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher_result),
-                                                                       reader_size, UnixMillis());
-        InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
-                                                       &searcher_cache_handle);
-
-        auto new_variant = searcher_cache_handle.get_index_searcher();
-        auto* new_ptr = std::get_if<FulltextIndexSearcherPtr>(&new_variant);
-        if (new_ptr != nullptr && *new_ptr != nullptr) {
-            reader_holder = std::shared_ptr<lucene::index::IndexReader>(
-                    (*new_ptr)->getReader(), [](lucene::index::IndexReader*) {});
-        }
-
-        if (!reader_holder) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "failed to build IndexSearcher for field '{}'", field_name);
-        }
-    }
-
-    _searcher_cache_handles.push_back(std::move(searcher_cache_handle));
-
-    resolved.lucene_reader = reader_holder;
-    resolved.execution_mode = SearchFieldExecutionMode::CLUCENE;
-    _binding_readers[binding_key] = reader_holder;
-    _field_readers[resolved.stored_field_wstr] = reader_holder;
-    _readers.emplace_back(reader_holder);
+    // The index opens through the reader's own cache path, the one MATCH opens with, and binds
+    // the field as the engine's source.
+    std::unique_ptr<segment_v2::OpenedIndex> opened;
+    index_query::IndexSourcePtr source;
+    RETURN_IF_ERROR(
+            inverted_reader->open_source(_context, resolved.stored_field_wstr, &opened, &source));
+    _opened_indexes.push_back(std::move(opened));
+    resolved.index_source = source;
+    resolved.leaf_compiler =
+            std::make_shared<LazyLeafCompiler>(resolved.stored_field_wstr, binding_key, source);
+    _binding_sources[binding_key] = source;
+    _field_sources[resolved.stored_field_wstr] = source;
+    _sources.emplace_back(std::move(source));
     _cache.emplace(binding_key, resolved);
     if (is_variant_sub) {
         bool index_file_exists = false;
@@ -416,15 +322,13 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                         "[VariantSearchBinding] phase=field_resolve result=selected "
                         "logical_field={} stored_field={} query_type={} effective_query_type={} "
                         "index_id={} suffix={} reader_type={} analyzer_key={} "
-                        "field_pattern={} index_file_exists={} probe_status={} "
-                        "searcher_cache={} index_file={}",
+                        "field_pattern={} index_file_exists={} probe_status={} index_file={}",
                         field_name, stored_field_name, query_type_to_string(query_type),
                         query_type_to_string(effective_query_type), inverted_reader->get_index_id(),
                         inverted_reader->get_index_meta().get_index_suffix(),
                         reader_type_to_string(inverted_reader->type()), resolved.analyzer_key,
                         inverted_reader->get_index_meta().field_pattern(), index_file_exists,
                         probe_status.ok() ? "OK" : probe_status.to_string(),
-                        cache_hit ? "hit" : "miss",
                         index_file_reader->get_index_file_path(
                                 &inverted_reader->get_index_meta())));
     }
@@ -432,21 +336,35 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     return Status::OK();
 }
 
-Status FieldReaderResolver::resolve_with_analyzer_context(const std::string& field_name,
-                                                          InvertedIndexQueryType query_type,
-                                                          FieldReaderBinding* binding) {
-    RETURN_IF_ERROR(resolve(field_name, query_type, binding));
-    if (!binding->use_snii_native_reader() || binding->analyzer_context != nullptr) {
-        return Status::OK();
+FieldReaderResolver::~FieldReaderResolver() {
+    // The sources borrow the opened indexes, and each index's I/O scope restores the one it
+    // replaced, so the sources go first and the indexes latest first.
+    _cache.clear();
+    _sources.clear();
+    _binding_sources.clear();
+    _field_sources.clear();
+    while (!_opened_indexes.empty()) {
+        _opened_indexes.pop_back();
     }
+}
 
-    auto built_context =
-            build_search_analyzer_context(binding->index_properties, binding->analyzer_key);
-    if (!built_context.has_value()) {
-        return built_context.error();
+Status FieldReaderResolver::analyzer_context_for(const std::string& binding_key,
+                                                 InvertedIndexAnalyzerCtxSPtr* out) {
+    auto it = _cache.find(binding_key);
+    if (it == _cache.end()) {
+        return Status::InternalError("search: no binding '{}' to build an analyzer for",
+                                     binding_key);
     }
-    binding->analyzer_context = std::move(built_context.value());
-    _cache.at(binding->binding_key).analyzer_context = binding->analyzer_context;
+    FieldReaderBinding& binding = it->second;
+    if (binding.analyzer_context == nullptr) {
+        auto built_context =
+                build_search_analyzer_context(binding.index_properties, binding.analyzer_key);
+        if (!built_context.has_value()) {
+            return built_context.error();
+        }
+        binding.analyzer_context = std::move(built_context.value());
+    }
+    *out = binding.analyzer_context;
     return Status::OK();
 }
 
@@ -461,9 +379,9 @@ segment_v2::IndexIterator* VariantSearchNullBitmapAdapter::iterator_for(
 void populate_variant_search_binding_context(const FieldReaderResolver& resolver,
                                              query_v2::QueryExecutionContext* exec_ctx) {
     DCHECK(exec_ctx != nullptr);
-    exec_ctx->readers = resolver.readers();
-    exec_ctx->reader_bindings = resolver.reader_bindings();
-    exec_ctx->field_reader_bindings = resolver.field_readers();
+    exec_ctx->sources = resolver.sources();
+    exec_ctx->source_bindings = resolver.source_bindings();
+    exec_ctx->field_sources = resolver.field_sources();
     for (const auto& [binding_key, binding] : resolver.binding_cache()) {
         if (binding_key.empty()) {
             continue;
@@ -762,9 +680,11 @@ Status VariantNestedSearchEvaluator::evaluate(
         FieldReaderResolver& resolver;
         ~ScopedLeafMapperReset() { resolver.set_leaf_query_mapper(nullptr); }
     } mapper_reset {resolver};
+    // The elements map to their parents without scores, so the tree compiles unscored.
     RETURN_IF_ERROR(_function_search.build_query_recursive(
             nested_clause.children[0], context, resolver, &inner_query, &inner_binding_key,
-            default_operator, minimum_should_match, static_cast<uint32_t>(total_elements)));
+            default_operator, minimum_should_match, static_cast<uint32_t>(total_elements),
+            /*scoring=*/false));
     if (inner_query == nullptr) {
         return Status::OK();
     }

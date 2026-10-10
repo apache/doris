@@ -56,6 +56,10 @@
 //   abs_prx = posting_region.offset + prx_base + entry.prx_off_delta
 //
 // The reader retains no raw metadata-group bytes after open.
+namespace doris::snii::io {
+class BatchRangeFetcher;
+}
+
 namespace doris::snii::format {
 class NormsPodReader;
 }
@@ -85,6 +89,21 @@ struct NullDocidsScanMemory {
 };
 
 class LogicalIndexReader {
+    struct BatchLookupCandidate {
+        size_t term_index = 0;
+        uint32_t ordinal = 0;
+    };
+    struct BatchLookupGroup {
+        uint32_t ordinal = 0;
+        size_t begin = 0;
+        size_t end = 0;
+    };
+    struct PendingBatchLookupBlock {
+        size_t group_index = 0;
+        format::BlockRef ref;
+        size_t handle = 0;
+    };
+
 public:
     LogicalIndexReader() = default;
 
@@ -106,6 +125,10 @@ public:
     Status lookup(std::string_view term, bool* found, format::DictEntry* entry, uint64_t* frq_base,
                   uint64_t* prx_base, DictBlockCache* cache = nullptr) const;
 
+    // Whether a term may be in the dictionary, decided by the resident filter and the sampled
+    // term index alone, without any read; false means the term is absent.
+    Status may_contain(std::string_view term, bool* maybe_present) const;
+
     struct BatchLookupResult {
         bool found = false;
         format::DictEntry entry;
@@ -119,6 +142,39 @@ public:
     // Results stay aligned with `terms`; absent terms have found=false.
     Status lookup_batch(const std::vector<std::string>& terms,
                         std::vector<BatchLookupResult>* results) const;
+
+    class BatchLookupState {
+    public:
+        BatchLookupState() = default;
+        BatchLookupState(const BatchLookupState&) = delete;
+        BatchLookupState& operator=(const BatchLookupState&) = delete;
+        BatchLookupState(BatchLookupState&&) = default;
+        BatchLookupState& operator=(BatchLookupState&&) = default;
+
+        bool done() const { return next_group_ == groups_.size() && wave_ == nullptr; }
+
+    private:
+        friend class LogicalIndexReader;
+        const LogicalIndexReader* owner_ = nullptr;
+        const std::vector<std::string>* terms_ = nullptr;
+        std::vector<BatchLookupResult>* results_ = nullptr;
+        std::vector<BatchLookupCandidate> candidates_;
+        std::vector<BatchLookupGroup> groups_;
+        std::vector<PendingBatchLookupBlock> pending_;
+        size_t next_group_ = 0;
+        const io::BatchRangeFetcher* wave_ = nullptr;
+    };
+
+    // Prepares without I/O and resolves resident blocks immediately. The reader,
+    // terms and results must outlive state; terms must remain unchanged.
+    Status prepare_lookup_batch(const std::vector<std::string>& terms,
+                                std::vector<BatchLookupResult>* results,
+                                BatchLookupState* state) const;
+    // Registers the next wave without I/O. Flush the same fetcher before
+    // consuming this state, and consume every registered state before clearing it.
+    Status prepare_lookup_wave(BatchLookupState* state, io::BatchRangeFetcher* fetcher) const;
+    // Copies resolved entries into results; no result borrows the fetcher's bytes.
+    Status consume_lookup_wave(BatchLookupState* state, const io::BatchRangeFetcher& fetcher) const;
 
     // One enumerated term whose key has the requested prefix, with its DictEntry
     // and the owning DICT block's frq/prx bases (for posting resolution).
@@ -220,20 +276,6 @@ public:
 
 private:
     struct NormsCacheState;
-    struct BatchLookupCandidate {
-        size_t term_index = 0;
-        uint32_t ordinal = 0;
-    };
-    struct BatchLookupGroup {
-        uint32_t ordinal = 0;
-        size_t begin = 0;
-        size_t end = 0;
-    };
-    struct PendingBatchLookupBlock {
-        size_t group_index = 0;
-        format::BlockRef ref;
-        size_t handle = 0;
-    };
     io::FileReader* reader_ = nullptr;
     format::IndexTier tier_ = format::IndexTier::kT1;
     bool has_positions_ = false;
@@ -276,15 +318,12 @@ private:
     Status collect_batch_lookup_groups(const std::vector<std::string>& terms,
                                        std::vector<BatchLookupCandidate>* candidates,
                                        std::vector<BatchLookupGroup>* groups) const;
-    static Status resolve_batch_lookup_group(const std::vector<std::string>& terms,
-                                             const std::vector<BatchLookupCandidate>& candidates,
-                                             const BatchLookupGroup& group,
-                                             const format::DictBlockReader& block_reader,
-                                             std::vector<BatchLookupResult>* results);
-    Status lookup_batch_on_demand(const std::vector<std::string>& terms,
-                                  const std::vector<BatchLookupCandidate>& candidates,
-                                  const std::vector<BatchLookupGroup>& groups,
-                                  std::vector<BatchLookupResult>* results) const;
+    static Status resolve_batch_lookup_entries(const std::vector<std::string>& terms,
+                                               const std::vector<BatchLookupCandidate>& candidates,
+                                               const BatchLookupGroup& group,
+                                               const format::DictBlockReader& block_reader,
+                                               std::vector<BatchLookupResult>* results);
+
     std::vector<ResidentDictBlock> resident_dict_blocks_;
     std::shared_ptr<NormsCacheState> norms_cache_;
     size_t norms_reserved_charge_ = 0;

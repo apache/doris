@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <limits>
 
+#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
+
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 ScorerPtr intersection_scorer_build(std::vector<ScorerPtr> scorers, bool enable_scoring,
@@ -29,7 +31,8 @@ ScorerPtr intersection_scorer_build(std::vector<ScorerPtr> scorers, bool enable_
 
 AndScorer::AndScorer(std::vector<ScorerPtr> scorers, bool enable_scoring,
                      const NullBitmapResolver* resolver)
-        : _scorers(std::move(scorers)), _enable_scoring(enable_scoring), _resolver(resolver) {
+        : _scorers(std::move(scorers)), _enable_scoring(enable_scoring) {
+    _null_bitmap = complete_null_bitmap(_scorers, true, enable_scoring, resolver);
     if (_scorers.empty()) {
         _doc = TERMINATED;
         return;
@@ -93,36 +96,11 @@ uint32_t AndScorer::size_hint() const {
     return hint == std::numeric_limits<uint32_t>::max() ? 0 : hint;
 }
 
-bool AndScorer::has_null_bitmap(const NullBitmapResolver* resolver) {
-    if (resolver != nullptr) {
-        _resolver = resolver;
-    }
-    if (!_null_sources_checked) {
-        _null_sources_checked = true;
-        if (_resolver != nullptr) {
-            for (const auto& scorer : _scorers) {
-                if (scorer && scorer->has_null_bitmap(_resolver)) {
-                    _has_null_sources = true;
-                    break;
-                }
-            }
-        }
-    }
-    return _has_null_sources;
-}
-
-const roaring::Roaring* AndScorer::get_null_bitmap(const NullBitmapResolver* resolver) {
-    _ensure_null_bitmap(resolver);
-    return _null_bitmap.isEmpty() ? nullptr : &_null_bitmap;
-}
-
 bool AndScorer::_advance_to(uint32_t target) {
     uint32_t candidate = target;
 
     while (candidate != TERMINATED) {
         bool all_match = true;
-        bool has_null = false;
-        bool has_false = false;
         uint32_t next_candidate = std::numeric_limits<uint32_t>::max();
 
         for (auto& scorer : _scorers) {
@@ -136,17 +114,6 @@ bool AndScorer::_advance_to(uint32_t target) {
             }
             if (doc > candidate) {
                 next_candidate = std::min(next_candidate, doc);
-                const roaring::Roaring* null_bitmap = nullptr;
-                if (_resolver != nullptr) {
-                    if (scorer->has_null_bitmap(_resolver)) {
-                        null_bitmap = scorer->get_null_bitmap(_resolver);
-                    }
-                }
-                if (null_bitmap != nullptr && null_bitmap->contains(candidate)) {
-                    has_null = true;
-                } else {
-                    has_false = true;
-                }
                 all_match = false;
             }
         }
@@ -159,17 +126,7 @@ bool AndScorer::_advance_to(uint32_t target) {
                     _current_score += scorer->score();
                 }
             }
-            _true_bitmap.add(_doc);
-            if (_possible_null.contains(_doc)) {
-                _possible_null.remove(_doc);
-            }
             return true;
-        }
-
-        if (!has_false && has_null) {
-            _possible_null.add(candidate);
-        } else if (has_false) {
-            _false_bitmap.add(candidate);
         }
 
         if (next_candidate == std::numeric_limits<uint32_t>::max()) {
@@ -182,35 +139,11 @@ bool AndScorer::_advance_to(uint32_t target) {
     return false;
 }
 
-void AndScorer::_ensure_null_bitmap(const NullBitmapResolver* resolver) {
-    if (resolver != nullptr) {
-        _resolver = resolver;
-    }
-    if (!_null_sources_checked) {
-        _null_sources_checked = true;
-        if (_resolver != nullptr) {
-            for (const auto& scorer : _scorers) {
-                if (scorer && scorer->has_null_bitmap(_resolver)) {
-                    _has_null_sources = true;
-                    break;
-                }
-            }
-        }
-    }
-    if (!_has_null_sources || _null_ready) {
-        return;
-    }
-    _null_bitmap = _possible_null;
-    _null_bitmap -= _false_bitmap;
-    _null_bitmap -= _true_bitmap;
-    _null_ready = true;
-}
-
 AndNotScorer::AndNotScorer(ScorerPtr include, std::vector<ScorerPtr> excludes,
                            const NullBitmapResolver* resolver)
-        : _include(std::move(include)), _resolver(resolver) {
-    if (_include && _resolver != nullptr && _include->has_null_bitmap(_resolver)) {
-        const auto* null_bitmap = _include->get_null_bitmap(_resolver);
+        : _include(std::move(include)) {
+    if (_include && _include->has_null_bitmap(resolver)) {
+        const auto* null_bitmap = _include->get_null_bitmap(resolver);
         if (null_bitmap != nullptr) {
             _null_bitmap |= *null_bitmap;
         }
@@ -224,12 +157,19 @@ AndNotScorer::AndNotScorer(ScorerPtr include, std::vector<ScorerPtr> excludes,
             _exclude_true.add(scorer->doc());
             scorer->advance();
         }
-        if (_resolver != nullptr && scorer->has_null_bitmap(_resolver)) {
-            const auto* null_bitmap = scorer->get_null_bitmap(_resolver);
+        if (scorer->has_null_bitmap(resolver)) {
+            const auto* null_bitmap = scorer->get_null_bitmap(resolver);
             if (null_bitmap != nullptr) {
                 _exclude_null |= *null_bitmap;
             }
         }
+    }
+
+    _exclude_null -= _exclude_true;
+    _null_bitmap -= _exclude_true;
+    if (_include != nullptr && !_exclude_null.isEmpty()) {
+        _include = materialize_scorer(std::move(_include), true, resolver);
+        _null_bitmap |= *_include->get_true_bitmap() & _exclude_null;
     }
 
     if (_include == nullptr || _include->doc() == TERMINATED) {
@@ -300,17 +240,12 @@ bool AndNotScorer::_advance_to(uint32_t target) {
         }
 
         if (in_exclude_null) {
-            _null_bitmap.add(doc);
             current = doc + 1;
             continue;
         }
 
-        if (_null_bitmap.contains(doc)) {
-            _null_bitmap.remove(doc);
-        }
         _doc = doc;
         _current_score = _include->score();
-        _true_bitmap.add(_doc);
         return true;
     }
 

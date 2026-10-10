@@ -325,6 +325,27 @@ Result<ScoringIndexCandidates> resolve_search_scoring_index_candidates(
     return resolve_text_scoring_index_candidates(tablet_schema, dynamic_column);
 }
 
+// The terms a SEARCH leaf scores: MATCH's value as given, a tokenized clause's value and a TERM's
+// cut by the index's analyzer when it has one, and any other value as given; none for a clause
+// of neither kind.
+Result<std::vector<TermInfo>> leaf_scoring_terms(
+        const std::string& clause_type, bool tokenized, bool non_tokenized,
+        const std::string& value, const std::optional<InvertedIndexAnalyzerCtx>& analyzer_ctx) {
+    std::vector<TermInfo> terms;
+    if (clause_type == "MATCH") {
+        terms.emplace_back(value);
+        return terms;
+    }
+    const bool analyzed = tokenized || (non_tokenized && clause_type == "TERM");
+    if (analyzed && analyzer_ctx.has_value()) {
+        return analyze_plain_query(value, *analyzer_ctx);
+    }
+    if (tokenized || non_tokenized) {
+        terms.emplace_back(value);
+    }
+    return terms;
+}
+
 } // namespace
 
 VSlotRef* PredicateCollector::find_slot_ref(const VExprSPtr& expr) const {
@@ -407,7 +428,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     const auto* index_meta = DORIS_TRY(
             select_index_meta(candidates.index_metas, candidates.field_type, query_type,
                               analyzer_ctx->analyzer_key, analyzer_ctx->legacy_analyzer_key));
-    if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
+    if (!inverted_index::InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
         !IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
         return Status::OK();
     }
@@ -422,7 +443,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
 
     std::string field_name =
             build_field_name(index_meta->col_unique_ids()[0], candidates.index_suffix_path);
-    std::wstring ws_field_name = StringHelper::to_wstring(field_name);
+    std::wstring ws_field_name = inverted_index::StringHelper::to_wstring(field_name);
 
     auto iter = collect_infos->find(ws_field_name);
     if (iter == collect_infos->end()) {
@@ -542,35 +563,18 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
 
     const auto& analysis_properties = index_meta->properties();
 
-    std::vector<TermInfo> term_infos;
     std::optional<InvertedIndexAnalyzerCtx> analyzer_ctx;
-    if (InvertedIndexAnalyzer::should_analyzer(analysis_properties)) {
-        auto built_ctx = analyzer_context_from_properties(analysis_properties);
-        if (!built_ctx.has_value()) {
-            return built_ctx.error();
-        }
-        analyzer_ctx.emplace(std::move(built_ctx.value()));
+    if (inverted_index::InvertedIndexAnalyzer::should_analyzer(analysis_properties)) {
+        auto built_ctx = DORIS_TRY(analyzer_context_from_properties(analysis_properties));
+        analyzer_ctx.emplace(std::move(built_ctx));
     }
-
-    if (clause_type == "MATCH") {
-        term_infos.emplace_back(value);
-    } else if (category == ClauseTypeCategory::TOKENIZED) {
-        if (analyzer_ctx.has_value()) {
-            term_infos = DORIS_TRY(analyze_plain_query(value, *analyzer_ctx));
-        } else {
-            term_infos.emplace_back(value);
-        }
-    } else if (category == ClauseTypeCategory::NON_TOKENIZED) {
-        if (clause_type == "TERM" && analyzer_ctx.has_value()) {
-            term_infos = DORIS_TRY(analyze_plain_query(value, *analyzer_ctx));
-        } else {
-            term_infos.emplace_back(value);
-        }
-    }
+    auto term_infos = DORIS_TRY(
+            leaf_scoring_terms(clause_type, category == ClauseTypeCategory::TOKENIZED,
+                               category == ClauseTypeCategory::NON_TOKENIZED, value, analyzer_ctx));
 
     std::string lucene_field_name =
             build_field_name(index_meta->col_unique_ids()[0], candidates.index_suffix_path);
-    std::wstring ws_field_name = StringHelper::to_wstring(lucene_field_name);
+    std::wstring ws_field_name = inverted_index::StringHelper::to_wstring(lucene_field_name);
 
     auto iter = collect_infos->find(ws_field_name);
     if (iter == collect_infos->end()) {

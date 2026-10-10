@@ -93,7 +93,7 @@ Status MeteredFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8
 }
 
 Status MeteredFileReader::read_batch(const std::vector<Range>& ranges,
-                                     std::vector<std::vector<uint8_t>>* outs) {
+                                     index_query::IoReadResult* outs) {
     if (outs == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("metered: null batch out");
     for (const Range& r : ranges) {

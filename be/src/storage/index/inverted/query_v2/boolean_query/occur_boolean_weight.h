@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <roaring/roaring.hh>
-
 #include "storage/index/inverted/query_v2/boolean_query/occur.h"
 #include "storage/index/inverted/query_v2/score_combiner.h"
 #include "storage/index/inverted/query_v2/scorer.h"
@@ -63,7 +61,8 @@ public:
 private:
     std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(
             const QueryExecutionContext& context, const std::string& binding_key = {});
-    AllAndEmptyScorerCounts remove_and_count_all_and_empty_scorers(std::vector<ScorerPtr>& scorers);
+    AllAndEmptyScorerCounts remove_and_count_all_and_empty_scorers(std::vector<ScorerPtr>& scorers,
+                                                                   bool preserve_all = false);
 
     template <typename CombinerT>
     SpecializedScorer complex_scorer(const QueryExecutionContext& context, CombinerT combiner,
@@ -97,9 +96,7 @@ private:
     template <typename CombinerT>
     ScorerPtr into_box_scorer(SpecializedScorer&& specialized, CombinerT combiner);
 
-    ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers,
-                                const NullBitmapResolver* resolver,
-                                roaring::Roaring& exclude_null_out);
+    ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers);
 
     std::vector<std::pair<Occur, WeightPtr>> _sub_weights;
     std::vector<std::string> _binding_keys;

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
-
 #include <optional>
 #include <roaring/roaring.hh>
 
@@ -26,14 +24,14 @@
 #include "storage/index/inverted/query_v2/null_bitmap_fetcher.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
-#include "storage/index/inverted/similarity/similarity.h"
+#include "storage/index/query/spi/scoring_context.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 class TermScorer final : public Scorer {
 public:
-    TermScorer(SegmentPostingsPtr segment_postings, SimilarityPtr similarity,
-               std::string logical_field = {})
+    TermScorer(SegmentPostingsPtr segment_postings,
+               index_query::ScoringContextPtr<float> similarity, std::string logical_field = {})
             : _segment_postings(std::move(segment_postings)),
               _similarity(std::move(similarity)),
               _logical_field(std::move(logical_field)) {}
@@ -52,6 +50,13 @@ public:
 
     float score() override { return _similarity->score(freq(), norm()); }
 
+    index_query::BlockDocSet& postings_doc_set() { return _segment_postings->doc_set(); }
+
+    float score_for_posting(uint32_t frequency, uint32_t encoded_norm) {
+        return _segment_postings->scoring_enabled() ? _similarity->score(frequency, encoded_norm)
+                                                    : _similarity->score(1.0F, 1);
+    }
+
     bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
         _ensure_null_bitmap(resolver);
         return _null_bitmap.has_value() && !_null_bitmap->isEmpty();
@@ -69,7 +74,6 @@ private:
         }
 
         if (resolver == nullptr || _logical_field.empty()) {
-            LOG(WARNING) << "TermScorer: Null bitmap resolver or logical field is empty";
             return;
         }
 
@@ -82,7 +86,7 @@ private:
     }
 
     SegmentPostingsPtr _segment_postings;
-    SimilarityPtr _similarity;
+    index_query::ScoringContextPtr<float> _similarity;
     std::string _logical_field;
     bool _null_bitmap_checked = false;
     std::optional<roaring::Roaring> _null_bitmap;

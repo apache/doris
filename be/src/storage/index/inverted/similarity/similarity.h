@@ -21,21 +21,19 @@
 #include <memory>
 
 #include "storage/index/index_query_context.h"
+#include "storage/index/query/spi/scoring_context.h"
 
 namespace doris::segment_v2 {
 
-class Similarity {
+class Similarity : public index_query::ScoringContext<float> {
 public:
     Similarity() = default;
-    virtual ~Similarity() = default;
+    ~Similarity() override = default;
 
     virtual void for_one_term(const IndexQueryContextPtr& context, const std::wstring& field_name,
                               const std::wstring& term) = 0;
     virtual void for_terms(const IndexQueryContextPtr& context, const std::wstring& field_name,
                            const std::vector<std::wstring>& terms) = 0;
-
-    virtual float score(float freq, int64_t encoded_norm) = 0;
-    virtual float max_score() = 0;
 };
 using SimilarityPtr = std::shared_ptr<Similarity>;
 

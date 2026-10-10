@@ -101,8 +101,8 @@ Token* IKTokenizer::next(Token* token) {
     size_t published_size = token_data.text.size();
     size_t published_runes = current_source_byte_offsets_.size();
     if (published_size > static_cast<size_t>(LUCENE_MAX_WORD_LEN)) {
-        std::tie(published_size, published_runes) =
-                utf8_prefix_at_most(token_data.text, static_cast<size_t>(LUCENE_MAX_WORD_LEN));
+        std::tie(published_size, published_runes) = inverted_index::utf8_prefix_at_most(
+                token_data.text, static_cast<size_t>(LUCENE_MAX_WORD_LEN));
     }
     set(token, std::string_view(token_data.text.data(), published_size));
     token->setStartOffset(corrected_start);

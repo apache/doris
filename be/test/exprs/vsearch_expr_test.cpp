@@ -1553,29 +1553,6 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexRejectsSearchFallback) {
         EXPECT_NE(status.to_string().find("No inverted index found for analyzer"),
                   std::string::npos);
     }
-
-    // A SNII sub-case used to live here: a TERM clause against a binding whose IndexFileReader
-    // reported SNII storage format, asserting the old hard refusal ("supports only WILDCARD").
-    // That refusal was removed -- SNII SEARCH now forwards every clause type to the reader as a
-    // query type (see FunctionSearch::build_leaf_query's SNII branch) -- so the assertion no
-    // longer holds. It is not being replaced with a corrected assertion here, because the mock
-    // combination it used was never reachable in production to begin with: it paired a SNII-
-    // format IndexFileReader with a segment_v2::FullTextIndexReader (a CLucene reader). In real
-    // code the two are set atomically at the single production construction site
-    // (ColumnReader::_load_index, storage/segment/column_reader.cpp:727-743): that function
-    // returns as soon as it sees SNII storage format, having constructed only a SniiIndexReader
-    // or SniiBkdIndexReader; a FullTextIndexReader is built exclusively in the mutually
-    // exclusive non-SNII branch below it. So "use_snii_native_reader() true with a CLucene
-    // reader bound" cannot occur outside a hand-built test double. Forwarding coverage for SNII
-    // TERM clauses (EQUAL_QUERY, default_operator "and" -> MATCH_ALL_QUERY, and the explicit
-    // minimum_should_match refusal) lives in FunctionSearchTest
-    // (TestSniiNativeForwardsTermClauseAsEqualQuery and friends,
-    // be/test/exprs/function/function_search_test.cpp), which uses a reader double shaped like
-    // the real SNII reader instead of a mismatched CLucene one.
 }
-
-// Note: Full testing with actual IndexExecContext and real iterators
-// would require complex setup and is better suited for integration tests
-// The tests above cover the main execution paths in evaluate_inverted_index
 
 } // namespace doris

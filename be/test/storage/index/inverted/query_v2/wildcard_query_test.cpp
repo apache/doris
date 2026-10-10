@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/query_v2/wildcard_query/wildcard_query.h"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -28,7 +26,8 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/query_v2/wildcard_query/wildcard_weight.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(search)
@@ -124,7 +123,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_construction) {
     std::string pattern = "app*";
 
     // Test query construction
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     ASSERT_NE(query, nullptr);
 
     // Test weight creation without scoring
@@ -132,7 +132,7 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_construction) {
     ASSERT_NE(weight, nullptr);
 
     // Verify weight is of correct type
-    auto wildcard_weight = std::dynamic_pointer_cast<query_v2::WildcardWeight>(weight);
+    auto wildcard_weight = std::dynamic_pointer_cast<query_v2::ExpandWeight>(weight);
     ASSERT_NE(wildcard_weight, nullptr);
 }
 
@@ -145,14 +145,15 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_scoring) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "test*";
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     ASSERT_NE(query, nullptr);
 
     // Test weight creation with scoring enabled
     auto weight = query->weight(true);
     ASSERT_NE(weight, nullptr);
 
-    auto wildcard_weight = std::dynamic_pointer_cast<query_v2::WildcardWeight>(weight);
+    auto wildcard_weight = std::dynamic_pointer_cast<query_v2::ExpandWeight>(weight);
     ASSERT_NE(wildcard_weight, nullptr);
 }
 
@@ -169,13 +170,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_prefix_pattern) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "app*"; // Match apple, application, apply, apricot
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -206,13 +208,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_suffix_pattern) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "*log"; // Match catalog, dog, etc.
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -242,13 +245,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_middle_pattern) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "c*d"; // Match card, cardboard
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -278,13 +282,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_multiple_asterisks) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "*t*t*"; // Match terms with multiple 't's
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -314,13 +319,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_exact_match) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "apple"; // Exact match
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -350,13 +356,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_no_matches) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "xyz*abc"; // Non-existent pattern
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -386,16 +393,17 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_binding_key) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "ban*";
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
 
     std::string binding_key = "field#0";
-    exec_ctx.reader_bindings[binding_key] = reader_holder;
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.source_bindings[binding_key] = clucene_index_source(reader_holder, field, nullptr);
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx, binding_key);
     ASSERT_NE(scorer, nullptr);
@@ -422,7 +430,8 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_destructor) {
     std::string pattern = "test*";
 
     {
-        auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+        auto query = std::make_shared<query_v2::ExpandQuery>(
+                context, field, index_query::TermPatternKind::kWildcard, pattern);
         auto weight = query->weight(false);
         ASSERT_NE(weight, nullptr);
         // Query and weight will be destroyed at scope exit
@@ -445,13 +454,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_special_characters) {
     // Test with numbers
     std::string pattern = "*123*";
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -481,13 +491,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_all_asterisk) {
     std::wstring field = StringHelper::to_wstring("field");
     std::string pattern = "*"; // Match everything
 
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -515,12 +526,14 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_move_semantics) {
     std::string pattern = "test*";
 
     // Create query and immediately call weight() to test move semantics
-    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight1 = query->weight(false);
     ASSERT_NE(weight1, nullptr);
 
     // Create another query to verify weight can be called with scoring
-    auto query2 = std::make_shared<query_v2::WildcardQuery>(context, field, pattern);
+    auto query2 = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight2 = query2->weight(true);
     ASSERT_NE(weight2, nullptr);
 }

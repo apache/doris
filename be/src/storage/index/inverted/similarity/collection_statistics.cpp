@@ -136,7 +136,7 @@ Status CollectionStatistics::collect_full_collection(
         oss << ", total_num_docs=" << _total_num_docs;
 
         for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
-            oss << ", {field=" << StringHelper::to_string(ws_field_name)
+            oss << ", {field=" << segment_v2::inverted_index::StringHelper::to_string(ws_field_name)
                 << ", num_tokens=" << num_tokens << ", terms=[";
 
             auto field_term_doc_freqs = _term_doc_freqs.find(ws_field_name);
@@ -144,7 +144,8 @@ Status CollectionStatistics::collect_full_collection(
                 bool first_term = true;
                 for (const auto& [term, doc_freq] : field_term_doc_freqs->second) {
                     if (!first_term) oss << ", ";
-                    oss << "(" << StringHelper::to_string(term) << ":" << doc_freq << ")";
+                    oss << "(" << segment_v2::inverted_index::StringHelper::to_string(term) << ":"
+                        << doc_freq << ")";
                     first_term = false;
                 }
             }
@@ -328,7 +329,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     "BM25 scoring requires norms, but segment {} was written without norms for "
                     "field {}. Norms are left out when the index sets \"norms\" = \"false\" or, "
                     "for a variant path, when inverted_index_skip_norms_for_variant is on",
-                    seg_path, StringHelper::to_string(ws_field_name));
+                    seg_path, segment_v2::inverted_index::StringHelper::to_string(ws_field_name));
         }
         _total_num_tokens[ws_field_name] += token_count.value_or(0);
 
@@ -400,14 +401,14 @@ uint64_t CollectionStatistics::get_term_doc_freq_by_col(const std::wstring& luce
     if (field == _term_doc_freqs.end()) {
         throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
                         "Index statistics collection failed: Not such column {}",
-                        StringHelper::to_string(lucene_col_name));
+                        segment_v2::inverted_index::StringHelper::to_string(lucene_col_name));
     }
 
     const auto term_frequency = field->second.find(term);
     if (term_frequency == field->second.end()) {
         throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
                         "Index statistics collection failed: Not such term {}",
-                        StringHelper::to_string(term));
+                        segment_v2::inverted_index::StringHelper::to_string(term));
     }
 
     return term_frequency->second;
@@ -418,7 +419,7 @@ uint64_t CollectionStatistics::get_total_term_cnt_by_col(const std::wstring& luc
     if (token_count == _total_num_tokens.end()) {
         throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
                         "Index statistics collection failed: Not such column {}",
-                        StringHelper::to_string(lucene_col_name));
+                        segment_v2::inverted_index::StringHelper::to_string(lucene_col_name));
     }
 
     return token_count->second;

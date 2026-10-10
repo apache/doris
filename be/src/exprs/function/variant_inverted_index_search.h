@@ -40,6 +40,7 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/query_v2/weight.h"
+#include "storage/index/query/spi/index_source.h"
 #include "storage/olap_common.h"
 #include "storage/segment/column_reader.h"
 
@@ -59,6 +60,7 @@ using namespace doris::segment_v2;
 
 class FunctionSearch;
 class IndexExecContext;
+class SearchLeafCompiler;
 
 using SearchLeafQueryMapper = std::function<Status(
         const std::string&, std::shared_ptr<segment_v2::inverted_index::query_v2::Query>*)>;
@@ -68,13 +70,6 @@ enum class SearchFieldBindingState {
     MISSING_IN_SEGMENT,
 };
 
-enum class SearchFieldExecutionMode {
-    UNBOUND,
-    CLUCENE,
-    DIRECT_INDEX,
-    SNII_NATIVE,
-};
-
 struct FieldReaderBinding {
     std::string logical_field_name;
     std::string stored_field_name;
@@ -82,23 +77,18 @@ struct FieldReaderBinding {
     DataTypePtr column_type;
     InvertedIndexQueryType query_type;
     InvertedIndexReaderPtr inverted_reader;
-    std::shared_ptr<lucene::index::IndexReader> lucene_reader;
+    index_query::IndexSourcePtr index_source;
     std::map<std::string, std::string> index_properties;
     std::string binding_key;
     std::string analyzer_key;
     InvertedIndexAnalyzerCtxSPtr analyzer_context;
     SearchFieldBindingState state = SearchFieldBindingState::MISSING_IN_SEGMENT;
-    SearchFieldExecutionMode execution_mode = SearchFieldExecutionMode::UNBOUND;
+    // Compiles a lowered leaf on the index this binding selected; null when unbound.
+    std::shared_ptr<SearchLeafCompiler> leaf_compiler;
 
     bool is_bound() const {
         return state == SearchFieldBindingState::BOUND || inverted_reader != nullptr ||
-               lucene_reader != nullptr;
-    }
-    bool use_direct_index_reader() const {
-        return is_bound() && execution_mode == SearchFieldExecutionMode::DIRECT_INDEX;
-    }
-    bool use_snii_native_reader() const {
-        return is_bound() && execution_mode == SearchFieldExecutionMode::SNII_NATIVE;
+               index_source != nullptr;
     }
 };
 
@@ -114,34 +104,37 @@ public:
             const std::unordered_map<std::string, IndexIterator*>& iterators,
             std::shared_ptr<IndexQueryContext> context,
             const std::vector<TSearchFieldBinding>& field_bindings = {});
+    ~FieldReaderResolver();
 
     Status resolve(const std::string& field_name, InvertedIndexQueryType query_type,
                    FieldReaderBinding* binding);
 
-    Status resolve_with_analyzer_context(const std::string& field_name,
-                                         InvertedIndexQueryType query_type,
-                                         FieldReaderBinding* binding);
+    // The analyzer context of a bound field, built on first use so a field that is
+    // only pattern-matched never builds one.
+    Status analyzer_context_for(const std::string& binding_key, InvertedIndexAnalyzerCtxSPtr* out);
 
     bool is_variant_subcolumn(const std::string& field_name) const {
         return _variant_subcolumn_fields.count(field_name) > 0;
     }
 
-    const std::vector<std::shared_ptr<lucene::index::IndexReader>>& readers() const {
-        return _readers;
+    const std::vector<index_query::IndexSourcePtr>& sources() const { return _sources; }
+
+    const std::unordered_map<std::string, index_query::IndexSourcePtr>& source_bindings() const {
+        return _binding_sources;
     }
 
-    const std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>>&
-    reader_bindings() const {
-        return _binding_readers;
-    }
-
-    const std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>&
-    field_readers() const {
-        return _field_readers;
+    const std::unordered_map<std::wstring, index_query::IndexSourcePtr>& field_sources() const {
+        return _field_sources;
     }
 
     const std::unordered_map<std::string, FieldReaderBinding>& binding_cache() const {
         return _cache;
+    }
+
+    // The binding a resolve() call produced for `binding_key`; nullptr if none did.
+    const FieldReaderBinding* find_binding(const std::string& binding_key) const {
+        auto it = _cache.find(binding_key);
+        return it == _cache.end() ? nullptr : &it->second;
     }
 
     IndexIterator* get_iterator(const std::string& field_name) const {
@@ -175,10 +168,11 @@ private:
     std::unordered_map<std::string, const TSearchFieldBinding*> _field_binding_map;
     std::unordered_set<std::string> _variant_subcolumn_fields;
     std::unordered_map<std::string, FieldReaderBinding> _cache;
-    std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;
-    std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> _binding_readers;
-    std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>> _field_readers;
-    std::vector<segment_v2::InvertedIndexCacheHandle> _searcher_cache_handles;
+    std::vector<index_query::IndexSourcePtr> _sources;
+    std::unordered_map<std::string, index_query::IndexSourcePtr> _binding_sources;
+    std::unordered_map<std::wstring, index_query::IndexSourcePtr> _field_sources;
+    // The indexes the sources read, closed after them and latest first.
+    std::vector<std::unique_ptr<segment_v2::OpenedIndex>> _opened_indexes;
     SearchLeafQueryMapper _leaf_query_mapper;
 };
 

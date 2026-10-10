@@ -369,7 +369,6 @@ Status OlapScanLocalState::_init_profile() {
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
     _snii_prx_profile_counters.initialize(_index_filter_profile.get());
-    _snii_phrase_profile_counters.initialize(_index_filter_profile.get());
     /*
     SegmentIterator:
         - AnnIndexLoadCosts: 102.262us

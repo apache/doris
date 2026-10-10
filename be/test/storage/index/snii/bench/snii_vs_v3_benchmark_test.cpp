@@ -336,16 +336,7 @@ private:
         snii.prx_selected_docs += a.prx_selected_docs - b.prx_selected_docs;
         snii.prx_total_positions += a.prx_total_positions - b.prx_total_positions;
         snii.prx_selected_positions += a.prx_selected_positions - b.prx_selected_positions;
-        snii.prx_fetch_ns += a.prx_fetch_ns - b.prx_fetch_ns;
         snii.prx_decode_ns += a.prx_decode_ns - b.prx_decode_ns;
-        snii.prx_phrase_verify_ns += a.prx_phrase_verify_ns - b.prx_phrase_verify_ns;
-        snii.phrase_candidate_docs += a.phrase_candidate_docs - b.phrase_candidate_docs;
-        snii.phrase_candidate_visits += a.phrase_candidate_visits - b.phrase_candidate_visits;
-        snii.prx_streaming_frames += a.prx_streaming_frames - b.prx_streaming_frames;
-        snii.phrase_prefix_leading_candidate_docs +=
-                a.phrase_prefix_leading_candidate_docs - b.phrase_prefix_leading_candidate_docs;
-        snii.phrase_prefix_tail_candidate_visits +=
-                a.phrase_prefix_tail_candidate_visits - b.phrase_prefix_tail_candidate_visits;
     }
 };
 
@@ -1844,8 +1835,7 @@ protected:
         // be a comparison, so this block is SNII-only and says so.
         int64_t any = 0;
         for (const auto& p : snii) {
-            any += p.snii.prx_fetch_ns + p.snii.prx_decode_ns + p.snii.prx_total_docs +
-                   p.snii.phrase_candidate_docs;
+            any += p.snii.prx_decode_ns + p.snii.prx_total_docs;
         }
         if (any == 0) {
             std::cout << "\n(SNII " << phase
@@ -1856,24 +1846,18 @@ protected:
         }
         std::cout << "\nSNII " << phase << " internals (V3 has no equivalent):" << std::endl;
         std::cout << std::left << std::setw(14) << "case" << std::setw(9) << "col" << std::right
-                  << std::setw(10) << "fetchms" << std::setw(10) << "decodms" << std::setw(10)
-                  << "verifms" << std::setw(12) << "docs_tot" << std::setw(12) << "docs_sel"
-                  << std::setw(12) << "pos_tot" << std::setw(12) << "pos_sel" << std::setw(10)
-                  << "str_frm" << std::setw(10) << "cand_dc" << std::setw(10) << "cg_gram"
+                  << std::setw(10) << "decodms" << std::setw(12) << "docs_tot" << std::setw(12)
+                  << "docs_sel" << std::setw(12) << "pos_tot" << std::setw(12) << "pos_sel"
                   << std::endl;
         for (size_t i = 0; i < kQueryCases.size(); ++i) {
             const snii::SniiQueryStats& s = snii[i].snii;
             std::cout << std::left << std::setw(14) << kQueryCases[i].label << std::setw(9)
                       << _column_label(kQueryCases[i].column) << std::right << std::fixed
-                      << std::setprecision(2) << std::setw(10) << ms(s.prx_fetch_ns, snii_n)
-                      << std::setw(10) << ms(s.prx_decode_ns, snii_n) << std::setw(10)
-                      << ms(s.prx_phrase_verify_ns, snii_n) << std::setprecision(0) << std::setw(12)
-                      << per(s.prx_total_docs, snii_n) << std::setw(12)
-                      << per(s.prx_selected_docs, snii_n) << std::setw(12)
+                      << std::setprecision(2) << std::setw(10) << ms(s.prx_decode_ns, snii_n)
+                      << std::setprecision(0) << std::setw(12) << per(s.prx_total_docs, snii_n)
+                      << std::setw(12) << per(s.prx_selected_docs, snii_n) << std::setw(12)
                       << per(s.prx_total_positions, snii_n) << std::setw(12)
-                      << per(s.prx_selected_positions, snii_n) << std::setw(10)
-                      << per(s.prx_streaming_frames, snii_n) << std::setw(10)
-                      << per(s.phrase_candidate_docs, snii_n) << std::endl;
+                      << per(s.prx_selected_positions, snii_n) << std::endl;
         }
     }
 

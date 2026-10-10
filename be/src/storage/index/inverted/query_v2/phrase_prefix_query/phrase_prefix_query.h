@@ -20,18 +20,23 @@
 #include "common/exception.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/query/query_info.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_weight.h"
 #include "storage/index/inverted/query_v2/phrase_prefix_query/phrase_prefix_weight.h"
-#include "storage/index/inverted/query_v2/prefix_query/prefix_query.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
+#include "storage/index/inverted/util/string_helper.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 class PhrasePrefixQuery : public Query {
 public:
     PhrasePrefixQuery(IndexQueryContextPtr context, std::wstring field,
-                      const std::vector<TermInfo>& terms)
-            : _context(std::move(context)), _field(std::move(field)) {
+                      const std::vector<TermInfo>& terms,
+                      const roaring::Roaring* candidates = nullptr, bool suffix = false)
+            : _context(std::move(context)),
+              _field(std::move(field)),
+              _candidates(candidates),
+              _suffix(suffix) {
         std::vector<std::pair<size_t, std::string>> terms_with_offset;
         for (size_t i = 0; i < terms.size(); ++i) {
             terms_with_offset.emplace_back(i, terms[i].get_single_term());
@@ -56,8 +61,9 @@ public:
         }
 
         // Only prefix term, no phrase terms — fall back to a plain prefix query.
-        PrefixQuery prefix_query(_context, std::move(_field), std::move(_prefix.value().second));
-        return prefix_query.weight(enable_scoring);
+        return std::make_shared<ExpandWeight>(_context, std::move(_field),
+                                              index_query::TermPatternKind::kPrefix,
+                                              std::move(_prefix.value().second));
     }
 
 private:
@@ -77,15 +83,22 @@ private:
         }
 
         return std::make_shared<PhrasePrefixWeight>(
-                _context, std::move(_field), std::move(_phrase_terms), std::move(_prefix.value()),
-                std::move(bm25_similarity), enable_scoring, _max_expansions, _nullable);
+                std::move(_field), std::move(_phrase_terms), std::move(_prefix.value()),
+                std::move(bm25_similarity), enable_scoring, index_query::max_expansions(*_context),
+                index_query::PhraseQueryOptions {
+                        .candidates = _candidates,
+                        .candidate_rows_consumed = _candidates == nullptr
+                                                           ? nullptr
+                                                           : &_context->candidate_rows_consumed},
+                _suffix, _nullable);
     }
 
     IndexQueryContextPtr _context;
     std::wstring _field;
     std::vector<std::pair<size_t, std::string>> _phrase_terms;
     std::optional<std::pair<size_t, std::string>> _prefix;
-    int32_t _max_expansions = 50;
+    const roaring::Roaring* _candidates = nullptr;
+    bool _suffix = false;
     bool _nullable = true;
 };
 

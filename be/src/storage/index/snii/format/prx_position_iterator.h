@@ -37,6 +37,8 @@ public:
     Status seek(uint32_t doc_ordinal);
     [[nodiscard]] uint32_t freq() const { return frequency_; }
     Status next_position(uint32_t* position, bool* available);
+    // The open document's next positions, filling `out` unless fewer are left.
+    Status next_positions(std::span<uint32_t> out, size_t* count);
     Status finish_doc();
     Status finish_frame();
 
@@ -44,12 +46,12 @@ private:
     void reset_state(PrxDecodeContext* context);
     Status initialize_frame(Slice framed_window, uint32_t expected_doc_count,
                             std::span<const uint32_t> selected_doc_ordinals);
-    Status read_frequency(uint32_t* frequency);
-    Status skip_positions(uint32_t count);
+    Status read_to_doc(uint32_t doc_ordinal);
     Status decode_pfor_counts(uint32_t declared_total_positions);
     Status advance_pfor_cursor(uint32_t target, bool decode_partial_run, bool require_position);
     Status decode_pfor_run(uint32_t run_begin, uint32_t run_length);
     Status skip_pfor_run(uint32_t run_length);
+    Status next_pfor_positions(std::span<uint32_t> out, size_t* count);
     Status fail(Status status);
 
     std::vector<uint8_t> decompressed_;

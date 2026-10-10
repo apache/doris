@@ -31,10 +31,9 @@
 #include "common/status.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
-#include "storage/index/snii/query/regexp_query.h"
-#include "storage/index/snii/query/wildcard_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 
@@ -325,6 +324,41 @@ TEST(SniiPatternQuery, WideWildcardUsesPrefixEnumerationWithoutPerTermLookup) {
                            [](std::string_view term) { return WildcardMatch("aa_*", term); }));
     EXPECT_LT(metered.metrics().read_at_calls, corpus.doc_count / 3)
             << "wildcard_query must reuse enumerated entries, not lookup every term again";
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPatternQuery, RegexpWithAnOptionalFirstCharacterFindsEveryMatchingTerm) {
+    Corpus corpus;
+    corpus.doc_count = 4;
+    corpus.docs = {{"ab"}, {"b"}, {"bc"}, {"ca"}};
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    // Matching terms start with "a" or "b", so no enumeration prefix bounds them.
+    std::vector<uint32_t> got;
+    ASSERT_TRUE(query::regexp_query(idx, "^a?b", &got).ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {0, 1, 2}));
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPatternQuery, RegexpRejectsABoundedRepeatHyperscanRunsSlowly) {
+    const Corpus corpus = BuildRegexpParityCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    std::vector<uint32_t> got;
+    const doris::Status status = query::regexp_query(idx, "(ab?c?d){1000,5000}", &got);
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVALID_ARGUMENT>()) << status;
 
     std::remove(path.c_str());
 }

@@ -1470,7 +1470,8 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.host"));
+    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".v.host"));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     EXPECT_EQ(it->second.index_meta->index_name(), "variant_subcolumn_idx");
@@ -1539,7 +1540,8 @@ TEST_F(CollectionStatisticsTest, MatchScoringUsesTextSemanticsForVariantParentIn
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(collect_infos.size(), 1U);
-    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.key"));
+    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".v.key"));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     ASSERT_NE(it->second.owned_index_meta, nullptr);
@@ -1624,8 +1626,8 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternIndex) 
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(
-            StringHelper::to_wstring(std::to_string(kVariantUid) + ".meta.host"));
+    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".meta.host"));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     ASSERT_NE(it->second.owned_index_meta, nullptr);
@@ -1701,8 +1703,8 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternGlobInd
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(
-            StringHelper::to_wstring(std::to_string(kVariantUid) + ".meta.user.name"));
+    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".meta.user.name"));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     ASSERT_NE(it->second.owned_index_meta, nullptr);
@@ -1832,7 +1834,8 @@ TEST_F(CollectionStatisticsTest, CollectDirectIndexHitFromSchema) {
             collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
+    auto it = collect_infos.find(
+            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kColUid)));
     ASSERT_NE(it, collect_infos.end());
     EXPECT_NE(it->second.index_meta, nullptr);
     EXPECT_EQ(it->second.owned_index_meta, nullptr); // O1: schema-direct meta is not owned
@@ -2045,7 +2048,8 @@ TEST_F(CollectionStatisticsTest, CollectPreservesLogicalClauseShapesForSameField
                                     build_match("alpha alpha beta"), &collect_infos);
     ASSERT_TRUE(second.ok()) << second.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
+    auto it = collect_infos.find(
+            segment_v2::inverted_index::StringHelper::to_wstring(std::to_string(kColUid)));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_EQ(it->second.unique_terms, std::vector<std::string>({"alpha", "beta"}));
     ASSERT_EQ(it->second.unique_term_slots.size(), 2u);
@@ -2498,8 +2502,8 @@ TEST_F(CollectionStatisticsTest, SearchScoringUsesTextSemanticsForVariantParentI
 
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(collect_infos.size(), 1U);
-    auto it = collect_infos.find(
-            StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.dynamic"));
+    auto it = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".v.dynamic"));
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     ASSERT_NE(it->second.owned_index_meta, nullptr);
@@ -2557,8 +2561,8 @@ TEST_F(CollectionStatisticsTest, SearchVariantFieldPatternKeepsSelectedMetadataA
 
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
-    auto iter = collect_infos.find(
-            StringHelper::to_wstring(std::to_string(kVariantUid) + ".meta.user.name"));
+    auto iter = collect_infos.find(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".meta.user.name"));
     ASSERT_NE(iter, collect_infos.end());
     ASSERT_NE(iter->second.index_meta, nullptr);
     ASSERT_NE(iter->second.owned_index_meta, nullptr);

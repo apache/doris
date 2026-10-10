@@ -39,8 +39,12 @@ using reader::LogicalIndexReader;
 namespace {
 
 Status decode_flat_docs(const DictEntry& entry, Slice dd_region, std::vector<uint32_t>* docids) {
-    return format::decode_dd_region(dd_region, entry.dd_meta,
-                                    /*win_base=*/0, docids);
+    RETURN_IF_ERROR(format::decode_dd_region(dd_region, entry.dd_meta, /*win_base=*/0, docids));
+    if (docids->size() != entry.df) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: posting doc count differs from df");
+    }
+    return Status::OK();
 }
 
 Status decode_inline_docs(const DictEntry& entry, std::vector<uint32_t>* docids) {
@@ -51,24 +55,6 @@ Status decode_inline_docs(const DictEntry& entry, std::vector<uint32_t>* docids)
     return decode_flat_docs(
             entry, Slice(entry.frq_bytes.data(), static_cast<size_t>(entry.dd_meta.disk_len)),
             docids);
-}
-
-Status posting_reader_add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
-    if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
-    }
-    *out = lhs + rhs;
-    return Status::OK();
-}
-
-Status prelude_abs(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                   uint64_t* out) {
-    uint64_t with_base = 0;
-    RETURN_IF_ERROR(posting_reader_add_u64(idx.section_refs().posting_region.offset, frq_base,
-                                           "docid_posting_reader: prelude offset overflow",
-                                           &with_base));
-    return posting_reader_add_u64(with_base, entry.frq_off_delta,
-                                  "docid_posting_reader: prelude offset overflow", out);
 }
 
 Status validate_windowed_docs_prefix(const DictEntry& entry) {
@@ -90,7 +76,6 @@ struct FlatPlan {
 };
 
 struct WindowPlan {
-    size_t out_index = 0;
     const ResolvedDocidPosting* posting = nullptr;
     size_t prefix_handle = 0;
 };
@@ -109,24 +94,20 @@ Status plan_window_prefix(const LogicalIndexReader& idx, WindowPlan* plan,
     const ResolvedDocidPosting& posting = *plan->posting;
     RETURN_IF_ERROR(validate_windowed_docs_prefix(posting.entry));
     uint64_t abs = 0;
-    RETURN_IF_ERROR(prelude_abs(idx, posting.entry, posting.frq_base, &abs));
+    RETURN_IF_ERROR(reader::prelude_abs_offset(idx, posting.entry, posting.frq_base, &abs));
     // Production layout: the entire .frq payload is [prelude][dd-block], read in one range request.
     plan->prefix_handle = fetcher->add(abs, posting.entry.frq_len);
     return Status::OK();
 }
 
-// Records a non-inline (flat or windowed) posting into the per-encoding plan lists,
-// adding the windowed prefix range to the shared fetcher. Flat ranges are added in a
-// later pass (after all preludes are registered). Shared by the batched and streamed
-// docid readers so both fetch the whole OR in one round. `posting` must outlive the
-// plans (its address is captured); callers pass an element of a stable vector.
+// Queues window ranges before flat ranges. The caller keeps posting alive until
+// all plans have been read.
 Status plan_noninline_posting(const LogicalIndexReader& idx, const ResolvedDocidPosting& posting,
                               size_t out_index, io::BatchRangeFetcher* fetcher,
                               std::vector<FlatPlan>* flat_plans,
                               std::vector<WindowPlan>* window_plans) {
     if (posting.entry.enc == DictEntryEnc::kWindowed) {
         WindowPlan plan;
-        plan.out_index = out_index;
         plan.posting = &posting;
         RETURN_IF_ERROR(plan_window_prefix(idx, &plan, fetcher));
         window_plans->push_back(std::move(plan));
@@ -149,49 +130,13 @@ Status window_dd_slice(Slice dd_block, const WindowMeta& meta, Slice* out) {
     return Status::OK();
 }
 
-Status posting_reader_first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal,
-                                            uint32_t* first) {
-    if (window_ordinal == 0) {
-        *first = 0;
-        return Status::OK();
-    }
-    if (meta.win_base >= std::numeric_limits<uint32_t>::max()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_posting_reader: window base exceeds docid range");
-    }
-    *first = static_cast<uint32_t>(meta.win_base + 1);
-    if (*first > meta.last_docid) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_posting_reader: invalid window docid range");
-    }
-    return Status::OK();
-}
-
-Status posting_reader_is_dense_full_window(const WindowMeta& meta, uint32_t window_ordinal,
-                                           bool* full) {
-    uint32_t first = 0;
-    RETURN_IF_ERROR(posting_reader_first_docid_in_window(meta, window_ordinal, &first));
-    const uint64_t width = static_cast<uint64_t>(meta.last_docid) - first + 1;
-    *full = meta.doc_count == width;
-    return Status::OK();
-}
-
 Status decode_flat_plan(const io::BatchRangeFetcher& fetcher, const FlatPlan& plan,
                         std::vector<uint32_t>* out) {
     return decode_flat_docs(*plan.entry, fetcher.get(plan.handle), out);
 }
 
 Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 DocIdSink* sink);
-
-Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 std::vector<uint32_t>* out) {
-    VectorDocIdSink sink(*out);
-    return decode_window_prefix_plan(fetcher, plan, &sink);
-}
-
-Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 DocIdSink* sink) {
+                                 index_query::DocIdSink* sink) {
     const DictEntry& entry = plan.posting->entry;
     const Slice prefix = fetcher.get(plan.prefix_handle);
     if (entry.prelude_len > prefix.size()) {
@@ -220,10 +165,10 @@ Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const Win
         RETURN_IF_ERROR(prelude.window(w, &meta));
         RETURN_IF_ERROR(window_dd_slice(dd_block, meta, &dd_region));
         bool dense_full = false;
-        RETURN_IF_ERROR(posting_reader_is_dense_full_window(meta, w, &dense_full));
+        RETURN_IF_ERROR(reader::is_dense_full_window(meta, w, &dense_full));
         if (dense_full) {
             uint32_t first = 0;
-            RETURN_IF_ERROR(posting_reader_first_docid_in_window(meta, w, &first));
+            RETURN_IF_ERROR(reader::first_docid_in_window(meta, w, &first));
             RETURN_IF_ERROR(sink->append_range(first, static_cast<uint64_t>(meta.last_docid) + 1));
             continue;
         }
@@ -244,12 +189,12 @@ Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("docid_posting_reader: null out");
     }
     docids->clear();
-    VectorDocIdSink sink(*docids);
+    index_query::VectorDocIdSink sink(*docids);
     return read_docid_posting(idx, entry, frq_base, prx_base, &sink);
 }
 
 Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                          uint64_t prx_base, DocIdSink* sink) {
+                          uint64_t prx_base, index_query::DocIdSink* sink) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("docid_posting_reader: null sink");
     }
@@ -263,7 +208,6 @@ Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
     io::BatchRangeFetcher docs_fetcher(idx.reader());
     if (posting.entry.enc == DictEntryEnc::kWindowed) {
         WindowPlan plan;
-        plan.out_index = 0;
         plan.posting = &posting;
         RETURN_IF_ERROR(plan_window_prefix(idx, &plan, &docs_fetcher));
         if (docs_fetcher.pending() > 0) RETURN_IF_ERROR(docs_fetcher.fetch());
@@ -280,48 +224,9 @@ Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
     return sink->append_sorted(docs);
 }
 
-Status read_docid_postings_batched(const LogicalIndexReader& idx,
-                                   const std::vector<ResolvedDocidPosting>& postings,
-                                   std::vector<std::vector<uint32_t>>* docids) {
-    if (docids == nullptr) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "docid_posting_reader: null batched out");
-    }
-    docids->clear();
-    docids->resize(postings.size());
-
-    std::vector<FlatPlan> flat_plans;
-    std::vector<WindowPlan> window_plans;
-    io::BatchRangeFetcher docs_fetcher(idx.reader());
-
-    for (size_t i = 0; i < postings.size(); ++i) {
-        const ResolvedDocidPosting& posting = postings[i];
-        if (posting.entry.kind == DictEntryKind::kInline) {
-            RETURN_IF_ERROR(decode_inline_docs(posting.entry, &(*docids)[i]));
-            continue;
-        }
-        RETURN_IF_ERROR(
-                plan_noninline_posting(idx, posting, i, &docs_fetcher, &flat_plans, &window_plans));
-    }
-
-    for (FlatPlan& plan : flat_plans) {
-        const ResolvedDocidPosting& posting = postings[plan.out_index];
-        RETURN_IF_ERROR(plan_flat_docs(idx, posting, &docs_fetcher, &plan));
-    }
-    if (docs_fetcher.pending() > 0) RETURN_IF_ERROR(docs_fetcher.fetch());
-
-    for (const FlatPlan& plan : flat_plans) {
-        RETURN_IF_ERROR(decode_flat_plan(docs_fetcher, plan, &(*docids)[plan.out_index]));
-    }
-    for (const WindowPlan& plan : window_plans) {
-        RETURN_IF_ERROR(decode_window_prefix_plan(docs_fetcher, plan, &(*docids)[plan.out_index]));
-    }
-    return Status::OK();
-}
-
 Status emit_docid_postings_streamed(const LogicalIndexReader& idx,
                                     const std::vector<ResolvedDocidPosting>& postings,
-                                    DocIdSink* sink) {
+                                    index_query::DocIdSink* sink) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "docid_posting_reader: null streamed sink");

@@ -34,7 +34,10 @@
 #include "json2pb/pb_to_json.h"
 #include "storage/compaction/base_compaction.h"
 #include "storage/index/index_file_reader.h"
-#include "storage/index/inverted/query/query_factory.h"
+#include "storage/index/index_query_context.h"
+#include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/query/logical/node.h"
 #include "storage/key_coder.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
@@ -208,15 +211,12 @@ class IndexCompactionUtils {
             context->io_ctx = &io_ctx;
             context->stats = &stats;
             context->runtime_state = &runtime_state;
-            auto query = QueryFactory::create(InvertedIndexQueryType::EQUAL_QUERY, *string_searcher,
-                                              context);
-            EXPECT_TRUE(query != nullptr);
-            InvertedIndexQueryInfo query_info;
-            query_info.field_name = column_name_ws;
-            query_info.term_infos.emplace_back(query_data[i], 0);
-            query->add(query_info);
+            const index_query::logical::Node leaf {
+                    .value = index_query::logical::Term {.field = {}, .term = query_data[i]}};
             auto result = std::make_shared<roaring::Roaring>();
-            query->search(*result);
+            EXPECT_TRUE(run_clucene_leaf(context, column_name_ws, leaf, nullptr, false,
+                                         *string_searcher, result)
+                                .ok());
             EXPECT_EQ(query_result[i], result->cardinality()) << query_data[i];
         }
         return true;
@@ -246,15 +246,12 @@ class IndexCompactionUtils {
             context->io_ctx = &io_ctx;
             context->stats = &stats;
             context->runtime_state = &runtime_state;
-            auto query = QueryFactory::create(InvertedIndexQueryType::MATCH_ANY_QUERY,
-                                              *string_searcher, context);
-            EXPECT_TRUE(query != nullptr);
-            InvertedIndexQueryInfo query_info;
-            query_info.field_name = column_name_ws;
-            query_info.term_infos.emplace_back(query_data[i], 0);
-            query->add(query_info);
+            const index_query::logical::Node leaf {
+                    .value = index_query::logical::Term {.field = {}, .term = query_data[i]}};
             auto result = std::make_shared<roaring::Roaring>();
-            query->search(*result);
+            EXPECT_TRUE(run_clucene_leaf(context, column_name_ws, leaf, nullptr, false,
+                                         *string_searcher, result)
+                                .ok());
             EXPECT_EQ(query_result[i], result->cardinality()) << query_data[i];
         }
         return true;
@@ -266,7 +263,7 @@ class IndexCompactionUtils {
         os << "Max Docs: " << r->maxDoc() << "\n";
         os << "Num Docs: " << r->numDocs() << "\n";
 
-        TermEnum* te = r->terms();
+        lucene::index::TermEnum* te = r->terms();
         int32_t nterms;
         for (nterms = 0; te->next(); nterms++) {
             std::string token =
@@ -278,7 +275,7 @@ class IndexCompactionUtils {
             os << "Term: " << token << " ";
             os << "Freq: " << te->docFreq() << "\n";
             if (false) {
-                TermDocs* td = r->termDocs(te->term());
+                lucene::index::TermDocs* td = r->termDocs(te->term());
                 while (td->next()) {
                     os << "DocID: " << td->doc() << " ";
                     os << "TermFreq: " << td->freq() << "\n";
@@ -405,13 +402,14 @@ class IndexCompactionUtils {
                     index_readers,
             const std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>&
                     normal_index_readers) {
-        ValueArray<lucene::index::IndexReader*> readers(index_readers.size());
+        lucene::util::ValueArray<lucene::index::IndexReader*> readers(index_readers.size());
         for (int i = 0; i < index_readers.size(); i++) {
             lucene::index::IndexReader* idx_reader =
                     lucene::index::IndexReader::open(index_readers[i].get());
             readers[i] = idx_reader;
         }
-        ValueArray<lucene::index::IndexReader*> normal_readers(normal_index_readers.size());
+        lucene::util::ValueArray<lucene::index::IndexReader*> normal_readers(
+                normal_index_readers.size());
         for (int i = 0; i < normal_index_readers.size(); i++) {
             lucene::index::IndexReader* normal_idx_reader =
                     lucene::index::IndexReader::open(normal_index_readers[i].get());

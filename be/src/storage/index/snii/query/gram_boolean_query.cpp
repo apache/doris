@@ -20,18 +20,17 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
+#include "storage/index/query/exec/cursor_chained_postings.h"
+#include "storage/index/query/roaring_docid_sink.h"
+#include "storage/index/query/spi/postings_cursor.h"
 #include "storage/index/snii/format/bsbf.h"
-#include "storage/index/snii/io/batch_range_fetcher.h"
-#include "storage/index/snii/query/docid_sink.h"
-#include "storage/index/snii/query/internal/docid_conjunction.h"
-#include "storage/index/snii/query/internal/docid_posting_reader.h"
-#include "storage/index/snii/query/internal/docid_union.h"
 
 namespace doris::snii::query {
 
@@ -39,34 +38,6 @@ namespace doris::snii::query {
 // to the file rather than in a bare anonymous one, so they cannot clash with symbols of other
 // files under a unity build.
 namespace gram_boolean_query_detail {
-
-// Behaves exactly like RoaringDocIdSink in the anonymous namespace of snii_index_reader.cpp (a
-// non-empty batch goes through addMany, a non-empty range through addRange(first,
-// last_exclusive), and dedups()==true lets a multi-gram OR/AND stream postings straight into the
-// same bitmap); that class cannot be reused across translation units, hence this copy.
-class RoaringSink final : public DocIdSink {
-public:
-    explicit RoaringSink(roaring::Roaring* bitmap) : _bitmap(bitmap) {}
-
-    Status append_sorted(std::span<const uint32_t> docids) override {
-        if (!docids.empty()) {
-            _bitmap->addMany(docids.size(), docids.data());
-        }
-        return Status::OK();
-    }
-
-    Status append_range(uint32_t first, uint64_t last_exclusive) override {
-        if (last_exclusive > first) {
-            _bitmap->addRange(first, last_exclusive);
-        }
-        return Status::OK();
-    }
-
-    bool dedups() const override { return true; }
-
-private:
-    roaring::Roaring* _bitmap;
-};
 
 // The cost gate of gram_boolean_query(): true when a candidate set of `candidates` rows is too
 // large a fraction of the segment for the index IO to pay for itself. It is a COST predicate
@@ -382,26 +353,7 @@ Status eval(GramPostingSource& src, const segment_v2::gram::GramQuery& q, uint32
 } // namespace gram_boolean_query_detail
 
 Status LogicalIndexPostingSource::_resolve(const std::vector<std::string>& grams) {
-    std::vector<std::string> missing;
-    missing.reserve(grams.size());
-    for (const std::string& gram : grams) {
-        if (!_resolved.contains(gram)) {
-            missing.push_back(gram);
-        }
-    }
-    if (missing.empty()) {
-        return Status::OK();
-    }
-    // lookup_batch() requires a sorted, duplicate-free batch and returns results aligned with it;
-    // the memo below maps them back to the caller's order.
-    std::sort(missing.begin(), missing.end());
-    missing.erase(std::unique(missing.begin(), missing.end()), missing.end());
-    std::vector<reader::LogicalIndexReader::BatchLookupResult> results;
-    RETURN_IF_ERROR(_idx.lookup_batch(missing, &results));
-    for (size_t i = 0; i < missing.size(); ++i) {
-        _resolved.emplace(std::move(missing[i]), std::move(results[i]));
-    }
-    return Status::OK();
+    return _postings.prepare_terms(grams);
 }
 
 // The gate's budget, taken from this segment's own term distribution instead of a ratio
@@ -456,13 +408,14 @@ Status LogicalIndexPostingSource::dfs(const std::vector<std::string>& grams,
     }
     RETURN_IF_ERROR(_resolve(grams));
     for (size_t i = 0; i < grams.size(); ++i) {
-        const auto it = _resolved.find(grams[i]);
-        if (it == _resolved.end() || !it->second.found) {
+        const reader::LogicalIndexReader::BatchLookupResult* hit = nullptr;
+        RETURN_IF_ERROR(_postings.lookup(grams[i], &hit));
+        if (!hit->found) {
             continue;
         }
         (*out)[i].found = true;
-        (*out)[i].df = it->second.entry.df;
-        (*out)[i].matches_all = it->second.entry.posting_dropped;
+        (*out)[i].df = hit->entry.df;
+        (*out)[i].matches_all = hit->entry.posting_dropped;
     }
     return Status::OK();
 }
@@ -472,58 +425,22 @@ Status LogicalIndexPostingSource::and_postings(const std::vector<std::string>& g
     if (grams.empty()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_resolve(grams));
-    std::vector<internal::ResolvedQueryTerm> resolved;
-    resolved.reserve(grams.size());
-    for (const std::string& gram : grams) {
-        const auto it = _resolved.find(gram);
-        if (it == _resolved.end() || !it->second.found) {
-            // A gram missing from the dictionary makes the intersection definitively empty.
-            return Status::OK();
-        }
-        resolved.push_back({it->second.entry, it->second.frq_base, it->second.prx_base});
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    RETURN_IF_ERROR(_postings.open_terms(grams, /*positions=*/false, /*scoring=*/false, &cursors));
+    // A gram missing from the dictionary makes the intersection definitively empty.
+    if (std::ranges::any_of(cursors, [](const auto& cursor) { return cursor == nullptr; })) {
+        return Status::OK();
     }
-    // The same plan/fetch/leapfrog pipeline boolean_and() runs, minus the per-term dictionary
-    // resolution it would repeat: one batched prelude round, then a docid-only conjunction that
-    // drives on the rarest gram and skips whole windows of the denser ones.
-    io::BatchRangeFetcher round1(_idx.reader());
-    std::vector<internal::TermPlan> plans;
-    RETURN_IF_ERROR(internal::plan_resolved_terms(_idx, std::move(resolved), &round1, &plans,
-                                                  /*need_positions=*/false));
-    if (round1.pending() > 0) {
-        RETURN_IF_ERROR(round1.fetch());
-    }
-    RETURN_IF_ERROR(internal::open_preludes(round1, &plans, /*need_positions=*/false));
     std::vector<uint32_t> docids;
-    RETURN_IF_ERROR(internal::build_docid_only_conjunction(_idx, round1, plans, &docids));
-    if (!docids.empty()) {
-        out->addMany(docids.size(), docids.data());
-    }
+    RETURN_IF_ERROR(index_query::chain_cursors(cursors, nullptr, &docids));
+    out->addMany(docids.size(), docids.data());
     return Status::OK();
 }
 
 Status LogicalIndexPostingSource::or_postings(const std::vector<std::string>& grams,
                                               roaring::Roaring* out) {
-    if (grams.empty()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_resolve(grams));
-    std::vector<internal::ResolvedDocidPosting> postings;
-    postings.reserve(grams.size());
-    for (const std::string& gram : grams) {
-        const auto it = _resolved.find(gram);
-        if (it == _resolved.end() || !it->second.found) {
-            continue;
-        }
-        postings.push_back({it->second.entry, it->second.frq_base, it->second.prx_base});
-    }
-    if (postings.empty()) {
-        return Status::OK();
-    }
-    // Same union pipeline boolean_or() runs: windowed postings share one prelude round and one
-    // docid round, and each posting is streamed straight into the (deduplicating) bitmap.
-    gram_boolean_query_detail::RoaringSink sink(out);
-    return internal::emit_docid_union(_idx, postings, &sink);
+    index_query::RoaringDocIdSink sink(*out);
+    return _postings.collect_terms(grams, sink);
 }
 
 Status gram_boolean_query(GramPostingSource& src, const segment_v2::gram::GramQuery& q,

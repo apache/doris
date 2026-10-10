@@ -31,7 +31,7 @@ static constexpr uint32_t HORIZON = static_cast<uint32_t>(64) * HORIZON_NUM_TINY
 
 template <typename ScoreCombinerPtrU>
 ScorerPtr make_buffered_union(const std::vector<ScorerPtr>& scorers,
-                              ScoreCombinerPtrU score_combiner) {
+                              ScoreCombinerPtrU /*score_combiner*/) {
     std::vector<ScorerPtr> non_empty_scorers;
     for (const auto& docset : scorers) {
         if (docset && docset->doc() != TERMINATED) {
@@ -39,8 +39,7 @@ ScorerPtr make_buffered_union(const std::vector<ScorerPtr>& scorers,
         }
     }
     auto bitsets = std::vector<TinySet>(HORIZON_NUM_TINYBITSETS);
-    auto scores = std::vector<ScoreCombinerPtrU>(HORIZON);
-    std::ranges::generate(scores, [&score_combiner]() { return score_combiner->clone(); });
+    auto scores = std::vector<typename ScoreCombinerPtrU::element_type>(HORIZON);
 
     std::vector<TermScorerPtr> term_scorers;
     term_scorers.reserve(non_empty_scorers.size());
@@ -56,7 +55,8 @@ ScorerPtr make_buffered_union(const std::vector<ScorerPtr>& scorers,
 
     if (all_term_scorers && !term_scorers.empty()) {
         auto union_scorer = std::make_shared<BufferedUnion<TermScorerPtr, ScoreCombinerPtrU>>(
-                std::move(term_scorers), bitsets, scores, HORIZON_NUM_TINYBITSETS, 0, 0);
+                std::move(term_scorers), std::move(bitsets), std::move(scores),
+                HORIZON_NUM_TINYBITSETS, 0, 0);
 
         if (union_scorer->refill()) {
             union_scorer->advance();
@@ -93,9 +93,9 @@ void unordered_drain_filter(std::vector<T>& v, Predicate predicate) {
     }
 }
 
-template <typename ScorerT, typename ScoreCombinerPtrT, typename ScorerPtrT>
+template <typename ScorerT, typename ScoreCombinerT, typename ScorerPtrT>
 inline bool refill_scorer_predicate(ScorerT& scorer, std::vector<TinySet>& bitsets,
-                                    std::vector<ScoreCombinerPtrT>& scores, uint32_t min_doc,
+                                    std::vector<ScoreCombinerT>& scores, uint32_t min_doc,
                                     uint32_t horizon, const ScorerPtrT& scorer_ptr) {
     while (true) {
         uint32_t doc = scorer.doc();
@@ -104,8 +104,8 @@ inline bool refill_scorer_predicate(ScorerT& scorer, std::vector<TinySet>& bitse
         }
         uint32_t delta = doc - min_doc;
         bitsets[static_cast<size_t>(delta / 64)].insert_mut(delta % 64);
-        if constexpr (!std::is_same_v<ScoreCombinerPtrT, DoNothingCombinerPtr>) {
-            scores[static_cast<size_t>(delta)]->update(scorer_ptr);
+        if constexpr (!std::is_same_v<ScoreCombinerT, DoNothingCombiner>) {
+            scores[static_cast<size_t>(delta)].update(scorer_ptr);
         }
         if (scorer.advance() == TERMINATED) {
             return true;
@@ -114,11 +114,10 @@ inline bool refill_scorer_predicate(ScorerT& scorer, std::vector<TinySet>& bitse
 }
 
 template <typename ScorerPtrT, typename ScoreCombinerPtrT>
-BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::BufferedUnion(std::vector<ScorerPtrT> scorers,
-                                                            std::vector<TinySet> bitsets,
-                                                            std::vector<ScoreCombinerPtrT> scores,
-                                                            size_t cursor, uint32_t offset,
-                                                            uint32_t doc)
+BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::BufferedUnion(
+        std::vector<ScorerPtrT> scorers, std::vector<TinySet> bitsets,
+        std::vector<typename ScoreCombinerPtrT::element_type> scores, size_t cursor,
+        uint32_t offset, uint32_t doc)
         : _scorers(std::move(scorers)),
           _bitsets(std::move(bitsets)),
           _scores(std::move(scores)),
@@ -146,10 +145,9 @@ bool BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::refill() {
 }
 
 template <typename ScorerPtrT, typename ScoreCombinerPtrT>
-void BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::refill(std::vector<ScorerPtrT>& scorers,
-                                                          std::vector<TinySet>& bitsets,
-                                                          std::vector<ScoreCombinerPtrT>& scores,
-                                                          uint32_t min_doc) {
+void BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::refill(
+        std::vector<ScorerPtrT>& scorers, std::vector<TinySet>& bitsets,
+        std::vector<typename ScoreCombinerPtrT::element_type>& scores, uint32_t min_doc) {
     uint32_t horizon = min_doc + HORIZON;
     unordered_drain_filter(scorers, [&](const ScorerPtrT& scorer_ptr) -> bool {
         return refill_scorer_predicate(*scorer_ptr, bitsets, scores, min_doc, horizon, scorer_ptr);
@@ -166,8 +164,8 @@ bool BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::advance_buffered() {
             _doc = _offset + delta;
             if constexpr (!std::is_same_v<ScoreCombinerPtrT, DoNothingCombinerPtr>) {
                 auto& score_combiner = _scores[static_cast<size_t>(delta)];
-                _score = score_combiner->score();
-                score_combiner->clear();
+                _score = score_combiner.score();
+                score_combiner.clear();
             }
             return true;
         }
@@ -203,7 +201,7 @@ uint32_t BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::seek(uint32_t target) {
             _bitsets[i].clear();
         }
         for (size_t i = _cursor * 64; i < new_cursor * 64; ++i) {
-            _scores[i]->clear();
+            _scores[i].clear();
         }
         _cursor = new_cursor;
         uint32_t current_doc = _doc;
@@ -216,7 +214,7 @@ uint32_t BufferedUnion<ScorerPtrT, ScoreCombinerPtrT>::seek(uint32_t target) {
             tinyset.clear();
         }
         for (auto& score_combiner : _scores) {
-            score_combiner->clear();
+            score_combiner.clear();
         }
         unordered_drain_filter(_scorers, [target](auto& docset) {
             if (docset->doc() < target) {

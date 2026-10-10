@@ -20,6 +20,8 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <numeric>
+#include <roaring/roaring.hh>
 #include <vector>
 
 #include "common/exception.h"
@@ -227,30 +229,6 @@ TEST_F(IntersectionTest, test_norm) {
     EXPECT_TRUE(norm == 10 || norm == 20);
 }
 
-// Test docset_mut_specialized for accessing individual docsets
-TEST_F(IntersectionTest, test_docset_mut_specialized) {
-    std::vector<MockDocSetPtr> docsets;
-    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3}));
-    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4}));
-    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 5}));
-
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
-    ASSERT_NE(nullptr, intersection);
-
-    // Access left (ord 0)
-    auto& docset0 = intersection->docset_mut_specialized<MockDocSetPtr>(0);
-    EXPECT_NE(nullptr, docset0);
-    EXPECT_EQ(2U, docset0->doc());
-
-    // Access right (ord 1)
-    auto& docset1 = intersection->docset_mut_specialized<MockDocSetPtr>(1);
-    EXPECT_NE(nullptr, docset1);
-
-    // Access others (ord 2+)
-    auto& docset2 = intersection->docset_mut_specialized<MockDocSetPtr>(2);
-    EXPECT_NE(nullptr, docset2);
-}
-
 // Test all docsets identical
 TEST_F(IntersectionTest, test_all_identical_docsets) {
     std::vector<uint32_t> common_docs {1, 2, 3, 4, 5};
@@ -420,6 +398,133 @@ TEST_F(IntersectionTest, test_docsets_sorted_by_size) {
 
     std::vector<uint32_t> expected {2, 4, 6};
     EXPECT_EQ(expected, results);
+}
+
+// Candidate rows join the intersection, so it only stops on rows they hold.
+TEST_F(IntersectionTest, test_candidates_restrict_rows) {
+    std::vector<MockDocSetPtr> docsets;
+    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3, 5, 8, 13}));
+    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 3, 5, 7, 8, 9, 13}));
+    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 3, 4, 5, 8, 13, 21}));
+    const roaring::Roaring candidates = roaring::Roaring::bitmapOf(4, 3, 8, 13, 20);
+
+    auto intersection =
+            Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000, &candidates);
+
+    EXPECT_EQ(3U, intersection->doc());
+    EXPECT_EQ(8U, intersection->seek(4));
+    EXPECT_EQ(13U, intersection->advance());
+    EXPECT_EQ(TERMINATED, intersection->advance());
+}
+
+TEST_F(IntersectionTest, test_empty_candidates_match_nothing) {
+    std::vector<MockDocSetPtr> docsets;
+    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3}));
+    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3}));
+    const roaring::Roaring candidates;
+
+    auto intersection =
+            Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000, &candidates);
+
+    EXPECT_EQ(TERMINATED, intersection->doc());
+}
+
+// Sparse candidates lead the dearer members, which are only sought on candidate rows.
+TEST_F(IntersectionTest, test_candidates_lead_the_other_members) {
+    class SeekLog final : public MockDocSet {
+    public:
+        SeekLog(std::vector<uint32_t> docs, uint32_t size_hint, std::vector<uint32_t>* targets)
+                : MockDocSet(std::move(docs), size_hint), _targets(targets) {}
+
+        uint32_t seek(uint32_t target) override {
+            _targets->push_back(target);
+            return MockDocSet::seek(target);
+        }
+
+    private:
+        std::vector<uint32_t>* _targets;
+    };
+    std::vector<uint32_t> all_rows(100);
+    std::iota(all_rows.begin(), all_rows.end(), 0);
+    std::vector<uint32_t> targets;
+    std::vector<MockDocSetPtr> docsets;
+    docsets.push_back(std::make_shared<MockDocSet>(all_rows, 100));
+    docsets.push_back(std::make_shared<SeekLog>(all_rows, 200, &targets));
+    const roaring::Roaring candidates = roaring::Roaring::bitmapOf(2, 40, 70);
+
+    auto intersection =
+            Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000, &candidates);
+
+    std::vector<uint32_t> results;
+    for (uint32_t doc = intersection->doc(); doc != TERMINATED; doc = intersection->advance()) {
+        results.push_back(doc);
+    }
+    EXPECT_EQ((std::vector<uint32_t> {40, 70}), results);
+    ASSERT_FALSE(targets.empty());
+    for (const uint32_t target : targets) {
+        EXPECT_TRUE(target == TERMINATED || candidates.contains(target)) << target;
+    }
+}
+
+// Candidates denser than the lead are checked once every member holds a row.
+TEST_F(IntersectionTest, test_dense_candidates_checked_last) {
+    std::vector<MockDocSetPtr> docsets;
+    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {10, 20, 30, 40}));
+    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {10, 20, 30, 40, 50}));
+    roaring::Roaring candidates;
+    candidates.addRange(0, 100);
+    candidates.remove(20);
+    candidates.remove(40);
+
+    auto intersection =
+            Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000, &candidates);
+
+    std::vector<uint32_t> results;
+    for (uint32_t doc = intersection->doc(); doc != TERMINATED; doc = intersection->advance()) {
+        results.push_back(doc);
+    }
+    EXPECT_EQ((std::vector<uint32_t> {10, 30}), results);
+}
+
+// Candidates between the members by cost are checked before the dearer ones move.
+TEST_F(IntersectionTest, test_candidates_checked_in_cost_order) {
+    class SeekLog final : public MockDocSet {
+    public:
+        SeekLog(std::vector<uint32_t> docs, uint32_t size_hint, std::vector<uint32_t>* targets)
+                : MockDocSet(std::move(docs), size_hint), _targets(targets) {}
+
+        uint32_t seek(uint32_t target) override {
+            _targets->push_back(target);
+            return MockDocSet::seek(target);
+        }
+
+    private:
+        std::vector<uint32_t>* _targets;
+    };
+    std::vector<uint32_t> all_rows(100);
+    std::iota(all_rows.begin(), all_rows.end(), 0);
+    std::vector<uint32_t> targets;
+    std::vector<MockDocSetPtr> docsets;
+    docsets.push_back(std::make_shared<MockDocSet>(all_rows, 5));
+    docsets.push_back(std::make_shared<MockDocSet>(all_rows, 6));
+    docsets.push_back(std::make_shared<SeekLog>(all_rows, 1000, &targets));
+    roaring::Roaring candidates;
+    for (uint32_t row = 10; row < 100; row += 10) {
+        candidates.add(row);
+    }
+
+    auto intersection =
+            Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000, &candidates);
+
+    std::vector<uint32_t> results;
+    for (uint32_t doc = intersection->doc(); doc != TERMINATED; doc = intersection->advance()) {
+        results.push_back(doc);
+    }
+    EXPECT_EQ((std::vector<uint32_t> {10, 20, 30, 40, 50, 60, 70, 80, 90}), results);
+    ASSERT_FALSE(targets.empty());
+    for (const uint32_t target : targets) {
+        EXPECT_TRUE(target == TERMINATED || candidates.contains(target)) << target;
+    }
 }
 
 } // namespace doris

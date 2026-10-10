@@ -21,12 +21,14 @@
 #include <sys/resource.h>
 
 #include <cstring>
+#include <span>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <iostream>
 #include <memory>
 
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "storage/index/query/logical/node.h"
 #include "util/coding.h"
 #include "util/defer_op.h"
 
@@ -39,34 +41,99 @@ void append_length_prefixed(std::string_view value, std::string* output) {
     output->append(value);
 }
 
-} // namespace
-
-std::string InvertedIndexRawQuerySemantic::encode() const {
-    std::string output;
-    output.reserve(sizeof(cache_semantics_version) + sizeof(uint64_t) + raw_query_bytes.size() +
-                   sizeof(query_type) + sizeof(slop) + sizeof(ordered) + sizeof(max_expansions));
-    put_fixed32_le(&output, cache_semantics_version);
-    append_length_prefixed(raw_query_bytes, &output);
-    put_fixed32_le(&output, static_cast<uint32_t>(query_type));
-    put_fixed32_le(&output, static_cast<uint32_t>(slop));
-    output.push_back(static_cast<char>(ordered));
-    put_fixed32_le(&output, static_cast<uint32_t>(max_expansions));
-    return output;
-}
-
-std::string InvertedIndexQueryCache::CacheKey::encode() const {
+std::string encode_cache_key_prefix(std::string_view index_path, std::string_view column_name,
+                                    InvertedIndexQueryType query_type, size_t value_size) {
     if (query_type_to_string(query_type).empty()) {
         return {};
     }
     std::string output;
-    const std::string index_path_string = index_path.string();
-    output.reserve(3 * sizeof(uint64_t) + index_path_string.size() + column_name.size() +
-                   sizeof(query_type) + value.size());
-    append_length_prefixed(index_path_string, &output);
+    output.reserve(3 * sizeof(uint64_t) + index_path.size() + column_name.size() +
+                   sizeof(query_type) + value_size);
+    append_length_prefixed(index_path, &output);
     append_length_prefixed(column_name, &output);
     put_fixed32_le(&output, static_cast<uint32_t>(query_type));
-    append_length_prefixed(value, &output);
+    put_fixed64_le(&output, value_size);
     return output;
+}
+
+void append_terms(std::span<const std::string> terms, std::string* output) {
+    put_fixed32_le(output, static_cast<uint32_t>(terms.size()));
+    for (const auto& term : terms) {
+        append_length_prefixed(term, output);
+    }
+}
+
+// The fields of a leaf that decide its result, after its kind.
+void append_leaf(const index_query::logical::Node& leaf, std::string* output) {
+    namespace logical = index_query::logical;
+    if (const auto* term = leaf.as<logical::Term>()) {
+        append_length_prefixed(term->term, output);
+    } else if (const auto* set = leaf.as<logical::TermSet>()) {
+        output->push_back(static_cast<char>(set->require_all));
+        put_fixed32_le(output, set->min_should_match);
+        append_terms(set->terms, output);
+    } else if (const auto* phrase = leaf.as<logical::Phrase>()) {
+        put_fixed32_le(output, static_cast<uint32_t>(phrase->slop));
+        output->push_back(static_cast<char>(phrase->ordered));
+        output->push_back(static_cast<char>(phrase->prefix));
+        output->push_back(static_cast<char>(phrase->suffix));
+        put_fixed32_le(output, static_cast<uint32_t>(phrase->slots.size()));
+        for (const auto& slot : phrase->slots) {
+            put_fixed32_le(output, static_cast<uint32_t>(slot.position));
+            if (slot.is_single_term()) {
+                append_terms(std::span(&slot.get_single_term(), 1), output);
+            } else {
+                append_terms(slot.get_multi_terms(), output);
+            }
+        }
+    } else if (const auto* expand = leaf.as<logical::Expand>()) {
+        output->push_back(static_cast<char>(expand->kind));
+        append_length_prefixed(expand->pattern, output);
+    } else if (const auto* compare = leaf.as<logical::Compare>()) {
+        output->push_back(static_cast<char>(compare->op));
+        append_length_prefixed(compare->value, output);
+    } else {
+        DCHECK(leaf.as<logical::Bool>() == nullptr);
+    }
+}
+
+} // namespace
+
+std::string InvertedIndexLeafSemantic::encode() const {
+    DCHECK(leaf != nullptr);
+    std::string output;
+    put_fixed32_le(&output, cache_semantics_version);
+    put_fixed32_le(&output, static_cast<uint32_t>(leaf->value.index()));
+    append_leaf(*leaf, &output);
+    put_fixed32_le(&output, static_cast<uint32_t>(max_expansions));
+    return output;
+}
+
+InvertedIndexQueryCache::CacheKey::CacheKey(std::string_view index_path,
+                                            std::string_view column_name,
+                                            InvertedIndexQueryType query_type,
+                                            std::string_view value)
+        : _encoded(encode_cache_key_prefix(index_path, column_name, query_type, value.size())) {
+    if (!_encoded.empty()) {
+        _encoded.append(value);
+    }
+}
+
+InvertedIndexQueryCache::CacheKey::CacheKey(std::string_view index_path,
+                                            std::string_view column_name,
+                                            InvertedIndexQueryType query_type,
+                                            const InvertedIndexRawQuerySemantic& value)
+        : _encoded(encode_cache_key_prefix(index_path, column_name, query_type,
+                                           sizeof(value.cache_semantics_version) +
+                                                   sizeof(uint64_t) + value.raw_query_bytes.size() +
+                                                   sizeof(value.query_type) +
+                                                   sizeof(value.max_expansions))) {
+    if (!_encoded.empty()) {
+        put_fixed32_le(&_encoded, value.cache_semantics_version);
+        append_length_prefixed(value.raw_query_bytes, &_encoded);
+        put_fixed32_le(&_encoded, static_cast<uint32_t>(value.query_type));
+        put_fixed32_le(&_encoded, static_cast<uint32_t>(value.max_expansions));
+    }
 }
 
 InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
@@ -153,10 +220,11 @@ Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCa
 }
 
 bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle) {
-    if (key.encode().empty()) {
+    const auto& encoded = key.encode();
+    if (encoded.empty()) {
         return false;
     }
-    auto* lru_handle = LRUCachePolicy::lookup(key.encode());
+    auto* lru_handle = LRUCachePolicy::lookup(encoded);
     if (lru_handle == nullptr) {
         return false;
     }
@@ -166,14 +234,14 @@ bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCach
 
 void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                                      InvertedIndexQueryCacheHandle* handle) {
+    const auto& encoded = key.encode();
+    if (encoded.empty()) {
+        return;
+    }
     std::unique_ptr<InvertedIndexQueryCache::CacheValue> cache_value_ptr =
             std::make_unique<InvertedIndexQueryCache::CacheValue>();
     cache_value_ptr->bitmap = bitmap;
-    if (key.encode().empty()) {
-        return;
-    }
-
-    auto* lru_handle = LRUCachePolicy::insert(key.encode(), (void*)cache_value_ptr.release(),
+    auto* lru_handle = LRUCachePolicy::insert(encoded, (void*)cache_value_ptr.release(),
                                               bitmap->getSizeInBytes(), bitmap->getSizeInBytes(),
                                               CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(this, lru_handle);

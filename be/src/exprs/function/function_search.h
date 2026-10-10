@@ -93,8 +93,18 @@ public:
             const std::unordered_map<std::string, int>& field_name_to_column_id,
             const std::shared_ptr<IndexQueryContext>& index_query_context = nullptr) const;
 
-    // The body of the overload above; it may throw, so only that overload calls it.
-    Status evaluate_inverted_index_with_search_param_unguarded(
+    // Lowers `clause` to the logical IR and compiles it: every leaf goes to the
+    // compiler of the index its field resolved to. `binding_key` receives the
+    // binding of a leaf clause and stays empty for a compound one.
+    Status build_query_recursive(const TSearchClause& clause,
+                                 const std::shared_ptr<IndexQueryContext>& context,
+                                 FieldReaderResolver& resolver,
+                                 inverted_index::query_v2::QueryPtr* out, std::string* binding_key,
+                                 const std::string& default_operator, int32_t minimum_should_match,
+                                 uint32_t num_rows = 0, bool scoring = true) const;
+
+private:
+    Status _evaluate_search_param(
             const TSearchParam& search_param,
             const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
@@ -102,35 +112,6 @@ public:
             const IndexExecContext* index_exec_ctx,
             const std::unordered_map<std::string, int>& field_name_to_column_id,
             const std::shared_ptr<IndexQueryContext>& index_query_context) const;
-
-    // Public methods for testing
-    enum class ClauseTypeCategory {
-        NON_TOKENIZED, // TERM, PREFIX, WILDCARD, REGEXP, RANGE, LIST - no tokenization, use EQUAL_QUERY
-        TOKENIZED,     // PHRASE, MATCH, ANY, ALL - need tokenization, use MATCH_ANY_QUERY
-        COMPOUND       // AND, OR, NOT - boolean operations
-    };
-
-    ClauseTypeCategory get_clause_type_category(const std::string& clause_type) const;
-
-    // Analyze query type for a specific field in the search clause
-    InvertedIndexQueryType analyze_field_query_type(const std::string& field_name,
-                                                    const TSearchClause& clause) const;
-
-    // Map clause_type string to InvertedIndexQueryType
-    InvertedIndexQueryType clause_type_to_query_type(const std::string& clause_type) const;
-
-    Status build_query_recursive(const TSearchClause& clause,
-                                 const std::shared_ptr<IndexQueryContext>& context,
-                                 FieldReaderResolver& resolver,
-                                 inverted_index::query_v2::QueryPtr* out, std::string* binding_key,
-                                 const std::string& default_operator, int32_t minimum_should_match,
-                                 uint32_t num_rows = 0) const;
-
-    Status build_leaf_query(const TSearchClause& clause,
-                            const std::shared_ptr<IndexQueryContext>& context,
-                            FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
-                            std::string* binding_key, const std::string& default_operator,
-                            int32_t minimum_should_match, uint32_t num_rows = 0) const;
 };
 
 } // namespace doris

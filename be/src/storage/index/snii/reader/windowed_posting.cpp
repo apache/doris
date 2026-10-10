@@ -18,6 +18,7 @@
 #include "storage/index/snii/reader/windowed_posting.h"
 
 #include <cstddef>
+#include <limits>
 #include <vector>
 
 #include "storage/index/snii/common/slice.h"
@@ -35,13 +36,6 @@ using format::FrqRegionMeta;
 using format::WindowMeta;
 
 namespace {
-
-// Resolves the absolute file offset of the prelude bytes for a windowed entry.
-// The frq span lives in the interleaved posting region (after the term's prx span).
-uint64_t prelude_abs(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base) {
-    const auto& region = idx.section_refs().posting_region;
-    return region.offset + frq_base + entry.frq_off_delta;
-}
 
 // Validates that [off, off+len) fits within [0, total).
 Status in_bounds(uint64_t off, uint64_t len, uint64_t total) {
@@ -67,7 +61,9 @@ Status resolve_blocks(const LogicalIndexReader& idx, const DictEntry& entry, uin
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "windowed_posting: prelude_len exceeds frq_len");
     }
-    const uint64_t frq_window_start = prelude_abs(idx, entry, frq_base) + entry.prelude_len;
+    uint64_t prelude_offset = 0;
+    RETURN_IF_ERROR(prelude_abs_offset(idx, entry, frq_base, &prelude_offset));
+    const uint64_t frq_window_start = prelude_offset + entry.prelude_len;
     g->frq_region_len = entry.frq_len - entry.prelude_len;
     g->dd_block_len = prelude.dd_block_len();
     if (g->dd_block_len != g->frq_region_len) {
@@ -121,7 +117,8 @@ Status fetch_windowed_prelude(const LogicalIndexReader& idx, const DictEntry& en
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "windowed_posting: prelude_len exceeds frq_len");
     }
-    const uint64_t prelude_offset = prelude_abs(idx, entry, frq_base);
+    uint64_t prelude_offset = 0;
+    RETURN_IF_ERROR(prelude_abs_offset(idx, entry, frq_base, &prelude_offset));
     io::BatchRangeFetcher fetcher(idx.reader());
     const size_t h = fetcher.add(prelude_offset, entry.prelude_len);
     RETURN_IF_ERROR(fetcher.fetch());
@@ -163,13 +160,8 @@ Status windowed_window_range(const LogicalIndexReader& idx, const DictEntry& ent
 Status decode_window_slices(const WindowMeta& meta, Slice dd_region, Slice prx_window,
                             bool want_positions, std::vector<uint32_t>* docids,
                             std::vector<std::vector<uint32_t>>* positions) {
-    FrqRegionMeta dd_meta;
-    dd_meta.zstd = meta.dd_zstd;
-    dd_meta.uncomp_len = meta.dd_uncomp_len;
-    dd_meta.disk_len = meta.dd_disk_len;
-    dd_meta.crc = meta.crc_dd;
-    dd_meta.verify_crc = meta.verify_crc;
-    RETURN_IF_ERROR(format::decode_dd_region(dd_region, dd_meta, meta.win_base, docids));
+    RETURN_IF_ERROR(
+            format::decode_dd_region(dd_region, dd_region_meta(meta), meta.win_base, docids));
     if (docids->size() != meta.doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "windowed_posting: frq doc_count mismatch");
@@ -246,6 +238,50 @@ Status read_windowed_posting(const LogicalIndexReader& idx, const DictEntry& ent
         }
         RETURN_IF_ERROR(append_window(ws, want_positions, out));
     }
+    return Status::OK();
+}
+
+FrqRegionMeta dd_region_meta(const WindowMeta& meta) {
+    return {.zstd = meta.dd_zstd,
+            .uncomp_len = meta.dd_uncomp_len,
+            .disk_len = meta.dd_disk_len,
+            .crc = meta.crc_dd,
+            .verify_crc = meta.verify_crc};
+}
+
+Status prelude_abs_offset(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
+                          uint64_t* out) {
+    const uint64_t region = idx.section_refs().posting_region.offset;
+    if (frq_base > std::numeric_limits<uint64_t>::max() - region ||
+        entry.frq_off_delta > std::numeric_limits<uint64_t>::max() - region - frq_base) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: prelude offset overflow");
+    }
+    *out = region + frq_base + entry.frq_off_delta;
+    return Status::OK();
+}
+
+Status first_docid_in_window(const WindowMeta& meta, uint32_t w, uint32_t* first) {
+    if (w == 0) {
+        *first = 0;
+        return Status::OK();
+    }
+    if (meta.win_base >= std::numeric_limits<uint32_t>::max()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: window base exceeds docid range");
+    }
+    *first = static_cast<uint32_t>(meta.win_base + 1);
+    if (*first > meta.last_docid) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: invalid window docid range");
+    }
+    return Status::OK();
+}
+
+Status is_dense_full_window(const WindowMeta& meta, uint32_t w, bool* full) {
+    uint32_t first = 0;
+    RETURN_IF_ERROR(first_docid_in_window(meta, w, &first));
+    *full = meta.doc_count == static_cast<uint64_t>(meta.last_docid) - first + 1;
     return Status::OK();
 }
 

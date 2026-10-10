@@ -17,17 +17,23 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "common/check.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
+#include "storage/index/inverted/query_v2/boolean_query/listed_terms.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/buffered_union_scorer.h"
+#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 #include "storage/index/inverted/query_v2/doc_set.h"
 #include "storage/index/inverted/query_v2/intersection_scorer.h"
 #include "storage/index/inverted/query_v2/match_all_docs_scorer.h"
+#include "storage/index/inverted/query_v2/null_bitmap_fetcher.h"
+#include "storage/index/inverted/query_v2/term_query/term_weight.h"
 #include "storage/index/inverted/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -48,17 +54,22 @@ public:
             return build_three_value_scorer(context);
         }
         const auto make_empty = []() -> ScorerPtr { return std::make_shared<EmptyScorer>(); };
+        // The term clauses reading a batching source are listed and scored as groups.
+        std::vector<ListedTerms> groups;
+        if (_type != OperatorType::OP_NOT) {
+            groups = listed_terms(context, /*scoring=*/true);
+        }
 
         switch (_type) {
         case OperatorType::OP_AND: {
-            auto [include_scorers, exclude_scorers] = collect_and_scorers(context);
+            auto [include_scorers, exclude_scorers] = collect_and_scorers(context, groups);
             ScorerPtr base_scorer;
             if (include_scorers.empty()) {
                 uint32_t max_doc = context.segment_num_rows;
                 if (max_doc == 0) {
                     return make_empty();
                 }
-                base_scorer = std::make_shared<MatchAllDocsScorer>(max_doc, context.readers);
+                base_scorer = std::make_shared<MatchAllDocsScorer>(max_doc, context.sources);
             } else {
                 base_scorer = intersection_scorer_build(std::move(include_scorers),
                                                         !_is_do_nothing_combiner(),
@@ -77,7 +88,7 @@ public:
             if (max_doc == 0) {
                 return make_empty();
             }
-            auto match_all = std::make_shared<MatchAllDocsScorer>(max_doc, context.readers);
+            auto match_all = std::make_shared<MatchAllDocsScorer>(max_doc, context.sources);
             if (_sub_weights.empty()) {
                 return match_all;
             }
@@ -89,9 +100,13 @@ public:
                                                   context.null_resolver);
         }
         case OperatorType::OP_OR: {
-            auto sub_scorers = per_scorers(context);
+            auto sub_scorers = per_scorers(context, groups);
             if (sub_scorers.empty()) {
                 return make_empty();
+            }
+            // One clause, or one listed group, is the disjunction itself.
+            if (sub_scorers.size() == 1) {
+                return std::move(sub_scorers.front());
             }
             return buffered_union_scorer_build<ScoreCombinerPtrT>(
                     std::move(sub_scorers), _score_combiner, context.segment_num_rows,
@@ -103,13 +118,18 @@ public:
     }
 
 private:
+    // The clauses' scorers to intersect and to exclude, the listed groups each as one scorer
+    // of its rows' summed scores.
     std::pair<std::vector<ScorerPtr>, std::vector<ScorerPtr>> collect_and_scorers(
-            const QueryExecutionContext& context) {
+            const QueryExecutionContext& context, std::vector<ListedTerms>& groups) {
         std::pair<std::vector<ScorerPtr>, std::vector<ScorerPtr>> result;
         result.first.reserve(_sub_weights.size());
         result.second.reserve(_sub_weights.size());
 
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            if (is_listed(groups, i)) {
+                continue;
+            }
             const auto& sub_weight = _sub_weights[i];
             const auto& binding_key = _binding_keys[i];
             auto boolean_weight =
@@ -129,8 +149,31 @@ private:
                 result.first.emplace_back(std::move(scorer));
             }
         }
+        for (ListedTerms& group : groups) {
+            result.first.emplace_back(group.scored_conjunction());
+        }
 
         return result;
+    }
+
+    // The clauses' scorers, the listed groups each as one scorer of its rows' summed scores.
+    std::vector<ScorerPtr> per_scorers(const QueryExecutionContext& context,
+                                       std::vector<ListedTerms>& groups) {
+        std::vector<ScorerPtr> sub_scorers;
+        sub_scorers.reserve(_sub_weights.size());
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            if (is_listed(groups, i)) {
+                continue;
+            }
+            auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
+            if (scorer != nullptr) {
+                sub_scorers.emplace_back(std::move(scorer));
+            }
+        }
+        for (ListedTerms& group : groups) {
+            sub_scorers.emplace_back(group.scored_disjunction());
+        }
+        return sub_scorers;
     }
 
     std::vector<ScorerPtr> per_scorers(const QueryExecutionContext& context) {
@@ -149,127 +192,156 @@ private:
         return std::dynamic_pointer_cast<DoNothingCombiner>(_score_combiner) != nullptr;
     }
 
-    struct EvalResult {
-        roaring::Roaring true_bitmap;
-        roaring::Roaring null_bitmap;
-    };
-
-    static EvalResult collect_eval_result(ScorerPtr scorer, const NullBitmapResolver* resolver) {
-        EvalResult result;
-        if (!scorer) {
-            return result;
-        }
-
-        uint32_t doc = scorer->doc();
-        if (doc == TERMINATED) {
-            doc = scorer->advance();
-        }
-        while (doc != TERMINATED) {
-            result.true_bitmap.add(doc);
-            doc = scorer->advance();
-        }
-
-        if (scorer->has_null_bitmap(resolver)) {
-            const auto* bitmap = scorer->get_null_bitmap(resolver);
-            if (bitmap != nullptr) {
-                result.null_bitmap = *bitmap;
-            }
-        }
-
-        return result;
-    }
-
-    static roaring::Roaring make_universe(uint32_t segment_num_rows) {
-        roaring::Roaring universe;
-        universe.addRange(0, segment_num_rows);
-        return universe;
-    }
-
-    static EvalResult combine_or(const std::vector<EvalResult>& children) {
-        EvalResult result;
-        for (const auto& child : children) {
-            result.true_bitmap |= child.true_bitmap;
-            result.null_bitmap |= child.null_bitmap;
-        }
-        result.null_bitmap -= result.true_bitmap;
-        return result;
-    }
-
-    static EvalResult combine_and(const std::vector<EvalResult>& children,
-                                  uint32_t segment_num_rows) {
-        EvalResult result;
-        if (children.empty()) {
-            result.true_bitmap = make_universe(segment_num_rows);
-            return result;
-        }
-
-        auto universe = make_universe(segment_num_rows);
-        roaring::Roaring true_bitmap = universe;
-        roaring::Roaring union_null;
-        roaring::Roaring false_bitmap;
-
-        for (const auto& child : children) {
-            true_bitmap &= child.true_bitmap;
-            union_null |= child.null_bitmap;
-
-            roaring::Roaring child_false = universe;
-            child_false -= child.true_bitmap;
-            child_false -= child.null_bitmap;
-            false_bitmap |= child_false;
-        }
-
-        result.true_bitmap = std::move(true_bitmap);
-        result.null_bitmap = std::move(union_null);
-        result.null_bitmap -= result.true_bitmap;
-        result.null_bitmap -= false_bitmap;
-        return result;
-    }
-
-    static EvalResult combine_not(const EvalResult& child, uint32_t segment_num_rows) {
-        EvalResult result;
-        auto universe = make_universe(segment_num_rows);
-        result.true_bitmap = std::move(universe);
-        result.true_bitmap -= child.true_bitmap;
-        result.true_bitmap -= child.null_bitmap;
-        result.null_bitmap = child.null_bitmap;
-        return result;
-    }
-
-    EvalResult evaluate_children(const QueryExecutionContext& context) {
-        std::vector<EvalResult> children;
-        children.reserve(_sub_weights.size());
+    // Groups term clauses by source for batched reads, unscored intersections or scored unions.
+    // Remaining clauses use their individual scorers.
+    std::vector<ListedTerms> listed_terms(const QueryExecutionContext& context, bool scoring) {
+        const bool any_source = (_type == OperatorType::OP_AND && !scoring) ||
+                                (_type == OperatorType::OP_OR && scoring);
+        std::vector<ListedTerms> groups;
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
-            auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
-            children.emplace_back(collect_eval_result(std::move(scorer), context.null_resolver));
-        }
-
-        switch (_type) {
-        case OperatorType::OP_AND:
-            return combine_and(children, context.segment_num_rows);
-        case OperatorType::OP_OR:
-            return combine_or(children);
-        case OperatorType::OP_NOT: {
-            EvalResult child_result;
-            if (!children.empty()) {
-                if (children.size() == 1) {
-                    child_result = children.front();
-                } else {
-                    child_result = combine_or(children);
-                }
+            const auto* term = dynamic_cast<const TermWeight*>(_sub_weights[i].get());
+            if (term == nullptr) {
+                continue;
             }
-            return combine_not(child_result, context.segment_num_rows);
+            DORIS_CHECK(!scoring || term->scores());
+            auto source = lookup_source(term->field(), context, _binding_keys[i]);
+            if (source == nullptr || !(any_source || source->batches_reads())) {
+                continue;
+            }
+            auto group = std::ranges::find_if(groups, [&source](const ListedTerms& candidate) {
+                return candidate.source() == source;
+            });
+            if (group == groups.end()) {
+                auto nulls = FieldNullBitmapFetcher::fetch(
+                        context.null_resolver,
+                        logical_field_or_fallback(context, _binding_keys[i], term->field()));
+                group = groups.insert(groups.end(), ListedTerms(source, std::move(nulls)));
+            }
+            group->add(i, term->term(), scoring ? term->similarity() : nullptr);
         }
-        default:
-            return EvalResult {};
+        for (ListedTerms& group : groups) {
+            group.open(_type == OperatorType::OP_AND, scoring);
         }
+        return groups;
+    }
+
+    static bool is_listed(const std::vector<ListedTerms>& groups, size_t clause) {
+        return std::ranges::any_of(
+                groups, [clause](const ListedTerms& group) { return group.holds(clause); });
+    }
+
+    index_query::TruthSet clause_rows(const QueryExecutionContext& context, size_t clause,
+                                      const roaring::Roaring* candidates) {
+        const WeightPtr& weight = _sub_weights[clause];
+        const std::string& binding_key = _binding_keys[clause];
+        if (weight->lists_rows(context, binding_key)) {
+            return weight->listed_rows(context, binding_key, candidates);
+        }
+        return collect_truth_set(weight->scorer(context, binding_key), context.null_resolver,
+                                 candidates);
+    }
+
+    index_query::TruthSet evaluate_children(const QueryExecutionContext& context) {
+        auto groups = listed_terms(context, /*scoring=*/false);
+        if (_type == OperatorType::OP_AND) {
+            return evaluate_conjunction(context, groups);
+        }
+        index_query::TruthSet result;
+        for (ListedTerms& group : groups) {
+            result.union_with(group.disjunction());
+        }
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            if (!is_listed(groups, i)) {
+                result.union_with(clause_rows(context, i, nullptr));
+            }
+        }
+        if (_type == OperatorType::OP_NOT) {
+            result.negate(context.segment_num_rows);
+        }
+        return result;
+    }
+
+    // Cheaper clauses run first, so the others read only the rows they keep: the scorers and
+    // the listed groups in cost order, then the clauses listing their own rows on what is left.
+    index_query::TruthSet evaluate_conjunction(const QueryExecutionContext& context,
+                                               std::vector<ListedTerms>& groups) {
+        index_query::TruthSet result;
+        if (std::ranges::any_of(groups,
+                                [](const ListedTerms& group) { return group.has_absent_term(); })) {
+            return result;
+        }
+        struct Step {
+            uint64_t cost = 0;
+            ScorerPtr scorer;
+            ListedTerms* group = nullptr;
+        };
+        std::vector<Step> steps;
+        std::vector<size_t> listing;
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            if (is_listed(groups, i)) {
+                continue;
+            }
+            if (_sub_weights[i]->lists_rows(context, _binding_keys[i])) {
+                listing.push_back(i);
+                continue;
+            }
+            auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
+            DORIS_CHECK(scorer != nullptr);
+            steps.push_back(
+                    {.cost = scorer->cost(), .scorer = std::move(scorer), .group = nullptr});
+        }
+        for (ListedTerms& group : groups) {
+            steps.push_back(
+                    {.cost = group.cheapest_doc_freq(), .scorer = nullptr, .group = &group});
+        }
+        std::ranges::stable_sort(steps, {}, &Step::cost);
+        result.true_rows.addRange(0, context.segment_num_rows);
+        roaring::Roaring possible;
+        const roaring::Roaring* candidates = nullptr;
+        std::vector<uint32_t> listed_candidates;
+        // Narrows the result by one clause's rows; true when nothing can match any more.
+        const auto narrow = [&](const index_query::TruthSet& rows) {
+            result.intersect_with(rows);
+            if (result.null_rows.isEmpty()) {
+                candidates = &result.true_rows;
+            } else {
+                possible = result.true_rows | result.null_rows;
+                candidates = &possible;
+            }
+            return result.true_rows.isEmpty() && result.null_rows.isEmpty();
+        };
+        for (Step& step : steps) {
+            bool exhausted = false;
+            if (step.group != nullptr) {
+                const std::vector<uint32_t>* chain_candidates = nullptr;
+                if (candidates != nullptr) {
+                    listed_candidates.resize(candidates->cardinality());
+                    candidates->toUint32Array(listed_candidates.data());
+                    chain_candidates = &listed_candidates;
+                }
+                exhausted = narrow(step.group->conjunction(chain_candidates));
+            } else {
+                exhausted =
+                        narrow(collect_truth_set(step.scorer, context.null_resolver, candidates));
+            }
+            if (exhausted) {
+                return result;
+            }
+        }
+        for (const size_t clause : listing) {
+            if (narrow(clause_rows(context, clause, candidates))) {
+                return result;
+            }
+        }
+        return result;
     }
 
     ScorerPtr build_three_value_scorer(const QueryExecutionContext& context) {
-        EvalResult result = evaluate_children(context);
-        auto true_ptr = std::make_shared<roaring::Roaring>(std::move(result.true_bitmap));
+        auto result = evaluate_children(context);
+        auto true_ptr = std::make_shared<roaring::Roaring>(std::move(result.true_rows));
         std::shared_ptr<roaring::Roaring> null_ptr;
-        if (!result.null_bitmap.isEmpty()) {
-            null_ptr = std::make_shared<roaring::Roaring>(std::move(result.null_bitmap));
+        if (!result.null_rows.isEmpty()) {
+            null_ptr = std::make_shared<roaring::Roaring>(std::move(result.null_rows));
         }
         return std::make_shared<BitSetScorer>(std::move(true_ptr), std::move(null_ptr));
     }

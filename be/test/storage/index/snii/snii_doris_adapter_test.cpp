@@ -28,6 +28,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <utility>
@@ -73,8 +74,7 @@ struct CapturedRead {
     size_t offset = 0;
     size_t len = 0;
     CapturedIOContext io_ctx;
-    // Destination buffer the read wrote into; used to prove single-segment reads
-    // land directly in the caller's output (no temp/double buffer).
+    // Destination buffer for checking that returned views borrow the read bytes.
     const void* dst = nullptr;
     // Worker thread that served the read; supports parallel-path assertions.
     std::thread::id thread_id;
@@ -242,19 +242,18 @@ std::string make_pattern(size_t n) {
     return s;
 }
 
-std::string as_string(const std::vector<uint8_t>& v) {
+std::string as_string(std::span<const uint8_t> v) {
     return std::string(v.begin(), v.end());
 }
 
-using PrxStatsSnapshot = std::array<int64_t, 11>;
+using PrxStatsSnapshot = std::array<int64_t, 10>;
 
 PrxStatsSnapshot prx_stats_snapshot(const OlapReaderStatistics& stats) {
-    return {stats.snii_stats.prx_raw_frames,      stats.snii_stats.prx_zstd_frames,
-            stats.snii_stats.prx_pfor_frames,     stats.snii_stats.prx_plaintext_bytes,
-            stats.snii_stats.prx_total_docs,      stats.snii_stats.prx_selected_docs,
-            stats.snii_stats.prx_total_positions, stats.snii_stats.prx_selected_positions,
-            stats.snii_stats.prx_fetch_ns,        stats.snii_stats.prx_decode_ns,
-            stats.snii_stats.prx_phrase_verify_ns};
+    return {stats.snii_stats.prx_raw_frames,       stats.snii_stats.prx_zstd_frames,
+            stats.snii_stats.prx_pfor_frames,      stats.snii_stats.prx_plaintext_bytes,
+            stats.snii_stats.prx_total_docs,       stats.snii_stats.prx_selected_docs,
+            stats.snii_stats.prx_total_positions,  stats.snii_stats.prx_selected_positions,
+            stats.snii_stats.prx_streaming_frames, stats.snii_stats.prx_decode_ns};
 }
 
 void set_prx_stats_sentinel(OlapReaderStatistics* stats) {
@@ -266,9 +265,8 @@ void set_prx_stats_sentinel(OlapReaderStatistics* stats) {
     stats->snii_stats.prx_selected_docs = 106;
     stats->snii_stats.prx_total_positions = 107;
     stats->snii_stats.prx_selected_positions = 108;
-    stats->snii_stats.prx_fetch_ns = 109;
+    stats->snii_stats.prx_streaming_frames = 109;
     stats->snii_stats.prx_decode_ns = 110;
-    stats->snii_stats.prx_phrase_verify_ns = 111;
 }
 
 std::vector<uint32_t> bitmap_docids(const roaring::Roaring& bitmap) {
@@ -505,7 +503,6 @@ TEST_F(SniiIndexReaderActualPathTest, LaterCorruptFrameFlushesEarlierSuccessfulF
               1);
     EXPECT_GT(execution.stats.snii_stats.prx_plaintext_bytes, 0);
     EXPECT_GT(execution.stats.snii_stats.prx_total_docs, 0);
-    EXPECT_EQ(execution.stats.snii_stats.prx_phrase_verify_ns, 0);
 }
 
 TEST(DorisSniiFileReaderTest, ReadAtPropagatesIndexIOContextAndRecordsStats) {
@@ -601,7 +598,7 @@ TEST(DorisSniiFileReaderTest, SniiNoWriteBackSwitchReachesEveryBatchSegment) {
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.inverted_index_snii_read_no_write_file_cache = true;
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
         std::vector<::doris::snii::io::Range> ranges {{0, 4}, {8192, 4}, {16384, 4}};
@@ -625,7 +622,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchRecordsLogicalAndCoalescedPhysicalIO) {
     io::IOContext io_ctx;
     io_ctx.file_cache_stats = &stats;
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
         std::vector<::doris::snii::io::Range> ranges {{0, 4}, {6, 3}, {20, 2}};
@@ -633,10 +630,12 @@ TEST(DorisSniiFileReaderTest, ReadBatchRecordsLogicalAndCoalescedPhysicalIO) {
         ASSERT_TRUE(status.ok()) << status.to_string();
     }
 
-    ASSERT_EQ(outs.size(), 3);
-    EXPECT_EQ(std::string(outs[0].begin(), outs[0].end()), "0123");
-    EXPECT_EQ(std::string(outs[1].begin(), outs[1].end()), "678");
-    EXPECT_EQ(std::string(outs[2].begin(), outs[2].end()), "kl");
+    ASSERT_EQ(outs.views.size(), 3);
+    EXPECT_EQ(std::string(outs.views[0].begin(), outs.views[0].end()), "0123");
+    EXPECT_EQ(std::string(outs.views[1].begin(), outs.views[1].end()), "678");
+    EXPECT_EQ(std::string(outs.views[2].begin(), outs.views[2].end()), "kl");
+    ASSERT_EQ(outs.buffers.size(), 1);
+    EXPECT_EQ(outs.buffers[0].size(), 22);
 
     ASSERT_EQ(recording_reader->reads().size(), 1);
     EXPECT_EQ(recording_reader->reads()[0].offset, 0);
@@ -701,7 +700,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchKeepsCompletedStatsWhenOneSegmentFails) {
     io::IOContext io_ctx;
     io_ctx.file_cache_stats = &stats;
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     Status status;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
@@ -746,7 +745,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchIssuesSingleSerialRoundForDisjointSegment
     io::IOContext io_ctx;
     io_ctx.file_cache_stats = &stats;
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
         std::vector<::doris::snii::io::Range> ranges {{0, 4}, {8192, 4}, {16384, 4}};
@@ -754,10 +753,10 @@ TEST(DorisSniiFileReaderTest, ReadBatchIssuesSingleSerialRoundForDisjointSegment
         ASSERT_TRUE(status.ok()) << status.to_string();
     }
 
-    ASSERT_EQ(outs.size(), 3);
-    EXPECT_EQ(as_string(outs[0]), data.substr(0, 4));
-    EXPECT_EQ(as_string(outs[1]), data.substr(8192, 4));
-    EXPECT_EQ(as_string(outs[2]), data.substr(16384, 4));
+    ASSERT_EQ(outs.views.size(), 3);
+    EXPECT_EQ(as_string(outs.views[0]), data.substr(0, 4));
+    EXPECT_EQ(as_string(outs.views[1]), data.substr(8192, 4));
+    EXPECT_EQ(as_string(outs.views[2]), data.substr(16384, 4));
 
     EXPECT_EQ(recording_reader->reads().size(), 3);
     EXPECT_EQ(stats.inverted_index_request_bytes, 12);
@@ -766,50 +765,53 @@ TEST(DorisSniiFileReaderTest, ReadBatchIssuesSingleSerialRoundForDisjointSegment
     EXPECT_EQ(stats.inverted_index_serial_read_rounds, 1);
 }
 
-// F27: a single-range group reads straight into the caller's output slot, with no
-// temporary buffer and no second memcpy. Proven by destination-pointer identity.
+// A single-range result borrows the physical read buffer.
 TEST(DorisSniiFileReaderTest, ReadBatchSingleSegmentReadsInPlace) {
     const std::string data = make_pattern(20000);
     auto recording_reader = std::make_shared<RecordingFileReader>(data);
     DorisSniiFileReader reader(recording_reader);
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     std::vector<::doris::snii::io::Range> ranges {{100, 8}};
     auto status = reader.read_batch(ranges, &outs);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    ASSERT_EQ(outs.size(), 1);
-    EXPECT_EQ(as_string(outs[0]), data.substr(100, 8));
+    ASSERT_EQ(outs.views.size(), 1);
+    EXPECT_EQ(as_string(outs.views[0]), data.substr(100, 8));
     ASSERT_EQ(recording_reader->reads().size(), 1);
-    // The read wrote directly into outs[0]'s storage (no double buffer).
-    EXPECT_EQ(recording_reader->reads()[0].dst, outs[0].data());
+    EXPECT_EQ(recording_reader->reads()[0].dst, outs.views[0].data());
 }
 
-// FB-03: a batch mixing one coalesced group (temp + scatter) and one single-range
-// group (direct read). Both branches produce correct bytes.
+// Coalesced and disjoint requests borrow their physical buffers.
 TEST(DorisSniiFileReaderTest, ReadBatchMixedSingleAndCoalescedGroups) {
     const std::string data = make_pattern(20000);
     auto recording_reader = std::make_shared<RecordingFileReader>(data);
     DorisSniiFileReader reader(recording_reader);
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     std::vector<::doris::snii::io::Range> ranges {{0, 4}, {4, 4}, {9000, 4}};
     auto status = reader.read_batch(ranges, &outs);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    ASSERT_EQ(outs.size(), 3);
-    EXPECT_EQ(as_string(outs[0]), data.substr(0, 4));
-    EXPECT_EQ(as_string(outs[1]), data.substr(4, 4));
-    EXPECT_EQ(as_string(outs[2]), data.substr(9000, 4));
+    ASSERT_EQ(outs.views.size(), 3);
+    EXPECT_EQ(as_string(outs.views[0]), data.substr(0, 4));
+    EXPECT_EQ(as_string(outs.views[1]), data.substr(4, 4));
+    EXPECT_EQ(as_string(outs.views[2]), data.substr(9000, 4));
+    ASSERT_EQ(outs.buffers.size(), 2);
+    EXPECT_EQ(outs.buffers[0].size(), 8);
+    EXPECT_EQ(outs.buffers[1].size(), 4);
 
     // Two physical segments: the coalesced [0,8) group and the single [9000,9004).
     ASSERT_EQ(recording_reader->reads().size(), 2);
-    // The single-range group [9000,9004) read directly into outs[2].
     const auto& reads = recording_reader->reads();
     bool single_in_place = false;
     for (const auto& r : reads) {
+        if (r.offset == 0) {
+            EXPECT_EQ(r.dst, outs.views[0].data());
+            EXPECT_EQ(static_cast<const uint8_t*>(r.dst) + 4, outs.views[1].data());
+        }
         if (r.offset == 9000) {
-            single_in_place = (r.dst == outs[2].data());
+            single_in_place = (r.dst == outs.views[2].data());
         }
     }
     EXPECT_TRUE(single_in_place);
@@ -821,18 +823,18 @@ TEST(DorisSniiFileReaderTest, ReadBatchHandlesEmptyAndZeroLengthRanges) {
     auto recording_reader = std::make_shared<RecordingFileReader>(make_pattern(64));
     DorisSniiFileReader reader(recording_reader);
 
-    std::vector<std::vector<uint8_t>> empty_outs;
+    index_query::IoReadResult empty_outs;
     auto empty_status = reader.read_batch({}, &empty_outs);
     ASSERT_TRUE(empty_status.ok()) << empty_status.to_string();
-    EXPECT_TRUE(empty_outs.empty());
+    EXPECT_TRUE(empty_outs.views.empty());
     EXPECT_EQ(recording_reader->reads().size(), 0);
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     std::vector<::doris::snii::io::Range> ranges {{5, 0}};
     auto status = reader.read_batch(ranges, &outs);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    ASSERT_EQ(outs.size(), 1);
-    EXPECT_TRUE(outs[0].empty());
+    ASSERT_EQ(outs.views.size(), 1);
+    EXPECT_TRUE(outs.views[0].empty());
     EXPECT_EQ(recording_reader->reads().size(), 0);
 }
 
@@ -841,7 +843,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchReturnsErrorForOutOfRange) {
     auto recording_reader = std::make_shared<RecordingFileReader>(make_pattern(64));
     DorisSniiFileReader reader(recording_reader);
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     std::vector<::doris::snii::io::Range> ranges {{63, 100}};
     auto status = reader.read_batch(ranges, &outs);
     EXPECT_FALSE(status.ok());
@@ -854,15 +856,15 @@ TEST(DorisSniiFileReaderTest, ReadBatchPreservesOriginalOrderForUnsortedInput) {
     auto recording_reader = std::make_shared<RecordingFileReader>(data);
     DorisSniiFileReader reader(recording_reader);
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     std::vector<::doris::snii::io::Range> ranges {{16384, 2}, {0, 4}, {8192, 3}};
     auto status = reader.read_batch(ranges, &outs);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    ASSERT_EQ(outs.size(), 3);
-    EXPECT_EQ(as_string(outs[0]), data.substr(16384, 2));
-    EXPECT_EQ(as_string(outs[1]), data.substr(0, 4));
-    EXPECT_EQ(as_string(outs[2]), data.substr(8192, 3));
+    ASSERT_EQ(outs.views.size(), 3);
+    EXPECT_EQ(as_string(outs.views[0]), data.substr(16384, 2));
+    EXPECT_EQ(as_string(outs.views[1]), data.substr(0, 4));
+    EXPECT_EQ(as_string(outs.views[2]), data.substr(8192, 3));
 }
 
 // IOContext passthrough: every per-segment read sees the caller's flags. Each
@@ -881,7 +883,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchPropagatesIOContextFlagsPerSegment) {
     io_ctx.expiration_time = 123;
     io_ctx.file_cache_stats = &stats;
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
         std::vector<::doris::snii::io::Range> ranges {{0, 4}, {8192, 4}, {16384, 4}};
@@ -930,16 +932,16 @@ TEST(DorisSniiFileReaderConcurrencyTest, ParallelSegmentReadsAreThreadSafe) {
         ranges.push_back({static_cast<uint64_t>(i) * 8192, 4});
     }
 
-    std::vector<std::vector<uint8_t>> outs;
+    index_query::IoReadResult outs;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
         auto status = reader.read_batch(ranges, &outs);
         ASSERT_TRUE(status.ok()) << status.to_string();
     }
 
-    ASSERT_EQ(outs.size(), 8);
+    ASSERT_EQ(outs.views.size(), 8);
     for (size_t i = 0; i < 8; ++i) {
-        EXPECT_EQ(as_string(outs[i]), data.substr(i * 8192, 4));
+        EXPECT_EQ(as_string(outs.views[i]), data.substr(i * 8192, 4));
     }
     EXPECT_EQ(recording_reader->reads().size(), 8);
     EXPECT_EQ(stats.inverted_index_range_read_count, 8);
@@ -962,7 +964,7 @@ TEST(DorisSniiFileReaderConcurrencyTest, ParallelPathMatchesSerialPath) {
         expected.emplace_back(chunk.begin(), chunk.end());
     }
 
-    std::vector<std::vector<uint8_t>> serial_outs;
+    index_query::IoReadResult serial_outs;
     {
         IoPoolSeamGuard seam(nullptr); // no injected pool
         auto status = reader.read_batch(ranges, &serial_outs);
@@ -974,16 +976,19 @@ TEST(DorisSniiFileReaderConcurrencyTest, ParallelPathMatchesSerialPath) {
             ThreadPoolBuilder("snii_batch_test").set_min_threads(2).set_max_threads(4).build(&pool);
     ASSERT_TRUE(pool_st.ok()) << pool_st.to_string();
 
-    std::vector<std::vector<uint8_t>> parallel_outs;
+    index_query::IoReadResult parallel_outs;
     {
         IoPoolSeamGuard seam(pool.get());
         auto status = reader.read_batch(ranges, &parallel_outs);
         ASSERT_TRUE(status.ok()) << status.to_string();
     }
 
-    EXPECT_EQ(serial_outs, expected);
-    EXPECT_EQ(parallel_outs, expected);
-    EXPECT_EQ(serial_outs, parallel_outs);
+    ASSERT_EQ(serial_outs.views.size(), expected.size());
+    ASSERT_EQ(parallel_outs.views.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(as_string(serial_outs.views[i]), as_string(expected[i]));
+        EXPECT_EQ(as_string(parallel_outs.views[i]), as_string(expected[i]));
+    }
 }
 
 } // namespace doris::segment_v2::snii_doris

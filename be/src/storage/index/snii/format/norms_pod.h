@@ -29,13 +29,8 @@
 
 namespace doris::snii::format {
 
-// norms POD: per logical index / field stores 1-byte encoded doc length per doc,
-// used by BM25 length normalization (SniiStatsProvider::encoded_norm) for per-docid lookup.
-//
-// On-disk layout (the whole section is framed by SectionFramer, which adds a type+len+crc32c envelope):
-//   framer payload = [varint64 doc_count][bytes encoded_norm[doc_count]]
-//   framer envelope = [u8 type][varint64 payload_len][payload][fixed32 crc32c]
-// The encoding of encoded_norm (length -> 1B) is out of scope for this module; here we only handle raw byte storage and retrieval.
+// Stores one encoded length byte per document for BM25 normalization.
+// SectionFramer wraps a payload of [varint64 doc_count][encoded_norm bytes].
 class NormsPodWriter {
 public:
     // Appends the encoded_norm for the next docid (docid is implicit, assigned in append order starting from 0).

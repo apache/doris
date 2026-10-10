@@ -76,6 +76,8 @@ public:
 
     float score() override { return 1.0F; }
 
+    const roaring::Roaring* get_true_bitmap() const override { return _bit_set.get(); }
+
     bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) override {
         return _null_bitmap != nullptr && !_null_bitmap->isEmpty();
     }

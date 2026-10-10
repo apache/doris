@@ -77,7 +77,7 @@ public:
     // large-read bypass lands blob bytes straight in the destination array.
     Status read_into(uint64_t offset, uint8_t* out, size_t out_len) override;
     Status read_batch(const std::vector<::doris::snii::io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override;
+                      index_query::IoReadResult* outs) override;
     uint64_t size() const override;
 
     // Test-only: inject (or clear with nullptr) the thread pool used to fan out

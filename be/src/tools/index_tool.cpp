@@ -51,7 +51,8 @@
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
-#include "storage/index/inverted/query/conjunction_query.h"
+#include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/query/logical/node.h"
 #include "storage/tablet/tablet_schema.h"
 
 using doris::segment_v2::DorisCompoundReader;
@@ -170,9 +171,6 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 
     int32_t total = 0;
     if (pred == "match_all") {
-        roaring::Roaring result;
-        std::vector<std::string> terms = split(token, '|');
-
         doris::OlapReaderStatistics stats;
         doris::RuntimeState runtime_state;
         doris::TQueryOptions query_options;
@@ -185,18 +183,19 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         context->stats = &stats;
         context->io_ctx = &io_ctx;
 
-        ConjunctionQuery conjunct_query(s, context);
-        InvertedIndexQueryInfo query_info;
-        query_info.field_name = field_ws;
-        for (auto& term : terms) {
-            doris::segment_v2::TermInfo term_info;
-            term_info.term = term;
-            query_info.term_infos.push_back(term_info);
+        const doris::index_query::logical::Node leaf {
+                .value = doris::index_query::logical::TermSet {.field = {},
+                                                               .terms = split(token, '|'),
+                                                               .require_all = true,
+                                                               .min_should_match = 0}};
+        auto result = std::make_shared<roaring::Roaring>();
+        const doris::Status status = run_clucene_leaf(context, field_ws, leaf, nullptr,
+                                                      /*scoring=*/false, s, result);
+        if (!status.ok()) {
+            std::cerr << "match_all failed: " << status << std::endl;
         }
-        conjunct_query.add(query_info);
-        conjunct_query.search(result);
 
-        total += result.cardinality();
+        total += result->cardinality();
     } else {
         roaring::Roaring result;
         s->_search(query.get(), [&result](const int32_t docid, const float_t /*score*/) {

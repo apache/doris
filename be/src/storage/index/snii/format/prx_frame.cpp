@@ -55,4 +55,28 @@ Status read_prx_frame(ByteSource* source, PrxFrameView* frame, bool verify_crc) 
     return Status::OK();
 }
 
+Status add_prx_frames_position_work(Slice frames, uint64_t* work) {
+    ByteSource source(frames);
+    while (!source.eof()) {
+        PrxFrameView frame;
+        RETURN_IF_ERROR(read_prx_frame(&source, &frame, /*verify_crc=*/false));
+        if (frame.codec != PrxCodec::kPfor) {
+            *work += frame.uncompressed_length;
+            continue;
+        }
+        ByteSource payload(frame.payload);
+        uint32_t doc_count = 0;
+        uint32_t total_positions = 0;
+        RETURN_IF_ERROR(payload.get_varint32(&doc_count));
+        RETURN_IF_ERROR(payload.get_varint32(&total_positions));
+        if (doc_count > kReaderPrxWindowLimits.max_docs ||
+            total_positions > kReaderPrxWindowLimits.max_positions) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "prx: PFOR frame header exceeds the reader's window limits");
+        }
+        *work += total_positions;
+    }
+    return Status::OK();
+}
+
 } // namespace doris::snii::format

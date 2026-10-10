@@ -32,8 +32,8 @@ template <typename ScorerPtrT, typename ScoreCombinerPtrT>
 class BufferedUnion : public Scorer {
 public:
     BufferedUnion(std::vector<ScorerPtrT> scorers, std::vector<TinySet> bitsets,
-                  std::vector<ScoreCombinerPtrT> scores, size_t cursor, uint32_t offset,
-                  uint32_t doc);
+                  std::vector<typename ScoreCombinerPtrT::element_type> scores, size_t cursor,
+                  uint32_t offset, uint32_t doc);
     ~BufferedUnion() override = default;
 
     uint32_t advance() override;
@@ -50,12 +50,12 @@ public:
 private:
     bool refill();
     void refill(std::vector<ScorerPtrT>& scorers, std::vector<TinySet>& bitsets,
-                std::vector<ScoreCombinerPtrT>& scores, uint32_t min_doc);
+                std::vector<typename ScoreCombinerPtrT::element_type>& scores, uint32_t min_doc);
     bool advance_buffered();
 
     std::vector<ScorerPtrT> _scorers;
     std::vector<TinySet> _bitsets;
-    std::vector<ScoreCombinerPtrT> _scores;
+    std::vector<typename ScoreCombinerPtrT::element_type> _scores;
     size_t _cursor = 0;
     uint32_t _offset = 0;
     uint32_t _doc = 0;

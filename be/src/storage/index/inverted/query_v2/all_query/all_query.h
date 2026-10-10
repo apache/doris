@@ -21,7 +21,9 @@
 #include <memory>
 #include <string>
 
-#include "storage/index/inverted/query_v2/nullable_scorer.h"
+#include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
+#include "storage/index/inverted/query_v2/const_score_query/const_score_scorer.h"
+#include "storage/index/inverted/query_v2/null_bitmap_fetcher.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/weight.h"
@@ -98,7 +100,15 @@ public:
         auto inner = std::make_shared<AllScorer>(context.segment_num_rows, _enable_scoring);
         if (_nullable && context.null_resolver != nullptr) {
             std::string logical = logical_field_or_fallback(context, "", _field);
-            return make_nullable_scorer(std::move(inner), logical, context.null_resolver);
+            auto nulls = FieldNullBitmapFetcher::fetch(context, logical, inner.get());
+            if (nulls != nullptr && !nulls->isEmpty()) {
+                auto truths = std::make_shared<roaring::Roaring>();
+                truths->addRange(0, context.segment_num_rows);
+                *truths -= *nulls;
+                auto rows = std::make_shared<BitSetScorer>(std::move(truths), std::move(nulls));
+                return std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(
+                        std::move(rows), _enable_scoring ? 1.0F : 0.0F);
+            }
         }
         return inner;
     }

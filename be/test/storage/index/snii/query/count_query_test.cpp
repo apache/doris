@@ -26,12 +26,13 @@
 
 #include "common/status.h"
 #include "roaring/roaring.hh"
+#include "storage/index/query/docid_set_ops.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
-#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
@@ -43,7 +44,7 @@
 using namespace doris::snii;
 using namespace doris::snii::snii_test;
 using doris::snii::query::count_only_term_df;
-using doris::snii::query::fabricate_null_disjoint_count_bitmap;
+using doris::index_query::fabricate_null_disjoint_count_bitmap;
 using doris::snii::query::term_query;
 namespace qinternal = doris::snii::query::internal;
 

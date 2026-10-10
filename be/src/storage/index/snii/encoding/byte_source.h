@@ -74,6 +74,8 @@ public:
     // on truncation, a >32-bit value, or a uint32 prefix-sum overflow. Failure
     // leaves the cursor and output vector unchanged.
     Status decode_delta_run(size_t count, std::vector<uint32_t>* out);
+    // Decodes out.size() deltas into `out`, continuing the running sum in `previous`. Failure
+    // leaves the cursor and the sum unchanged, and `out` may hold part of the run.
     Status decode_delta_batch(std::span<uint32_t> out, uint32_t* previous, bool* first_position);
     Status get_zigzag(int64_t* v);
     Status get_bytes(size_t n, Slice* out);

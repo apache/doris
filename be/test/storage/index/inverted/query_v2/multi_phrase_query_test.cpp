@@ -19,9 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
@@ -29,6 +32,7 @@
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(search)
@@ -259,8 +263,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_two_single_terms) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -307,8 +311,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_alternatives) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -355,8 +359,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_multiple_alternatives) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -408,8 +412,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_three_positions) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -456,8 +460,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_no_matches) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -509,8 +513,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_scoring) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -563,11 +567,11 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_binding_key) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
 
     std::string binding_key = "content#0";
-    exec_ctx.reader_bindings[binding_key] = reader_holder;
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.source_bindings[binding_key] = clucene_index_source(reader_holder, field, nullptr);
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx, binding_key);
     ASSERT_NE(scorer, nullptr);
@@ -618,8 +622,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_all_positions_alternative
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -710,8 +714,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_long_phrase) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -770,8 +774,8 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_bm25_similarity) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -788,6 +792,41 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_bm25_similarity) {
     if (found_match) {
         SUCCEED() << "Found matches with BM25 scoring";
     }
+
+    _CLDECDELETE(dir);
+}
+
+// "quick" followed by "fox" or "horse": exact in doc 5, one move apart in docs 0, 6 and 11.
+TEST_F(MultiPhraseQueryV2Test, SlopAndCandidatesApplyToSlotsWithAlternatives) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    const std::wstring field = L"content";
+    TermInfo quick;
+    quick.term = std::string("quick");
+    quick.position = 0;
+    TermInfo animal;
+    animal.term = std::vector<std::string> {"fox", "horse"};
+    animal.position = 1;
+    const std::vector<TermInfo> term_infos {quick, animal};
+
+    const auto docs = [&](const index_query::PhraseQueryOptions& options) {
+        query_v2::MultiPhraseQuery query(std::make_shared<IndexQueryContext>(), field, term_infos,
+                                         options);
+        query_v2::QueryExecutionContext exec_ctx;
+        exec_ctx.segment_num_rows = reader->maxDoc();
+        exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+        auto scorer = query.weight(false)->scorer(exec_ctx);
+        std::set<uint32_t> matched;
+        for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+            matched.insert(doc);
+        }
+        return matched;
+    };
+    EXPECT_EQ(docs({}), (std::set<uint32_t> {5}));
+    EXPECT_EQ(docs({.slop = 1}), (std::set<uint32_t> {0, 5, 6, 11}));
+    roaring::Roaring candidates;
+    candidates.addMany(3, std::array<uint32_t, 3> {6, 8, 11}.data());
+    EXPECT_EQ(docs({.slop = 1, .candidates = &candidates}), (std::set<uint32_t> {6, 11}));
 
     _CLDECDELETE(dir);
 }

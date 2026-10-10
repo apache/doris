@@ -20,12 +20,12 @@
 #include <cstdint>
 #include <roaring/roaring.hh>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "storage/index/inverted/gram/gram_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_index_source.h"
 
 // gram_boolean_query -- evaluates a gram::GramQuery boolean query tree against the gram-family
 // dictionary/postings of one SNII segment, producing a docid bitmap. The index may only narrow
@@ -110,17 +110,12 @@ public:
     }
 };
 
-// The production GramPostingSource on top of LogicalIndexReader. All three entry points share one
-// request-scoped dictionary memo: dfs() resolves a batch through LogicalIndexReader::lookup_batch
-// (bounded waves of concurrent DICT block reads instead of one blocking read per gram) and keeps
-// the resolved DictEntry, so the and_postings()/or_postings() call that follows reads postings
-// straight from those entries and never looks the same gram up a second time. Posting reads then
-// go through the same batched plan/fetch pipeline boolean_and()/boolean_or() use, so a node costs
-// a constant number of round trips instead of one per gram. The memo lives exactly as long as
-// this object, which production creates per index-query call.
+// Resolves gram dictionary entries in batches and reuses them for posting reads within one query.
+// Conjunctions narrow candidate rows; unions read one gram wave at a time.
 class LogicalIndexPostingSource final : public GramPostingSource {
 public:
-    explicit LogicalIndexPostingSource(const reader::LogicalIndexReader& idx) : _idx(idx) {}
+    explicit LogicalIndexPostingSource(const reader::LogicalIndexReader& idx)
+            : _idx(idx), _postings(idx) {}
     Status dfs(const std::vector<std::string>& grams, std::vector<GramDf>* out) override;
     Status and_postings(const std::vector<std::string>& grams, roaring::Roaring* out) override;
     Status or_postings(const std::vector<std::string>& grams, roaring::Roaring* out) override;
@@ -133,7 +128,7 @@ private:
     Status _resolve(const std::vector<std::string>& grams);
 
     const reader::LogicalIndexReader& _idx;
-    std::unordered_map<std::string, reader::LogicalIndexReader::BatchLookupResult> _resolved;
+    reader::SniiIndexSource _postings;
 };
 
 // Evaluate q against src: ALL -> [0, num_docs); NONE -> the empty set; AND looks up the df of all

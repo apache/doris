@@ -1,0 +1,137 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "storage/index/query/spi/postings_cursor.h"
+
+namespace doris::index_query {
+
+class TermPattern;
+class DocIdSink;
+class IndexSource;
+using IndexSourcePtr = std::shared_ptr<IndexSource>;
+
+// The document length each encoded norm stands for when a byte holds the length itself, 0
+// standing for 1.
+inline constexpr std::array<float, 256> kByteNormLengths = [] {
+    std::array<float, 256> lengths {};
+    for (size_t i = 0; i < lengths.size(); ++i) {
+        lengths[i] = static_cast<float>(i == 0 ? 1 : i);
+    }
+    return lengths;
+}();
+
+// One field's index as the engine reads it: postings by term, the dictionary by pattern and
+// the documents still alive. Every source uses the Doris segment's document IDs.
+class IndexSource {
+public:
+    virtual ~IndexSource() = default;
+
+    // The number of documents, the bound of every docid the source lists.
+    virtual uint32_t doc_count() const = 0;
+
+    // Resolves a leaf's UTF-8 terms ahead of their opens, in the batches the format allows.
+    virtual Status prepare_terms(std::span<const std::string> terms) {
+        (void)terms;
+        return Status::OK();
+    }
+
+    // The postings of a UTF-8 term: with positions, and with frequencies and norms, as asked.
+    // A term the dictionary lacks yields a null cursor; a source without positions counts one
+    // occurrence per document.
+    virtual Status open_term(std::string_view term, bool positions, bool scoring,
+                             std::unique_ptr<PostingsCursor>* out) = 0;
+
+    // The documents holding a UTF-8 term, 0 when the dictionary lacks it, without reading its
+    // postings.
+    virtual Status doc_freq(std::string_view term, uint64_t* out) {
+        std::unique_ptr<PostingsCursor> cursor;
+        RETURN_IF_ERROR(open_term(term, /*positions=*/false, /*scoring=*/false, &cursor));
+        *out = cursor == nullptr ? 0 : cursor->doc_freq();
+        return Status::OK();
+    }
+
+    // The terms `pattern` matches, in dictionary order, at most `max_expansions` of them when
+    // that is positive.
+    virtual Status expand_terms(TermPattern& pattern, int32_t max_expansions,
+                                std::vector<std::string>* out) = 0;
+
+    // The document length each encoded norm the cursors report stands for; a scoring context
+    // is bound to it before it scores the source's postings. A byte holding the length itself
+    // unless the format encodes its norms otherwise.
+    virtual std::span<const float> norm_lengths() const { return kByteNormLengths; }
+
+    // The encoded norms of the ascending `docs`, 1 each for a source without norms.
+    virtual Status encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) {
+        out->assign(docs.size(), 1);
+        return Status::OK();
+    }
+
+    // Whether the source reads in batched rounds: a leaf then opens all its terms at once and
+    // the engine lists them term at a time, materializing what it needs, instead of driving
+    // one document at a time across them.
+    virtual bool batches_reads() const { return false; }
+
+    // Opens several terms at once, so a batching source resolves them in one round and reads
+    // their preludes in one round when a cursor first needs one; a term the dictionary lacks
+    // yields a null cursor at its index.
+    virtual Status open_terms(std::span<const std::string> terms, bool positions, bool scoring,
+                              std::vector<std::unique_ptr<PostingsCursor>>* out) {
+        out->clear();
+        for (const std::string& term : terms) {
+            std::unique_ptr<PostingsCursor> cursor;
+            RETURN_IF_ERROR(open_term(term, positions, scoring, &cursor));
+            out->push_back(std::move(cursor));
+        }
+        return Status::OK();
+    }
+
+    // Appends the terms' document IDs in independently sorted batches. A deduplicating sink
+    // forms their union; any_present reports whether at least one term exists.
+    virtual Status collect_terms(std::span<const std::string> terms, DocIdSink& sink,
+                                 bool* any_present = nullptr);
+
+    // Whether the index may hold `term`, answered without reading its dictionary: false only
+    // when it surely does not. A source with no such test answers true.
+    virtual Status may_hold(std::string_view /*term*/, bool* held) {
+        *held = true;
+        return Status::OK();
+    }
+
+    // Issues the reads the cursors opened together registered since the last call, in one
+    // round; a source that reads on demand has nothing to issue.
+    virtual Status fetch_pending() { return Status::OK(); }
+
+    // Whether the segment still holds the document.
+    virtual bool is_live(uint32_t doc) const {
+        (void)doc;
+        return true;
+    }
+};
+
+} // namespace doris::index_query

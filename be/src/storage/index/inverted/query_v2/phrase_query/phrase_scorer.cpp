@@ -17,34 +17,66 @@
 
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
 
+#include <algorithm>
+
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 template <typename TPostings>
-ScorerPtr PhraseScorer<TPostings>::create_with_offset(
-        const std::vector<std::pair<size_t, TPostings>>& term_postings_with_offset,
-        const SimilarityPtr& similarity, uint32_t slop, size_t offset, uint32_t num_docs) {
-    size_t max_offset = offset;
-    for (const auto& [term_offset, _] : term_postings_with_offset) {
-        max_offset = std::max(max_offset, term_offset + offset);
+PhraseScorer<TPostings>::PhraseScorer(IntersectionDocSetPtr intersection_docset,
+                                      std::vector<TermState> terms, size_t num_clauses,
+                                      index_query::PhraseVerifier verifier,
+                                      index_query::ScoringContextPtr<float> similarity)
+        : _intersection_docset(std::move(intersection_docset)),
+          _terms(std::move(terms)),
+          _verifier(std::move(verifier)),
+          _num_clauses(num_clauses),
+          _similarity(std::move(similarity)) {
+    if constexpr (std::is_same_v<TPostings, SegmentPostingsPtr>) {
+        if (!_similarity && _verifier.can_stream()) {
+            _streams.resize(_terms.size());
+            _verifier.validate_stream(_streams.size());
+        }
     }
+}
 
-    size_t num_docsets = term_postings_with_offset.size();
-    std::vector<PostingsWithOffsetPtr<TPostings>> postings_with_offsets;
-    postings_with_offsets.reserve(num_docsets);
-    for (const auto& [term_offset, postings] : term_postings_with_offset) {
-        auto adjusted_offset = static_cast<uint32_t>(max_offset - term_offset);
-        auto postings_with_offset = std::make_shared<PostingsWithOffset<TPostings>>(
-                std::move(postings), adjusted_offset);
-        postings_with_offsets.emplace_back(std::move(postings_with_offset));
+template <typename TPostings>
+PhraseScorer<TPostings>::~PhraseScorer() = default;
+
+template <typename TPostings>
+ScorerPtr PhraseScorer<TPostings>::create(
+        const std::vector<std::pair<size_t, TPostings>>& term_postings,
+        const index_query::ScoringContextPtr<float>& similarity,
+        const index_query::PhraseQueryOptions& options, uint32_t num_docs) {
+    const uint32_t slop = options.slop;
+    std::vector<TPostings> clause_postings;
+    std::vector<uint32_t> offsets;
+    std::vector<uint64_t> costs;
+    std::vector<TermState> terms;
+    std::vector<size_t> clause_terms;
+    for (const auto& [offset, postings] : term_postings) {
+        clause_postings.push_back(postings);
+        offsets.push_back(static_cast<uint32_t>(offset));
+        costs.push_back(postings->cost());
+        const auto term = std::ranges::find(terms, postings, &TermState::postings);
+        clause_terms.push_back(static_cast<size_t>(term - terms.begin()));
+        if (term == terms.end()) {
+            terms.push_back({postings, {}});
+        }
     }
-
-    auto intersection_docset =
-            make_intersection<PostingsWithOffsetPtr<TPostings>>(postings_with_offsets, num_docs);
-    std::vector<uint32_t> left_positions(100);
-    std::vector<uint32_t> right_positions(100);
+    // A posting of no document, CLucene's answer for a term its dictionary lacks, empties the
+    // phrase for the whole segment before it reaches the candidates.
+    if (std::ranges::any_of(clause_postings,
+                            [](const TPostings& postings) { return postings->size_hint() == 0; })) {
+        return std::make_shared<EmptyScorer>();
+    }
+    index_query::PhraseVerifier verifier(std::move(clause_terms), offsets, costs, slop,
+                                         options.ordered);
+    if (options.candidate_rows_consumed != nullptr) {
+        *options.candidate_rows_consumed = true;
+    }
     auto scorer = std::make_shared<PhraseScorer<TPostings>>(
-            std::move(intersection_docset), num_docsets, std::move(left_positions),
-            std::move(right_positions), 0, similarity, slop);
+            make_intersection<TPostings>(clause_postings, num_docs, options.candidates),
+            std::move(terms), clause_postings.size(), std::move(verifier), similarity);
     if (scorer->doc() != TERMINATED && !scorer->phrase_match()) {
         scorer->advance();
     }
@@ -64,10 +96,7 @@ uint32_t PhraseScorer<TPostings>::advance() {
 template <typename TPostings>
 uint32_t PhraseScorer<TPostings>::seek(uint32_t target) {
     assert(target >= doc());
-    // If the target doc is the same as the current doc, return the current doc directly.
-    // This is important because phrase_match() reads position info from segment postings.
-    // SegmentPostings does not support reading position info multiple times for the same doc.
-    // If we call phrase_match() again for the same doc, it will read wrong position info.
+    // Positions are forward-only, so seeking the current document must not read them again.
     if (target <= doc()) {
         return doc();
     }
@@ -90,7 +119,7 @@ uint32_t PhraseScorer<TPostings>::size_hint() const {
 
 template <typename TPostings>
 uint64_t PhraseScorer<TPostings>::cost() const {
-    return static_cast<uint64_t>(_intersection_docset->size_hint()) * 10 * _num_terms;
+    return static_cast<uint64_t>(_intersection_docset->size_hint()) * 10 * _num_clauses;
 }
 
 template <typename TPostings>
@@ -109,89 +138,35 @@ float PhraseScorer<TPostings>::score() {
 
 template <typename TPostings>
 bool PhraseScorer<TPostings>::phrase_match() {
-    if (_similarity) {
-        uint32_t count = compute_phrase_count();
-        _phrase_count = count;
-        return count > 0;
-    } else {
-        return phrase_exists();
-    }
-}
-
-template <typename TPostings>
-uint32_t PhraseScorer<TPostings>::compute_phrase_count() {
-    compute_phrase_match();
-    if (has_slop()) {
-        // TODO: Implement sloppy phrase matching logic
-        return 0;
-    } else {
-        return static_cast<uint32_t>(intersection_count(_left_positions, _right_positions));
-    }
-}
-
-template <typename TPostings>
-bool PhraseScorer<TPostings>::phrase_exists() {
-    compute_phrase_match();
-    if (has_slop()) {
-        // TODO: Implement sloppy phrase matching logic
-        return false;
-    } else {
-        return intersection_exists(_left_positions, _right_positions);
-    }
-}
-
-template <typename TPostings>
-void PhraseScorer<TPostings>::compute_phrase_match() {
-    _intersection_docset->docset_mut_specialized(0)->postings(_left_positions);
-    for (size_t i = 1; i < _num_terms - 1; ++i) {
-        _intersection_docset->docset_mut_specialized(i)->postings(_right_positions);
-        intersection(_left_positions, _right_positions);
-        if (_left_positions.empty()) {
-            return;
+    if constexpr (std::is_same_v<TPostings, SegmentPostingsPtr>) {
+        if (!_streams.empty()) {
+            auto stream = _streams.begin();
+            for (const TermState& term : _terms) {
+                THROW_IF_ERROR(
+                        stream->reset(term.postings->cursor(),
+                                      static_cast<uint32_t>(term.postings->doc_set().ordinal())));
+                ++stream;
+            }
+            bool matched = false;
+            THROW_IF_ERROR(_verifier.verify_stream(std::span(_streams), &matched));
+            _phrase_count = matched ? 1.0F : 0.0F;
+            return matched;
         }
     }
-    _intersection_docset->docset_mut_specialized(_num_terms - 1)->postings(_right_positions);
-}
-
-template <typename TPostings>
-size_t PhraseScorer<TPostings>::intersection_count(const std::vector<uint32_t>& left,
-                                                   const std::vector<uint32_t>& right) {
-    size_t left_index = 0;
-    size_t right_index = 0;
-    size_t count = 0;
-    while (left_index < left.size() && right_index < right.size()) {
-        uint32_t left_val = left[left_index];
-        uint32_t right_val = right[right_index];
-        if (left_val < right_val) {
-            ++left_index;
-        } else if (left_val == right_val) {
-            ++count;
-            ++left_index;
-            ++right_index;
+    const auto load = [this](size_t term, index_query::PhrasePositionSpan* span) {
+        auto& [postings, positions] = _terms[term];
+        if constexpr (std::is_same_v<TPostings, SegmentPostingsPtr>) {
+            positions.clear();
+            RETURN_IF_ERROR(postings->cursor().append_positions(
+                    static_cast<uint32_t>(postings->doc_set().ordinal()), 0, positions));
         } else {
-            ++right_index;
+            postings->positions_with_offset(0, positions);
         }
-    }
-    return count;
-}
-
-template <typename TPostings>
-bool PhraseScorer<TPostings>::intersection_exists(const std::vector<uint32_t>& left,
-                                                  const std::vector<uint32_t>& right) {
-    size_t left_index = 0;
-    size_t right_index = 0;
-    while (left_index < left.size() && right_index < right.size()) {
-        uint32_t left_val = left[left_index];
-        uint32_t right_val = right[right_index];
-        if (left_val < right_val) {
-            ++left_index;
-        } else if (left_val == right_val) {
-            return true;
-        } else {
-            ++right_index;
-        }
-    }
-    return false;
+        *span = {positions.data(), positions.data() + positions.size()};
+        return Status::OK();
+    };
+    THROW_IF_ERROR(_verifier.verify(load, _similarity != nullptr, &_phrase_count));
+    return _phrase_count > 0.0F;
 }
 
 template class PhraseScorer<PostingsPtr>;

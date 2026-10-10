@@ -17,8 +17,6 @@
 
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 
-#include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
-
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionContext& context,
@@ -26,37 +24,29 @@ void collect_multi_segment_top_k(const WeightPtr& weight, const QueryExecutionCo
                                  const std::shared_ptr<roaring::Roaring>& roaring,
                                  const CollectionSimilarityPtr& similarity, bool use_wand,
                                  const std::shared_ptr<const roaring::Roaring>& delete_bitmap) {
-    TopKCollector final_collector(k);
+    if (context.segment_num_rows == 0) {
+        return;
+    }
+    TopKCollector collector(k);
+    const float initial_threshold = collector.threshold();
+    float threshold = initial_threshold;
+    auto callback = [&](uint32_t doc_id, float score) -> float {
+        if (delete_bitmap != nullptr && delete_bitmap->contains(doc_id)) {
+            return threshold;
+        }
+        threshold = collector.collect(doc_id, score);
+        return threshold;
+    };
+    if (use_wand) {
+        weight->for_each_pruning(context, binding_key, initial_threshold, callback);
+    } else {
+        auto scorer = weight->scorer(context, binding_key);
+        if (scorer) {
+            Weight::for_each_pruning_scorer(scorer, initial_threshold, callback);
+        }
+    }
 
-    for_each_index_segment(
-            context, binding_key, [&](const QueryExecutionContext& seg_ctx, uint32_t seg_base) {
-                float initial_threshold = final_collector.threshold();
-
-                TopKCollector seg_collector(k);
-                float threshold = initial_threshold;
-                auto callback = [&](uint32_t doc_id, float score) -> float {
-                    if (delete_bitmap != nullptr && delete_bitmap->contains(doc_id + seg_base)) {
-                        return threshold;
-                    }
-                    threshold = seg_collector.collect(doc_id, score);
-                    return threshold;
-                };
-
-                if (use_wand) {
-                    weight->for_each_pruning(seg_ctx, binding_key, initial_threshold, callback);
-                } else {
-                    auto scorer = weight->scorer(seg_ctx, binding_key);
-                    if (scorer) {
-                        Weight::for_each_pruning_scorer(scorer, initial_threshold, callback);
-                    }
-                }
-
-                for (const auto& doc : seg_collector.into_sorted_vec()) {
-                    final_collector.collect(doc.doc_id + seg_base, doc.score);
-                }
-            });
-
-    for (const auto& doc : final_collector.into_sorted_vec()) {
+    for (const auto& doc : collector.into_sorted_vec()) {
         roaring->add(doc.doc_id);
         if (similarity) {
             similarity->collect(doc.doc_id, doc.score);

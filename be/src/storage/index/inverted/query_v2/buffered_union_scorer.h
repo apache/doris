@@ -46,8 +46,13 @@ public:
     uint32_t size_hint() const override;
     float score() override { return _current_score; }
 
-    bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override;
-    const roaring::Roaring* get_null_bitmap(const NullBitmapResolver* resolver = nullptr) override;
+    bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) override {
+        return !_null_bitmap.isEmpty();
+    }
+    const roaring::Roaring* get_null_bitmap(
+            const NullBitmapResolver* /*resolver*/ = nullptr) override {
+        return _null_bitmap.isEmpty() ? nullptr : &_null_bitmap;
+    }
 
 private:
     struct HeapEntry {
@@ -57,24 +62,13 @@ private:
     };
 
     bool _prepare_next();
-    void _ensure_null_bitmap(const NullBitmapResolver* resolver);
-    void _collect_child_nulls();
 
     std::vector<ScorerPtr> _scorers;
     ScoreCombinerPtrT _score_combiner;
     std::priority_queue<HeapEntry, std::vector<HeapEntry>, std::greater<HeapEntry>> _heap;
     uint32_t _doc = TERMINATED;
     float _current_score = 0.0F;
-    uint32_t _segment_num_rows = 0;
-
-    roaring::Roaring _true_bitmap;
-    roaring::Roaring _candidate_null;
-    const NullBitmapResolver* _resolver = nullptr;
-    bool _has_null_sources = false;
-    bool _null_sources_checked = false;
-    bool _null_ready = false;
     roaring::Roaring _null_bitmap;
-    bool _nulls_collected = false;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

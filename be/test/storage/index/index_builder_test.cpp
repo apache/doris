@@ -29,7 +29,7 @@
 #include "core/column/column_vector.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"

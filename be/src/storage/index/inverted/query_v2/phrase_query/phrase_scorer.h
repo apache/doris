@@ -18,9 +18,11 @@
 #pragma once
 
 #include "storage/index/inverted/query_v2/intersection.h"
-#include "storage/index/inverted/query_v2/phrase_query/postings_with_offset.h"
 #include "storage/index/inverted/query_v2/scorer.h"
-#include "storage/index/inverted/similarity/similarity.h"
+#include "storage/index/inverted/query_v2/segment_postings.h"
+#include "storage/index/query/phrase/phrase_verifier.h"
+#include "storage/index/query/phrase/position_stream.h"
+#include "storage/index/query/spi/scoring_context.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -31,27 +33,24 @@ template <typename TPostings>
 using PhraseScorerPtr = std::shared_ptr<PhraseScorer<TPostings>>;
 
 template <typename TPostings>
-class PhraseScorer : public Scorer {
+class PhraseScorer final : public Scorer {
 public:
-    using IntersectionDocSetPtr =
-            IntersectionPtr<PostingsWithOffsetPtr<TPostings>, PostingsWithOffsetPtr<TPostings>>;
+    using IntersectionDocSetPtr = IntersectionPtr<TPostings, TPostings>;
 
-    PhraseScorer(IntersectionDocSetPtr intersection_docset, size_t num_terms,
-                 std::vector<uint32_t> left_positions, std::vector<uint32_t> right_positions,
-                 uint32_t phrase_count, SimilarityPtr similarity, uint32_t slop)
-            : _intersection_docset(std::move(intersection_docset)),
-              _num_terms(num_terms),
-              _left_positions(std::move(left_positions)),
-              _right_positions(std::move(right_positions)),
-              _phrase_count(phrase_count),
-              _similarity(std::move(similarity)),
-              _slop(slop) {}
-    ~PhraseScorer() override = default;
+    struct TermState {
+        TPostings postings;
+        std::vector<uint32_t> positions;
+    };
 
+    PhraseScorer(IntersectionDocSetPtr intersection_docset, std::vector<TermState> terms,
+                 size_t num_clauses, index_query::PhraseVerifier verifier,
+                 index_query::ScoringContextPtr<float> similarity);
+    ~PhraseScorer() override;
+
+    // Clauses that share a postings object read its positions once per document.
     static ScorerPtr create(const std::vector<std::pair<size_t, TPostings>>& term_postings,
-                            const SimilarityPtr& similarity, uint32_t slop, uint32_t num_docs) {
-        return create_with_offset(term_postings, similarity, slop, 0, num_docs);
-    }
+                            const index_query::ScoringContextPtr<float>& similarity,
+                            const index_query::PhraseQueryOptions& options, uint32_t num_docs);
 
     uint32_t advance() override;
     uint32_t seek(uint32_t target) override;
@@ -65,53 +64,14 @@ public:
     bool phrase_match();
 
 private:
-    static ScorerPtr create_with_offset(
-            const std::vector<std::pair<size_t, TPostings>>& term_postings_with_offset,
-            const SimilarityPtr& similarity, uint32_t slop, size_t offset, uint32_t num_docs);
-
-    bool phrase_exists();
-    uint32_t compute_phrase_count();
-    void compute_phrase_match();
-    size_t intersection_count(const std::vector<uint32_t>& left,
-                              const std::vector<uint32_t>& right);
-    bool intersection_exists(const std::vector<uint32_t>& left, const std::vector<uint32_t>& right);
-    void intersection(std::vector<uint32_t>& left, const std::vector<uint32_t>& right);
-
-    bool has_slop() const { return _slop > 0; }
-
     IntersectionDocSetPtr _intersection_docset;
-    size_t _num_terms = 0;
-    std::vector<uint32_t> _left_positions;
-    std::vector<uint32_t> _right_positions;
-    uint32_t _phrase_count = 0;
-    SimilarityPtr _similarity;
-    uint32_t _slop = 0;
+    std::vector<TermState> _terms;
+    index_query::PhraseVerifier _verifier;
+    std::vector<index_query::PositionStream> _streams;
+    size_t _num_clauses = 0;
+    float _phrase_count = 0.0F;
+    index_query::ScoringContextPtr<float> _similarity;
 };
-
-template <typename TPostings>
-inline void PhraseScorer<TPostings>::intersection(std::vector<uint32_t>& left,
-                                                  const std::vector<uint32_t>& right) {
-    size_t left_index = 0;
-    size_t right_index = 0;
-    size_t count = 0;
-    const size_t left_len = left.size();
-    const size_t right_len = right.size();
-    while (left_index < left_len && right_index < right_len) {
-        uint32_t left_val = left[left_index];
-        uint32_t right_val = right[right_index];
-        if (left_val < right_val) {
-            ++left_index;
-        } else if (left_val == right_val) {
-            left[count] = left_val;
-            ++count;
-            ++left_index;
-            ++right_index;
-        } else {
-            ++right_index;
-        }
-    }
-    left.resize(count);
-}
 
 /// Instantiated once in phrase_scorer.cpp; suppresses per-TU implicit instantiation.
 extern template class PhraseScorer<PostingsPtr>;

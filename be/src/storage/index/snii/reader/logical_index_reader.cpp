@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/section_framer.h"
@@ -272,6 +273,22 @@ Status slice_dict_block_in_region(const BlockRef& ref, const RegionRef& dict_reg
     return Status::OK();
 }
 } // namespace
+
+Status LogicalIndexReader::resolve_batch_lookup_entries(
+        const std::vector<std::string>& terms, const std::vector<BatchLookupCandidate>& candidates,
+        const BatchLookupGroup& group, const DictBlockReader& block_reader,
+        std::vector<LogicalIndexReader::BatchLookupResult>* results) {
+    for (size_t i = group.begin; i < group.end; ++i) {
+        const size_t term_index = candidates[i].term_index;
+        auto& result = (*results)[term_index];
+        RETURN_IF_ERROR(block_reader.find_term(terms[term_index], &result.found, &result.entry));
+        if (result.found) {
+            result.frq_base = block_reader.frq_base();
+            result.prx_base = block_reader.prx_base();
+        }
+    }
+    return Status::OK();
+}
 
 Status LogicalIndexReader::load_resident_dict_blocks() {
     resident_dict_blocks_.clear();
@@ -707,6 +724,11 @@ Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry*
     return Status::OK();
 }
 
+Status LogicalIndexReader::may_contain(std::string_view term, bool* maybe_present) const {
+    uint32_t ordinal = 0;
+    return locate_candidate_dict_block(term, maybe_present, &ordinal);
+}
+
 Status LogicalIndexReader::locate_candidate_dict_block(std::string_view term, bool* maybe_present,
                                                        uint32_t* ordinal) const {
     *maybe_present = false;
@@ -762,108 +784,159 @@ Status LogicalIndexReader::collect_batch_lookup_groups(
     return Status::OK();
 }
 
-Status LogicalIndexReader::resolve_batch_lookup_group(
-        const std::vector<std::string>& terms, const std::vector<BatchLookupCandidate>& candidates,
-        const BatchLookupGroup& group, const DictBlockReader& block_reader,
-        std::vector<BatchLookupResult>* results) {
-    for (size_t i = group.begin; i < group.end; ++i) {
-        const size_t term_index = candidates[i].term_index;
-        BatchLookupResult& result = (*results)[term_index];
-        RETURN_IF_ERROR(block_reader.find_term(terms[term_index], &result.found, &result.entry));
-        if (result.found) {
-            result.frq_base = block_reader.frq_base();
-            result.prx_base = block_reader.prx_base();
+Status LogicalIndexReader::prepare_lookup_batch(const std::vector<std::string>& terms,
+                                                std::vector<BatchLookupResult>* results,
+                                                BatchLookupState* state) const {
+    DORIS_CHECK(results != nullptr);
+    DORIS_CHECK(state != nullptr);
+    DCHECK(std::ranges::is_sorted(terms));
+    DCHECK(std::adjacent_find(terms.begin(), terms.end()) == terms.end());
+    *state = BatchLookupState {};
+    results->assign(terms.size(), BatchLookupResult {});
+    if (reader_ == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
+    }
+    state->owner_ = this;
+    state->terms_ = &terms;
+    state->results_ = results;
+    if (terms.size() == 1 && !resident_dict_blocks_.empty()) {
+        BatchLookupResult& result = results->front();
+        return lookup(terms.front(), &result.found, &result.entry, &result.frq_base,
+                      &result.prx_base);
+    }
+    RETURN_IF_ERROR(collect_batch_lookup_groups(terms, &state->candidates_, &state->groups_));
+    if (!resident_dict_blocks_.empty()) {
+        for (const BatchLookupGroup& group : state->groups_) {
+            const DictBlockReader* block_reader = nullptr;
+            std::shared_ptr<const DecodedDictBlock> pin;
+            RETURN_IF_ERROR(dict_block_reader_for_ordinal(group.ordinal, /*cache=*/nullptr, &pin,
+                                                          &block_reader));
+            RETURN_IF_ERROR(resolve_batch_lookup_entries(terms, state->candidates_, group,
+                                                         *block_reader, results));
         }
+        state->next_group_ = state->groups_.size();
     }
     return Status::OK();
 }
 
-Status LogicalIndexReader::lookup_batch_on_demand(
-        const std::vector<std::string>& terms, const std::vector<BatchLookupCandidate>& candidates,
-        const std::vector<BatchLookupGroup>& groups,
-        std::vector<BatchLookupResult>* results) const {
-    for (size_t wave_begin = 0; wave_begin < groups.size();) {
-        std::vector<PendingBatchLookupBlock> pending;
-        pending.reserve(kMaxDictLookupBatchRuns);
-        uint64_t pending_bytes = 0;
-        uint64_t pending_end = 0;
-        size_t pending_runs = 0;
-        size_t wave_end = wave_begin;
-        while (wave_end < groups.size()) {
-            BlockRef ref {};
-            RETURN_IF_ERROR(dbd_.get(groups[wave_end].ordinal, &ref));
-            const uint64_t ref_end = ref.offset + ref.length;
-            const bool starts_new_run = pending.empty() || ref.offset > pending_end;
-            if (!pending.empty() && ((starts_new_run && pending_runs == kMaxDictLookupBatchRuns) ||
-                                     ref.length > kMaxDictLookupBatchBytes ||
-                                     pending_bytes > kMaxDictLookupBatchBytes - ref.length)) {
-                break;
-            }
-            pending.push_back({wave_end, ref, 0});
-            pending_bytes += ref.length;
-            if (starts_new_run) {
-                ++pending_runs;
-            }
-            pending_end = std::max(pending_end, ref_end);
-            ++wave_end;
-        }
-        DORIS_CHECK(!pending.empty());
-        io::BatchRangeFetcher fetcher(reader_, /*coalesce_gap=*/0);
-        for (PendingBatchLookupBlock& block : pending) {
-            block.handle = fetcher.add(block.ref.offset, block.ref.length);
-        }
-        RETURN_IF_ERROR(fetcher.fetch());
+namespace {
 
-        for (const PendingBatchLookupBlock& block : pending) {
-            const Slice on_disk = fetcher.get(block.handle);
-            std::vector<uint8_t> decoded;
-            Slice payload = on_disk;
-            if ((block.ref.flags & format::block_ref_flags::kZstd) != 0) {
-                RETURN_IF_ERROR(zstd_decompress_dict_block(on_disk, block.ref, &decoded));
-                payload = Slice(decoded);
-            }
-            DictBlockReader block_reader;
-            RETURN_IF_ERROR(DictBlockReader::open(payload, tier_, has_positions_, &block_reader));
-            RETURN_IF_ERROR(resolve_batch_lookup_group(terms, candidates, groups[block.group_index],
-                                                       block_reader, results));
+// A fetcher that already holds another state's blocks takes this state's blocks
+// only while the shared read stays within the dictionary wave limits.
+ALWAYS_INLINE Status register_dictionary_blocks(auto& pending, io::BatchRangeFetcher* fetcher) {
+    if (fetcher->pending() == 0) {
+        for (auto& block : pending) {
+            block.handle = fetcher->add(block.ref.offset, block.ref.length);
         }
-        wave_begin = wave_end;
+        return Status::OK();
     }
+    size_t accepted_blocks = 0;
+    for (auto& block : pending) {
+        bool accepted = false;
+        RETURN_IF_ERROR(fetcher->try_add(block.ref.offset, block.ref.length,
+                                         kMaxDictLookupBatchBytes, kMaxDictLookupBatchRuns,
+                                         &accepted, &block.handle));
+        if (!accepted) {
+            break;
+        }
+        ++accepted_blocks;
+    }
+    pending.resize(accepted_blocks);
+    return Status::OK();
+}
+
+} // namespace
+
+Status LogicalIndexReader::prepare_lookup_wave(BatchLookupState* state,
+                                               io::BatchRangeFetcher* fetcher) const {
+    DORIS_CHECK(state != nullptr);
+    DORIS_CHECK(state->owner_ == this);
+    DORIS_CHECK(state->wave_ == nullptr);
+    DORIS_CHECK(!state->done());
+    DORIS_CHECK(fetcher != nullptr);
+    DORIS_CHECK(fetcher->reader() == reader_);
+    auto& pending = state->pending_;
+    pending.clear();
+    pending.reserve(kMaxDictLookupBatchRuns);
+    uint64_t pending_bytes = 0;
+    uint64_t pending_end = 0;
+    size_t pending_runs = 0;
+    size_t wave_end = state->next_group_;
+    while (wave_end < state->groups_.size()) {
+        BlockRef ref {};
+        RETURN_IF_ERROR(dbd_.get(state->groups_[wave_end].ordinal, &ref));
+        const uint64_t ref_end = ref.offset + ref.length;
+        const bool starts_new_run = pending.empty() || ref.offset > pending_end;
+        if (!pending.empty() && ((starts_new_run && pending_runs == kMaxDictLookupBatchRuns) ||
+                                 ref.length > kMaxDictLookupBatchBytes ||
+                                 pending_bytes > kMaxDictLookupBatchBytes - ref.length)) {
+            break;
+        }
+        pending.push_back({wave_end, ref, 0});
+        pending_bytes += ref.length;
+        if (starts_new_run) {
+            ++pending_runs;
+        }
+        pending_end = std::max(pending_end, ref_end);
+        ++wave_end;
+    }
+    DORIS_CHECK(!pending.empty());
+    RETURN_IF_ERROR(register_dictionary_blocks(pending, fetcher));
+    state->wave_ = fetcher;
+    return Status::OK();
+}
+
+Status LogicalIndexReader::consume_lookup_wave(BatchLookupState* state,
+                                               const io::BatchRangeFetcher& fetcher) const {
+    DORIS_CHECK(state != nullptr);
+    DORIS_CHECK(state->owner_ == this);
+    DORIS_CHECK(state->wave_ == &fetcher);
+    for (const PendingBatchLookupBlock& block : state->pending_) {
+        const Slice on_disk = fetcher.get(block.handle);
+        std::vector<uint8_t> decoded;
+        Slice payload = on_disk;
+        if ((block.ref.flags & format::block_ref_flags::kZstd) != 0) {
+            RETURN_IF_ERROR(zstd_decompress_dict_block(on_disk, block.ref, &decoded));
+            payload = Slice(decoded);
+        }
+        DictBlockReader block_reader;
+        RETURN_IF_ERROR(DictBlockReader::open(payload, tier_, has_positions_, &block_reader));
+        RETURN_IF_ERROR(resolve_batch_lookup_entries(*state->terms_, state->candidates_,
+                                                     state->groups_[block.group_index],
+                                                     block_reader, state->results_));
+    }
+    if (!state->pending_.empty()) {
+        state->next_group_ = state->pending_.back().group_index + 1;
+    }
+    state->pending_.clear();
+    state->wave_ = nullptr;
     return Status::OK();
 }
 
 Status LogicalIndexReader::lookup_batch(const std::vector<std::string>& terms,
                                         std::vector<BatchLookupResult>* results) const {
-    DORIS_CHECK(results != nullptr);
-    DCHECK(std::ranges::is_sorted(terms));
-    DCHECK(std::adjacent_find(terms.begin(), terms.end()) == terms.end());
-    results->assign(terms.size(), BatchLookupResult {});
-    if (reader_ == nullptr) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
-    }
-
-    std::vector<BatchLookupCandidate> candidates;
-    std::vector<BatchLookupGroup> groups;
-    RETURN_IF_ERROR(collect_batch_lookup_groups(terms, &candidates, &groups));
-    if (groups.empty()) {
+    BatchLookupState state;
+    RETURN_IF_ERROR(prepare_lookup_batch(terms, results, &state));
+    if (state.done()) {
         return Status::OK();
     }
-
-    // Resident dictionaries always stay zero-I/O. One-block batches keep the
-    // existing synchronous read-through path.
-    if (!resident_dict_blocks_.empty() || groups.size() == 1) {
-        for (const BatchLookupGroup& group : groups) {
-            const DictBlockReader* block_reader = nullptr;
-            std::shared_ptr<const DecodedDictBlock> pin;
-            RETURN_IF_ERROR(dict_block_reader_for_ordinal(group.ordinal, /*cache=*/nullptr, &pin,
-                                                          &block_reader));
-            RETURN_IF_ERROR(
-                    resolve_batch_lookup_group(terms, candidates, group, *block_reader, results));
-        }
-        return Status::OK();
+    // Preserve the direct read path for one cold block.
+    if (state.groups_.size() == 1) {
+        const BatchLookupGroup& group = state.groups_.front();
+        const DictBlockReader* block_reader = nullptr;
+        std::shared_ptr<const DecodedDictBlock> pin;
+        RETURN_IF_ERROR(dict_block_reader_for_ordinal(group.ordinal, /*cache=*/nullptr, &pin,
+                                                      &block_reader));
+        return resolve_batch_lookup_entries(terms, state.candidates_, group, *block_reader,
+                                            results);
     }
-
-    return lookup_batch_on_demand(terms, candidates, groups, results);
+    while (!state.done()) {
+        io::BatchRangeFetcher fetcher(reader_, /*coalesce_gap=*/0);
+        RETURN_IF_ERROR(prepare_lookup_wave(&state, &fetcher));
+        RETURN_IF_ERROR(fetcher.fetch());
+        RETURN_IF_ERROR(consume_lookup_wave(&state, fetcher));
+    }
+    return Status::OK();
 }
 
 Status LogicalIndexReader::decode_dict_block(uint32_t ordinal, std::vector<DictEntry>* entries,

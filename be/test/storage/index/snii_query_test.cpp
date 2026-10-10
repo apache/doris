@@ -16,7 +16,6 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <re2/re2.h>
 
 #include <algorithm>
 #include <atomic>
@@ -32,6 +31,8 @@
 #include <utility>
 #include <vector>
 
+#include "storage/index/query/docid_sink.h"
+#include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/byte_source.h"
@@ -41,23 +42,10 @@
 #include "storage/index/snii/format/tail_pointer.h"
 #include "storage/index/snii/io/file_reader.h"
 #include "storage/index/snii/io/file_writer.h"
-#include "storage/index/snii/query/docid_sink.h"
-#include "storage/index/snii/query/internal/regex_prefix.h"
-#include "storage/index/snii/query/internal/resolved_phrase_plan.h"
-#include "storage/index/snii/query/internal/term_expansion.h"
-#include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/prefix_query.h"
-#include "storage/index/snii/query/regexp_query.h"
-#include "storage/index/snii/query/term_query.h"
-#include "storage/index/snii/query/wildcard_query.h"
-// T24 query op-count seam. Define the gate before the include so QueryTestCounters
-// is visible in this TU; it is also auto-enabled library-wide by BE_TEST, so the
-// phrase_query.cpp increments and the reads below share the same singleton.
-#define SNII_QUERY_TEST_COUNTERS
-#include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/reader/dict_block_cache.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
@@ -75,16 +63,7 @@ using snii_test::MemoryFile;
 using snii_test::PostingDoc;
 using snii_test::ScopedEnv;
 
-template <typename Plan>
-concept CanExecuteResolvedPhrasePlan = requires(const reader::LogicalIndexReader& idx, Plan&& plan,
-                                                std::vector<uint32_t>* docids) {
-    internal::execute_resolved_phrase_plan(idx, std::forward<Plan>(plan), docids);
-};
-
-static_assert(CanExecuteResolvedPhrasePlan<internal::ResolvedPhrasePlan>);
-static_assert(!CanExecuteResolvedPhrasePlan<internal::ResolvedPhrasePlan&>);
-
-class RecordingDocIdSink final : public DocIdSink {
+class RecordingDocIdSink final : public ::doris::index_query::DocIdSink {
 public:
     Status append_sorted(std::span<const uint32_t> docids) override {
         out.insert(out.end(), docids.begin(), docids.end());
@@ -138,7 +117,7 @@ public:
         return inner_->read_at(offset, len, out);
     }
     Status read_batch(const std::vector<doris::snii::io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override {
+                      index_query::IoReadResult* outs) override {
         ++batch_rounds_;
         return inner_->read_batch(ranges, outs);
     }
@@ -475,11 +454,8 @@ TEST(SniiPhraseQueryTest, SingleTailPhrasePrefixUsesStreamingPhrasePath) {
     EXPECT_EQ(docids, expected);
 }
 
-// PV1 (deterministic perf): a 3-term slim pod_ref phrase issues exactly one batched
-// PRX round. read_batch count = 1 (round1 docs) + 1 (shared PRX fetch) = 2; the
-// docid conjunction decodes slim docs from round1 (no extra round) and dict/BSBF
-// loads use uncounted read_at. Before T02 this was 4 (round1 + one PRX fetch per
-// term).
+// A 3-term slim pod_ref phrase reads every term's docids and positions in one batched round;
+// dict/BSBF loads use uncounted read_at.
 TEST(SniiPhraseQueryTest, PhraseQueryIssuesSinglePrxBatchRound) {
     MemoryFile file;
     BatchRoundCountingReader counting(&file);
@@ -507,7 +483,7 @@ TEST(SniiPhraseQueryTest, PhraseQueryIssuesSinglePrxBatchRound) {
     assert_ok(phrase_query(index_reader, {"paa", "pbb", "pcc"}, &docids));
 
     EXPECT_EQ(docids, shared_docids);
-    EXPECT_EQ(counting.batch_rounds(), 2U);
+    EXPECT_EQ(counting.batch_rounds(), 1U);
 }
 
 // FV3 (functional equivalence): the shared single-batch PRX path returns the result
@@ -704,7 +680,7 @@ TEST(SniiRegexpQueryTest, NullOutputReturnsInvalidArgument) {
     EXPECT_TRUE(regexp_query(index_reader, "order", null_docids)
                         .is<doris::ErrorCode::INVALID_ARGUMENT>());
 
-    DocIdSink* const null_sink = nullptr;
+    ::doris::index_query::DocIdSink* const null_sink = nullptr;
     EXPECT_TRUE(regexp_query(index_reader, "order", null_sink)
                         .is<doris::ErrorCode::INVALID_ARGUMENT>());
 }
@@ -764,11 +740,12 @@ TEST(SniiRegexpQueryTest, MatchesV3Golden) {
 // enumeration prefix for left-anchored patterns whose literal scan stops early.
 TEST(SniiRegexpQueryTest, AnchoredPrefixIsTightened) {
     auto prefix_of = [](std::string_view pattern) -> std::string {
-        re2::RE2::Options options;
-        options.set_log_errors(false);
-        const re2::RE2 re(re2::StringPiece(pattern.data(), pattern.size()), options);
-        EXPECT_TRUE(re.ok()) << pattern;
-        return internal::regex_enum_prefix(pattern, re);
+        index_query::TermPattern term_pattern;
+        EXPECT_TRUE(index_query::TermPattern::create(index_query::TermPatternKind::kRegexp, pattern,
+                                                     &term_pattern)
+                            .ok())
+                << pattern;
+        return term_pattern.enumeration_prefix();
     };
 
     // Tightened beyond the naive literal scan (which would yield "").
@@ -782,6 +759,10 @@ TEST(SniiRegexpQueryTest, AnchoredPrefixIsTightened) {
     EXPECT_EQ(prefix_of("ord.*"), "");
     EXPECT_EQ(prefix_of(".*failed.*order.*"), "");
     EXPECT_EQ(prefix_of("[0-9]+"), "");
+    // "^a?b" matches "b" as well as "ab", so no prefix bounds it.
+    EXPECT_EQ(prefix_of("^a?b"), "");
+    // The bytes both bounds share end inside a character; the prefix keeps whole characters.
+    EXPECT_EQ(prefix_of("^(中(国|华))$"), "中");
 }
 
 // Deterministic perf (op-count): the tightened "^(order)" prefix reaches a single
@@ -793,39 +774,27 @@ TEST(SniiRegexpQueryTest, AnchoredPrefixEnumeratesSingleTerm) {
     assert_ok(build_reader(&file, &segment_reader, &index_reader));
 
     constexpr std::string_view kPattern = "^(order)";
-    re2::RE2::Options options;
-    options.set_log_errors(false);
-    const re2::RE2 re(re2::StringPiece(kPattern.data(), kPattern.size()), options);
-    ASSERT_TRUE(re.ok());
+    index_query::TermPattern pattern;
+    assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kRegexp, kPattern,
+                                               &pattern));
+    EXPECT_EQ(pattern.enumeration_prefix(), "order");
 
-    const std::string enum_prefix = internal::regex_enum_prefix(kPattern, re);
-    EXPECT_EQ(enum_prefix, "order");
-
-    auto count_matcher = [&](std::string_view prefix) {
-        int calls = 0;
-        std::vector<uint32_t> docids;
-        VectorDocIdSink sink(docids);
-        assert_ok(internal::emit_expanded_docid_union(
-                index_reader, prefix,
-                [&](std::string_view term) {
-                    ++calls;
-                    return re2::RE2::FullMatch(re2::StringPiece(term.data(), term.size()), re);
-                },
-                &sink));
-        return std::pair<int, std::vector<uint32_t>> {calls, std::move(docids)};
+    auto count_terms = [&](std::string_view prefix) {
+        int terms = 0;
+        assert_ok(index_reader.visit_prefix_terms(
+                prefix, [&](reader::LogicalIndexReader::PrefixHit&&, bool*) {
+                    ++terms;
+                    return Status::OK();
+                }));
+        return terms;
     };
+    // The tightened prefix reaches one dictionary term; the empty prefix reaches all 11.
+    EXPECT_EQ(count_terms(pattern.enumeration_prefix()), 1);
+    EXPECT_EQ(count_terms(""), 11);
 
-    // Tightened prefix enumerates only "order" -> exactly one matcher call.
-    auto [tight_calls, tight_docids] = count_matcher(enum_prefix);
-    EXPECT_EQ(tight_calls, 1);
-
-    // The baseline empty prefix (old behavior) scans all 11 dictionary terms.
-    auto [full_calls, full_docids] = count_matcher("");
-    EXPECT_EQ(full_calls, 11);
-
-    // Narrowing is a pure optimization: identical result either way.
-    EXPECT_EQ(tight_docids, all_docids_0_to(9000));
-    EXPECT_EQ(full_docids, all_docids_0_to(9000));
+    std::vector<uint32_t> docids;
+    assert_ok(regexp_query(index_reader, kPattern, &docids));
+    EXPECT_EQ(docids, all_docids_0_to(9000));
 }
 
 TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixFiltersTailPrxByExpectedDocs) {
@@ -894,176 +863,6 @@ Status build_positions_reader(MemoryFile* file, reader::SniiSegmentReader* segme
     return segment_reader->open_index(input.index_id, input.index_suffix, index_reader);
 }
 
-struct OpaqueMatcherPlanCase {
-    std::string label;
-    std::vector<std::string> plain_terms;
-    std::vector<std::string> gram_plan;
-    std::vector<bool> common;
-};
-
-// Opaque terms in the internal namespace (starting with \x1f). These tests drive the phrase-plan
-// executor directly to verify that an opaque term spanning two positions matches ordinary
-// positions equivalently, independently of any particular analyzer.
-constexpr std::string_view kOpaqueInternalTermPrefix =
-        "\x1f"
-        "SNII_TEST_OPAQUE"
-        "\x1f";
-
-std::string opaque_gram(std::string_view left, std::string_view right) {
-    return "opaque:CG(" + std::string(left) + "," + std::string(right) + ")";
-}
-
-std::string reserved_marker_opaque_gram(std::string_view left, std::string_view right) {
-    return std::string(kOpaqueInternalTermPrefix) + "opaque:CG(" + std::string(left) + "," +
-           std::string(right) + ")";
-}
-
-std::vector<OpaqueMatcherPlanCase> opaque_matcher_plan_cases() {
-    const std::vector<std::string> nnn = {"nnn:n0", "nnn:n1", "nnn:n2"};
-    const std::vector<std::string> nns = {"nns:n0", "nns:n1", "nns:s"};
-    const std::vector<std::string> nsn = {"nsn:n0", "nsn:s", "nsn:n1"};
-    const std::vector<std::string> nss = {"nss:n", "nss:s", "nss:s"};
-    const std::vector<std::string> snn = {"snn:s", "snn:n0", "snn:n1"};
-    const std::vector<std::string> sns = {"sns:s", "sns:n", "sns:s"};
-    const std::vector<std::string> ssn = {"ssn:s", "ssn:s", "ssn:n"};
-    const std::vector<std::string> sss = {"sss:s", "sss:s", "sss:s"};
-
-    return {{"NNN", nnn, nnn, {false, false, false}},
-            {"NNS",
-             nns,
-             {nns[0], reserved_marker_opaque_gram(nns[1], nns[2])},
-             {false, false, true}},
-            {"NSN",
-             nsn,
-             {opaque_gram(nsn[0], nsn[1]), opaque_gram(nsn[1], nsn[2])},
-             {false, true, false}},
-            {"NSS",
-             nss,
-             {opaque_gram(nss[0], nss[1]), opaque_gram(nss[1], nss[2])},
-             {false, true, true}},
-            {"SNN", snn, {opaque_gram(snn[0], snn[1]), snn[1], snn[2]}, {true, false, false}},
-            {"SNS",
-             sns,
-             {opaque_gram(sns[0], sns[1]), opaque_gram(sns[1], sns[2])},
-             {true, false, true}},
-            {"SSN",
-             ssn,
-             {opaque_gram(ssn[0], ssn[1]), opaque_gram(ssn[1], ssn[2])},
-             {true, true, false}},
-            {"SSS",
-             sss,
-             {opaque_gram(sss[0], sss[1]), opaque_gram(sss[1], sss[2])},
-             {true, true, true}}};
-}
-
-Status resolve_opaque_matcher_plan(const reader::LogicalIndexReader& idx,
-                                   const std::vector<std::string>& terms,
-                                   internal::ResolvedPhrasePlan* plan) {
-    plan->unique_terms.clear();
-    plan->phrase_plan_index.clear();
-    plan->position_offsets.resize(terms.size());
-    std::iota(plan->position_offsets.begin(), plan->position_offsets.end(), 0U);
-
-    std::vector<std::string> unique_terms;
-    for (const std::string& term : terms) {
-        if (std::ranges::find(unique_terms, term) == unique_terms.end()) {
-            unique_terms.push_back(term);
-        }
-    }
-    std::ranges::reverse(unique_terms);
-
-    for (const std::string& term : unique_terms) {
-        internal::ResolvedQueryTerm resolved;
-        bool found = false;
-        RETURN_IF_ERROR(internal::resolve_query_term(idx, term, &resolved, &found));
-        if (!found) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                    "opaque matcher test term is absent");
-        }
-        plan->unique_terms.push_back(std::move(resolved));
-    }
-    for (const std::string& term : terms) {
-        const auto it = std::ranges::find(unique_terms, term);
-        DCHECK(it != unique_terms.end());
-        plan->phrase_plan_index.push_back(static_cast<size_t>(it - unique_terms.begin()));
-    }
-    return Status::OK();
-}
-
-Status build_opaque_matcher_plan_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
-                                        reader::LogicalIndexReader* index_reader,
-                                        const std::vector<OpaqueMatcherPlanCase>& cases) {
-    writer::SpimiTermBuffer buffer(/*has_positions=*/true);
-    uint32_t next_docid = 0;
-    for (const OpaqueMatcherPlanCase& test_case : cases) {
-        const auto is_common = [&](std::string_view term) {
-            for (size_t i = 0; i < test_case.plain_terms.size(); ++i) {
-                if (test_case.common[i] && term == test_case.plain_terms[i]) {
-                    return true;
-                }
-            }
-            return false;
-        };
-        const auto add_doc = [&](const std::vector<std::string>& tokens, uint32_t docid) {
-            for (uint32_t pos = 0; pos < tokens.size(); ++pos) {
-                buffer.add_token(tokens[pos], docid, pos);
-                if (pos + 1 < tokens.size() &&
-                    (is_common(tokens[pos]) || is_common(tokens[pos + 1]))) {
-                    const std::string gram =
-                            test_case.label == "NNS"
-                                    ? reserved_marker_opaque_gram(tokens[pos], tokens[pos + 1])
-                                    : opaque_gram(tokens[pos], tokens[pos + 1]);
-                    buffer.add_token(gram, docid, pos);
-                }
-            }
-        };
-
-        add_doc(test_case.plain_terms, next_docid++);
-        add_doc({test_case.label + ":prefix", test_case.plain_terms[0], test_case.plain_terms[1],
-                 test_case.plain_terms[2]},
-                next_docid++);
-        add_doc({test_case.plain_terms[0], test_case.label + ":gap", test_case.plain_terms[1],
-                 test_case.plain_terms[2]},
-                next_docid++);
-        add_doc({test_case.plain_terms[2], test_case.plain_terms[1], test_case.plain_terms[0]},
-                next_docid++);
-    }
-
-    writer::SniiIndexInput input;
-    input.index_id = 31;
-    input.index_suffix = "Body";
-    input.config = format::IndexConfig::kDocsPositions;
-    input.doc_count = next_docid;
-    input.terms = buffer.finalize_sorted();
-
-    writer::SniiCompoundWriter writer(file);
-    RETURN_IF_ERROR(writer.add_logical_index(input));
-    RETURN_IF_ERROR(writer.finish());
-    EXPECT_TRUE(file->finalized());
-
-    RETURN_IF_ERROR(reader::SniiSegmentReader::open(file, segment_reader));
-    return segment_reader->open_index(input.index_id, input.index_suffix, index_reader);
-}
-
-std::vector<writer::TermPostings> cursor_lifetime_terms() {
-    std::vector<uint32_t> remaining_positions;
-    remaining_positions.reserve(8192);
-    remaining_positions.push_back(12);
-    for (uint32_t i = 0; i < 8191; ++i) {
-        remaining_positions.push_back(1000 + i);
-    }
-    std::vector<uint32_t> repeated_remaining_positions = remaining_positions;
-    return {make_term("cursor_left", {{100, {0, 10}}}), make_term("cursor_right", {{100, {1, 11}}}),
-            make_term("cursor_tail", {{100, std::move(remaining_positions)}, {101, {0}}}),
-            make_term("repeat_cursor", {{300, {0, 1, 10, 11}}}),
-            make_term("repeat_tail", {{300, std::move(repeated_remaining_positions)}, {301, {0}}})};
-}
-
-// "lead mid axt*": the leading exact term is high-frequency (5 positions/doc) while
-// the middle exact term is a single position/doc -> "mid" is the sparsest exact
-// term and becomes the anchor. doc400 is a valid "lead mid" candidate (expected
-// tail@8) with NO tail term, so it must be filtered out of the final result.
-// NOLINTBEGIN(modernize-use-designated-initializers): positional aggregate init of test posting data
 std::vector<writer::TermPostings> anchor_scenario_terms() {
     return {make_term("lead", {{100, {0, 3, 6, 9, 12}},
                                {200, {0, 3, 6, 9, 12}},
@@ -1078,48 +877,6 @@ std::vector<writer::TermPostings> anchor_scenario_terms() {
 // "dlead dmid dxt*": dlead is a single position/doc (sparsest), dmid is
 // high-frequency. The anchor therefore stays at phrase position 0 (dlead), which
 // is exactly the old span[0] behavior -- the degenerate no-change case.
-std::vector<writer::TermPostings> leading_sparse_scenario_terms() {
-    return {make_term("dlead", {{500, {3}}, {600, {3}}}),
-            make_term("dmid", {{500, {0, 2, 4, 6, 8}}, {600, {0, 2, 4, 6, 8}}}),
-            make_term("dxta", {{500, {5}}}), // dlead@3, dmid@4 -> tail@5
-            make_term("dxtb", {{600, {5}}})};
-}
-
-// "ulead umid uxt*": umid (single position) is the anchor. In doc800 umid sits at
-// position 0, which is < its phrase offset (1), so a general anchor would underflow
-// `start`; the underflow guard skips it and doc800 is correctly excluded.
-std::vector<writer::TermPostings> anchor_underflow_scenario_terms() {
-    return {make_term("ulead", {{800, {5, 9}}, {810, {5, 9}}, {820, {5, 9}}}),
-            make_term("umid", {{800, {0}}, {810, {6}}, {820, {6}}}),
-            make_term("uxta", {{810, {7}}}), // ulead@5, umid@6 -> tail@7
-            make_term("uxtb", {{820, {7}}})};
-}
-
-// Two exact positions per doc make both the anchor and first checked span too
-// small to amortize selecting a forward scan over the existing binary search.
-std::vector<writer::TermPostings> small_span_scenario_terms() {
-    return {make_term("slead", {{1000, {0, 3}}, {1010, {0, 3}}}),
-            make_term("smid", {{1000, {1, 4}}, {1010, {1, 4}}}),
-            make_term("sxta", {{1000, {2, 5}}}), make_term("sxtb", {{1010, {2, 5}}})};
-}
-
-// The scan cost would otherwise be favorable, but bmid@0 cannot produce a
-// phrase start at offset 1. The O(1) endpoint gate must keep this boundary shape
-// on the binary-search path without probing for a viable subrange.
-std::vector<writer::TermPostings> invalid_anchor_boundary_terms() {
-    std::vector<uint32_t> leading_positions(64);
-    std::iota(leading_positions.begin(), leading_positions.end(), 0);
-    std::vector<uint32_t> anchor_positions(48);
-    std::iota(anchor_positions.begin(), anchor_positions.end(), 0);
-    return {make_term("blead", {{1020, std::move(leading_positions)}}),
-            make_term("bmid", {{1020, std::move(anchor_positions)}}),
-            make_term("bxta", {{1020, {2}}}), make_term("bxtb", {{1020, {3}}})};
-}
-// NOLINTEND(modernize-use-designated-initializers)
-
-// FUNC-1: the new sparsest-anchor path produces the correct result set. The anchor
-// (mid) is not phrase-position 0, exercising the general anchor formula + underflow
-// guard; doc400 (candidate, no tail term) is filtered out.
 TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixAnchorsOnSparsestTerm) {
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
@@ -1134,145 +891,6 @@ TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixAnchorsOnSparsestTerm) {
     EXPECT_EQ(docids, expected);
 }
 
-// Perf (deterministic): the outer anchor enumeration size == docs x min_span. With
-// mid as the anchor (1 position/doc) over 4 candidate docs the count is 4, strictly
-// below the old span[0] baseline of Sum|lead| == 4 x 5 == 20.
-TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixAnchorIterationsMinimal) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, anchor_scenario_terms(),
-                                     /*doc_count=*/500));
-
-    internal::query_test_counters() = internal::QueryTestCounters {};
-    std::vector<uint32_t> docids;
-    assert_ok(phrase_prefix_query(index_reader, {"lead", "mid", "axt"}, &docids, 10));
-
-    constexpr uint64_t kCandidateDocs = 4;                     // {100,200,300,400}
-    constexpr uint64_t kMinSpan = 1;                           // mid has one position per doc
-    constexpr uint64_t kOldLeadSpanTotal = kCandidateDocs * 5; // Sum|span[0]| (lead@5pos)
-    EXPECT_EQ(internal::query_test_counters().anchor_iterations, kCandidateDocs * kMinSpan);
-    EXPECT_LT(internal::query_test_counters().anchor_iterations, kOldLeadSpanTotal);
-    EXPECT_EQ(internal::query_test_counters().monotonic_position_scans, 0U);
-}
-
-// FUNC-3: when the leading exact term is already the sparsest, the anchor stays at
-// phrase-position 0, so anchor_iterations == Sum|span[0]| exactly (no regression /
-// no change vs. the old hardcoded anchor). Result is still correct.
-TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixLeadingTermSparsestIsDegenerate) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader,
-                                     leading_sparse_scenario_terms(), /*doc_count=*/700));
-
-    internal::query_test_counters() = internal::QueryTestCounters {};
-    std::vector<uint32_t> docids;
-    assert_ok(phrase_prefix_query(index_reader, {"dlead", "dmid", "dxt"}, &docids, 10));
-
-    const std::vector<uint32_t> expected {500, 600};
-    EXPECT_EQ(docids, expected);
-    // dlead has one position/doc over 2 docs -> Sum|span[0]| == 2, unchanged.
-    EXPECT_EQ(internal::query_test_counters().anchor_iterations, 2U);
-    EXPECT_EQ(internal::query_test_counters().monotonic_position_scans, 0U);
-}
-
-// FUNC-4: a doc whose anchor position is smaller than the anchor's phrase offset
-// (umid@0, offset 1) is skipped by the underflow guard and never false-matches; the
-// two well-formed docs still match via distinct tails.
-TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixSkipsAnchorUnderflowDoc) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader,
-                                     anchor_underflow_scenario_terms(), /*doc_count=*/900));
-
-    internal::query_test_counters() = internal::QueryTestCounters {};
-    std::vector<uint32_t> docids;
-    assert_ok(phrase_prefix_query(index_reader, {"ulead", "umid", "uxt"}, &docids, 10));
-
-    const std::vector<uint32_t> expected {810, 820}; // doc800 excluded (underflow)
-    EXPECT_EQ(docids, expected);
-    // 3 candidates {800,810,820}, umid is the single-position anchor -> 3 x 1.
-    EXPECT_EQ(internal::query_test_counters().anchor_iterations, 3U);
-    EXPECT_EQ(internal::query_test_counters().monotonic_position_scans, 0U);
-}
-
-TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixSmallSpansKeepBinarySearch) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader,
-                                     small_span_scenario_terms(), /*doc_count=*/1100));
-
-    internal::query_test_counters() = internal::QueryTestCounters {};
-    std::vector<uint32_t> docids;
-    assert_ok(phrase_prefix_query(index_reader, {"slead", "smid", "sxt"}, &docids, 10));
-
-    const std::vector<uint32_t> expected {1000, 1010};
-    EXPECT_EQ(docids, expected);
-    EXPECT_EQ(internal::query_test_counters().anchor_iterations, 4U);
-    EXPECT_EQ(internal::query_test_counters().monotonic_position_scans, 0U);
-}
-
-TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixInvalidAnchorBoundaryKeepsBinarySearch) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader,
-                                     invalid_anchor_boundary_terms(), /*doc_count=*/1100));
-
-    internal::query_test_counters() = internal::QueryTestCounters {};
-    std::vector<uint32_t> docids;
-    assert_ok(phrase_prefix_query(index_reader, {"blead", "bmid", "bxt"}, &docids, 10));
-
-    const std::vector<uint32_t> expected {1020};
-    EXPECT_EQ(docids, expected);
-    EXPECT_EQ(internal::query_test_counters().anchor_iterations, 48U);
-    EXPECT_EQ(internal::query_test_counters().monotonic_position_scans, 0U);
-}
-
-// Perf (deterministic): the multi-tail branch materializes expected_docids exactly
-// once per query (hoisted out of the per-tail loop). Here prefix "axt" expands to 3
-// tails; the old per-tail rebuild would have counted 3.
-TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixBuildsExpectedDocidsOnce) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, anchor_scenario_terms(),
-                                     /*doc_count=*/500));
-
-    std::vector<reader::LogicalIndexReader::PrefixHit> tail_hits;
-    assert_ok(index_reader.prefix_terms("axt", &tail_hits, 10));
-    ASSERT_EQ(tail_hits.size(), 3); // axta, axtb, axtc -> multi-tail branch
-
-    internal::query_test_counters() = internal::QueryTestCounters {};
-    std::vector<uint32_t> docids;
-    assert_ok(phrase_prefix_query(index_reader, {"lead", "mid", "axt"}, &docids, 10));
-
-    const std::vector<uint32_t> expected {100, 200, 300};
-    EXPECT_EQ(docids, expected);
-    EXPECT_EQ(internal::query_test_counters().expected_docids_build, 1U);
-}
-
-// FUNC-6: a single tail expansion takes the streaming ExecuteResolvedPhraseTerms
-// path, never the multi-tail branch, so expected_docids_build stays 0. Result is
-// unchanged from SingleTailPhrasePrefixUsesStreamingPhrasePath.
-TEST(SniiPhraseQueryTest, SingleTailPhrasePrefixDoesNotBuildExpectedDocids) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_reader(&file, &segment_reader, &index_reader));
-
-    internal::query_test_counters() = internal::QueryTestCounters {};
-    std::vector<uint32_t> docids;
-    assert_ok(phrase_prefix_query(index_reader, {"failed", "orde"}, &docids, 10));
-
-    const std::vector<uint32_t> expected {5000, 7000, 8000};
-    EXPECT_EQ(docids, expected);
-    EXPECT_EQ(internal::query_test_counters().expected_docids_build, 0U);
-}
-
 // FUNC-5: an empty tail expansion returns OK with an empty result before the
 // multi-tail branch, so no expected_docids vector is built.
 TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixEmptyTailExpansionReturnsEmpty) {
@@ -1282,12 +900,10 @@ TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixEmptyTailExpansionReturnsEmpty) {
     assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, anchor_scenario_terms(),
                                      /*doc_count=*/500));
 
-    internal::query_test_counters() = internal::QueryTestCounters {};
     std::vector<uint32_t> docids;
     assert_ok(phrase_prefix_query(index_reader, {"lead", "mid", "zzz"}, &docids, 10));
 
     EXPECT_TRUE(docids.empty());
-    EXPECT_EQ(internal::query_test_counters().expected_docids_build, 0U);
 }
 
 // FUNC-7: a null output pointer returns InvalidArgument (no crash, no throw).
@@ -1384,209 +1000,6 @@ TEST(SniiPhraseQueryTest, RepeatedTermPhraseUsesCachedPostingSpan) {
     EXPECT_EQ(docids, expected);
 }
 
-TEST(SniiPhraseMatcherInvariantTest, OpaqueInternalTermPlansMatchPlainPositionOracle) {
-    const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    ASSERT_TRUE(cases[1].gram_plan[1].starts_with(kOpaqueInternalTermPrefix));
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_opaque_matcher_plan_reader(&file, &segment_reader, &index_reader, cases));
-
-    for (const OpaqueMatcherPlanCase& test_case : cases) {
-        std::vector<uint32_t> plain;
-        assert_ok(phrase_query(index_reader, test_case.plain_terms, &plain));
-        ASSERT_FALSE(plain.empty()) << test_case.label;
-
-        internal::ResolvedPhrasePlan resolved_plan;
-        assert_ok(resolve_opaque_matcher_plan(index_reader, test_case.gram_plan, &resolved_plan));
-        std::vector<uint32_t> gram;
-        assert_ok(internal::execute_resolved_phrase_plan(index_reader, std::move(resolved_plan),
-                                                         &gram));
-        EXPECT_EQ(gram, plain) << test_case.label;
-    }
-}
-
-TEST(SniiPhraseMatcherInvariantTest, RepeatedOpaqueGramUsesOnePlanAtTwoPositions) {
-    const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    const OpaqueMatcherPlanCase& sss = cases.back();
-    ASSERT_EQ(sss.label, "SSS");
-    ASSERT_EQ(sss.gram_plan.size(), 2U);
-    ASSERT_EQ(sss.gram_plan[0], sss.gram_plan[1]);
-
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_opaque_matcher_plan_reader(&file, &segment_reader, &index_reader, cases));
-
-    std::vector<uint32_t> plain;
-    assert_ok(phrase_query(index_reader, sss.plain_terms, &plain));
-    internal::ResolvedPhrasePlan resolved_plan;
-    assert_ok(resolve_opaque_matcher_plan(index_reader, sss.gram_plan, &resolved_plan));
-    format::PrxDecodeStats stats;
-    format::PrxDecodeContext decode_context {.stats = &stats};
-    std::vector<uint32_t> gram;
-    assert_ok(internal::execute_resolved_phrase_plan(index_reader, std::move(resolved_plan), &gram,
-                                                     &decode_context));
-    std::vector<uint32_t> gram_candidates;
-    assert_ok(term_query(index_reader, sss.gram_plan[0], &gram_candidates));
-
-    EXPECT_EQ(gram, plain);
-    EXPECT_EQ(stats.selected_docs, gram_candidates.size())
-            << "the repeated clause must decode its shared plan once";
-}
-
-TEST(SniiPhraseMatcherInvariantTest, SingleOpaqueGramMatchesTwoTermPlainPhrase) {
-    const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    const OpaqueMatcherPlanCase& sss = cases.back();
-
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_opaque_matcher_plan_reader(&file, &segment_reader, &index_reader, cases));
-
-    std::vector<uint32_t> plain;
-    assert_ok(phrase_query(index_reader, {sss.plain_terms[0], sss.plain_terms[1]}, &plain));
-    internal::ResolvedPhrasePlan resolved_plan;
-    assert_ok(resolve_opaque_matcher_plan(index_reader, {sss.gram_plan[0]}, &resolved_plan));
-    format::PrxDecodeStats stats;
-    format::PrxDecodeContext decode_context {.stats = &stats};
-    std::vector<uint32_t> gram;
-    assert_ok(internal::execute_resolved_phrase_plan(index_reader, std::move(resolved_plan), &gram,
-                                                     &decode_context));
-    EXPECT_EQ(gram, plain);
-    EXPECT_EQ(stats.frame_count(), 0U) << "a one-clause plan must use the doc-posting term route";
-}
-
-TEST(SniiPhraseMatcherInvariantTest, ResolvedPlanMovesInlinePayloadIntoTermPlans) {
-    const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_opaque_matcher_plan_reader(&file, &segment_reader, &index_reader, cases));
-
-    internal::ResolvedPhrasePlan plan;
-    assert_ok(resolve_opaque_matcher_plan(index_reader, cases[1].gram_plan, &plan));
-    const size_t unique_term_count = plan.unique_terms.size();
-    size_t inline_payload_count = 0;
-    for (const internal::ResolvedQueryTerm& term : plan.unique_terms) {
-        inline_payload_count += !term.entry.frq_bytes.empty();
-        inline_payload_count += !term.entry.prx_bytes.empty();
-    }
-    ASSERT_GT(inline_payload_count, 0U);
-
-    internal::query_test_counters() = {};
-    std::vector<uint32_t> docids;
-    assert_ok(internal::execute_resolved_phrase_plan(index_reader, std::move(plan), &docids));
-    EXPECT_EQ(internal::query_test_counters().resolved_term_entry_copies, 0U);
-    EXPECT_EQ(internal::query_test_counters().resolved_term_entry_moves, unique_term_count);
-    EXPECT_EQ(internal::query_test_counters().resolved_term_payload_pointer_reuses,
-              inline_payload_count);
-}
-
-TEST(SniiPhraseMatcherInvariantTest, ResolvedPlanRejectsStructuralMismatches) {
-    const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_opaque_matcher_plan_reader(&file, &segment_reader, &index_reader, cases));
-
-    internal::ResolvedPhrasePlan plan;
-    assert_ok(resolve_opaque_matcher_plan(index_reader, cases[1].gram_plan, &plan));
-    ASSERT_TRUE(plan.is_valid());
-
-    internal::ResolvedPhrasePlan mismatched_offsets = plan;
-    mismatched_offsets.position_offsets.pop_back();
-    EXPECT_FALSE(mismatched_offsets.is_valid());
-
-    internal::ResolvedPhrasePlan invalid_mapping = plan;
-    invalid_mapping.phrase_plan_index[0] = invalid_mapping.unique_terms.size();
-    EXPECT_FALSE(invalid_mapping.is_valid());
-
-    internal::ResolvedPhrasePlan empty_mismatch = plan;
-    empty_mismatch.phrase_plan_index.clear();
-    empty_mismatch.position_offsets.clear();
-    EXPECT_FALSE(empty_mismatch.is_valid());
-}
-
-TEST(SniiPhraseMatcherInvariantTest, ResolvedPlanRejectsInvalidCoverageAndOffsets) {
-    const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_opaque_matcher_plan_reader(&file, &segment_reader, &index_reader, cases));
-
-    internal::ResolvedPhrasePlan plan;
-    assert_ok(resolve_opaque_matcher_plan(index_reader, cases[1].gram_plan, &plan));
-    ASSERT_TRUE(plan.is_valid());
-
-    internal::ResolvedPhrasePlan unused_unique = plan;
-    unused_unique.unique_terms.push_back(unused_unique.unique_terms.front());
-    EXPECT_FALSE(unused_unique.is_valid());
-
-    // Since an opaque term may cover two positions, position offsets are only
-    // required to start at 0 and ascend STRICTLY -- gaps are legal (a gram
-    // covers two positions, so the next clause's offset jumps past it). The
-    // fatal invariants are a nonzero first offset and a non-ascending step.
-    internal::ResolvedPhrasePlan nonzero_first = plan;
-    ++nonzero_first.position_offsets.front();
-    EXPECT_FALSE(nonzero_first.is_valid());
-
-    internal::ResolvedPhrasePlan non_ascending = plan;
-    ASSERT_GE(non_ascending.position_offsets.size(), 2U);
-    non_ascending.position_offsets.back() =
-            non_ascending.position_offsets[non_ascending.position_offsets.size() - 2];
-    EXPECT_FALSE(non_ascending.is_valid());
-}
-
-TEST(SniiPhraseMatcherInvariantTest, ResolvedPlanNullOutputIsInvalidArgument) {
-    const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_opaque_matcher_plan_reader(&file, &segment_reader, &index_reader, cases));
-
-    internal::ResolvedPhrasePlan plan;
-    assert_ok(resolve_opaque_matcher_plan(index_reader, cases[1].gram_plan, &plan));
-    EXPECT_TRUE(internal::execute_resolved_phrase_plan(index_reader, std::move(plan), nullptr)
-                        .is<ErrorCode::INVALID_ARGUMENT>());
-}
-
-TEST(SniiPhraseMatcherInvariantTest, ThreeClauseMaterializedCursorSurvivesRemainingPlanDecode) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, cursor_lifetime_terms(),
-                                     /*doc_count=*/400));
-
-    internal::query_test_counters() = {};
-    internal::ResolvedPhrasePlan plan;
-    assert_ok(resolve_opaque_matcher_plan(index_reader,
-                                          {"cursor_left", "cursor_right", "cursor_tail"}, &plan));
-    std::vector<uint32_t> docids;
-    assert_ok(internal::execute_resolved_phrase_plan(
-            index_reader, std::move(plan), &docids, nullptr, nullptr, nullptr,
-            internal::ExactPhrasePositionAccess::kMaterializedOnly));
-    EXPECT_EQ(docids, (std::vector<uint32_t> {100}));
-    EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_hits, 0U);
-    EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_misses, 3U);
-}
-
-TEST(SniiPhraseMatcherInvariantTest, ThreeClauseRepeatedPlanKeepsPairCursorAlive) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, cursor_lifetime_terms(),
-                                     /*doc_count=*/400));
-
-    internal::query_test_counters() = {};
-    std::vector<uint32_t> docids;
-    assert_ok(
-            phrase_query(index_reader, {"repeat_cursor", "repeat_cursor", "repeat_tail"}, &docids));
-    EXPECT_EQ(docids, (std::vector<uint32_t> {300}));
-    EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_hits, 1U);
-    EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_misses, 2U);
-}
-
 TEST(SniiPhraseQueryTest, DenseTermWithMissingDocKeepsCandidateOrdinals) {
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
@@ -1635,21 +1048,6 @@ TEST(SniiPhraseQueryTest, SparseWindowBitsetKeepsCandidateOrdinals) {
         }
     }
     EXPECT_EQ(docids, expected);
-}
-
-TEST(SniiTermQueryTest, WindowedDenseTermEmitsRangesToSink) {
-    MemoryFile file;
-    reader::SniiSegmentReader segment_reader;
-    reader::LogicalIndexReader index_reader;
-    assert_ok(build_reader(&file, &segment_reader, &index_reader));
-
-    RecordingDocIdSink sink;
-    assert_ok(term_query(index_reader, "failed", &sink));
-
-    std::vector<uint32_t> expected(9000);
-    std::iota(expected.begin(), expected.end(), 0);
-    EXPECT_EQ(sink.out, expected);
-    EXPECT_GT(sink.range_calls, 0);
 }
 
 TEST(SniiPrxPodTest, SelectivePforCsrMatchesFullCsrAcrossRuns) {
