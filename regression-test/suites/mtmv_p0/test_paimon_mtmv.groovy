@@ -263,6 +263,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     assertTrue(showNullPartitionsResult.toString().contains("p_NULL"))
     assertTrue(showNullPartitionsResult.toString().contains("p_bj"))
     assertTrue(showNullPartitionsResult.toString().contains("pn_NULL"))
+    assertEquals(4, showNullPartitionsResult.size())
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto;
         """

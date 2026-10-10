@@ -24,8 +24,15 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
+import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.BucketMode;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
@@ -33,6 +40,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -119,6 +127,64 @@ public class PaimonWritePlanProviderTest {
         Assertions.assertTrue(columns.get(2).isWithTimeZone());
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> columns.add(columns.get(0)));
+    }
+
+    @Test
+    public void fixedBucketAppendTableWithoutWriteOnlyRequiresSingleWriter() {
+        // A fixed-bucket table whose bucket key cannot be routed natively (DATE) falls back to the
+        // planner distribution. Unless the table is write-only, its writers also compact, and two
+        // writers compacting the same bucket conflict, so the write must be gathered to one writer.
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(
+                Collections.emptyList(), Collections.emptyList(), fixedBucketOptions(false),
+                BucketMode.HASH_FIXED));
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.EXTERNAL_UNPARTITIONED, writeDistribution(
+                Collections.emptyList(), Collections.emptyList(), fixedBucketOptions(true),
+                BucketMode.HASH_FIXED));
+    }
+
+    @Test
+    public void primaryKeyAndDynamicBucketTablesRequireSingleWriter() {
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(
+                Collections.emptyList(), Collections.singletonList("dt"), fixedBucketOptions(true),
+                BucketMode.HASH_FIXED));
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(
+                Collections.emptyList(), Collections.singletonList("id"), dynamicBucketOptions(),
+                BucketMode.HASH_DYNAMIC));
+        // The primary key leaves out the partition column, so an upsert can move a key across
+        // partitions and the bucket of a key comes from the cross-partition index.
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(
+                Collections.singletonList("region"), Collections.singletonList("id"), dynamicBucketOptions(),
+                BucketMode.KEY_DYNAMIC));
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.EXECUTION_ANY, writeDistribution(
+                Collections.emptyList(), Collections.emptyList(), dynamicBucketOptions(),
+                BucketMode.BUCKET_UNAWARE));
+    }
+
+    private static ConnectorWriteDistribution.Mode writeDistribution(List<String> partitionKeys,
+            List<String> primaryKeys, Map<String, String> options, BucketMode expectedBucketMode) {
+        List<DataField> fields = Arrays.asList(
+                new DataField(0, "id", DataTypes.INT().notNull()),
+                new DataField(1, "dt", DataTypes.DATE().notNull()),
+                new DataField(2, "region", DataTypes.STRING().notNull()));
+        FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                new Path("file:///tmp/paimon-write-distribution/tbl"),
+                new TableSchema(0L, fields, 2, partitionKeys, primaryKeys, options, ""));
+        Assertions.assertEquals(expectedBucketMode, table.bucketMode(), "fixture bucket mode");
+        PaimonTableHandle handle = new PaimonTableHandle("db", "tbl", partitionKeys, primaryKeys);
+        handle.setPaimonTable(table);
+        return new PaimonWritePlanProvider(null, null, null).getWriteDistribution(null, handle).getMode();
+    }
+
+    private static Map<String, String> fixedBucketOptions(boolean writeOnly) {
+        Map<String, String> options = new HashMap<>();
+        options.put(CoreOptions.BUCKET.key(), "2");
+        options.put(CoreOptions.BUCKET_KEY.key(), "dt");
+        options.put(CoreOptions.WRITE_ONLY.key(), Boolean.toString(writeOnly));
+        return options;
+    }
+
+    private static Map<String, String> dynamicBucketOptions() {
+        return Collections.singletonMap(CoreOptions.BUCKET.key(), "-1");
     }
 
     private static List<ConnectorColumn> columns(String... names) {
