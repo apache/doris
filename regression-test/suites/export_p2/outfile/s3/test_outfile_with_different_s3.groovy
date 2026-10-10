@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_outfile_with_different_s3", "p0") {
+suite("test_outfile_with_different_s3", "p2") {
 
     def export_table_name = "test_outfile_with_different_s3"
     
