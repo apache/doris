@@ -123,6 +123,14 @@ public class BaselineManagerConcurrencyTest {
         /** When set, every identity delete reports an error WITHOUT removing the row
          *  (an ambiguous delete whose commit is unknown - ). */
         private boolean failDeleteKeepingRow;
+        /**
+         * When set, the id reservation just written is NOT readable yet (comments 4/6):
+         * the sequence watermark keeps the PRE-reservation value, exactly what a
+         * successor or a cross-FE retry reads while the publication lags.
+         */
+        private boolean holdReservationReadback;
+        /** The watermark observed BEFORE the newest reservation (see holdReservationReadback). */
+        private long laggedWatermark;
 
         private static String seqKey(String bindSqlDigest, long planSqlHash) {
             return bindSqlDigest + '\u0001' + planSqlHash;
@@ -130,11 +138,12 @@ public class BaselineManagerConcurrencyTest {
 
         @Override
         public long seqWatermark() {
-            return reservedHighWater;
+            return holdReservationReadback ? laggedWatermark : reservedHighWater;
         }
 
         @Override
         public void reserveId(long id) {
+            laggedWatermark = reservedHighWater;
             reservedHighWater = Math.max(reservedHighWater, id);
         }
 
@@ -4205,6 +4214,179 @@ public class BaselineManagerConcurrencyTest {
                     "the unconfirmable refresh must invalidate the published cache");
         } finally {
             BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    // ==================== comment 1: the mutation window is observable ====================
+
+    /**
+     * The tick alone cannot reject a snapshot that straddled a mutation: it is written
+     * BEFORE the mutation's own statement (see beginRowMutation), so a DROP's DELETE can
+     * land between two pages while BOTH fence reads see the SAME already-bumped tick - the
+     * published map then mixes the two states. A concrete shape: page one ends ON the
+     * dropped id (2000), the continuation's `id >= 2000 OFFSET 1` skips the successor
+     * (2001) that slid into the removed slot, and the end probe accepts the short read - so
+     * the dropped baseline kept replaying AND the successor went missing. The window
+     * (pending) is held OPEN across attempt one's BOTH fence reads here: only the pending
+     * gate can reject that mixed read.
+     */
+    @Test
+    public void testSnapshotReadRetriesWhileAMutationWindowIsOpen() throws Exception {
+        Map<Long, List<BaselinePlan>> table = new java.util.LinkedHashMap<>();
+        for (long id = 1; id <= 1999; id++) {
+            table.put(id, List.of(withId(baseline("dw" + id, "select k from tw" + id), id)));
+        }
+        table.put(2000L, List.of(withId(baseline("dw2000", "select k from tw2000"), 2000L)));
+        table.put(2001L, List.of(withId(baseline("dw2001", "select k from tw2001"), 2001L)));
+
+        long[] tick = {6L}; // the DROP's begin tick (beginRowMutation)
+        long[] pending = {6L}; // ... whose window stays open across both reads of attempt 1
+        AtomicInteger pageCalls = new AtomicInteger();
+        CountDownLatch pageOneRead = new CountDownLatch(1);
+        CountDownLatch deleteLanded = new CountDownLatch(1);
+        Thread drop = new Thread(() -> {
+            try {
+                pageOneRead.await();
+                table.remove(2000L); // the DELETE half of the open window
+                deleteLanded.countDown();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        drop.start();
+        AtomicInteger fenceReads = new AtomicInteger();
+        List<String> fenceLog = new ArrayList<>();
+        Map<Long, BaselinePlan> snapshot;
+        try {
+            snapshot = BaselineManager.readStableSnapshot((pageStart, offset) -> {
+                List<ResultRow> rows = table.entrySet().stream()
+                        .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
+                        .flatMap(entry -> entry.getValue().stream())
+                        .skip(offset)
+                        .map(BaselineManagerConcurrencyTest::rowOf)
+                        .collect(java.util.stream.Collectors.toList());
+                if (pageCalls.getAndIncrement() == 0) {
+                    // page one IS the full 2,000-row page ending on id 2000: the DELETE
+                    // commits while the page is in flight (its view still holds id 2000)
+                    pageOneRead.countDown();
+                    try {
+                        deleteLanded.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                return rows;
+            }, () -> {
+                int read = fenceReads.incrementAndGet();
+                fenceLog.add(read + ":" + tick[0] + "|" + pending[0]);
+                BaselineManager.SnapshotFence fence = new BaselineManager.SnapshotFence(
+                        tick[0], 2001L, 12006L, pending[0]);
+                if (read == 2) {
+                    // endRowMutation: the window closes with a NEWER tick - AFTER attempt
+                    // one's second read already observed the open one
+                    pending[0] = 0L;
+                    tick[0] = 7L;
+                }
+                return fence;
+            });
+        } finally {
+            drop.join();
+        }
+        Assertions.assertEquals(4, fenceReads.get(),
+                "one fence pair per attempt: the window-crossing read is discarded and the"
+                        + " stable post-drop read is published");
+        Assertions.assertEquals(List.of("1:6|6", "2:6|6"), fenceLog.subList(0, 2),
+                "attempt one saw the SAME tuple on both reads - only the open window"
+                        + " (pending != 0) can reject its mixed view");
+        Assertions.assertEquals(2000, snapshot.size(),
+                "the state after the drop must be published: " + snapshot.keySet().size());
+        Assertions.assertFalse(snapshot.containsKey(2000L),
+                "the DROPped baseline must not survive in the published snapshot");
+        Assertions.assertTrue(snapshot.containsKey(2001L),
+                "the successor must not be lost to the OFFSET continuation");
+    }
+
+    /**
+     * The default 3-arg fence is CLOSED (no open window) - scripted / legacy callers keep
+     * working - and an open window is never quiet, whatever the tick tuple says.
+     */
+    @Test
+    public void testSnapshotFenceQuietContract() {
+        Assertions.assertTrue(new BaselineManager.SnapshotFence(1L, 1L, 1L).quiet(),
+                "the legacy 3-arg fence carries no window");
+        Assertions.assertTrue(new BaselineManager.SnapshotFence(1L, 1L, 1L, 0L).quiet());
+        Assertions.assertFalse(new BaselineManager.SnapshotFence(1L, 1L, 1L, 4L).quiet(),
+                "an open window is not quiet even with an unchanged tick tuple");
+        Assertions.assertTrue(new BaselineManager.SnapshotFence(6L, 1L, 6L, 6L)
+                        .matches(new BaselineManager.SnapshotFence(6L, 1L, 6L, 0L)),
+                "matches() stays the tick tuple - the window is a SEPARATE gate");
+    }
+
+    // ==================== comments 4/6: the reservation must be READABLE ====================
+
+    /**
+     * An id reservation's SQL OK proves the row was ACCEPTED, not that a successor or a
+     * retry can READ it: with the compact read still answering the OLD state (a lagging
+     * publication, or a compact tombstone that has not been superseded yet) the next
+     * CREATE - or a retry on another FE - reads a LOWER watermark and a resolved identity,
+     * hands out a SECOND id for the same key, and two ENABLED rows can publish (comments 4
+     * and 6). The create must CONFIRM the reservation through the exact reads a successor
+     * uses and fail retryably BEFORE the baseline row write.
+     */
+    @Test
+    public void testCreateFailsWhenTheReservationStaysUnreadable() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long firstId = manager.createBaseline(baseline("rb-a", "rb-a-1"));
+            Assertions.assertTrue(firstId > 0);
+
+            store.holdReservationReadback = true; // the reservation write lags
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("rb-b", "rb-b-1")));
+            Assertions.assertTrue(
+                    failure.getMessage().contains("cannot confirm the id reservation"),
+                    failure.getMessage());
+            long reservedId = store.reservedHighWater;
+            Assertions.assertTrue(reservedId > firstId,
+                    "the id was allocated and reserved before the confirmation");
+            Assertions.assertTrue(store.rowsOf(reservedId).isEmpty(),
+                    "the unconfirmable create must NOT write its row: "
+                            + store.rowsOf(reservedId));
+            Assertions.assertEquals(1, store.rows.size(),
+                    "only the first baseline's row exists: " + store.rows.keySet());
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest(),
+                    "no pending record for a create that never wrote");
+
+            // the successor's reads recover - but the recent plain reservation IS the durable
+            // evidence of a possibly-committed write, so the retry DEFERS first (fail
+            // closed) instead of allocating a second id next to it
+            store.holdReservationReadback = false;
+            IllegalStateException deferred = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("rb-b", "rb-b-1")));
+            Assertions.assertTrue(
+                    deferred.getMessage().contains("still awaiting publication"),
+                    deferred.getMessage());
+
+            // after the fence the abandoned identity is CONDEMNED (a durable tombstone) and
+            // a FRESH id publishes - the reserved-but-unreadable id is never handed out again
+            store.ageReservations(6 * 60 * 1000L);
+            long retriedId = manager.createBaseline(baseline("rb-b", "rb-b-1"));
+            Assertions.assertTrue(retriedId > reservedId,
+                    "the reserved-but-unreadable id must not be reused: " + retriedId
+                            + " vs " + reservedId);
+            Assertions.assertEquals(1, store.rowsOf(retriedId).stream()
+                            .filter(row -> row.getStatus() == BaselineStatus.ENABLED).count(),
+                    "exactly one ENABLED row for the retried key: " + store.rowsOf(retriedId));
+            Assertions.assertTrue(store.rowsOf(reservedId).isEmpty(),
+                    "the abandoned reservation stays a gap, never a row");
+            Assertions.assertEquals(BaselineStatus.ENABLED,
+                    manager.getBaseline(retriedId).getStatus());
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
             manager.clearForTest();
         }
     }

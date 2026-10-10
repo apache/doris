@@ -421,6 +421,12 @@ public class InternalSchema {
         // as 0 - the next mutation re-writes the slot with a real tick.
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("tick",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        // The OPEN mutation window (see BaselineManager#beginRowMutation): the tick of the
+        // mutation whose row statement is in flight; 0 / NULL when none. A snapshot read
+        // overlapping an open window retries. NULLABLE: rows written before the column
+        // existed read as 0 (no window).
+        SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("pending",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
 
         // SPM plan-capture checkpoint (APPEND-ONLY, every row carries the
         // fixed id = 1): the truncated window bounds, the FULL cursor (time, query_time,

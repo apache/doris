@@ -90,6 +90,15 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     @Override
     public String toDigest() {
         StringBuilder sb = new StringBuilder();
+        if (Plan.spmDigestMode()) {
+            // The generic toDigest() always renders a plain WITH; the recursion mode
+            // changes how a self-reference binds (work table vs base table), so it is
+            // part of the SPM identity (Level 3 compares isRecursive() as well). Every
+            // nested SPM identity (a hint on the main query or inside a CTE body, the
+            // alias queries' positional alias lists) is re-rendered through the child's
+            // own toDigest() while the mode is on.
+            sb.append(isRecursive() ? "[RECURSIVE]" : "[PLAIN]");
+        }
         sb.append("WITH\n");
         sb.append(
                 aliasQueries.stream().map(LogicalSubQueryAlias::toDigest)
@@ -98,14 +107,6 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
         sb.append("\n");
         sb.append(child().toDigest());
         return sb.toString();
-    }
-
-    @Override
-    public String toSpmDigest() {
-        // The generic toDigest() always renders a plain WITH; the recursion mode changes
-        // how a self-reference binds (work table vs base table), so it is part of the
-        // SPM identity (Level 3 compares isRecursive() as well)
-        return (isRecursive() ? "[RECURSIVE]" : "[PLAIN]") + toDigest();
     }
 
     @Override

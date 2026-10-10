@@ -132,11 +132,6 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
         return "LogicalSelectHint (" + hintStr + ")";
     }
 
-    @Override
-    public String toDigest() {
-        return child().toDigest();
-    }
-
     /**
      * SPM identity of a hint-carrying statement: unlike toDigest() (Doris's generic
      * query fingerprint, intentionally left delegating to the child), the SPM digest MUST
@@ -146,14 +141,21 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
      * BaselineManager.ForwardedDdlExpectation), and the frozen replay pinned a join
      * order the caller never asked for. The hints render in list (= SQL text) order
      * through each hint's own toString.
+     *
+     * The mode-gated branch also keeps NESTED hint blocks in the identity: the walk
+     * enters through {@link Plan#toSpmDigest} and every parent recursion reaches this
+     * method again while {@link Plan#spmDigestMode()} is on.
      */
     @Override
-    public String toSpmDigest() {
-        StringBuilder digest = new StringBuilder("SelectHint[");
-        for (SelectHint hint : hints) {
-            appendCanonicalHintDigest(digest, hint);
+    public String toDigest() {
+        if (Plan.spmDigestMode()) {
+            StringBuilder digest = new StringBuilder("SelectHint[");
+            for (SelectHint hint : hints) {
+                appendCanonicalHintDigest(digest, hint);
+            }
+            return digest.append(child().toDigest()).append(']').toString();
         }
-        return digest.append(child().toSpmDigest()).append(']').toString();
+        return child().toDigest();
     }
 
     /**

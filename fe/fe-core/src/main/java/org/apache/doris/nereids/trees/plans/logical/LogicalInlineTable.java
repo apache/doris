@@ -68,13 +68,18 @@ public class LogicalInlineTable extends LogicalLeaf implements InlineTable, Bloc
 
     /**
      * SPM identity of one VALUES relation (see Plan#toSpmDigest): the generic digest
-     * reduces every shape to one VALUES text, so two statements differing only in the
-     * ROW structure (two 2-cell rows against four 1-cell rows) share it although
+     * reduces every shape to one text, so two statements differing only in the
+     * ROW structure (two 2-cell rows against four 1-cell rows) would share it although
      * their row counts differ. Render one "?" per cell, rows and cells in parse
      * order, so the bind side and the analyzed side stay equal.
      */
     @Override
-    public String toSpmDigest() {
+    public String toDigest() {
+        if (!Plan.spmDigestMode()) {
+            // the generic fingerprint leaves the shape to the analyzer (the inherited
+            // default is empty for this relation)
+            return "";
+        }
         StringBuilder digest = new StringBuilder("VALUES ");
         for (int i = 0; i < constantExprsList.size(); i++) {
             List<NamedExpression> row = constantExprsList.get(i);

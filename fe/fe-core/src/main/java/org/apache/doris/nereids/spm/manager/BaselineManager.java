@@ -262,7 +262,7 @@ public class BaselineManager {
         }
 
         /**
-         * The simulated mutation-clock bump (see bumpMutationClock): counted by tests that
+         * The simulated mutation-clock bump (see beginRowMutation): counted by tests that
          * assert every durable mutation is preceded by a clock advance. The default keeps
          * simulators without a clock working.
          */
@@ -467,6 +467,17 @@ public class BaselineManager {
             + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
 
     /**
+     * How long a mutation WINDOW row still counts as an open window for the snapshot
+     * fence (see SELECT_CLOCK_SQL): a FE that dies between its window's begin and
+     * completion write leaves a pending row behind that no completion will ever close.
+     * Counting it forever made every fence read non-quiet and the store unloadable; a
+     * window older than this bound cannot still be mid-statement (every baseline write is
+     * bounded by BASELINE_WRITE_TIMEOUT_SECONDS), so it stops counting. Much larger than
+     * any statement timeout, so a LIVE window always poisons the fence while it is open.
+     */
+    private static final long MUTATION_WINDOW_MAX_AGE_SECONDS = 600L;
+
+    /**
      * The bounded MUTATION CLOCK of the paginated snapshot fence (see
      * readStableRawSnapshot): MAX(tick) plus the slot's row count / tick sum. Every
      * spm_baselines mutation (create / delete / status flip) appends a clock row with a
@@ -478,22 +489,33 @@ public class BaselineManager {
      * publishing a mixed state (a residual collision of two same-instant appends from
      * different FEs converges on the next refresh, like the fence's second-precision
      * predecessor).
+     *
+     * The fourth column is the OPEN-WINDOW marker: MAX(pending) over the rows written
+     * within MUTATION_WINDOW_MAX_AGE_SECONDS. Any unclosed window poisons the fence (that
+     * is the point - a window is only closed by its completion write, see
+     * beginRowMutation), but a window WHOSE FE DIED before its completion became a
+     * PERMANENT poison: pending stayed non-null forever and every snapshot read failed,
+     * so the store could never load again. A mutation's own statements are bounded by
+     * BASELINE_WRITE_TIMEOUT_SECONDS, so a begin row older than the (much larger) window
+     * bound cannot still be mid-statement and is ignored.
      */
     private static final String SELECT_CLOCK_SQL = "SELECT MAX(`tick`), COUNT(*),"
-            + " SUM(`tick`) FROM " + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
+            + " SUM(`tick`), MAX(CASE WHEN `update_time` > DATE_SUB(NOW(), INTERVAL "
+            + MUTATION_WINDOW_MAX_AGE_SECONDS + " SECOND) THEN `pending` ELSE 0 END)"
+            + " FROM " + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
 
     /**
-     * The slot's newest watermark AND clock tick; the pre-mutation bump of a delete /
-     * status flip reads it to keep the recorded watermark untouched while advancing the
-     * clock (see bumpMutationClock). One bounded keyed read.
+     * The slot's newest watermark AND clock tick; the pre-mutation build of the mutation
+     * window (and the completion append) reads it to keep the recorded watermark untouched
+     * while advancing the clock (see beginRowMutation). One bounded keyed read.
      */
     private static final String SELECT_SLOT_STATE_SQL = "SELECT MAX(`last_id`),"
             + " MAX(`tick`) FROM " + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
 
     /** Append one high-water-mark / clock row (see SELECT_HWM_SQL, SELECT_CLOCK_SQL). */
     private static final String INSERT_HWM_SQL = "INSERT INTO " + SPM_BASELINES_HWM_TABLE
-            + " (`id`, `last_id`, `update_time`, `tick`)"
-            + " VALUES (1, ${lastId}, NOW(), ${tick})";
+            + " (`id`, `last_id`, `update_time`, `tick`, `pending`)"
+            + " VALUES (1, ${lastId}, NOW(), ${tick}, ${pending})";
 
     /**
      * Best-effort prune of the compact high-water-mark rows (see SELECT_HWM_SQL): removes
@@ -502,10 +524,20 @@ public class BaselineManager {
      * written by a faster master - deleting it would REWIND the allocator); only rows
      * below the watermark, or same-watermark rows with an older tick, go. Correctness
      * never depends on it - the read takes the MAX - so failures are swallowed.
+     *
+     * Split into TWO statements with SIMPLE predicates: the single OR form was rejected by
+     * the delete fallback ("Where clause only supports compound predicate, binary
+     * predicate, ..."), so the prune silently failed since its introduction and every
+     * mutation left its row behind (thousands accumulated on the sandbox). A binary
+     * predicate works on the duplicate-key table.
      */
     private static final String PRUNE_HWM_SQL = "DELETE FROM " + SPM_BASELINES_HWM_TABLE
-            + " WHERE `id` = 1 AND (`last_id` < ${lastId}"
-            + " OR (`last_id` = ${lastId} AND `tick` < ${tick}))";
+            + " WHERE `id` = 1 AND `last_id` < ${lastId}";
+
+    /** The same-watermark half of PRUNE_HWM_SQL (rows superseded by the newer tick). */
+    private static final String PRUNE_HWM_SAME_WATERMARK_SQL = "DELETE FROM "
+            + SPM_BASELINES_HWM_TABLE
+            + " WHERE `id` = 1 AND `last_id` = ${lastId} AND `tick` < ${tick}";
 
     /**
      * The scoped CONFIRMATION of SELECT_HWM_SQL (see readCompactIdWatermark): the
@@ -2340,7 +2372,7 @@ public class BaselineManager {
             //
             // The read is BOUNDED to this id's key prefix: the former table-wide read
             // existed to make every flip move the old MAX(update_time)-based snapshot
-            // fence, which the bounded mutation clock (see bumpMutationClock) now
+            // fence, which the bounded mutation clock (see beginRowMutation) now
             // replaces. A same-key twin under ANOTHER id (the handoff window the write
             // checks cannot close completely) is collapsed deterministically at load (see
             // collapseDuplicateKeyRows), and a further flip / create of either id
@@ -4294,7 +4326,7 @@ public class BaselineManager {
             if (tail > hwm) {
                 // best effort, like the seed: raising the record keeps the next create
                 // on the bounded path
-                writeHwmRecord(tail, false);
+                writeHwmRecord(tail, nextMutationTick(), 0L, false);
                 return tail;
             }
             return hwm;
@@ -4311,7 +4343,7 @@ public class BaselineManager {
         }
         if (legacy > 0) {
             // best effort: a failed seed only means the next create reads the history again
-            writeHwmRecord(legacy, false);
+            writeHwmRecord(legacy, nextMutationTick(), 0L, false);
         }
         return legacy;
     }
@@ -4355,16 +4387,18 @@ public class BaselineManager {
     /**
      * Appends (and prunes) the compact id high-water-mark + mutation-clock record.
      *
-     * @param id     the high-water mark to record
-     * @param strict whether a failed write must fail the caller (a create that consumed
-     *               an id cannot leave the record behind it, and a mutation may not
-     *               proceed without its clock tick, see bumpMutationClock); the seed path
-     *               is best effort
+     * @param id      the high-water mark to record
+     * @param tick    the clock tick to record (see beginRowMutation)
+     * @param pending the open mutation window to record (the window's tick, 0 when closed)
+     * @param strict  whether a failed write must fail the caller (a create that consumed
+     *                an id cannot leave the record behind it, and a mutation window may not
+     *                open without its clock tick); the seed path is best effort
      */
-    private static void writeHwmRecord(long id, boolean strict) {
+    private static void writeHwmRecord(long id, long tick, long pending, boolean strict) {
         Map<String, String> params = new HashMap<>();
         params.put("lastId", String.valueOf(id));
-        params.put("tick", String.valueOf(nextMutationTick()));
+        params.put("tick", String.valueOf(tick));
+        params.put("pending", String.valueOf(pending));
         try {
             inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_HWM_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
@@ -4379,6 +4413,8 @@ public class BaselineManager {
         }
         try {
             inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_SQL, params,
+                    BASELINE_WRITE_TIMEOUT_SECONDS));
+            inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_SAME_WATERMARK_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             LOG.debug("SPM compact high-water-mark prune skipped: {}", e.getMessage());
@@ -4398,21 +4434,30 @@ public class BaselineManager {
     }
 
     /**
-     * Advances the durable mutation clock (see SELECT_CLOCK_SQL) WITHOUT touching the id
-     * watermark: every spm_baselines mutation that is not a create - deletes, status
-     * flips, collision repairs - calls this STRICTLY BEFORE its own statement, so a
-     * paginated snapshot read around the mutation observes the clock move and retries
-     * instead of publishing a mixed state. The append is STRICT: a mutation whose clock
-     * could not advance fails retryably before anything changed. Bounded: one keyed read
-     * of the slot + one append + one prune.
+     * Opens the mutation WINDOW of one durable baseline-row mutation (see
+     * SELECT_CLOCK_SQL): a strictly increasing tick with `pending` set to it is recorded
+     * BEFORE the mutation's own statement, and {@link #endRowMutation(long)} closes the
+     * window with a NEWER tick and pending = 0 after it. The snapshot fence requires BOTH
+     * fence reads to show pending = 0 AND an unchanged tick tuple: the tick alone only
+     * proves the bump was visible before the read, NOT that the row statement between
+     * bump and completion had finished - a DROP could bump (page 1 ends on an old
+     * flipped row X), let both fence reads pass, and delete X's whole row group between
+     * the pages; the `id >= X OFFSET n` continuation then skipped the removed group's
+     * successor while the end probe accepted the mixed snapshot, publishing a status
+     * that never existed in the durable table. With the window open ACROSS the
+     * statement, any read overlapping the mutation sees pending != 0 (or the completion
+     * tick) and retries.
+     *
+     * Strict: a mutation whose window could not open fails retryably before anything
+     * changed. Bounded: one keyed read of the slot + one append + one prune.
      */
-    private static void bumpMutationClock() {
+    private static long beginRowMutation() {
         if (idAllocatorStoreForTest != null) {
             idAllocatorStoreForTest.bumpMutationClock();
-            return;
+            return 0;
         }
         if (!persistenceEnabled()) {
-            return;
+            return 0;
         }
         long watermark;
         try {
@@ -4425,7 +4470,42 @@ public class BaselineManager {
             throw new RuntimeException("SPM mutation clock read failed (retry the"
                     + " operation): " + e.getMessage(), e);
         }
-        writeHwmRecord(watermark, true);
+        long tick = nextMutationTick();
+        writeHwmRecord(watermark, tick, tick, true);
+        return tick;
+    }
+
+    /**
+     * Closes the mutation window opened by {@link #beginRowMutation()}: writes a NEWER
+     * tick with pending = 0 (the open row is pruned by the same append), so a fence read
+     * that overlapped the window observes the completion in one of its two reads.
+     * Best effort: the row statement's outcome is what the caller reports, and a lost
+     * completion write only keeps the snapshot fence retrying - fail CLOSED - until the
+     * next mutation touches the slot or the window bound elapses (see
+     * MUTATION_WINDOW_MAX_AGE_SECONDS), never forever.
+     */
+    private static void endRowMutation(long tick) {
+        if (tick == 0 || idAllocatorStoreForTest != null || !persistenceEnabled()) {
+            return;
+        }
+        long watermark;
+        try {
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_SLOT_STATE_SQL, Collections.emptyMap(),
+                    INTERNAL_QUERY_TIMEOUT_SECONDS));
+            watermark = rows == null || rows.isEmpty()
+                    ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
+        } catch (Exception e) {
+            LOG.warn("SPM mutation clock completion read failed; the snapshot fence stays"
+                    + " retrying until the next mutation: {}", e.getMessage());
+            return;
+        }
+        try {
+            writeHwmRecord(watermark, nextMutationTick(), 0, true);
+        } catch (RuntimeException e) {
+            LOG.warn("SPM mutation clock completion write failed; the snapshot fence may"
+                    + " keep retrying until the next mutation: {}", e.getMessage());
+        }
     }
 
     /** One watermark cell of an aggregate read (blank / NULL = 0). */
@@ -4456,6 +4536,7 @@ public class BaselineManager {
         long planSqlHash = identityPlanSqlHash(plan);
         if (idAllocatorStoreForTest != null) {
             idAllocatorStoreForTest.reserveId(id, digest, planSqlHash, reserveTime);
+            confirmReservationReadable(id, digest, planSqlHash);
             return;
         }
         if (!persistenceEnabled()) {
@@ -4472,7 +4553,7 @@ public class BaselineManager {
         // record is what the per-create read depends on. A failure here fails the CREATE
         // before any identity resource exists, so the retry has no reservation to defer
         // on.
-        writeHwmRecord(id, true);
+        writeHwmRecord(id, nextMutationTick(), 0L, true);
         try {
             inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_SEQ_ID_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
@@ -4481,6 +4562,62 @@ public class BaselineManager {
                     + " CREATE): " + e.getMessage(), e);
         }
         appendCompactSeqState(id, digest, planSqlHash, reserveTime, false, false, true);
+        // Prove the reservation's durable evidence is READABLE by the reads a successor /
+        // retry uses BEFORE the baseline row write may dispatch (see
+        // confirmReservationReadable).
+        confirmReservationReadable(id, digest, planSqlHash);
+    }
+
+    /**
+     * Confirms the id reservation just written is READABLE by the same reads a successor
+     * or a retry on ANOTHER FE uses, BEFORE the baseline row write may dispatch (see the
+     * class javadoc "Id source"): the compact high-water mark, the history row and the
+     * compact identity slot are SEPARATE writes whose SQL OK says nothing about
+     * publication. A successor that misses the reservation hands the id to a DIFFERENT
+     * key (its by-id collision probe cannot see the unreadable row either), and a retry
+     * that reads an older compact tombstone treats the identity as resolved and allocates
+     * a SECOND id - either way two ENABLED rows can publish later. Bounded; a reservation
+     * that never becomes readable fails the CREATE retryably BEFORE any row was written.
+     *
+     * @param id            the just-reserved id
+     * @param bindSqlDigest the identity's canonical bind digest
+     * @param planSqlHash   the identity's plan SQL hash
+     */
+    private static void confirmReservationReadable(long id, String bindSqlDigest,
+            long planSqlHash) {
+        if (idAllocatorStoreForTest != null) {
+            // stores that do not MODEL the reservation reads (the scripted collision /
+            // status stores) cannot answer the confirmation - only a store whose sequence
+            // watermark exists is asked
+            if (idAllocatorStoreForTest.seqWatermark() <= 0) {
+                return;
+            }
+        } else if (!persistenceEnabled()) {
+            return;
+        }
+        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
+            boolean watermarkReadable;
+            SeqReservation reservation;
+            if (idAllocatorStoreForTest != null) {
+                watermarkReadable = idAllocatorStoreForTest.seqWatermark() >= id;
+                reservation = idAllocatorStoreForTest.pendingSeqReservation(bindSqlDigest,
+                        planSqlHash);
+            } else {
+                // the EXACT reads a successor / retry performs: the allocation watermark
+                // (compact HWM reconciled with the sequence tail) and the identity lookup
+                // (compact slot reconciled with the history legacy read)
+                watermarkReadable = readPersistedIdHighWater() >= id;
+                reservation = readPersistedSeqReservation(bindSqlDigest, planSqlHash);
+            }
+            if (watermarkReadable && reservation != null && reservation.id == id
+                    && !reservation.dropped) {
+                return;
+            }
+            sleepBeforeVisibilityRetry();
+        }
+        throw new IllegalStateException("SPM cannot confirm the id reservation of baseline "
+                + id + " is readable (an id handed out must never be handed out again);"
+                + " retry the CREATE");
     }
 
     /**
@@ -5367,27 +5504,57 @@ public class BaselineManager {
         params.put("compactId", String.valueOf(compactSeqId(bindSqlDigest, planSqlHash)));
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
         params.put("planSqlHash", String.valueOf(planSqlHash));
+        SeqReservation compactRes;
         try {
             List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
                     SELECT_COMPACT_SEQ_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
-            if (rows == null || rows.isEmpty()) {
-                // Fallback: the compact slot has no row for this identity - a pre-upgrade
-                // row, a failed / lagging compact append, or an id collision whose prune
-                // removed the slot. The legacy history query is correct, only unbounded,
-                // and it is now the exception instead of the per-create rule.
-                rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                        SELECT_PENDING_SEQ_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
-            }
-            if (rows == null || rows.isEmpty()) {
-                return null;
-            }
-            return parseSeqReservation(rows.get(0));
+            compactRes = rows == null || rows.isEmpty() ? null : parseSeqReservation(rows.get(0));
         } catch (Exception e) {
             // fail closed like every other watermark read: without the answer the create
             // cannot prove it is not a duplicate
             throw new RuntimeException("SPM baseline id sequence identity read failed (retry the"
                     + " CREATE): " + e.getMessage(), e);
         }
+        if (compactRes != null && !compactRes.dropped) {
+            return compactRes;
+        }
+        // Reconcile with the append-only HISTORY: a DROPPED compact tombstone (or a
+        // missing compact row) can PREDATE a NEWER reservation of the same identity - the
+        // compact append and the strict history INSERT are SEPARATE writes, so right after
+        // a DROP + re-CREATE the compact slot may still show tombstone N while the history
+        // already carries N+1. Trusting the tombstone made a retry on ANOTHER FE read the
+        // identity as "resolved by a completed DROP" and allocate a SECOND id whose row
+        // could publish beside the first COMMITTED-but-unreadable one (both ENABLED). The
+        // legacy query is correct, only unbounded, and it now runs ONLY when the compact
+        // record is missing or a tombstone - never on the steady reservation path.
+        SeqReservation historyRes;
+        try {
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_PENDING_SEQ_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
+            historyRes = rows == null || rows.isEmpty() ? null : parseSeqReservation(rows.get(0));
+        } catch (Exception e) {
+            throw new RuntimeException("SPM baseline id sequence identity read failed (retry the"
+                    + " CREATE): " + e.getMessage(), e);
+        }
+        if (historyRes == null) {
+            return compactRes;
+        }
+        if (compactRes == null || isNewerReservation(historyRes, compactRes)) {
+            return historyRes;
+        }
+        return compactRes;
+    }
+
+    /**
+     * Whether the history record describes a LATER state of the identity than the compact
+     * one (see readPersistedSeqReservation): the reserve instant decides, the id breaks
+     * ties (a same-second re-create).
+     */
+    private static boolean isNewerReservation(SeqReservation candidate, SeqReservation current) {
+        if (candidate.reserveTimeMs != current.reserveTimeMs) {
+            return candidate.reserveTimeMs > current.reserveTimeMs;
+        }
+        return candidate.id > current.id;
     }
 
     /** One identity row's state, from either read (compact and history share the
@@ -5476,12 +5643,18 @@ public class BaselineManager {
             Map<Long, List<BaselinePlan>> snapshot =
                     collectSnapshotRows(reader, SNAPSHOT_PAGE_SIZE, rowsRead, completion);
             SnapshotFence after = fenceReader.readFence();
-            // BOTH conditions are required: the fence proves no mutation landed around the
-            // read, and the END PROBE proves the loop really reached the table's end (see
-            // collectSnapshotRows: a silently TRUNCATED read - an internal-query row limit
-            // cancelling a page - looks exactly like a short, completed page, and the probe
-            // is the bounded replacement of the former table-wide row-count cross-check).
-            if (before.matches(after) && completion.endProven) {
+            // THREE conditions are required: the fence proves no mutation COMPLETED
+            // around the read, BOTH fence reads must show no OPEN mutation window (the
+            // tick moves BEFORE a mutation's statement, so two same-tick reads alone could
+            // certify a snapshot whose pages straddle that statement - e.g. a DROP's
+            // DELETE removing a group between page 1 and the OFFSET continuation, see
+            // beginRowMutation), and the END PROBE proves the loop really reached the
+            // table's end (see collectSnapshotRows: a silently TRUNCATED read - an
+            // internal-query row limit cancelling a page - looks exactly like a short,
+            // completed page, and the probe is the bounded replacement of the former
+            // table-wide row-count cross-check).
+            if (before.matches(after) && before.quiet() && after.quiet()
+                    && completion.endProven) {
                 return snapshot;
             }
             LOG.warn("SPM baseline table changed while its paginated snapshot was read"
@@ -5502,11 +5675,18 @@ public class BaselineManager {
         final long tickMax;
         final long tickCount;
         final long tickSum;
+        /** The tick of an OPEN mutation window (0 = none; see beginRowMutation). */
+        final long pending;
 
         SnapshotFence(long tickMax, long tickCount, long tickSum) {
+            this(tickMax, tickCount, tickSum, 0);
+        }
+
+        SnapshotFence(long tickMax, long tickCount, long tickSum, long pending) {
             this.tickMax = tickMax;
             this.tickCount = tickCount;
             this.tickSum = tickSum;
+            this.pending = pending;
         }
 
         boolean matches(SnapshotFence other) {
@@ -5514,10 +5694,19 @@ public class BaselineManager {
                     && tickSum == other.tickSum;
         }
 
+        /**
+         * Whether this fence proves no mutation window was OPEN at its read: the tick
+         * tuple alone cannot (the tick advances BEFORE the mutation's statement - see
+         * beginRowMutation), so a read that observed an open window must retry.
+         */
+        boolean quiet() {
+            return pending == 0;
+        }
+
         @Override
         public String toString() {
             return "(clock=" + tickMax + ", ticks=" + tickCount
-                    + ", tickSum=" + tickSum + ")";
+                    + ", tickSum=" + tickSum + ", pending=" + pending + ")";
         }
     }
 
@@ -5538,7 +5727,8 @@ public class BaselineManager {
         return new SnapshotFence(
                 parseWatermark(row.getWithDefault(0, "")),
                 parseWatermark(row.getWithDefault(1, "")),
-                parseWatermark(row.getValues().size() > 2 ? row.getWithDefault(2, "") : ""));
+                parseWatermark(row.getValues().size() > 2 ? row.getWithDefault(2, "") : ""),
+                parseWatermark(row.getValues().size() > 3 ? row.getWithDefault(3, "") : ""));
     }
 
     /**
@@ -6246,21 +6436,26 @@ public class BaselineManager {
                 && statusProtocolStoreForTest == null) {
             return true; // in-memory only (no durable status rows exist)
         }
-        // clock first, exactly like persistInsert (see bumpMutationClock)
-        bumpMutationClock();
-        if (idAllocatorStoreForTest != null) {
-            idAllocatorStoreForTest.insert(p);
-        } else if (statusProtocolStoreForTest != null) {
-            if (!statusProtocolStoreForTest.insertIfPreviousPresent(p, previousStatus)) {
-                return false; // nothing written: the previous-status row was gone
+        // open the mutation window BEFORE the status statement and close it after (see
+        // beginRowMutation): a snapshot read that overlaps the flip must retry
+        long mutation = beginRowMutation();
+        try {
+            if (idAllocatorStoreForTest != null) {
+                idAllocatorStoreForTest.insert(p);
+            } else if (statusProtocolStoreForTest != null) {
+                if (!statusProtocolStoreForTest.insertIfPreviousPresent(p, previousStatus)) {
+                    return false; // nothing written: the previous-status row was gone
+                }
+            } else {
+                if (!writeConditionalStatusInsert(p, previousStatus)) {
+                    return false; // nothing written: the conditional SELECT matched no row
+                }
             }
-        } else {
-            if (!writeConditionalStatusInsert(p, previousStatus)) {
-                return false; // nothing written: the conditional SELECT matched no row
-            }
+            confirmInsertVisible(p);
+            return true;
+        } finally {
+            endRowMutation(mutation);
         }
-        confirmInsertVisible(p);
-        return true;
     }
 
     /**
@@ -6332,59 +6527,63 @@ public class BaselineManager {
     }
 
     private static void persistInsert(BaselinePlan p) {
-        // Advance the mutation clock BEFORE the row write (see bumpMutationClock): the
-        // tick tuple a stable-snapshot read compares must be ordered before every durable
-        // baseline mutation, or a snapshot could certify stability next to a mutation
-        // that committed but is still invisible to the page reads.
-        bumpMutationClock();
-        if (idAllocatorStoreForTest != null) {
-            try {
-                idAllocatorStoreForTest.insert(p);
-            } catch (RuntimeException e) {
-                // an ambiguous SIMULATOR outcome takes the same path as the real one
-                // the write may have landed, so it must not fail like a
-                // genuine non-commit
-                throwAmbiguousInsertUnlessDurable(p, e);
-            }
-            confirmInsertVisible(p);
-            return;
-        }
-        if (statusProtocolStoreForTest != null) {
-            try {
-                statusProtocolStoreForTest.insert(p);
-            } catch (RuntimeException e) {
-                throwAmbiguousInsertUnlessDurable(p, e);
-            }
-            confirmInsertVisible(p);
-            return;
-        }
-        if (!persistenceEnabled()) {
-            return;
-        }
-        Map<String, String> params = insertParams(p);
+        // Open the mutation WINDOW before the row write and keep it open ACROSS the
+        // INSERT (see beginRowMutation): the tick tuple alone only proves the bump was
+        // visible, while an overlapping snapshot read must also see the statement itself
+        // as either pending (window open) or complete (tick moved).
+        long mutation = beginRowMutation();
         try {
-            inInternalIoMode(() -> {
-                StatisticsUtil.execUpdate(INSERT_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS);
-                return null;
-            });
-        } catch (Exception e) {
-            // An INSERT that reports an error (typically a statement timeout) may still
-            // have COMMITTED: reconcile against the durable table before failing the
-            // write. The row carrying this id + key + REQUESTED STATUS + the ATTEMPTED
-            // stored SECOND is the proof it landed: matching only (id, key) treated the
-            // still-present OLD-status row of an ALTER as the freshly written new-status
-            // row, and the status alone could be satisfied by a STALE row a previously
-            // failed old-row delete left behind. An outcome that cannot be
-            // PROVEN counts as AMBIGUOUS, never as a genuine failure.
-            throwAmbiguousInsertUnlessDurable(p, e);
+            if (idAllocatorStoreForTest != null) {
+                try {
+                    idAllocatorStoreForTest.insert(p);
+                } catch (RuntimeException e) {
+                    // an ambiguous SIMULATOR outcome takes the same path as the real one
+                    // the write may have landed, so it must not fail like a
+                    // genuine non-commit
+                    throwAmbiguousInsertUnlessDurable(p, e);
+                }
+                confirmInsertVisible(p);
+                return;
+            }
+            if (statusProtocolStoreForTest != null) {
+                try {
+                    statusProtocolStoreForTest.insert(p);
+                } catch (RuntimeException e) {
+                    throwAmbiguousInsertUnlessDurable(p, e);
+                }
+                confirmInsertVisible(p);
+                return;
+            }
+            if (!persistenceEnabled()) {
+                return;
+            }
+            Map<String, String> params = insertParams(p);
+            try {
+                inInternalIoMode(() -> {
+                    StatisticsUtil.execUpdate(INSERT_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS);
+                    return null;
+                });
+            } catch (Exception e) {
+                // An INSERT that reports an error (typically a statement timeout) may still
+                // have COMMITTED: reconcile against the durable table before failing the
+                // write. The row carrying this id + key + REQUESTED STATUS + the ATTEMPTED
+                // stored SECOND is the proof it landed: matching only (id, key) treated the
+                // still-present OLD-status row of an ALTER as the freshly written new-status
+                // row, and the status alone could be satisfied by a STALE row a previously
+                // failed old-row delete left behind. An outcome that cannot be
+                // PROVEN counts as AMBIGUOUS, never as a genuine failure.
+                throwAmbiguousInsertUnlessDurable(p, e);
+            }
+            // A reported SUCCESS still does not prove the row is READABLE: the default insert
+            // return mode accepts SQL OK with the transaction merely COMMITTED (publication
+            // timed out). Publishing the id into this FE's cache and returning it would let a
+            // leadership change before publication re-allocate the same id from an older
+            // MAX(id) - both rows then become visible and the winner rule silently discards
+            // one version.
+            confirmInsertVisible(p);
+        } finally {
+            endRowMutation(mutation);
         }
-        // A reported SUCCESS still does not prove the row is READABLE: the default insert
-        // return mode accepts SQL OK with the transaction merely COMMITTED (publication
-        // timed out). Publishing the id into this FE's cache and returning it would let a
-        // leadership change before publication re-allocate the same id from an older
-        // MAX(id) - both rows then become visible and the winner rule silently discards
-        // one version.
-        confirmInsertVisible(p);
     }
 
     /** The ${...}-parameter map of one INSERT statement (shared by both insert shapes). */
@@ -6743,53 +6942,57 @@ public class BaselineManager {
         // handoff could erase a row the NEW master just created once the id was reused.
         // Fence like the create path.
         assertLeaderForWrite();
-        // Advance the mutation clock BEFORE the delete (see bumpMutationClock): a strict
-        // failure fails the DROP, so a delete that may have committed is never preceded
-        // by a missing tick.
-        bumpMutationClock();
+        // Open the mutation window BEFORE the delete and close it AFTER (see
+        // beginRowMutation): a strict failure fails the DROP, so a delete that may have
+        // committed is never preceded by a missing window.
+        long mutation = beginRowMutation();
         try {
-            if (idAllocatorStoreForTest != null) {
-                idAllocatorStoreForTest.deleteByIdentity(p);
-            } else {
-                if (!persistenceEnabled()) {
+            try {
+                if (idAllocatorStoreForTest != null) {
+                    idAllocatorStoreForTest.deleteByIdentity(p);
+                } else {
+                    if (!persistenceEnabled()) {
+                        return;
+                    }
+                    Map<String, String> params = new HashMap<>();
+                    params.put("id", String.valueOf(p.getId()));
+                    params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
+                    params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
+                    // the SCHEMA FINGERPRINT completes the identity (see
+                    // identityPlanSqlHash): without it the stale-incarnation cleanup of ONE
+                    // fingerprint deleted a NEWER incarnation's row that shared the same id /
+                    // digest / planSql
+                    params.put("schemaFingerprint", StatisticsUtil.escapeSQL(
+                            p.getSchemaFingerprint() == null ? "" : p.getSchemaFingerprint()));
+                    inInternalIoMode(() -> {
+                        StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params,
+                                BASELINE_WRITE_TIMEOUT_SECONDS);
+                        return null;
+                    });
+                }
+            } catch (Exception e) {
+                // A reported error may hide a committed DELETE: the row being GONE is the
+                // ONLY proof the drop landed. An unconfirmable read (UNKNOWN) must NOT be
+                // treated as proof of absence - removing the cache entry then reported
+                // success while the durable row stayed and a refresh / restart resurrected
+                // the dropped baseline.
+                DurablePresence presence = probeDurableRow(p.getId(), p.getBindSqlDigest(),
+                        p.getPlanSql(), null, p.getSchemaFingerprint());
+                if (presence == DurablePresence.ABSENT) {
+                    LOG.warn("SPM persist (delete) reported {} but the row is gone (id={});"
+                            + " treating it as deleted", e.getMessage(), p.getId());
                     return;
                 }
-                Map<String, String> params = new HashMap<>();
-                params.put("id", String.valueOf(p.getId()));
-                params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
-                params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
-                // the SCHEMA FINGERPRINT completes the identity (see
-                // identityPlanSqlHash): without it the stale-incarnation cleanup of ONE
-                // fingerprint deleted a NEWER incarnation's row that shared the same id /
-                // digest / planSql
-                params.put("schemaFingerprint", StatisticsUtil.escapeSQL(
-                        p.getSchemaFingerprint() == null ? "" : p.getSchemaFingerprint()));
-                inInternalIoMode(() -> {
-                    StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params,
-                            BASELINE_WRITE_TIMEOUT_SECONDS);
-                    return null;
-                });
+                throw new RuntimeException("SPM persist (delete) failed: " + e.getMessage()
+                        + (presence == DurablePresence.UNKNOWN
+                                ? " (the durable row could not be confirmed deleted)" : ""), e);
             }
-        } catch (Exception e) {
-            // A reported error may hide a committed DELETE: the row being GONE is the
-            // ONLY proof the drop landed. An unconfirmable read (UNKNOWN) must NOT be
-            // treated as proof of absence - removing the cache entry then reported
-            // success while the durable row stayed and a refresh / restart resurrected
-            // the dropped baseline.
-            DurablePresence presence = probeDurableRow(p.getId(), p.getBindSqlDigest(),
-                    p.getPlanSql(), null, p.getSchemaFingerprint());
-            if (presence == DurablePresence.ABSENT) {
-                LOG.warn("SPM persist (delete) reported {} but the row is gone (id={});"
-                        + " treating it as deleted", e.getMessage(), p.getId());
-                return;
-            }
-            throw new RuntimeException("SPM persist (delete) failed: " + e.getMessage()
-                    + (presence == DurablePresence.UNKNOWN
-                            ? " (the durable row could not be confirmed deleted)" : ""), e);
+            // A reported SUCCESS may still be an unpublished COMMITTED transaction: report
+            // the drop only once no read can see the row any more.
+            confirmIdentityGone(p);
+        } finally {
+            endRowMutation(mutation);
         }
-        // A reported SUCCESS may still be an unpublished COMMITTED transaction: report
-        // the drop only once no read can see the row any more.
-        confirmIdentityGone(p);
     }
 
     /**
@@ -6805,49 +7008,56 @@ public class BaselineManager {
      */
     private static void persistDeleteByIdAndStatus(BaselinePlan p, BaselineStatus status) {
         assertLeaderForWrite();
-        // clock first, exactly like the other mutation helpers (see bumpMutationClock)
-        bumpMutationClock();
-        long id = p.getId();
-        if (statusProtocolStoreForTest != null) {
-            statusProtocolStoreForTest.deleteByIdAndStatus(id, status);
-            return;
-        }
-        if (!persistenceEnabled()) {
-            return;
-        }
-        Map<String, String> params = new HashMap<>();
-        params.put("id", String.valueOf(id));
-        params.put("status", status.name());
-        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
-        params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
-        params.put("schemaFingerprint", StatisticsUtil.escapeSQL(
-                p.getSchemaFingerprint() == null ? "" : p.getSchemaFingerprint()));
+        // Open the mutation window BEFORE the status DELETE and close it after (see
+        // beginRowMutation): an overlapping snapshot read must retry over the flip's
+        // DELETE half as well.
+        long mutation = beginRowMutation();
         try {
-            inInternalIoMode(() -> {
-                StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params,
-                        BASELINE_WRITE_TIMEOUT_SECONDS);
-                return null;
-            });
-        } catch (Exception e) {
-            // Ambiguous commit: only a READABLE zero row count proves the delete landed.
-            // An unconfirmable probe must surface as the original write failure.
-            try {
-                if (durableRowCount(id, p.getSchemaFingerprint(), status) == 0) {
-                    LOG.warn("SPM persist (delete by status) reported {} but no row carries"
-                            + " ({}, {}); treating it as deleted", e.getMessage(), id, status);
-                    return;
-                }
-            } catch (Throwable probeFailure) {
-                throw new RuntimeException("SPM persist (delete by status) failed: "
-                        + e.getMessage() + " (the durable row could not be confirmed"
-                        + " deleted)", e);
+            long id = p.getId();
+            if (statusProtocolStoreForTest != null) {
+                statusProtocolStoreForTest.deleteByIdAndStatus(id, status);
+                return;
             }
-            throw new RuntimeException("SPM persist (delete by status) failed: " + e.getMessage(), e);
+            if (!persistenceEnabled()) {
+                return;
+            }
+            Map<String, String> params = new HashMap<>();
+            params.put("id", String.valueOf(id));
+            params.put("status", status.name());
+            params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
+            params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
+            params.put("schemaFingerprint", StatisticsUtil.escapeSQL(
+                    p.getSchemaFingerprint() == null ? "" : p.getSchemaFingerprint()));
+            try {
+                inInternalIoMode(() -> {
+                    StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params,
+                            BASELINE_WRITE_TIMEOUT_SECONDS);
+                    return null;
+                });
+            } catch (Exception e) {
+                // Ambiguous commit: only a READABLE zero row count proves the delete landed.
+                // An unconfirmable probe must surface as the original write failure.
+                try {
+                    if (durableRowCount(id, p.getSchemaFingerprint(), status) == 0) {
+                        LOG.warn("SPM persist (delete by status) reported {} but no row carries"
+                                + " ({}, {}); treating it as deleted", e.getMessage(), id, status);
+                        return;
+                    }
+                } catch (Throwable probeFailure) {
+                    throw new RuntimeException("SPM persist (delete by status) failed: "
+                            + e.getMessage() + " (the durable row could not be confirmed"
+                            + " deleted)", e);
+                }
+                throw new RuntimeException("SPM persist (delete by status) failed: "
+                        + e.getMessage(), e);
+            }
+            // Success is confirmed like the insert half: the flip may only be published once
+            // the old-status row is provably gone from every read - and a lagging publication
+            // is treated as the committed delete it is (see confirmStatusRowGone).
+            confirmStatusRowGone(p, status);
+        } finally {
+            endRowMutation(mutation);
         }
-        // Success is confirmed like the insert half: the flip may only be published once
-        // the old-status row is provably gone from every read - and a lagging publication
-        // is treated as the committed delete it is (see confirmStatusRowGone).
-        confirmStatusRowGone(p, status);
     }
 
     /**

@@ -1350,14 +1350,17 @@ public class InternalSchemaInitializer extends Thread {
      */
     @VisibleForTesting
     /**
-     * Upgrade column of the spm_baselines_hwm table: the bounded mutation clock (tick,
-     * see BaselineManager#bumpMutationClock). A pre-existing slot without the column
-     * reads as tick = 0 and is re-written by the next mutation.
+     * Upgrade columns of the spm_baselines_hwm table: the bounded mutation clock (tick,
+     * see BaselineManager#beginRowMutation) and its open mutation WINDOW (pending). A
+     * pre-existing slot without the columns reads as 0 and is re-written by the next
+     * mutation.
      */
     static final Map<String, ScalarType> SPM_BASELINES_HWM_UPGRADE_COLUMNS = new LinkedHashMap<>();
 
     static {
         SPM_BASELINES_HWM_UPGRADE_COLUMNS.put("tick",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_HWM_UPGRADE_COLUMNS.put("pending",
                 ScalarType.createType(PrimitiveType.BIGINT));
     }
 

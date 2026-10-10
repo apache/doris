@@ -90,22 +90,28 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         return generators;
     }
 
-    @Override
-    public String toSpmDigest() {
-        // The generic toDigest() renders every generator through its function name
-        // only: UNNEST under LEFT JOIN (outer) and the inner form share the class and
-        // the text although they produce different rows (the outer form keeps an
-        // unmatched row with NULL). Append the mode flags of every Unnest generator
-        // so the SPM identity separates them.
-        StringBuilder digest = new StringBuilder(toDigest());
-        for (Function generator : generators) {
-            if (generator instanceof Unnest) {
-                digest.append("|unnest(outer=").append(((Unnest) generator).isOuter())
-                        .append(",ordinality=")
-                        .append(((Unnest) generator).needOrdinality()).append(')');
-            }
+    /** The toDigest() text with an explicit CHILD rendering (see toDigest). */
+    private String ownDigestWithChild(String childDigest) {
+        StringBuilder sb = new StringBuilder();
+        String generateName = "";
+        try {
+            generateName = generatorOutput.get(0).getQualifier().get(0);
+        } catch (Throwable e) {
+            generateName = generatorOutput.get(0).toDigest();
         }
-        return digest.toString();
+        sb.append(childDigest);
+        sb.append(" LATERAL VIEW ")
+                .append(generators.get(0).toDigest())
+                .append(" ")
+                .append(generateName)
+                .append(" AS ")
+                .append(expandColumnAlias.get(0).stream().collect(Collectors.joining(", ")));
+        if (!conjuncts.isEmpty()) {
+            sb.append(" WHERE ")
+                    .append(conjuncts.stream().map(Expression::toDigest)
+                            .collect(Collectors.joining(" AND ")));
+        }
+        return sb.toString();
     }
 
     public List<Slot> getGeneratorOutput() {
@@ -222,27 +228,24 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        String generateName = "";
-        try {
-            generateName = generatorOutput.get(0).getQualifier().get(0);
-        } catch (Throwable e) {
-            generateName = generatorOutput.get(0).toDigest();
+        String digest = ownDigestWithChild(child().toDigest());
+        if (!Plan.spmDigestMode()) {
+            return digest;
         }
-        sb.append(child().toDigest());
-        sb.append(" LATERAL VIEW ")
-                .append(generators.get(0).toDigest())
-                .append(" ")
-                .append(generateName)
-                .append(" AS ")
-                .append(
-                        expandColumnAlias.get(0).stream().collect(Collectors.joining(", "))
-                );
-        if (!conjuncts.isEmpty()) {
-            sb.append(" WHERE ")
-                    .append(conjuncts.stream().map(Expression::toDigest).collect(Collectors.joining(" AND ")));
+        // The SPM identity appends the mode flags of every Unnest generator: toDigest()
+        // renders a generator through its function NAME only, so UNNEST under LEFT JOIN
+        // (outer) and the inner form share the class and the text although they produce
+        // different rows (the outer form keeps an unmatched row with NULL). The child is
+        // re-rendered through its own toDigest() while the mode is on, so a nested SPM
+        // identity (e.g. a hint inside the lateral-view input) stays in the key as well.
+        StringBuilder sb = new StringBuilder(digest);
+        for (Function generator : generators) {
+            if (generator instanceof Unnest) {
+                sb.append("|unnest(outer=").append(((Unnest) generator).isOuter())
+                        .append(",ordinality=")
+                        .append(((Unnest) generator).needOrdinality()).append(')');
+            }
         }
-
         return sb.toString();
     }
 

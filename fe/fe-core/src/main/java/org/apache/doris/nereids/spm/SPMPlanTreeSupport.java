@@ -2523,11 +2523,19 @@ public final class SPMPlanTreeSupport {
         java.util.ArrayDeque<Plan> rewrittenAncestors = new java.util.ArrayDeque<>();
         Plan rewrittenNode = rewritten;
         Plan userNode = userPlan;
+        CteScope cteScope = null;
         while (true) {
             while (rewrittenNode.getClass() == userNode.getClass()
                     && !carriesOutputList(rewrittenNode)
                     && rewrittenNode.children().size() == 1
                     && userNode.children().size() == 1) {
+                // A WITH on the way in contributes its aliases: a `SELECT * FROM c` star
+                // of the MAIN query must reach c's alias query (see starExpansion's CTE
+                // resolution). The frozen replay carries the same WITH, so both sides
+                // descend together.
+                if (userNode instanceof LogicalCTE) {
+                    cteScope = collectCteQueries((LogicalCTE<?>) userNode, cteScope);
+                }
                 rewrittenAncestors.push(rewrittenNode);
                 rewrittenNode = rewrittenNode.child(0);
                 userNode = userNode.child(0);
@@ -2680,7 +2688,7 @@ public final class SPMPlanTreeSupport {
         // capture-time text can still be replaced (`SELECT *` over
         // `(SELECT k + 1 FROM t) s` kept the captured `k + 1` header on the replay of the
         // `k + 2` variant, although the original query exposes `k + 2`).
-        List<String> userLabels = expandedOutputLabels(userItems, userNode);
+        List<String> userLabels = expandedOutputLabels(userItems, userNode, cteScope);
         // A caller star whose expansion is only PARTLY derivable (a star
         // over a join whose leading side is a derived relation) carries the open-tail
         // marker; the derived prefix still realigns the frozen labels positionally, and
@@ -2695,7 +2703,7 @@ public final class SPMPlanTreeSupport {
             // frozen sink's captured header for the trailing item (SELECT *, c + 2 FROM u
             // reported c + 1).
             return alignOpenStarWithTrailingItems(rewrittenNode, userNode, userItems,
-                    rewrittenItems, rewritten, rewrittenAncestors);
+                    rewrittenItems, rewritten, rewrittenAncestors, cteScope);
         }
         boolean openTail = !userLabels.isEmpty()
                 && userLabels.get(userLabels.size() - 1) == OPEN_TAIL_LABEL;
@@ -2960,13 +2968,14 @@ public final class SPMPlanTreeSupport {
      *         be placed (another item follows it - the caller then positions those items
      *         against the frozen list, see alignOpenStarWithTrailingItems)
      */
-    private static List<String> expandedOutputLabels(List<NamedExpression> items, Plan node) {
+    private static List<String> expandedOutputLabels(List<NamedExpression> items, Plan node,
+            CteScope scope) {
         List<String> labels = new ArrayList<>(items.size());
         for (int i = 0; i < items.size(); i++) {
             NamedExpression item = items.get(i);
             if (item instanceof UnboundStar && node.children().size() == 1) {
                 UnboundStar star = (UnboundStar) item;
-                StarLabels expanded = starExpansionForStar(node.child(0), star);
+                StarLabels expanded = starExpansionForStar(node.child(0), star, scope);
                 if (hasStarPayload(star)) {
                     // The EXCEPT payload REMOVES columns from the visible list: skipping
                     // the expansion left no caller label for the derived projection's
@@ -2974,10 +2983,22 @@ public final class SPMPlanTreeSupport {
                     // `v + 1` while returning the substituted `v + 2` (see
                     // exceptAdjustedLabels). REPLACE keeps every label (it swaps VALUES).
                     if (expanded.openTail) {
-                        // the underlying labels are not derivable (a base table): its real
-                        // column names need no realignment and the payload cannot be
-                        // projected onto them here
-                        labels.add(outputLabelOf(item));
+                        // Only the expansion's PREFIX is derivable (the tail is a base
+                        // table / join side whose real column names need no realignment):
+                        // dropping the prefix kept the captured header on the DERIVED
+                        // leading columns although their value was substituted
+                        // (SELECT * EXCEPT(v) FROM (SELECT a + 1 FROM t) d CROSS JOIN u).
+                        // Keep the payload-adjusted prefix and mark the tail open; the
+                        // positions behind the marker keep the frozen names. Payload
+                        // entries addressing the underivable tail cannot be positioned
+                        // (see payloadAdjustedPrefixLabels).
+                        if (i != items.size() - 1) {
+                            // the open tail's length is unknown: the items after it cannot
+                            // be positioned from the caller's own list
+                            return null;
+                        }
+                        labels.addAll(payloadAdjustedPrefixLabels(star, expanded.labels));
+                        labels.add(OPEN_TAIL_LABEL);
                         continue;
                     }
                     labels.addAll(exceptAdjustedLabels(star, expanded.labels));
@@ -3013,6 +3034,18 @@ public final class SPMPlanTreeSupport {
 
     /** The EXCEPT removal half of one payload star's label derivation. */
     private static List<String> applyExceptedLabels(UnboundStar star, List<String> labels) {
+        return applyExceptedLabels(star, labels, false);
+    }
+
+    /**
+     * The EXCEPT removal half of one payload star's label derivation (see
+     * exceptAdjustedLabels). The LENIENT variant is used for a PREFIX whose tail is
+     * underivable (see payloadAdjustedPrefixLabels): an EXCEPT name that matches no
+     * prefix label addresses the unknown-width tail, whose frozen names are real column
+     * names - nothing to realign - so the entry is ignored instead of declining.
+     */
+    private static List<String> applyExceptedLabels(UnboundStar star, List<String> labels,
+            boolean lenientTail) {
         List<String> excepted = new ArrayList<>();
         for (NamedExpression slot : star.getExceptedSlots()) {
             String name = outputLabelOf(slot);
@@ -3043,7 +3076,7 @@ public final class SPMPlanTreeSupport {
                 adjusted.add(label);
             }
         }
-        if (removed != excepted.size()) {
+        if (removed != excepted.size() && !lenientTail) {
             throw new UnalignableOutputLabelsException(
                     "the caller's * EXCEPT payload does not match the replay's derived"
                             + " output labels; the headers cannot be positioned");
@@ -3064,6 +3097,17 @@ public final class SPMPlanTreeSupport {
      * caller's own analysis never produced.
      */
     private static List<String> applyReplacedAliases(UnboundStar star, List<String> labels) {
+        return applyReplacedAliases(star, labels, false);
+    }
+
+    /**
+     * The REPLACE half with the TAIL tolerance of payloadAdjustedPrefixLabels: an alias
+     * that matches NO prefix label addresses the underivable tail (whose frozen names are
+     * real column names) and is ignored; an alias matching MORE than one position still
+     * declines (the analyzer rejects such a query).
+     */
+    private static List<String> applyReplacedAliases(UnboundStar star, List<String> labels,
+            boolean lenientTail) {
         if (star.getReplacedAlias().isEmpty()) {
             return labels;
         }
@@ -3084,7 +3128,7 @@ public final class SPMPlanTreeSupport {
                     matches++;
                 }
             }
-            if (matches != 1) {
+            if (matches != 1 && !(lenientTail && matches == 0)) {
                 throw new UnalignableOutputLabelsException(
                         "the caller's * REPLACE column " + aliasName
                                 + " does not address exactly one derived output label;"
@@ -3092,6 +3136,19 @@ public final class SPMPlanTreeSupport {
             }
         }
         return adjusted;
+    }
+
+    /**
+     * The payload-adjusted PREFIX of a star whose expansion has an OPEN tail (see
+     * expandedOutputLabels): EXCEPT names addressing the underivable tail are ignored -
+     * its frozen names are real column names that need no realignment - while a REPLACE
+     * alias matching no prefix label declines (its caller-visible header cannot be
+     * placed). Applied to the derivable prefix alone, so the derived leading labels of
+     * `SELECT * EXCEPT(v) FROM (SELECT a + 1 FROM t) d CROSS JOIN u` still realign.
+     */
+    private static List<String> payloadAdjustedPrefixLabels(UnboundStar star,
+            List<String> labels) {
+        return applyReplacedAliases(star, applyExceptedLabels(star, labels, true), true);
     }
 
     /** One slot name's last component (an EXCEPT column may be written qualified). */
@@ -3114,7 +3171,7 @@ public final class SPMPlanTreeSupport {
     private static LogicalPlan alignOpenStarWithTrailingItems(Plan rewrittenNode,
             Plan userNode, List<NamedExpression> userItems,
             List<NamedExpression> rewrittenItems, Plan rewritten,
-            java.util.ArrayDeque<Plan> rewrittenAncestors) {
+            java.util.ArrayDeque<Plan> rewrittenAncestors, CteScope cteScope) {
         int starIndex = -1;
         List<String> prefix = null;
         if (userNode.children().size() == 1) {
@@ -3125,7 +3182,7 @@ public final class SPMPlanTreeSupport {
                     continue;
                 }
                 StarLabels expanded = starExpansionForStar(userNode.child(0),
-                        (UnboundStar) item);
+                        (UnboundStar) item, cteScope);
                 if (expanded.openTail && i != userItems.size() - 1) {
                     starIndex = i;
                     prefix = expanded.labels;
@@ -3186,6 +3243,29 @@ public final class SPMPlanTreeSupport {
         return (LogicalPlan) rebuilt;
     }
 
+    /**
+     * The WITH definitions visible to one star expansion: an unbound FROM reference is
+     * resolved against it (see starExpansion), which is how a CTE reference reaches its
+     * alias query. Collected from the CALLER's own tree while the alignment walks into
+     * it, and from any WITH nested along a relation's wrapper chain.
+     */
+    private static final class CteScope {
+        final java.util.Map<String, Plan> queries = new java.util.HashMap<>();
+        /** Names whose expansion is in progress: a recursive self-reference declines. */
+        final java.util.Set<String> resolving = new java.util.HashSet<>();
+    }
+
+    /** Adds one WITH node's aliases to the scope (a nested collection wins). */
+    private static CteScope collectCteQueries(LogicalCTE<?> cte, CteScope scope) {
+        if (scope == null) {
+            scope = new CteScope();
+        }
+        for (LogicalSubQueryAlias<Plan> alias : cte.getAliasQueries()) {
+            scope.queries.put(alias.getAlias(), alias);
+        }
+        return scope;
+    }
+
     /** One `*`'s expansion: the derivable leading labels plus whether the TRAILING
      * positions' count / labels are unknown (see starExpansion). */
     private static final class StarLabels {
@@ -3215,12 +3295,13 @@ public final class SPMPlanTreeSupport {
      * relation's real column names; a qualifier that cannot be resolved DECLINES the
      * replay instead of guessing.
      */
-    private static StarLabels starExpansionForStar(Plan relation, UnboundStar star) {
+    private static StarLabels starExpansionForStar(Plan relation, UnboundStar star,
+            CteScope scope) {
         List<String> qualifier = star.getQualifier();
         if (qualifier == null || qualifier.isEmpty()) {
-            return starExpansion(relation);
+            return starExpansion(relation, scope);
         }
-        StarLabels qualified = qualifiedStarExpansion(relation, qualifier);
+        StarLabels qualified = qualifiedStarExpansion(relation, qualifier, scope);
         if (qualified == null) {
             throw new UnalignableOutputLabelsException(
                     "the caller's qualified star " + star.toSql()
@@ -3236,10 +3317,11 @@ public final class SPMPlanTreeSupport {
      * addressed by the qualifier (the caller's own text may be invalid, or the relation
      * hides behind a shape this walk cannot address - the caller then declines).
      */
-    private static StarLabels qualifiedStarExpansion(Plan relation, List<String> qualifier) {
+    private static StarLabels qualifiedStarExpansion(Plan relation, List<String> qualifier,
+            CteScope scope) {
         if (relation instanceof LogicalJoin) {
             for (Plan child : relation.children()) {
-                StarLabels side = qualifiedStarExpansion(child, qualifier);
+                StarLabels side = qualifiedStarExpansion(child, qualifier, scope);
                 if (side != null) {
                     return side;
                 }
@@ -3249,7 +3331,7 @@ public final class SPMPlanTreeSupport {
         if (!relationAnswersQualifier(relation, qualifier)) {
             return null;
         }
-        return starExpansion(relation);
+        return starExpansion(relation, scope);
     }
 
     /**
@@ -3292,20 +3374,53 @@ public final class SPMPlanTreeSupport {
      * @param relation the relation the star projects from
      * @return the derivable label prefix plus whether the tail is open
      */
-    private static StarLabels starExpansion(Plan relation) {
+    private static StarLabels starExpansion(Plan relation, CteScope scope) {
         Plan node = relation;
         while (node != null && node.children().size() == 1 && !carriesOutputList(node)
                 && (node instanceof LogicalSubQueryAlias
                         || node instanceof LogicalFilter
+                        || node instanceof LogicalCTE
+                        || node instanceof LogicalCheckPolicy
                         || (node instanceof LogicalSink
                                 && ((LogicalSink<?>) node).getOutputExprs().isEmpty()))) {
             // LogicalFilter passes its child's output through unchanged: WITHOUT it an
             // outer WHERE over a derived projection fell to the empty open tail and the
-            // frozen capture-time label survived the value substitution
+            // frozen capture-time label survived the value substitution. A
+            // LogicalCheckPolicy wraps every parsed RELATION and passes its child's
+            // output through: without it a `FROM c` reference never reached its
+            // UnboundRelation, so the CTE resolution below could not expand the alias.
+            // A WITH nested inside the subquery contributes its aliases before the peel
+            // descends into its MAIN query (see the CTE resolution below).
+            if (node instanceof LogicalCTE) {
+                scope = collectCteQueries((LogicalCTE<?>) node, scope);
+            }
             node = node.child(0);
         }
+        // A FROM reference naming a WITH alias expands to the alias query: without this
+        // a `SELECT * FROM c` star fell to an empty open tail and a matched `v + 2`
+        // caller kept the captured `v + 1` header (the CTE reference could not reach its
+        // own alias query). A name whose expansion is already in progress (a RECURSIVE
+        // self-reference) declines instead of looping.
+        if (scope != null && node instanceof UnboundRelation) {
+            List<String> parts = ((UnboundRelation) node).getNameParts();
+            String cteName = parts.isEmpty() ? null : parts.get(parts.size() - 1);
+            Plan cteQuery = cteName == null ? null : scope.queries.get(cteName);
+            if (cteQuery != null) {
+                if (!scope.resolving.add(cteName)) {
+                    throw new UnalignableOutputLabelsException(
+                            "the caller's WITH reference " + cteName
+                                    + " cannot be expanded (recursive); the caller's"
+                                    + " headers cannot be positioned");
+                }
+                try {
+                    return starExpansion(cteQuery, scope);
+                } finally {
+                    scope.resolving.remove(cteName);
+                }
+            }
+        }
         if (node != null && carriesOutputList(node)) {
-            List<String> labels = expandedOutputLabels(outputItemsOf(node), node);
+            List<String> labels = expandedOutputLabels(outputItemsOf(node), node, scope);
             if (labels == null) {
                 return new StarLabels(List.of(), true);
             }
@@ -3320,7 +3435,40 @@ public final class SPMPlanTreeSupport {
             // the left side's OTHER columns, then the right side's: concatenating the two
             // sides kept the LEFT copy of the key at position 0 and shifted every derived
             // label behind it (see usingJoinStarExpansion)
-            return usingJoinStarExpansion((LogicalUsingJoin<?, ?>) node);
+            return usingJoinStarExpansion((LogicalUsingJoin<?, ?>) node, scope);
+        }
+        if (node instanceof LogicalGenerate) {
+            // LATERAL VIEW / explode: the generated slots come AFTER the child's columns
+            // (see LogicalGenerate#computeOutput), so the star's labels are the child's
+            // expansion followed by the generated COLUMNS' caller-visible names. Those are
+            // the `AS` aliases the caller wrote (expandColumnAlias; `lv AS x` reports x) -
+            // the raw slot name of an unanalyzed generate is the internal expand_cols /
+            // qualifier form, which realigned the frozen header to a name the caller never
+            // sees. Dropping the labels fell to an empty open tail and a `v + 2` caller
+            // kept the captured `v + 1` header of the DERIVED child projection
+            // (SELECT * FROM (SELECT arr, v + 1 FROM t) s
+            // LATERAL VIEW explode(s.arr) lv AS x). An underivable child leaves the
+            // generated slots behind an unknown width: their names are real column names
+            // that need no realignment, so the tail stays open.
+            LogicalGenerate<?> generate = (LogicalGenerate<?>) node;
+            StarLabels child = starExpansion(generate.child(0), scope);
+            if (child.openTail) {
+                return new StarLabels(child.labels, true);
+            }
+            List<String> labels = new ArrayList<>(child.labels);
+            List<String> aliasNames = new ArrayList<>();
+            for (List<String> aliases : generate.getExpandColumnAlias()) {
+                aliasNames.addAll(aliases);
+            }
+            if (aliasNames.size() == generate.getGeneratorOutput().size()) {
+                // one caller-written name per generated column (`lv AS x` reports x)
+                labels.addAll(aliasNames);
+            } else {
+                for (Slot slot : generate.getGeneratorOutput()) {
+                    labels.add(outputLabelOf(slot));
+                }
+            }
+            return new StarLabels(labels, false);
         }
         if (node instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) node;
@@ -3334,12 +3482,12 @@ public final class SPMPlanTreeSupport {
                 // FROM t) s RIGHT SEMI JOIN u ON s.id = u.id renamed u.x to v + 2).
                 return withMarkLabel(join, starExpansion(
                         join.getJoinType().isRightSemiOrAntiJoin()
-                                ? children.get(1) : children.get(0)));
+                                ? children.get(1) : children.get(0), scope));
             }
             List<String> labels = new ArrayList<>();
             boolean openSeen = false;
             for (int i = 0; i < children.size(); i++) {
-                StarLabels child = starExpansion(children.get(i));
+                StarLabels child = starExpansion(children.get(i), scope);
                 if (child.openTail) {
                     if (i == children.size() - 1) {
                         return new StarLabels(labels, true);
@@ -3402,7 +3550,7 @@ public final class SPMPlanTreeSupport {
      * underivable ends the derivation with an open tail (its columns are real names),
      * while a DERIVABLE side behind an open one cannot be positioned and declines.
      */
-    private static StarLabels usingJoinStarExpansion(LogicalUsingJoin<?, ?> join) {
+    private static StarLabels usingJoinStarExpansion(LogicalUsingJoin<?, ?> join, CteScope scope) {
         List<Plan> children = join.children();
         boolean semiOrAnti = join.getJoinType().isSemiOrAntiJoin()
                 && children.size() == 2;
@@ -3418,7 +3566,7 @@ public final class SPMPlanTreeSupport {
         }
         StarLabels[] sides = new StarLabels[children.size()];
         for (int index : visible) {
-            sides[index] = starExpansion(children.get(index));
+            sides[index] = starExpansion(children.get(index), scope);
         }
         List<String> labels = new ArrayList<>();
         // the identifier-case comparison set: the analyzer's key consumption follows the
