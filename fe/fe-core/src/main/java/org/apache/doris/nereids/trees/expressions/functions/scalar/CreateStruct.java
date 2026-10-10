@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
@@ -36,7 +37,7 @@ import java.util.List;
  * ScalarFunction 'struct'.
  */
 public class CreateStruct extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, ComputePrecision {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args()
@@ -52,6 +53,16 @@ public class CreateStruct extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private CreateStruct(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    // The fields of a struct are independent type variables and their types are already
+    // resolved from the arguments by getSignatures(). The default decimal v3 precision
+    // promotion would merge all argument slots into one wider type and insert a lossy cast
+    // (e.g. widening the scale of a DECIMAL(76,0) field truncates the decimals of an
+    // ARRAY<DECIMAL(76,18)> field), so skip it, same as named_struct.
+    @Override
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
     }
 
     @Override
