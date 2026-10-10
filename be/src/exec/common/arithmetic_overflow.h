@@ -115,7 +115,9 @@ inline bool mul_overflow(long long x, long long y, long long& res) {
     return __builtin_smulll_overflow(x, y, &res);
 }
 
-// from __muloXi4 in llvm's compiler-rt
+#if defined(__aarch64__)
+// Some AArch64 toolchains lower the builtin to a runtime symbol unavailable in libgcc.
+// Use the implementation from __muloXi4 in LLVM's compiler-rt instead.
 static inline __int128 int128_overflow_mul(__int128 a, __int128 b, int* overflow) {
     const int N = (int)(sizeof(__int128) * CHAR_BIT);
     const auto MIN = (__int128)((__uint128_t)1 << (N - 1));
@@ -152,12 +154,17 @@ static inline __int128 int128_overflow_mul(__int128 a, __int128 b, int* overflow
     }
     return result;
 }
+#endif
 
 template <>
 inline bool mul_overflow(__int128 x, __int128 y, __int128& res) {
+#if defined(__aarch64__)
     int overflow = 0;
     res = int128_overflow_mul(x, y, &overflow);
     return overflow != 0;
+#else
+    return __builtin_mul_overflow(x, y, &res);
+#endif
 }
 
 static inline wide::Int256 int256_overflow_mul(const wide::Int256& a, const wide::Int256& b,
