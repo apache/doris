@@ -933,7 +933,8 @@ TEST(FunctionLikeTest, regexp_invalid_column_pattern_fails) {
 
 // A SQL NULL pattern must yield NULL for that row even when the bytes stored under the NULL
 // slot do not compile: the regexp functions skip NULL rows instead of running the framework's
-// default NULL handling over the nested column. A NULL constant pattern yields all NULLs.
+// default NULL handling over the nested column. A NULL constant pattern yields all NULLs, and a
+// NULL input string yields NULL for its row with constant parameters too.
 // NOLINTNEXTLINE(readability-function-size) -- one driver covers every regexp function family.
 TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
     auto str_type = std::make_shared<DataTypeString>();
@@ -961,21 +962,34 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
         }
         return col;
     };
-    const std::vector<std::string> strs = {"abc", "abc"};
-    // Row 0 is a valid pattern, row 1 is NULL with an invalid payload underneath.
+    // The NULL row sits between two valid rows, so a skipped row must still keep the result
+    // offsets of the rows after it right.
+    const std::vector<std::string> strs = {"abc", "abc", "abc"};
+    // Rows 0 and 2 are a valid pattern, row 1 is NULL with an invalid payload underneath.
     auto make_pattern_col = [&]() {
-        return ColumnNullable::create(make_str_col({"(b)", "["}), make_null_map({0, 1}));
+        return ColumnNullable::create(make_str_col({"(b)", "[", "(b)"}), make_null_map({0, 1, 0}));
     };
     // A NULL constant whose payload is an invalid pattern.
     auto make_null_const_pattern = [&]() {
         return ColumnConst::create(ColumnNullable::create(make_str_col({"["}), make_null_map({1})),
                                    strs.size());
     };
+    // Row 1 is a NULL input string, for the case where every other parameter is constant.
+    auto make_nullable_str_col = [&]() {
+        return ColumnNullable::create(make_str_col({"abc", "zzz", "abc"}),
+                                      make_null_map({0, 1, 0}));
+    };
+    auto make_const_str = [&](const std::string& value) {
+        return ColumnConst::create(make_str_col({value}), strs.size());
+    };
+    auto make_const_int = [&](int64_t value) {
+        return ColumnConst::create(make_int_col({value}), strs.size());
+    };
 
-    // `expected_row0` empty means the whole result is NULL.
+    // Rows 0 and 2 are `expected`, std::nullopt meaning NULL; row 1 is always NULL.
     auto run_case = [&](const std::string& func_name, ColumnsWithTypeAndName arg_cols,
                         const DataTypePtr& return_type,
-                        const std::optional<std::string>& expected_row0) {
+                        const std::optional<std::string>& expected) {
         Block block;
         ColumnNumbers arguments;
         std::vector<DataTypePtr> arg_types;
@@ -1006,10 +1020,13 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
 
         const auto& result_column = block.get_by_position(result).column;
         ASSERT_EQ(strs.size(), result_column->size()) << func_name;
-        if (expected_row0) {
-            EXPECT_EQ(*expected_row0, return_type->to_string(*result_column, 0)) << func_name;
-        } else {
-            EXPECT_TRUE(result_column->is_null_at(0)) << func_name;
+        for (size_t row : {0, 2}) {
+            if (expected) {
+                EXPECT_EQ(*expected, return_type->to_string(*result_column, row))
+                        << func_name << " row " << row;
+            } else {
+                EXPECT_TRUE(result_column->is_null_at(row)) << func_name << " row " << row;
+            }
         }
         EXPECT_TRUE(result_column->is_null_at(1)) << func_name;
 
@@ -1021,13 +1038,18 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
         run_case(func_name,
                  {{make_str_col(strs), str_type, "str"},
                   {make_pattern_col(), nullable_str, "pattern"},
-                  {make_int_col({1, 1}), int_type, "idx"}},
+                  {make_int_col({1, 1, 1}), int_type, "idx"}},
                  nullable_str, "b");
         run_case(func_name,
                  {{make_str_col(strs), str_type, "str"},
                   {make_null_const_pattern(), nullable_str, "pattern"},
-                  {make_int_col({1, 1}), int_type, "idx"}},
+                  {make_int_col({1, 1, 1}), int_type, "idx"}},
                  nullable_str, std::nullopt);
+        run_case(func_name,
+                 {{make_nullable_str_col(), nullable_str, "str"},
+                  {make_const_str("(b)"), str_type, "pattern"},
+                  {make_const_int(1), int_type, "idx"}},
+                 nullable_str, "b");
     }
     run_case("regexp_extract_all",
              {{make_str_col(strs), str_type, "str"}, {make_pattern_col(), nullable_str, "pattern"}},
@@ -1036,6 +1058,10 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
              {{make_str_col(strs), str_type, "str"},
               {make_null_const_pattern(), nullable_str, "pattern"}},
              nullable_str, std::nullopt);
+    run_case("regexp_extract_all",
+             {{make_nullable_str_col(), nullable_str, "str"},
+              {make_const_str("(b)"), str_type, "pattern"}},
+             nullable_str, "['b']");
     auto nullable_array = make_nullable(std::make_shared<DataTypeArray>(nullable_str));
     run_case("regexp_extract_all_array",
              {{make_str_col(strs), str_type, "str"}, {make_pattern_col(), nullable_str, "pattern"}},
@@ -1044,17 +1070,26 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
              {{make_str_col(strs), str_type, "str"},
               {make_null_const_pattern(), nullable_str, "pattern"}},
              nullable_array, std::nullopt);
+    run_case("regexp_extract_all_array",
+             {{make_nullable_str_col(), nullable_str, "str"},
+              {make_const_str("(b)"), str_type, "pattern"}},
+             nullable_array, "[\"b\"]");
     for (const char* func_name : {"regexp_replace", "regexp_replace_one"}) {
         run_case(func_name,
                  {{make_str_col(strs), str_type, "str"},
                   {make_pattern_col(), nullable_str, "pattern"},
-                  {make_str_col({"x", "x"}), str_type, "repl"}},
+                  {make_str_col({"x", "x", "x"}), str_type, "repl"}},
                  nullable_str, "axc");
         run_case(func_name,
                  {{make_str_col(strs), str_type, "str"},
                   {make_null_const_pattern(), nullable_str, "pattern"},
-                  {make_str_col({"x", "x"}), str_type, "repl"}},
+                  {make_str_col({"x", "x", "x"}), str_type, "repl"}},
                  nullable_str, std::nullopt);
+        run_case(func_name,
+                 {{make_nullable_str_col(), nullable_str, "str"},
+                  {make_const_str("(b)"), str_type, "pattern"},
+                  {make_const_str("x"), str_type, "repl"}},
+                 nullable_str, "axc");
     }
     auto nullable_int32 = make_nullable(std::make_shared<DataTypeInt32>());
     run_case("regexp_count",
@@ -1064,6 +1099,10 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
              {{make_str_col(strs), str_type, "str"},
               {make_null_const_pattern(), nullable_str, "pattern"}},
              nullable_int32, std::nullopt);
+    run_case("regexp_count",
+             {{make_nullable_str_col(), nullable_str, "str"},
+              {make_const_str("(b)"), str_type, "pattern"}},
+             nullable_int32, "1");
 }
 
 // regexp_count over non-nullable arguments counts the original columns directly and returns
@@ -1135,6 +1174,126 @@ TEST(FunctionLikeTest, regexp_count_non_nullable_arguments) {
         run_case({{make_str_col(strs), str_type, "str"},
                   {ColumnConst::create(make_str_col({"[a-z]"}), strs.size()), str_type, "pattern"}},
                  return_type, {3, 10, 3});
+    }
+}
+
+// The extract and replace functions over non-nullable arguments run without an input NULL map
+// but keep their Nullable result: no row is NULL except where the function itself produces one,
+// e.g. regexp_extract_or_null on no match.
+// NOLINTNEXTLINE(readability-function-size) -- one driver covers every regexp function family.
+TEST(FunctionLikeTest, regexp_non_nullable_arguments) {
+    auto str_type = std::make_shared<DataTypeString>();
+    auto nullable_str = make_nullable(str_type);
+    auto int_type = std::make_shared<DataTypeInt64>();
+
+    auto make_str_col = [](const std::vector<std::string>& values) {
+        auto col = ColumnString::create();
+        for (const auto& value : values) {
+            col->insert_data(value.data(), value.size());
+        }
+        return col;
+    };
+    auto make_int_col = [](const std::vector<int64_t>& values) {
+        auto col = ColumnInt64::create();
+        for (auto value : values) {
+            col->insert_value(value);
+        }
+        return col;
+    };
+    // Row 0 matches, row 1 does not, for both the column and the constant pattern.
+    const std::vector<std::string> strs = {"abc", "xyz"};
+    auto make_column_pattern = [&]() { return make_str_col({"(b)", "(q)"}); };
+    auto make_const_pattern = [&]() {
+        return ColumnConst::create(make_str_col({"(b)"}), strs.size());
+    };
+
+    // std::nullopt marks a NULL row.
+    using Expected = std::vector<std::optional<std::string>>;
+    auto run_case = [&](const std::string& func_name, ColumnsWithTypeAndName arg_cols,
+                        const DataTypePtr& return_type, const Expected& expected) {
+        Block block;
+        ColumnNumbers arguments;
+        std::vector<DataTypePtr> arg_types;
+        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        for (auto& arg : arg_cols) {
+            arguments.push_back(static_cast<unsigned int>(block.columns()));
+            arg_types.push_back(arg.type);
+            constant_cols.push_back(is_column_const(*arg.column)
+                                            ? std::make_shared<ColumnPtrWrapper>(arg.column)
+                                            : nullptr);
+            block.insert(std::move(arg));
+        }
+        auto func = SimpleFunctionFactory::instance().get_function(
+                func_name, block.get_columns_with_type_and_name(), return_type);
+        ASSERT_TRUE(func != nullptr) << func_name;
+
+        auto result = block.columns();
+        block.insert({nullptr, return_type, "result"});
+
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(constant_cols);
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL)) << func_name;
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL)) << func_name;
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, arguments, result, strs.size()))
+                << func_name;
+
+        const auto& result_column = block.get_by_position(result).column;
+        ASSERT_TRUE(result_column->is_nullable()) << func_name;
+        ASSERT_EQ(expected.size(), result_column->size()) << func_name;
+        for (size_t i = 0; i < expected.size(); ++i) {
+            if (expected[i]) {
+                EXPECT_FALSE(result_column->is_null_at(i)) << func_name << " row " << i;
+                EXPECT_EQ(*expected[i], return_type->to_string(*result_column, i))
+                        << func_name << " row " << i;
+            } else {
+                EXPECT_TRUE(result_column->is_null_at(i)) << func_name << " row " << i;
+            }
+        }
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    auto nullable_array = make_nullable(std::make_shared<DataTypeArray>(nullable_str));
+    for (bool const_pattern : {false, true}) {
+        // With a constant pattern the other parameters are constant too, which takes the
+        // functions' all-constant-parameters path.
+        auto make_pattern = [&]() -> ColumnPtr {
+            return const_pattern ? ColumnPtr(make_const_pattern()) : make_column_pattern();
+        };
+        auto make_index = [&]() -> ColumnPtr {
+            return const_pattern ? ColumnPtr(ColumnConst::create(make_int_col({1}), strs.size()))
+                                 : make_int_col({1, 1});
+        };
+        auto make_replacement = [&]() -> ColumnPtr {
+            return const_pattern ? ColumnPtr(ColumnConst::create(make_str_col({"x"}), strs.size()))
+                                 : make_str_col({"x", "x"});
+        };
+        run_case("regexp_extract",
+                 {{make_str_col(strs), str_type, "str"},
+                  {make_pattern(), str_type, "pattern"},
+                  {make_index(), int_type, "idx"}},
+                 nullable_str, {"b", ""});
+        run_case("regexp_extract_or_null",
+                 {{make_str_col(strs), str_type, "str"},
+                  {make_pattern(), str_type, "pattern"},
+                  {make_index(), int_type, "idx"}},
+                 nullable_str, {"b", std::nullopt});
+        run_case("regexp_extract_all",
+                 {{make_str_col(strs), str_type, "str"}, {make_pattern(), str_type, "pattern"}},
+                 nullable_str, {"['b']", ""});
+        run_case("regexp_extract_all_array",
+                 {{make_str_col(strs), str_type, "str"}, {make_pattern(), str_type, "pattern"}},
+                 nullable_array, {"[\"b\"]", "[]"});
+        for (const char* func_name : {"regexp_replace", "regexp_replace_one"}) {
+            run_case(func_name,
+                     {{make_str_col(strs), str_type, "str"},
+                      {make_pattern(), str_type, "pattern"},
+                      {make_replacement(), str_type, "repl"}},
+                     nullable_str, {"axc", "xyz"});
+        }
     }
 }
 

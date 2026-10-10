@@ -32,17 +32,18 @@ suite("test_regexp_invalid_pattern") {
         INSERT INTO test_regexp_invalid_pattern VALUES
             (1, 'abc', '(b)', 'x'),
             (2, 'abc', '[', 'x'),
-            (3, 'abc', NULL, 'x');
+            (3, 'abc', NULL, 'x'),
+            (4, 'abc', '(b)', 'x');
     """
 
-    // Valid column patterns keep working, NULL pattern still yields NULL.
-    order_qt_extract_valid "SELECT id, regexp_extract(s, p, 1) FROM test_regexp_invalid_pattern WHERE id IN (1, 3)"
-    order_qt_extract_or_null_valid "SELECT id, regexp_extract_or_null(s, p, 1) FROM test_regexp_invalid_pattern WHERE id IN (1, 3)"
-    order_qt_extract_all_valid "SELECT id, regexp_extract_all(s, p) FROM test_regexp_invalid_pattern WHERE id IN (1, 3)"
-    order_qt_extract_all_array_valid "SELECT id, regexp_extract_all_array(s, p) FROM test_regexp_invalid_pattern WHERE id IN (1, 3)"
-    order_qt_replace_valid "SELECT id, regexp_replace(s, p, repl) FROM test_regexp_invalid_pattern WHERE id IN (1, 3)"
-    order_qt_replace_one_valid "SELECT id, regexp_replace_one(s, p, repl) FROM test_regexp_invalid_pattern WHERE id IN (1, 3)"
-    order_qt_count_valid "SELECT id, regexp_count(s, p) FROM test_regexp_invalid_pattern WHERE id IN (1, 3)"
+    // Valid column patterns keep working, a NULL pattern between them still yields NULL.
+    order_qt_extract_valid "SELECT id, regexp_extract(s, p, 1) FROM test_regexp_invalid_pattern WHERE id IN (1, 3, 4)"
+    order_qt_extract_or_null_valid "SELECT id, regexp_extract_or_null(s, p, 1) FROM test_regexp_invalid_pattern WHERE id IN (1, 3, 4)"
+    order_qt_extract_all_valid "SELECT id, regexp_extract_all(s, p) FROM test_regexp_invalid_pattern WHERE id IN (1, 3, 4)"
+    order_qt_extract_all_array_valid "SELECT id, regexp_extract_all_array(s, p) FROM test_regexp_invalid_pattern WHERE id IN (1, 3, 4)"
+    order_qt_replace_valid "SELECT id, regexp_replace(s, p, repl) FROM test_regexp_invalid_pattern WHERE id IN (1, 3, 4)"
+    order_qt_replace_one_valid "SELECT id, regexp_replace_one(s, p, repl) FROM test_regexp_invalid_pattern WHERE id IN (1, 3, 4)"
+    order_qt_count_valid "SELECT id, regexp_count(s, p) FROM test_regexp_invalid_pattern WHERE id IN (1, 3, 4)"
 
     // Constant invalid pattern: rejected.
     test {
@@ -127,6 +128,46 @@ suite("test_regexp_invalid_pattern") {
     }
     test {
         sql "SELECT regexp_replace('abc', p, 'x') FROM test_regexp_invalid_pattern WHERE id = 2"
+        exception "Could not compile regexp pattern"
+    }
+
+    // NOT NULL arguments run without an input NULL map: the results keep their Nullable type,
+    // regexp_extract_or_null still returns NULL on no match, and an invalid column pattern is
+    // still rejected.
+    sql "DROP TABLE IF EXISTS test_regexp_invalid_pattern_not_null"
+    sql """
+        CREATE TABLE test_regexp_invalid_pattern_not_null (
+            id INT NOT NULL,
+            s STRING NOT NULL,
+            p STRING NOT NULL,
+            repl STRING NOT NULL
+        ) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+    """
+    sql """
+        INSERT INTO test_regexp_invalid_pattern_not_null VALUES
+            (1, 'abc', '(b)', 'x'),
+            (2, 'xyz', '(q)', 'x');
+    """
+    order_qt_not_null_column_pattern """
+        SELECT id, regexp_extract(s, p, 1), regexp_extract_or_null(s, p, 1),
+               regexp_extract_all(s, p), regexp_extract_all_array(s, p),
+               regexp_replace(s, p, repl), regexp_replace_one(s, p, repl), regexp_count(s, p)
+        FROM test_regexp_invalid_pattern_not_null
+    """
+    order_qt_not_null_const_pattern """
+        SELECT id, regexp_extract(s, '(b)', 1), regexp_extract_or_null(s, '(b)', 1),
+               regexp_extract_all(s, '(b)'), regexp_extract_all_array(s, '(b)'),
+               regexp_replace(s, '(b)', 'x'), regexp_replace_one(s, '(b)', 'x'),
+               regexp_count(s, '(b)')
+        FROM test_regexp_invalid_pattern_not_null
+    """
+    test {
+        sql "SELECT regexp_extract(s, concat(p, '['), 1) FROM test_regexp_invalid_pattern_not_null"
+        exception "Invalid regex pattern"
+    }
+    test {
+        sql "SELECT regexp_replace(s, concat(p, '['), repl) FROM test_regexp_invalid_pattern_not_null"
         exception "Could not compile regexp pattern"
     }
 }
