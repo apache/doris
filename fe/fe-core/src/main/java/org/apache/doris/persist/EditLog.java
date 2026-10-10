@@ -171,8 +171,6 @@ public class EditLog {
     private final BlockingQueue<EditLogItem> logEditQueue = new LinkedBlockingQueue<>();
     private final Thread flushThread;
 
-    private EditLogOutputStream editStream = null;
-
     private long txId = 0;
     // This best-effort timer starts when EditLog is created and resets after every roll.
     private volatile long lastEditLogRollTimeMs = System.currentTimeMillis();
@@ -1750,13 +1748,6 @@ public class EditLog {
         }
 
         return logId;
-    }
-
-    /**
-     * Return the size of the current EditLog
-     */
-    public synchronized long getEditLogSize() throws IOException {
-        return editStream.length();
     }
 
     /**
