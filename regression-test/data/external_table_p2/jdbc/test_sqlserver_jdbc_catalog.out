@@ -58,7 +58,7 @@ sys
 1	Make Doris Great!	Make Doris Great!
 
 -- !dt --
-2023-06-25	14:30:45	2023-06-25T14:30:45	2023-06-25T14:30	2023-06-25T14:30:45.123456	2023-06-25 14:30:45.123456-07:00
+2023-06-25	14:30:45	2023-06-25T14:30:45	2023-06-25T14:30	2023-06-25T14:30:45.123456	2023-06-26 05:30:45.123456+08:00
 
 -- !filter1 --
 1	Make Doris Great!   	Make Doris Great!	Make Doris Great!	Make Doris Great!   	Make Doris Great!	Make Doris Great!
@@ -108,7 +108,7 @@ time_value	text	Yes	false	\N	NONE
 datetime_value	datetime(3)	Yes	false	\N	NONE
 datetime2_value	datetime(6)	Yes	false	\N	NONE
 smalldatetime_value	datetime	Yes	false	\N	NONE
-datetimeoffset_value	text	Yes	false	\N	NONE
+datetimeoffset_value	timestamptz(6)	Yes	false	\N	NONE
 text_value	text	Yes	false	\N	NONE
 ntext_value	text	Yes	false	\N	NONE
 money_value	decimal(19,4)	Yes	false	\N	NONE
