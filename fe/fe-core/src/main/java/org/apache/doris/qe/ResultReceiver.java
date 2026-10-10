@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
@@ -117,7 +118,8 @@ public class ResultReceiver {
                     } catch (CancellationException e) {
                         // When get this exception, it means another thread call cancel, so that the run status
                         // should be set already.
-                        LOG.warn("Future of ResultReceiver of query {} is cancelled", DebugUtil.printId(this.queryId));
+                        LOG.warn("Future of ResultReceiver of query{} is cancelled",
+                                QueryLogContext.queryIdSuffix(this.queryId));
                         if (runStatus.ok()) {
                             LOG.warn("ResultReceiver is not set to cancelled state, this should not happen");
                         } else {
@@ -133,8 +135,8 @@ public class ResultReceiver {
                         return null;
                     } catch (InterruptedException e) {
                         // continue to get result
-                        LOG.warn("Future of ResultReceiver of query {} got interrupted Exception",
-                                DebugUtil.printId(this.queryId), e);
+                        LOG.warn("Future of ResultReceiver of query{} got interrupted Exception",
+                                QueryLogContext.queryIdSuffix(this.queryId), e);
                         // If runstatus != ok, then no need to update it, may overwrite the actual cancel reason.
                         if (runStatus.ok()) {
                             runStatus.updateStatus(TStatusCode.INTERNAL_ERROR, "got interrupted Exception");
@@ -243,9 +245,9 @@ public class ResultReceiver {
             return;
         }
         if (!runStatus.ok()) {
-            LOG.info("ResultReceiver of query {} cancel failed, because its status not ok, "
+            LOG.info("ResultReceiver of query{} cancel failed, because its status not ok, "
                     + "maybe cancelled already. current run status is {}, new status is {}.",
-                    DebugUtil.printId(queryId), runStatus.toString(), reason.toString());
+                    QueryLogContext.queryIdSuffix(queryId), runStatus.toString(), reason.toString());
             return;
         }
         runStatus.updateStatus(reason.getErrorCode(), reason.getErrorMsg());
@@ -258,12 +260,12 @@ public class ResultReceiver {
         }
         if (fetchDataAsyncFuture != null) {
             if (fetchDataAsyncFuture.cancel(true)) {
-                LOG.info("ResultReceiver of query {} is cancelled, reason is {}",
-                        DebugUtil.printId(queryId), reason.toString());
+                LOG.info("ResultReceiver of query{} is cancelled, reason is {}",
+                        QueryLogContext.queryIdSuffix(queryId), reason.toString());
             } else {
-                LOG.warn("ResultReceiver of query {} cancel failed, typically means the future is finished, "
+                LOG.warn("ResultReceiver of query{} cancel failed, typically means the future is finished, "
                         + "cancel reason is {}",
-                        DebugUtil.printId(queryId), reason.toString());
+                        QueryLogContext.queryIdSuffix(queryId), reason.toString());
             }
         }
     }

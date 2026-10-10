@@ -387,10 +387,12 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
+    ScopedQueryLogContext query_log_scope;
     PFragmentRequestVersion version =
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
     try {
-        st = _exec_plan_fragment_impl(request->request(), version, compact);
+        st = _exec_plan_fragment_impl(request->request(), version, compact, nullptr,
+                                      &query_log_scope);
     } catch (const Exception& e) {
         st = e.to_status();
     } catch (const std::exception& e) {
@@ -436,6 +438,7 @@ void PInternalService::exec_plan_fragment_start(google::protobuf::RpcController*
         gettimeofday(&tv1, nullptr);
         result->set_execution_time(tv1.tv_sec * 1000LL + tv1.tv_usec / 1000);
         brpc::ClosureGuard closure_guard(done);
+        ScopedQueryLogContext query_log_scope {QueryLogIdentity(request->query_id())};
         auto st = _exec_env->fragment_mgr()->start_query_execution(request);
         st.to_protobuf(result->mutable_status());
         timeval tv2 {};
@@ -585,7 +588,10 @@ void PInternalService::tablet_writer_cancel(google::protobuf::RpcController* con
 
 Status PInternalService::_exec_plan_fragment_impl(
         const std::string& ser_request, PFragmentRequestVersion version, bool compact,
-        const std::function<void(RuntimeState*, Status*)>& cb) {
+        const std::function<void(RuntimeState*, Status*)>& cb,
+        ScopedQueryLogContext* query_log_scope) {
+    ScopedQueryLogContext local_query_log_scope;
+    auto& log_scope = query_log_scope == nullptr ? local_query_log_scope : *query_log_scope;
     // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
     // If BE execute this fragment, it will core when it wants to get some property from master info.
     if (ExecEnv::GetInstance()->cluster_info() == nullptr) {
@@ -607,6 +613,7 @@ Status PInternalService::_exec_plan_fragment_impl(
         if (fragment_list.empty()) {
             return Status::InternalError("Invalid TPipelineFragmentParamsList!");
         }
+        log_scope.reset(QueryLogIdentity(fragment_list.front().query_id));
         MonotonicStopWatch timer;
         timer.start();
 
@@ -624,6 +631,7 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
 
         for (const TPipelineFragmentParams& fragment : fragment_list) {
+            log_scope.reset(QueryLogIdentity(fragment.query_id));
             if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
                         fragment, QuerySource::INTERNAL_FRONTEND, cb, t_request));
@@ -635,8 +643,9 @@ Status PInternalService::_exec_plan_fragment_impl(
         timer.stop();
         double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
         if (cost_secs > 5) {
-            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
-                        fragment_list.size(), print_id(fragment_list.front().query_id), cost_secs);
+            LOG_WARNING("Prepare {} fragments of query{} costs {} seconds, it costs too much",
+                        fragment_list.size(), query_id_log_suffix(fragment_list.front().query_id),
+                        cost_secs);
         }
 
         return Status::OK();
@@ -651,6 +660,8 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
                                             google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
+        ScopedQueryLogContext query_log_scope {
+                QueryLogIdentity(request->query_id(), request->finst_id())};
         signal::SignalTaskIdKeeper keeper(request->finst_id());
         Status st = Status::OK();
 
@@ -679,7 +690,7 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         TUniqueId query_id;
         query_id.__set_hi(request->query_id().hi());
         query_id.__set_lo(request->query_id().lo());
-        LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
+        LOG(INFO) << fmt::format("Cancel query{}, reason: {}", query_id_log_suffix(query_id),
                                  actual_cancel_status.to_string());
         _exec_env->fragment_mgr()->cancel_query(query_id, actual_cancel_status);
 
@@ -705,6 +716,7 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
         LOG(WARNING) << "Result buffer not found! finst ID: " << print_id(unique_id);
         return;
     }
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(buffer->query_id())};
     if (st = buffer->get_batch(ctx); !st.ok()) {
         LOG(WARNING) << "fetch_data failed: " << st.to_string();
     }
@@ -723,6 +735,7 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
             return;
         }
+        ScopedQueryLogContext query_log_scope {QueryLogIdentity(arrow_buffer->query_id())};
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
             LOG(WARNING) << "fetch_arrow_data failed: " << st.to_string();
         }
@@ -964,6 +977,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
             st.to_protobuf(result->mutable_status());
             return;
         }
+        ScopedQueryLogContext query_log_scope {QueryLogIdentity(buffer->query_id())};
         st = buffer->get_schema(&schema);
         if (!st.ok()) {
             LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
@@ -1873,6 +1887,8 @@ void PInternalService::_transmit_block(google::protobuf::RpcController* controll
                                        PTransmitDataResult* response,
                                        google::protobuf::Closure* done, const Status& extract_st,
                                        const int64_t wait_for_worker) {
+    ScopedQueryLogContext query_log_scope {
+            QueryLogIdentity(request->query_id(), request->finst_id())};
     if (request->has_query_id()) {
         VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
                  << " query_id=" << print_id(request->query_id()) << " node=" << request->node_id();

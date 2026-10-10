@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -88,8 +89,8 @@ public final class QeProcessorImpl implements QeProcessor {
             // When auto_profile_threshold_ms is not -1, this branch will be very common.
             // So this log is set to debug level.
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Could not find execution profile, query {} be {}",
-                        DebugUtil.printId(profile.query_id), address.toString());
+                LOG.debug("Could not find execution profile, query{} be {}",
+                        QueryLogContext.queryIdSuffix(profile.query_id), address.toString());
             }
             return new Status(TStatusCode.NOT_FOUND, "Could not find execution profile with query id "
                     + DebugUtil.printId(profile.query_id));
@@ -97,15 +98,11 @@ public final class QeProcessorImpl implements QeProcessor {
 
         // Update profile may cost a lot of time, use a separate pool to deal with it.
         try {
-            writeProfileExecutor.submit(new Runnable() {
-                @Override
-                public void run() {
-                    executionProfile.updateProfile(profile, address, isDone);
-                }
-            });
+            writeProfileExecutor.submit(QueryLogContext.wrap(
+                    () -> executionProfile.updateProfile(profile, address, isDone), profile.query_id));
         } catch (Exception e) {
-            LOG.warn("Failed to submit profile write task, query {} be {}",
-                                DebugUtil.printId(profile.query_id), address.toString());
+            LOG.warn("Failed to submit profile write task, query{} be {}",
+                                QueryLogContext.queryIdSuffix(profile.query_id), address.toString());
             return new Status(TStatusCode.INTERNAL_ERROR, "Failed to submit profile write task");
         }
 
@@ -134,7 +131,7 @@ public final class QeProcessorImpl implements QeProcessor {
     @Override
     public void registerQuery(TUniqueId queryId, QueryInfo info) throws UserException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("register query id = " + DebugUtil.printId(queryId) + ", job: " + info.getCoord().getJobId());
+            LOG.debug("register query{}, job: {}", QueryLogContext.queryIdSuffix(queryId), info.getCoord().getJobId());
         }
         final QueryInfo result = coordinatorMap.putIfAbsent(queryId, info);
         if (result != null) {
@@ -186,7 +183,7 @@ public final class QeProcessorImpl implements QeProcessor {
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
         if (queryInfo != null) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
+                LOG.debug("Deregister query{}", QueryLogContext.queryIdSuffix(queryId));
             }
 
             // Here we shuold use query option instead of ConnectContext,
@@ -203,8 +200,8 @@ public final class QeProcessorImpl implements QeProcessor {
                     String user = queryInfo.getConnectContext().getQualifiedUser();
                     AtomicInteger instancesNum = userToInstancesCount.get(user);
                     if (instancesNum == null) {
-                        LOG.warn("WTF?? query {} in queryToInstancesNum but not in userToInstancesCount",
-                                DebugUtil.printId(queryId)
+                        LOG.warn("WTF?? query{} in queryToInstancesNum but not in userToInstancesCount",
+                                QueryLogContext.queryIdSuffix(queryId)
                         );
                     } else {
                         instancesNum.addAndGet(-num);
@@ -213,7 +210,7 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         } else {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
+                LOG.debug("not found query{} when unregisterQuery", QueryLogContext.queryIdSuffix(queryId));
             }
         }
 
@@ -255,6 +252,16 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
+        // Profile-only reports deliberately carry a zero top-level query_id for protocol compatibility.
+        TUniqueId logQueryId = params.isSetQueryProfile()
+                ? params.getQueryProfile().getQueryId() : params.getQueryId();
+        try (QueryLogContext ignored = QueryLogContext.open(logQueryId)) {
+            return reportExecStatusWithQueryContext(params, beAddr);
+        }
+    }
+
+    private TReportExecStatusResult reportExecStatusWithQueryContext(
+            TReportExecStatusParams params, TNetworkAddress beAddr) {
         if (params.isSetQueryProfile()) {
             // Why not return response when process new profile failed?
             // First of all, we will do a refactor for report exec status in the future.
@@ -264,14 +271,15 @@ public final class QeProcessorImpl implements QeProcessor {
             // with profile in a single rpc, this will make FE ignore the exec status and may lead to bug in query
             // like insert into select.
             if (params.isSetBackendId() && params.isSetDone()) {
-                LOG.info("Receive profile {} report from {}, isDone {}, fragments {}",
-                        DebugUtil.printId(params.getQueryProfile().getQueryId()), beAddr.toString(),
+                LOG.info("Receive profile{} report from {}, isDone {}, fragments {}",
+                        QueryLogContext.queryIdSuffix(params.getQueryProfile().getQueryId()), beAddr.toString(),
                         params.isDone(), params.getQueryProfile().fragment_id_to_profile.size());
 
                 Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
                 if (backend == null) {
-                    LOG.warn("Invalid report profile req, backend {} not found, query id: {}",
-                            params.getBackendId(), DebugUtil.printId(params.getQueryProfile().getQueryId()));
+                    LOG.warn("Invalid report profile req, backend {} not found, query{}",
+                            params.getBackendId(),
+                            QueryLogContext.queryIdSuffix(params.getQueryProfile().getQueryId()));
                 } else {
                     boolean isDone = params.isDone();
                     // the process status is ignored by design.
@@ -280,7 +288,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 }
             } else {
                 LOG.warn("Invalid report profile req, this is a logical error, BE must set backendId and isDone"
-                            + " at same time, query id: {}", DebugUtil.printId(params.query_id));
+                            + " at same time, query{}", QueryLogContext.queryIdSuffix(params.query_id));
             }
         }
 
@@ -322,8 +330,8 @@ public final class QeProcessorImpl implements QeProcessor {
                 return rejectedExternalFileReport(result, "FE has not accepted the external-file report");
             }
         } catch (Exception e) {
-            LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
-                    DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
+            LOG.warn("Exception during handle report, response: {}, query{}, instance: {}", result.toString(),
+                    QueryLogContext.queryIdSuffix(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
             return hasExternalCommitData
                     ? rejectedExternalFileReport(result, "FE did not accept the external-file report")
                     : result;

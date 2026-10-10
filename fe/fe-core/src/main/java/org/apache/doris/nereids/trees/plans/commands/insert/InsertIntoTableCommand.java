@@ -256,8 +256,8 @@ public class InsertIntoTableCommand extends Command
         // (cancel-before-run) and reset the flag, so a reused command instance
         // (server-side prepared INSERT) can execute again after a cancelled run.
         if (isCancelled.getAndSet(false)) {
-            LOG.info("insert is cancelled before execution, queryId: {}",
-                    ctx.getQueryIdentifier());
+            LOG.info("insert is cancelled before execution, statement: {}",
+                    ctx.getQueryLogIdentifier());
             return;
         }
         isRunning.set(true);
@@ -388,8 +388,8 @@ public class InsertIntoTableCommand extends Command
                     }
                     if (insertExecutor.requiresTransaction()) {
                         if (isCancelled.get()) {
-                            LOG.info("insert is cancelled before beginTransaction, queryId: {}",
-                                    ctx.getQueryIdentifier());
+                            LOG.info("insert is cancelled before beginTransaction, statement: {}",
+                                    ctx.getQueryLogIdentifier());
                             throw new IllegalStateException("insert is cancelled");
                         }
                         insertExecutor.beginTransaction();
@@ -738,8 +738,8 @@ public class InsertIntoTableCommand extends Command
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (isCancelled.get()) {
-            LOG.info("insert is cancelled before execution, queryId: {}",
-                    ctx.getQueryIdentifier());
+            LOG.info("insert is cancelled before execution, statement: {}",
+                    ctx.getQueryLogIdentifier());
             return;
         }
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
@@ -756,8 +756,8 @@ public class InsertIntoTableCommand extends Command
             public void beforeComplete(AbstractInsertExecutor executor, StmtExecutor stmtExecutor, long jobId)
                     throws Exception {
                 if (isCancelled.get()) {
-                    LOG.info("insert is cancelled before commit, queryId: {}",
-                            ctx.getQueryIdentifier());
+                    LOG.info("insert is cancelled before commit, statement: {}",
+                            ctx.getQueryLogIdentifier());
                     throw new IllegalStateException("insert is cancelled before commit");
                 }
             }

@@ -79,6 +79,7 @@ Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<Block>& block,
 }
 
 Status ArrowFlightResultBlockBuffer::get_schema(std::shared_ptr<arrow::Schema>* arrow_schema) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
     if (!_status.ok()) {
         return _status;
     }
@@ -97,6 +98,7 @@ Status ArrowFlightResultBlockBuffer::get_schema(std::shared_ptr<arrow::Schema>* 
 }
 
 Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* result) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
     std::unique_lock<std::mutex> l(_lock);
     Defer defer {[&]() { _update_dependency(); }};
     if (!_status.ok()) {

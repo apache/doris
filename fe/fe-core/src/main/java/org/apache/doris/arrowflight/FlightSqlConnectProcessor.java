@@ -89,6 +89,8 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     }
 
     public void handleQuery(String query) throws ConnectionException {
+        // Preparation belongs to the new statement, before execution assigns its query ID.
+        ctx.resetQueryId();
         MysqlCommand command = MysqlCommand.COM_QUERY;
         prepare(command);
         resolveWorkloadGroupName();

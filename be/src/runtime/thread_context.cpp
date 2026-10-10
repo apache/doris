@@ -97,6 +97,9 @@ void AttachTask::init(const std::shared_ptr<ResourceContext>& rc) {
     ThreadLocalHandle::create_thread_local_if_not_exits();
     signal::set_signal_task_id(rc->task_controller()->task_id());
     thread_context()->attach_task(rc);
+    if (rc->task_controller()->is_query_task()) {
+        _query_log_scope.reset(QueryLogIdentity(rc->task_controller()->task_id()));
+    }
 }
 
 AttachTask::AttachTask(const std::shared_ptr<ResourceContext>& rc) {
@@ -145,6 +148,8 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
     }
     signal::set_signal_is_nereids(runtime_state->is_nereids());
     init(runtime_state->get_query_ctx()->resource_ctx());
+    _query_log_scope.reset(
+            QueryLogIdentity(runtime_state->query_id(), runtime_state->fragment_instance_id()));
 }
 
 AttachTask::AttachTask(QueryContext* query_ctx) {
@@ -195,6 +200,9 @@ SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceConte
     DCHECK(thread_context()->is_attach_task());
     old_resource_ctx_ = thread_context()->resource_ctx();
     if (rc != old_resource_ctx_) {
+        _query_log_scope.reset(rc->task_controller()->is_query_task()
+                                       ? QueryLogIdentity(rc->task_controller()->task_id())
+                                       : QueryLogIdentity {});
         signal::set_signal_task_id(rc->task_controller()->task_id());
         thread_context()->resource_ctx_ = rc;
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(

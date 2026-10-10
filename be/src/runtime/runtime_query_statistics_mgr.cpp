@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "common/query_log_context.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "information_schema/schema_scanner_helper.h"
@@ -124,11 +125,12 @@ static void _report_query_profiles_function(
     // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
     for (auto& entry : profile_copy) {
         const auto& query_id = entry.first;
+        ScopedQueryLogContext query_log_scope {QueryLogIdentity(query_id)};
         const auto& coor_addr = std::get<0>(entry.second);
         auto& fragment_profile_map = std::get<1>(entry.second);
 
         if (fragment_profile_map.empty()) {
-            auto msg = fmt::format("Query {} does not have profile", print_id(query_id));
+            auto msg = fmt::format("Query{} does not have profile", query_id_log_suffix(query_id));
             DCHECK(false) << msg;
             LOG_ERROR(msg);
             continue;
@@ -138,8 +140,8 @@ static void _report_query_profiles_function(
         for (auto load_channel_profile : load_channel_profile_copy) {
             if (load_channel_profile.second == nullptr) {
                 auto msg = fmt::format(
-                        "Register fragment profile {} {} failed, load channel profile is null",
-                        print_id(query_id), -1);
+                        "Register fragment profile{} {} failed, load channel profile is null",
+                        query_id_log_suffix(query_id), -1);
                 DCHECK(false) << msg;
                 LOG_ERROR(msg);
                 continue;
@@ -156,10 +158,10 @@ static void _report_query_profiles_function(
         auto rpc_status = _do_report_exec_stats_rpc(coor_addr, req, res);
 
         if (res.status.status_code != TStatusCode::OK || !rpc_status.ok()) {
-            LOG_WARNING("Query {} send profile to {} failed", print_id(query_id),
+            LOG_WARNING("Query{} send profile to {} failed", query_id_log_suffix(query_id),
                         PrintThriftNetworkAddress(coor_addr));
         } else {
-            VLOG_CRITICAL << fmt::format("Send {} profile succeed", print_id(query_id));
+            VLOG_CRITICAL << "Send query profile" << query_id_log_suffix(query_id) << " succeeded";
         }
     }
 }
@@ -202,7 +204,7 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
     }
 
     if (fragment_id_to_profile_req.empty()) {
-        LOG_WARNING("No fragment profile found for query {}", print_id(query_id));
+        LOG_WARNING("No fragment profile found for query{}", query_id_log_suffix(query_id));
     }
 
     profile.__set_fragment_id_to_profile(fragment_id_to_profile_req);
@@ -254,6 +256,8 @@ Status RuntimeQueryStatisticsMgr::start_report_thread() {
 // 3. unlock the profile_map.
 // 4. create a profile reporting task and add it to the thread pool.
 void RuntimeQueryStatisticsMgr::trigger_profile_reporting() {
+    // A reporting batch can contain queries other than the one that triggered it.
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity {}};
     decltype(_profile_map) profile_copy;
     decltype(_load_channel_profile_map) load_channel_profile_copy;
 

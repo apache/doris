@@ -125,7 +125,7 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
 
     private String getPreloadQueryIdentifier(StatementContext statementContext) {
         ConnectContext connectContext = statementContext.getConnectContext();
-        return connectContext == null ? "stmt[unknown]" : connectContext.getQueryIdentifier();
+        return connectContext == null ? "stmt[unknown]" : connectContext.getQueryLogIdentifier();
     }
 
     private String getExternalTableLogName(ExternalTable table) {

@@ -27,7 +27,9 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
@@ -43,6 +45,9 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.ThreadContext;
+import org.apache.logging.log4j.core.LogEvent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -251,6 +256,66 @@ public class StmtExecutorTest extends TestWithFeService {
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(deferredId);
             flightContext.closeFlightSqlDeferredExecutors();
+        }
+    }
+
+    @Test
+    public void testDeferredFinalizationKeepsEachQueryIdentityThroughCallbacksAndFailures() {
+        boolean savedQueryIdLogging = Config.sys_log_enable_query_id;
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.getSessionVariable().enableProfile = false;
+        List<TUniqueId> queryIds = Lists.newArrayList(new TUniqueId(0x68694L, 1), new TUniqueId(0x68694L, 2));
+        List<String> observed = Lists.newArrayList();
+        IllegalStateException closeFailure = new IllegalStateException("deferred coordinator close failed");
+        try {
+            Config.sys_log_enable_query_id = true;
+            for (TUniqueId queryId : queryIds) {
+                flightContext.setQueryId(queryId);
+                StmtExecutor deferred = new StmtExecutor(flightContext, "select 1") {
+                    @Override
+                    public void updateProfile(boolean isFinished) {
+                        observed.add("profile:" + ThreadContext.get(QueryLogContext.QUERY_ID));
+                    }
+                };
+                Coordinator coordinator = Mockito.mock(Coordinator.class);
+                Mockito.doAnswer(invocation -> {
+                    observed.add("close:" + ThreadContext.get(QueryLogContext.QUERY_ID));
+                    if (queryId.equals(queryIds.get(0))) {
+                        throw closeFailure;
+                    }
+                    return null;
+                }).when(coordinator).close();
+                deferred.setCoord(coordinator);
+                deferred.deferForArrowFlight();
+                QeProcessorImpl.INSTANCE.registerQueryFinishCallback(DebugUtil.printId(queryId),
+                        () -> observed.add("callback:" + ThreadContext.get(QueryLogContext.QUERY_ID)));
+            }
+
+            // The session has moved on, and a different query (e.g. KILL CONNECTION) triggers cleanup.
+            flightContext.setQueryId(new TUniqueId(0x68694L, 3));
+            try (QueryLogContext caller = QueryLogContext.open(new TUniqueId(0x68694L, 4));
+                    TestLogAppender appender = TestLogAppender.attach(FlightProtocolAdapter.class, Level.WARN)) {
+                flightContext.closeFlightSqlDeferredExecutors();
+
+                // Exercise the real finalizeArrowFlightQuery/finalizeQuery and callback registry,
+                // including the finally after close fails and the next executor in the same batch.
+                Assertions.assertEquals(Lists.newArrayList("close:68694-1", "profile:68694-1", "callback:68694-1",
+                        "close:68694-2", "profile:68694-2", "callback:68694-2"), observed);
+                Assertions.assertTrue(flightContext.getFlightSqlDeferredExecutors().isEmpty());
+                Assertions.assertEquals("68694-4", ThreadContext.get(QueryLogContext.QUERY_ID));
+                List<LogEvent> events = Deencapsulation.getField(appender, "events");
+                Assertions.assertEquals(1, events.size());
+                Assertions.assertEquals("failed to finalize deferred arrow flight executor",
+                        events.get(0).getMessage().getFormattedMessage());
+                Assertions.assertEquals("68694-1", events.get(0).getContextData().getValue(QueryLogContext.QUERY_ID));
+                Assertions.assertSame(closeFailure, events.get(0).getThrown());
+            }
+        } finally {
+            flightContext.releaseProtocolSession();
+            for (TUniqueId queryId : queryIds) {
+                QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            }
+            Config.sys_log_enable_query_id = savedQueryIdLogging;
         }
     }
 

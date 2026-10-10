@@ -77,6 +77,9 @@ public class Config extends ConfigBase {
             options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "ASYNC";
 
+    @ConfField(description = "Attach query_id to runtime log events. Requires restart.")
+    public static boolean sys_log_enable_query_id = true;
+
     @ConfField(description = "The maximum number of FE log files that can be retained within the "
             + "sys_log_roll_interval (log roll interval). The default value is 10, which means the "
             + "system will keep up to 10 log files during each log roll interval.")

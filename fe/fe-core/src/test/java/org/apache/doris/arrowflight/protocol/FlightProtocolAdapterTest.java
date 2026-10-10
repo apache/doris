@@ -19,10 +19,13 @@ package org.apache.doris.arrowflight.protocol;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
+import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
@@ -44,6 +47,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.Lists;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
+import org.apache.logging.log4j.ThreadContext;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -71,10 +75,14 @@ import java.util.concurrent.TimeUnit;
  */
 public class FlightProtocolAdapterTest {
     private boolean savedRunningUnitTest;
+    private boolean savedQueryIdLogging;
+    private String savedLogQueryId;
 
     @BeforeEach
     public void setUp() {
         savedRunningUnitTest = FeConstants.runningUnitTest;
+        savedQueryIdLogging = Config.sys_log_enable_query_id;
+        savedLogQueryId = ThreadContext.get(QueryLogContext.QUERY_ID);
         // ConnectContext.init() registers the session with Env unless running as a unit test.
         FeConstants.runningUnitTest = true;
     }
@@ -83,6 +91,12 @@ public class FlightProtocolAdapterTest {
     public void tearDown() {
         FeConstants.runningUnitTest = savedRunningUnitTest;
         ConnectContext.remove();
+        if (savedLogQueryId == null) {
+            ThreadContext.remove(QueryLogContext.QUERY_ID);
+        } else {
+            ThreadContext.put(QueryLogContext.QUERY_ID, savedLogQueryId);
+        }
+        Config.sys_log_enable_query_id = savedQueryIdLogging;
     }
 
     private static ConnectContext flightSession() {
@@ -235,6 +249,74 @@ public class FlightProtocolAdapterTest {
         previous.setThreadLocalInfo();
         Assertions.assertSame(ctx, adapter.callCommand(ctx, ConnectContext::get));
         Assertions.assertSame(previous, ConnectContext.get());
+    }
+
+    @Test
+    public void testCommandClearsRetainedQueryIdAndRestoresCallerIdentity() {
+        Config.sys_log_enable_query_id = true;
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        ctx.setQueryId(new TUniqueId(1, 2));
+        ConnectContext previous = new ConnectContext();
+        previous.setQueryId(new TUniqueId(3, 4));
+        previous.setThreadLocalInfo();
+        // A callback can have its own log identity independently of its current connection.
+        ThreadContext.put(QueryLogContext.QUERY_ID, "caller");
+        try {
+            adapter.runCommand(ctx, () -> {
+                Assertions.assertSame(ctx, ConnectContext.get());
+                Assertions.assertEquals(new TUniqueId(1, 2), ctx.queryId());
+                Assertions.assertNull(ThreadContext.get(QueryLogContext.QUERY_ID));
+                ctx.setQueryId(new TUniqueId(5, 6));
+                Assertions.assertEquals("5-6", ThreadContext.get(QueryLogContext.QUERY_ID));
+            });
+            Assertions.assertSame(previous, ConnectContext.get());
+            Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+            // The next metadata command must not borrow the preceding statement's query ID.
+            adapter.runCommand(ctx, () -> Assertions.assertNull(ThreadContext.get(QueryLogContext.QUERY_ID)));
+            Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+        } finally {
+            ctx.releaseProtocolSession();
+        }
+    }
+
+    @Test
+    public void testFailedCommandRestoresCallerIdentityWithoutAConnection() {
+        Config.sys_log_enable_query_id = true;
+        ConnectContext.remove();
+        ThreadContext.put(QueryLogContext.QUERY_ID, "caller");
+        ConnectContext ctx = flightSession();
+        ctx.setQueryId(new TUniqueId(1, 2));
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        try {
+            Assertions.assertThrows(IllegalStateException.class, () -> adapter.runCommand(ctx, () -> {
+                Assertions.assertNull(ThreadContext.get(QueryLogContext.QUERY_ID));
+                ctx.setQueryId(new TUniqueId(3, 4));
+                throw new IllegalStateException("command failure");
+            }));
+            Assertions.assertNull(ConnectContext.get());
+            Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+        } finally {
+            ctx.releaseProtocolSession();
+        }
+    }
+
+    @Test
+    public void testCachedOkResultKeepsQueryIdIndependentOfTicket() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        TUniqueId queryId = new TUniqueId(1, 2);
+        String ticket = "e214f39a-866e-48b7-8d56-d5e520939fec";
+        try {
+            adapter.getChannel().addOKResult(ticket, "SET query_timeout = 10", queryId);
+            queryId.setLo(3);
+            FlightSqlResultCacheEntry result = adapter.getChannel().getResult(ticket);
+            Assertions.assertNotNull(result);
+            Assertions.assertEquals(new TUniqueId(1, 2), result.getQueryId());
+        } finally {
+            ctx.releaseProtocolSession();
+        }
+        Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
     }
 
     // A command of the session is activity of its client, whether or not it runs a statement:

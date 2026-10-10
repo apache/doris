@@ -33,6 +33,7 @@ public:
     static std::unique_ptr<TaskController> create(std::shared_ptr<QueryContext> query_ctx);
     ~QueryTaskController() override = default;
 
+    bool is_query_task() const override { return true; }
     bool is_cancelled() const override;
     bool cancel_impl(const Status& reason) override;
     bool is_pure_load_task() const override;

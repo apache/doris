@@ -31,6 +31,7 @@
 
 #include "cloud/config.h"
 #include "common/logging.h"
+#include "common/query_log_context.h"
 #include "common/status.h"
 #include "exec/operator/rec_cte_scan_operator.h"
 #include "exec/pipeline/dependency.h"
@@ -233,6 +234,7 @@ void QueryContext::record_spill_data_dir(SpillDataDir* data_dir) {
 }
 
 QueryContext::~QueryContext() {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
     // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
@@ -276,8 +278,8 @@ QueryContext::~QueryContext() {
     clock_gettime(CLOCK_MONOTONIC, &now);
     int64_t elapsed_ms = (now.tv_sec - _query_arrival_timestamp.tv_sec) * 1000LL +
                          (now.tv_nsec - _query_arrival_timestamp.tv_nsec) / 1000000LL;
-    LOG_INFO("Query {} deconstructed, elapsed_ms: {}, mem_tracker: {}", print_id(this->_query_id),
-             elapsed_ms, mem_tracker_msg);
+    LOG_INFO("Query{} deconstructed, elapsed_ms: {}, mem_tracker: {}",
+             query_id_log_suffix(_query_id), elapsed_ms, mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {
@@ -306,6 +308,7 @@ void QueryContext::set_memory_sufficient(bool sufficient) {
 }
 
 void QueryContext::cancel(Status new_status) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
     if (!_exec_status.update(new_status)) {
         return;
     }
@@ -453,9 +456,8 @@ void QueryContext::add_fragment_profile(
 #endif
 
     std::lock_guard<std::mutex> l(_profile_mutex);
-    VLOG_ROW << fmt::format(
-            "Query add fragment profile, query {}, fragment {}, pipeline profile count {} ",
-            print_id(this->_query_id), fragment_id, pipeline_profiles.size());
+    VLOG_ROW << fmt::format("Query{} add fragment profile, fragment {}, pipeline profile count {} ",
+                            query_id_log_suffix(_query_id), fragment_id, pipeline_profiles.size());
 
     _profile_map.insert(std::make_pair(fragment_id, pipeline_profiles));
 
@@ -465,6 +467,7 @@ void QueryContext::add_fragment_profile(
 }
 
 void QueryContext::_report_query_profile() {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
     std::lock_guard<std::mutex> lg(_profile_mutex);
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {

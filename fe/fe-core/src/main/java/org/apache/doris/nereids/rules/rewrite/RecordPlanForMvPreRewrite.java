@@ -67,8 +67,8 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
                     }, plan, plan, false);
             statementContext.addTmpPlanForMvRewrite(finalPlan);
         } catch (Exception e) {
-            LOG.error("mv rewrite in rbo rewrite pre normalize fail, query id is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier(), e);
+            LOG.error("mv rewrite in rbo rewrite pre normalize fail, statement {}",
+                    cascadesContext.getConnectContext().getQueryLogIdentifier(), e);
         } finally {
             statementContext.restoreCteEnvironment(cteEnvironmentSnapshot);
         }

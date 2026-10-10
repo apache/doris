@@ -29,6 +29,7 @@
 
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/query_log_context.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/exchange_source_operator.h"
@@ -525,7 +526,7 @@ Status PipelineTask::execute(bool* done) {
     // If this task is blocked by a spilling request and waken up immediately, the spilling
     // dependency will not block this task and we should just run here.
     if (!_block->empty()) {
-        LOG(INFO) << "Query: " << print_id(query_id) << " has pending block, size: "
+        LOG(INFO) << "Query" << query_id_log_suffix(query_id) << " has pending block, size: "
                   << PrettyPrinter::print_bytes(_block->allocated_bytes());
         DCHECK(_spilling);
     }
@@ -633,9 +634,9 @@ Status PipelineTask::execute(bool* done) {
                 reserve_size > 0) {
                 if (_should_trigger_revoking(reserve_size)) {
                     LOG(INFO) << fmt::format(
-                            "Query: {} sink: {}, node id: {}, task id: {}, reserve size: {} when "
+                            "Query{} sink: {}, node id: {}, task id: {}, reserve size: {} when "
                             "high memory pressure, try to spill",
-                            print_id(_query_id), _sink->get_name(), _sink->node_id(),
+                            query_id_log_suffix(_query_id), _sink->get_name(), _sink->node_id(),
                             _state->task_id(), reserve_size);
                     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                             _state->get_query_ctx()->resource_ctx()->shared_from_this(),
@@ -669,9 +670,9 @@ Status PipelineTask::execute(bool* done) {
 
                 if (sink_reserve_size > 0 && _should_trigger_revoking(sink_reserve_size)) {
                     LOG(INFO) << fmt::format(
-                            "Query: {} sink: {}, node id: {}, task id: {}, reserve size: {} when "
+                            "Query{} sink: {}, node id: {}, task id: {}, reserve size: {} when "
                             "high memory pressure, try to spill",
-                            print_id(_query_id), _sink->get_name(), _sink->node_id(),
+                            query_id_log_suffix(_query_id), _sink->get_name(), _sink->node_id(),
                             _state->task_id(), sink_reserve_size);
                     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                             _state->get_query_ctx()->resource_ctx()->shared_from_this(),
@@ -801,8 +802,8 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
     // If reserve memory failed and the query is not enable spill, just disable reserve memory(this will enable
     // memory hard limit check, and will cancel the query if allocate memory failed) and let it run.
     if (!st.ok() && !_state->enable_spill()) {
-        LOG(INFO) << print_id(_query_id) << " reserve memory failed due to " << st
-                  << ", and it is not enable spill, disable reserve memory and let it run";
+        LOG(INFO) << "Query" << query_id_log_suffix(_query_id) << " reserve memory failed due to "
+                  << st << ", and it is not enable spill, disable reserve memory and let it run";
         _state->get_query_ctx()->resource_ctx()->task_controller()->disable_reserve_memory();
         return true;
     }
@@ -853,8 +854,8 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         }
 
         auto debug_msg = fmt::format(
-                "Query: {} , try to reserve: {}, total revocable mem size: {}, failed reason: {}",
-                print_id(_query_id), PrettyPrinter::print_bytes(reserve_size),
+                "Query{}, try to reserve: {}, total revocable mem size: {}, failed reason: {}",
+                query_id_log_suffix(_query_id), PrettyPrinter::print_bytes(reserve_size),
                 PrettyPrinter::print_bytes(total_revocable_mem_size), st.to_string());
         if (!ops_revocable_info.empty()) {
             debug_msg += fmt::format(", ops_revocable=[{}]", ops_revocable_info);
@@ -1047,8 +1048,8 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     DCHECK(spill_context);
     if (is_finalized()) {
         spill_context->on_task_finished();
-        VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
-                   << " finalized";
+        VLOG_DEBUG << "Query" << query_id_log_suffix(_state->query_id())
+                   << ", task: " << ((void*)this) << " finalized";
         return Status::OK();
     }
 
@@ -1060,7 +1061,8 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
         RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(revokable_task));
     } else {
         spill_context->on_task_finished();
-        VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+        VLOG_DEBUG << "Query" << query_id_log_suffix(_state->query_id())
+                   << ", task: " << ((void*)this)
                    << " has not enough data to revoke: " << revocable_size;
     }
     return Status::OK();

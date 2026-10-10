@@ -263,29 +263,30 @@ public class InsertOverwriteTableCommand extends Command
                 // it's overwrite table(as all partitions) or specific partition(s)
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before registerTask, queryId: {}",
-                            ctx.getQueryIdentifier());
+                    LOG.info("insert overwrite is cancelled before registerTask, statement: {}",
+                            ctx.getQueryLogIdentifier());
                     return;
                 }
                 taskId = insertOverwriteManager.registerTask(targetTable, tempPartitionNames);
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before addTempPartitions, queryId: {}",
-                            ctx.getQueryIdentifier());
+                    LOG.info("insert overwrite is cancelled before addTempPartitions, statement: {}",
+                            ctx.getQueryLogIdentifier());
                     // not need deal temp partition
                     insertOverwriteManager.taskSuccess(taskId);
                     return;
                 }
                 InsertOverwriteUtil.addTempPartitions(targetTable, partitionNames, tempPartitionNames);
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before insertInto, queryId: {}", ctx.getQueryIdentifier());
+                    LOG.info("insert overwrite is cancelled before insertInto, statement: {}",
+                            ctx.getQueryLogIdentifier());
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
                 // todo: need to refresh remote target table after add temp partitions
                 insertIntoPartitions(ctx, executor, tempPartitionNames, wholeTable);
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before replacePartition, queryId: {}",
-                            ctx.getQueryIdentifier());
+                    LOG.info("insert overwrite is cancelled before replacePartition, statement: {}",
+                            ctx.getQueryLogIdentifier());
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
@@ -293,8 +294,8 @@ public class InsertOverwriteTableCommand extends Command
                 InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
                         isForceDropPartition());
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, queryId: {}",
-                            ctx.getQueryIdentifier());
+                    LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, statement: {}",
+                            ctx.getQueryLogIdentifier());
                 }
                 insertOverwriteManager.taskSuccess(taskId);
             }

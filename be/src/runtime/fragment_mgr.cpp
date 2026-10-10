@@ -426,10 +426,11 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     TUniqueId query_id;
     query_id.__set_hi(request->query_id().hi());
     query_id.__set_lo(request->query_id().lo());
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(query_id)};
     auto q_ctx = get_query_ctx(query_id);
     if (q_ctx) {
         q_ctx->set_ready_to_execute(Status::OK());
-        LOG_INFO("Query {} start execution", print_id(query_id));
+        LOG_INFO("Query{} start execution", query_id_log_suffix(query_id));
     } else {
         return Status::InternalError(
                 "Failed to get query fragments context. Query {} may be "
@@ -514,7 +515,7 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         workload_group_ptr = _exec_env->workload_group_mgr()->get_group(wg_id_set);
 
                         // First time a fragment of a query arrived. print logs.
-                        LOG(INFO) << "query_id: " << print_id(query_id)
+                        LOG(INFO) << "Query" << query_id_log_suffix(query_id)
                                   << ", coord_addr: " << params.coord
                                   << ", total fragment num on current host: "
                                   << params.fragment_num_on_host
@@ -651,11 +652,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb,
                                        const TPipelineFragmentParamsList& parent,
                                        std::shared_ptr<bool> is_prepare_success) {
-    VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(params.query_id)};
+    VLOG_ROW << "Query" << query_id_log_suffix(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TPipelineFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
-    VLOG_ROW << "Query: " << print_id(params.query_id) << "query options is "
+    VLOG_ROW << "Query" << query_id_log_suffix(params.query_id) << " options are "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
@@ -726,12 +728,13 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 }
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(query_id)};
     std::shared_ptr<QueryContext> query_ctx = nullptr;
     {
         if (auto q_ctx = get_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            LOG(WARNING) << "Query " << print_id(query_id)
+            LOG(WARNING) << "Query" << query_id_log_suffix(query_id)
                          << " does not exists, failed to cancel it";
             return;
         }
@@ -743,7 +746,7 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     if (ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(query_id)) {
         ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(query_id);
     }
-    LOG(INFO) << "Query " << print_id(query_id)
+    LOG(INFO) << "Query" << query_id_log_suffix(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }
 
@@ -856,7 +859,8 @@ void FragmentMgr::_collect_timeout_queries_and_brpc_items(
                     if (auto q_ctx = it->second.lock()) {
                         contexts.push_back(q_ctx);
                         if (q_ctx->is_timeout(now)) {
-                            LOG_WARNING("Query {} is timeout", print_id(it->first));
+                            ScopedQueryLogContext query_log_scope {QueryLogIdentity(it->first)};
+                            LOG_WARNING("Query{} is timeout", query_id_log_suffix(it->first));
                             queries_timeout.push_back(it->first);
                         } else if (config::enable_brpc_connection_check) {
                             auto brpc_stubs = q_ctx->get_using_brpc_stubs();
