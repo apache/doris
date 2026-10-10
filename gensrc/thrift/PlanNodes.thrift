@@ -374,6 +374,7 @@ enum TPaimonReaderType {
     PAIMON_JNI = 1,
     // Deprecated wire value kept during rolling upgrades. New plans never emit it.
     PAIMON_CPP = 2,
+    PAIMON_RUST = 3,
 }
 
 struct TPaimonFileDesc {
@@ -395,9 +396,13 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // Reserved for the Paimon Rust reader. Keep these ids aligned with branch-4.1.
+    18: optional string paimon_table_schema_json
+    19: optional string paimon_branch
     // Original Paimon RawFile.path() before Doris storage path normalization. Native readers use this
-    // to materialize the public file-location metadata column.
-    18: optional string original_file_path;
+    // to materialize the public file-location metadata column. This master-only field is appended after
+    // the branch-4.1 fields instead of reusing field 18.
+    20: optional string original_file_path;
 }
 
 struct TTrinoConnectorFileDesc {
