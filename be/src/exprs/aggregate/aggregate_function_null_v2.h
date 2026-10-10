@@ -482,7 +482,7 @@ public:
                                 Arena& arena) const override {
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
-        bool has_null = column->has_null();
+        bool has_null = column->has_null(0, batch_size);
 
         if (has_null) {
             for (size_t i = 0; i < batch_size; ++i) {
@@ -524,15 +524,17 @@ public:
             if (!*could_use_previous_result) {
                 this->init_flag(place);
                 *use_null_result = true;
-                return;
             }
+            return;
         } else {
             *use_null_result = false;
             *could_use_previous_result = true;
         }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
-        bool has_null = column->has_null();
+        bool has_null = current_frame_start < current_frame_end
+                                ? column->has_null(current_frame_start, current_frame_end)
+                                : false;
         if (has_null) {
             for (size_t i = current_frame_start; i < current_frame_end; ++i) {
                 this->add(place, columns, i, arena);
