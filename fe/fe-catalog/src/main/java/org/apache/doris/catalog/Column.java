@@ -880,6 +880,18 @@ public class Column implements GsonPostProcessable {
         return toSql(false, false);
     }
 
+    /**
+     * The DDL parser keeps the text between the quotes of a default value verbatim, so a value that
+     * contains double quotes (complex type defaults store nested strings as "...") is wrapped in single
+     * quotes to let SHOW CREATE TABLE output be replayed by CREATE TABLE LIKE.
+     */
+    private static String quoteDefaultValue(String value) {
+        if (value.indexOf('"') >= 0 && value.indexOf('\'') < 0) {
+            return "'" + value + "'";
+        }
+        return "\"" + value + "\"";
+    }
+
     public String toSql(boolean isUniqueTable) {
         return toSql(isUniqueTable, false);
     }
@@ -920,7 +932,7 @@ public class Column implements GsonPostProcessable {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValue).append("");
             } else {
-                sb.append(" DEFAULT \"").append(defaultValue).append("\"");
+                sb.append(" DEFAULT ").append(quoteDefaultValue(defaultValue));
             }
         }
         if ((getDataType() == PrimitiveType.BITMAP) && defaultValue != null) {

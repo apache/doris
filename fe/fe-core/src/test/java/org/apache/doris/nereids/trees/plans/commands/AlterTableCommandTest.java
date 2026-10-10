@@ -316,7 +316,7 @@ public class AlterTableCommandTest {
                 () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(
                         "ALTER TABLE t MODIFY COLUMN st STRUCT<v: INT> DEFAULT 'x'").getOps()));
         Assertions.assertTrue(complexDefaultException.getMessage()
-                .contains("Struct type column default value just support null"));
+                .contains("Struct type column default value only supports struct literals or DEFAULT NULL"));
 
         AnalysisException onUpdateException = Assertions.assertThrows(AnalysisException.class,
                 () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(

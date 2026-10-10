@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
@@ -49,6 +50,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.ComplexTypeDefaultValue;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
@@ -599,8 +602,21 @@ public class NereidsDataDescription {
         }
 
         if (args.get(0) != null) {
-            ColumnDef.validateDefaultValue(column.getOriginType(), args.get(0), column.getDefaultValueExprDef());
+            validateColumnValue(column, args.get(0));
         }
+    }
+
+    private static void validateColumnValue(Column column, String value) throws AnalysisException {
+        Type type = column.getOriginType();
+        if (type.isComplexType()) {
+            try {
+                ComplexTypeDefaultValue.canonicalize(DataType.fromCatalogType(type), value);
+            } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+            return;
+        }
+        ColumnDef.validateDefaultValue(type, value, column.getDefaultValueExprDef());
     }
 
     private static void validateMd5sum(List<String> args, Map<String, String> columnNameMap) throws AnalysisException {
@@ -634,7 +650,7 @@ public class NereidsDataDescription {
         }
 
         if (replaceValue != null) {
-            ColumnDef.validateDefaultValue(column.getOriginType(), replaceValue, column.getDefaultValueExprDef());
+            validateColumnValue(column, replaceValue);
         }
     }
 
