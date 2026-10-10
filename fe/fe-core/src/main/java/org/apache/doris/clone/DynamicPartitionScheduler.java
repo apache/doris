@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.PartitionPersistInfo;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -787,13 +788,15 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             executeFirstTime);
                 }
                 clearDropPartitionFailedMsg(olapTable.getId());
-                if (olapTable.getPartitionRetentionCount() > 0) {
-                    // Handle AUTO PARTITION cleanup based on partition.retention_count
-                    dropPartitionOps = getDropPartitionOpForAutoPartition(db, olapTable);
-                } else {
-                    // Handle dynamic partition cleanup
-                    dropPartitionOps = getDropPartitionOpForDynamic(db, olapTable, partitionColumn,
-                            partitionFormat);
+                if (!VariableMgr.isDynamicPartitionDropProtectionEnabled()) {
+                    if (olapTable.getPartitionRetentionCount() > 0) {
+                        // Handle AUTO PARTITION cleanup based on partition.retention_count
+                        dropPartitionOps = getDropPartitionOpForAutoPartition(db, olapTable);
+                    } else {
+                        // Handle dynamic partition cleanup
+                        dropPartitionOps = getDropPartitionOpForDynamic(db, olapTable, partitionColumn,
+                                partitionFormat);
+                    }
                 }
                 tableName = olapTable.getName();
             } catch (Exception e) {
@@ -811,6 +814,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     continue;
                 }
                 try {
+                    if (VariableMgr.isDynamicPartitionDropProtectionEnabled()) {
+                        break;
+                    }
                     Env.getCurrentEnv().dropPartition(db, olapTable, dropPartitionOp);
                 } catch (Exception e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());

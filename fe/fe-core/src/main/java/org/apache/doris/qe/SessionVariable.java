@@ -204,6 +204,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION =
+            "enable_dynamic_partition_drop_protection";
     public static final String CACHE_SORTED_PARTITION_INTERVAL_SECOND = "cache_sorted_partition_interval_second";
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
@@ -1529,6 +1531,18 @@ public class SessionVariable implements Serializable, Writable {
             description = "Whether to allow use binary search algorithm to filter partitions. ON by default."
     )
     public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION,
+            flag = VarAttrDef.GLOBAL,
+            description = "Whether to prevent background dynamic partition tasks from automatically dropping "
+                    + "partitions. OFF by default."
+    )
+    private boolean enableDynamicPartitionDropProtection = false;
+
+    public boolean isEnableDynamicPartitionDropProtection() {
+        return enableDynamicPartitionDropProtection;
+    }
 
     @VarAttrDef.VarAttr(
             name = CACHE_SORTED_PARTITION_INTERVAL_SECOND,
