@@ -80,21 +80,21 @@ suite("test_mask_function") {
         sql """
             select mask('abcd', name) from table_mask_test order by id;
         """
-        exception "Argument at index 1 for function mask must be constant"
+        exception "Argument at index 1 for function mask must be a constant expression"
     }
 
     test {
         sql """
             select mask('abcd', '>', name) from table_mask_test order by id;
         """
-        exception "Argument at index 2 for function mask must be constant"
+        exception "Argument at index 2 for function mask must be a constant expression"
     }
 
     test {
         sql """
             select mask('abcd', '>', '<', `name`) from table_mask_test order by id;
         """
-        exception "Argument at index 3 for function mask must be constant"
+        exception "Argument at index 3 for function mask must be a constant expression"
     }
 
     sql """
