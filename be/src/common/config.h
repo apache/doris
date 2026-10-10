@@ -1795,8 +1795,11 @@ DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 // Where spill data is written: "local" (spill_storage_root_path) or "s3" (the storage vault of a
 // cloud instance). "s3" is only valid in cloud mode.
 DECLARE_String(spill_storage_type);
-// Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". Empty
-// means the default vault of the instance.
+// Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". When
+// empty, an instance without storage vaults uses its latest object storage and an instance
+// with storage vaults uses the S3 vault with the smallest ID, so that adding a vault or
+// changing the default vault does not move spill. Files already spilled stay on the vault
+// they were written to until they are deleted.
 DECLARE_String(spill_s3_storage_vault_id);
 // Upper bound of the allocated capacity of spill upload buffers that were submitted to object
 // storage and are not yet acknowledged (every buffer counts as s3_write_buffer_size, also a

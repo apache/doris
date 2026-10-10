@@ -1736,8 +1736,6 @@ DEFINE_String(spill_storage_type, "local");
 DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
     return config == "local" || config == "s3";
 });
-// Empty means the default vault of the instance, resolved when this BE spills for the first
-// time; a later SET DEFAULT STORAGE VAULT applies to spill after the BE restarts.
 DEFINE_String(spill_s3_storage_vault_id, "");
 DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
 DEFINE_Validator(spill_s3_max_inflight_upload_bytes,

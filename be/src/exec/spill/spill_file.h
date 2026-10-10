@@ -109,7 +109,7 @@ private:
     void account_potential_part(int64_t part_bytes);
 
     SpillDataDir* _data_dir = nullptr;
-    // Vault binding at file creation; never follow a later default-vault rotation.
+    // Vault binding at file creation; never follow a later change of the spill vault.
     io::FileSystemSPtr _fs;
     // Path of this spill file: data_dir->get_spill_data_path() + "/" + relative_path.
     // Absolute for local stores, relative to the vault prefix for remote stores.

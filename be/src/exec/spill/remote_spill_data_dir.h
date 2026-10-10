@@ -24,6 +24,9 @@
 #include "exec/spill/spill_data_dir.h"
 
 namespace doris {
+namespace io {
+class RemoteFileSystem;
+} // namespace io
 
 /// Spill store on the object storage of a cloud storage vault (spill_storage_type=s3).
 ///
@@ -39,11 +42,22 @@ namespace doris {
 /// uploads) removes it.
 ///
 /// The file system is resolved lazily by ensure_ready(): the storage vault may not be known
-/// yet when BE starts.
+/// yet when BE starts. See select_vault_fs() for which vault is used. Every SpillFile keeps the
+/// file system it was created on, so its objects are read and deleted on that vault even when
+/// a later file is created on another one.
 class RemoteSpillDataDir final : public SpillDataDir {
 public:
-    /// @param vault_id  storage vault id, empty means the default vault of the instance.
+    /// @param vault_id  storage vault ID, empty selects one automatically (see select_vault_fs()).
     explicit RemoteSpillDataDir(std::string vault_id);
+
+    /// The file system spill writes new files to:
+    ///   1. `vault_id` (spill_s3_storage_vault_id) when it is set;
+    ///   2. otherwise `latest_fs`, which only an instance without storage vaults has;
+    ///   3. otherwise the S3 storage vault with the smallest ID, so that adding a vault or
+    ///      changing the default vault does not move spill.
+    /// nullptr when no such vault is known.
+    static std::shared_ptr<io::RemoteFileSystem> select_vault_fs(
+            const std::string& vault_id, const std::shared_ptr<io::RemoteFileSystem>& latest_fs);
 
     Status init() override;
 
@@ -51,8 +65,8 @@ public:
 
     bool ready() const override { return _ready.load(std::memory_order_acquire); }
 
-    /// Resolve the vault for a new file and return an immutable filesystem snapshot. For an
-    /// implicit vault, every call checks the current default; existing files retain their FS.
+    /// Resolve the vault for a new file and return an immutable filesystem snapshot. Without
+    /// spill_s3_storage_vault_id every call selects again; existing files retain their FS.
     Status ensure_ready(io::FileSystemSPtr* file_fs);
 
     /// Bind a file system directly for tests without a cloud storage engine.

@@ -64,7 +64,7 @@ void SpillFile::gc() {
     // Delete the spill directory (or object key prefix) directly instead of moving it to a
     // GC directory. No existence check: for object storage a "directory" never exists as an
     // object, while deleting a missing local directory or an empty prefix is a no-op.
-    // The filesystem is pinned when the file is created, not resolved from a rotating default.
+    // The filesystem is pinned when the file is created; later files may use another vault.
     auto fs = _fs;
     DORIS_CHECK(fs != nullptr) << "spill store " << _data_dir->path() << " is not ready";
     Status status = fs->delete_directory(_spill_dir);

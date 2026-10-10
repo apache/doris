@@ -158,7 +158,7 @@ private:
         // A query directory or the directory of one spill file.
         std::string dir;
         SpillDataDir* data_dir {nullptr};
-        // Pinned for remote spill: a later default-vault rotation must not redirect GC.
+        // Pinned for remote spill: a later change of the spill vault must not redirect GC.
         io::FileSystemSPtr fs;
         // Bytes of the objects under `dir` still charged to `data_dir`; released once deleted.
         int64_t charged_bytes {0};

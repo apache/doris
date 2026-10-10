@@ -36,18 +36,48 @@
 namespace doris {
 
 RemoteSpillDataDir::RemoteSpillDataDir(std::string vault_id)
-        : SpillDataDir(fmt::format("s3:{}", vault_id.empty() ? "default" : vault_id),
+        : SpillDataDir(fmt::format("s3:{}", vault_id.empty() ? "auto" : vault_id),
                        /*spill_root=*/"",
-                       fmt::format("s3:{}", vault_id.empty() ? "default" : vault_id),
+                       fmt::format("s3:{}", vault_id.empty() ? "auto" : vault_id),
                        /*capacity_bytes=*/0, TStorageMedium::S3),
           _vault_id(std::move(vault_id)) {}
 
 Status RemoteSpillDataDir::init() {
     RETURN_IF_ERROR(update_capacity());
     LOG(INFO) << fmt::format("remote spill store registered, vault_id={}, limit={}",
-                             _vault_id.empty() ? "<default>" : _vault_id,
+                             _vault_id.empty() ? "<auto>" : _vault_id,
                              PrettyPrinter::print_bytes(_spill_data_limit_bytes));
     return Status::OK();
+}
+
+io::RemoteFileSystemSPtr RemoteSpillDataDir::select_vault_fs(
+        const std::string& vault_id, const io::RemoteFileSystemSPtr& latest_fs) {
+    if (!vault_id.empty()) {
+        return get_filesystem(vault_id);
+    }
+    if (latest_fs != nullptr) {
+        // Only an instance without storage vaults has a latest file system.
+        return latest_fs;
+    }
+    // Storage vault mode: the S3 vault with the smallest ID. Adding a vault or changing the
+    // default vault does not move spill; spill_s3_storage_vault_id does.
+    io::RemoteFileSystemSPtr selected;
+    std::string selected_id;
+    for (const auto& id_and_version : get_storage_resource_ids()) {
+        const std::string& id = id_and_version.first;
+        auto resource = get_storage_resource(id);
+        // The resource map may change between listing and lookup.
+        if (!resource.has_value() || resource->first.fs->type() != io::FileSystemType::S3) {
+            continue;
+        }
+        // Vault IDs are decimal numbers: a shorter ID is a smaller one.
+        if (selected == nullptr || id.size() < selected_id.size() ||
+            (id.size() == selected_id.size() && id < selected_id)) {
+            selected = resource->first.fs;
+            selected_id = id;
+        }
+    }
+    return selected;
 }
 
 Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
@@ -64,21 +94,18 @@ Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
         return Status::InternalError("spill to s3 is not ready: the address of this BE is unknown");
     }
     std::string endpoint = fmt::format("{}_{}", host, config::heartbeat_service_port);
-    // The vault is resolved from what the vault refresh thread already brought in.
-    auto& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
-    std::string vault_id = _vault_id.empty() ? engine.default_vault_id() : _vault_id;
-    io::RemoteFileSystemSPtr fs =
-            vault_id.empty() ? engine.latest_fs() : doris::get_filesystem(vault_id);
+    // The vaults are the ones the vault refresh thread of the storage engine already brought in.
+    io::RemoteFileSystemSPtr fs = select_vault_fs(
+            _vault_id, ExecEnv::GetInstance()->storage_engine().to_cloud().latest_fs());
     if (fs == nullptr) {
         return Status::InternalError(
-                "spill to s3 is not ready: storage vault '{}' not found (empty means the default "
-                "vault of the instance; set spill_s3_storage_vault_id to the vault ID in be.conf if "
-                "the instance has no default vault)",
-                vault_id);
+                "spill to s3 is not ready: {}",
+                _vault_id.empty() ? "no S3 storage vault is known yet"
+                                  : fmt::format("storage vault '{}' not found", _vault_id));
     }
     if (fs->type() != io::FileSystemType::S3) {
         return Status::NotSupported("spill to s3 only supports S3 storage vaults, vault '{}' is {}",
-                                    vault_id, fs->type());
+                                    _vault_id, fs->type());
     }
     if (!ready() || _fs != fs) {
         _bind_fs_unlocked(fs, std::move(endpoint));
@@ -103,7 +130,7 @@ void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs, std::string en
     _ready.store(true, std::memory_order_release);
     LOG(INFO) << fmt::format(
             "remote spill store is ready, vault_id={}, fs_id={}, root={}, limit={}",
-            _vault_id.empty() ? "<default>" : _vault_id, _fs->id(), _spill_root,
+            _vault_id.empty() ? "<auto>" : _vault_id, _fs->id(), _spill_root,
             PrettyPrinter::print_bytes(config::spill_storage_limit_bytes));
 }
 
