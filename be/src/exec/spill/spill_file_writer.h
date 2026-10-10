@@ -31,7 +31,6 @@ class RuntimeState;
 
 class SpillDataDir;
 class SpillFile;
-class SpillRemoteUploadBudget;
 
 /// SpillFileWriter writes blocks to a SpillFile, automatically managing
 /// part-file rotation when a part exceeds the configured size threshold
@@ -50,9 +49,10 @@ class SpillRemoteUploadBudget;
 ///
 /// Files are created on the SpillDataDir's file system, which is either a local disk or
 /// the object storage of a cloud storage vault. For object storage the writer additionally
-/// bounds in-flight upload memory through SpillRemoteUploadBudget (S3FileWriter asks the
-/// budget right before it submits a buffer and gives the bytes back when the upload finished)
-/// and reports request statistics.
+/// appends at most one upload buffer at a time and pauses while the S3 upload queue holds
+/// more than spill_s3_max_inflight_upload_bytes of buffers, which bounds the upload memory of
+/// a spill that produces faster than object storage takes it, and reports request statistics
+/// derived from the closed part.
 class SpillFileWriter {
 public:
     SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, RuntimeState* state,
@@ -66,33 +66,39 @@ public:
     Status write_block(RuntimeState* state, const Block& block);
 
     /// Finalize: close the current part, wait for all parts, record cumulative stats
-    /// in SpillFile. After close(), no more writes are allowed.
+    /// in SpillFile. After close(), no more writes are allowed. After a failed write_block()
+    /// the file cannot be completed: close() drops the current part and returns that failure.
     Status close();
 
 private:
     friend class SpillFile;
 
-    /// Remote only: budget bytes taken and given back for one part. Updated from the
-    /// appending thread (gate) and the upload threads (done callback); shared by value with
-    /// the FileWriterOptions lambdas so that it outlives the writer.
-    struct PartBudgetLedger {
-        std::atomic<int64_t> acquired {0};
-        std::atomic<int64_t> released {0};
-        std::atomic<int64_t> wait_ns {0};
-    };
+    Status _write_block(RuntimeState* state, const Block& block);
 
     /// Open the next part file (spill_dir/{_current_part_index}).
     Status _open_next_part(const std::shared_ptr<SpillFile>& spill_file);
 
     /// Close the current part: write the footer, close the file writer synchronously
-    /// (draining in-flight uploads on failure), reconcile budget and statistics, register
+    /// (draining in-flight uploads on failure), account its remote statistics, register
     /// the part with the SpillFile (or abort its multipart upload on failure), and advance
-    /// to the next part index. Budget and statistics are reconciled whether it succeeds
-    /// or not.
+    /// to the next part index. Statistics are accounted whether it succeeds or not.
     Status _close_current_part(const std::shared_ptr<SpillFile>& spill_file);
 
-    /// Budget and statistics of the current part, once its writer reached a final state.
-    void _reconcile_part();
+    /// Append to the current part. For object storage `data` is appended one upload buffer
+    /// at a time, each after _wait_for_upload_queue(). After a failed append the part is
+    /// broken: every later append, the footer included, returns that failure without reaching
+    /// the file writer (S3FileWriter must not be appended to after a failed append).
+    Status _append_to_part(const Slice& data);
+
+    /// Object storage only: refuse a cancelled query, and wait while the S3 upload queue holds
+    /// at least spill_s3_max_inflight_upload_bytes of buffers. Buffers that are still being
+    /// filled are not queued, so idle writers cannot block each other.
+    Status _wait_for_upload_queue();
+
+    /// Object storage only: request statistics of the current part, derived from its writer.
+    /// `closed` tells that close() returned OK (the object was published, every upload done).
+    /// A part that failed only accounts its CreateMultipartUpload: its uploads may still run.
+    void _account_remote_part(doris::io::FileWriter* writer, bool closed);
 
     /// Reset the per-part state and move on to the next part index.
     void _advance_part();
@@ -127,8 +133,6 @@ private:
     io::FileSystemSPtr _fs;
     std::string _spill_dir;
     int64_t _max_part_size;
-    // Non-null only for remote stores.
-    SpillRemoteUploadBudget* _budget = nullptr;
 
     // ── Current part state (reset on rotation) ──
     size_t _current_part_index = 0;
@@ -138,10 +142,14 @@ private:
     int64_t _part_written_bytes = 0;
     size_t _part_max_sub_block_size = 0;
     std::string _part_meta;
-    std::shared_ptr<PartBudgetLedger> _part_ledger;
-    std::shared_ptr<doris::io::RemoteWriteStats> _part_stats;
+    // Object storage only: time spent in append() and close() of the current part.
+    int64_t _part_upload_ns = 0;
+    // First failed append of the current part.
+    Status _part_append_status;
 
     bool _closed = false;
+    // First failed write_block(); every later write and close() returns it.
+    Status _write_status;
 
     // ── Counters ──
     RuntimeProfile::Counter* _write_file_timer = nullptr;

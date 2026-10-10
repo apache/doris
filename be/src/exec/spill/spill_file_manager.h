@@ -28,7 +28,6 @@
 #include "common/status.h"
 #include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file.h"
-#include "exec/spill/spill_remote_upload_budget.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
@@ -140,8 +139,6 @@ public:
     /// Bytes and GET requests issued by spill against object storage.
     void update_spill_remote_read(int64_t bytes, int64_t get_requests);
 
-    SpillRemoteUploadBudget* remote_upload_budget() { return _remote_upload_budget.get(); }
-
     /// Number of spill directories whose deletion failed and is being retried.
     size_t pending_delete_dir_count();
 
@@ -194,8 +191,6 @@ private:
     std::vector<LocalSpillDataDir*> _local_stores;
     RemoteSpillDataDir* _remote_store = nullptr;
 
-    std::shared_ptr<SpillRemoteUploadBudget> _remote_upload_budget;
-
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;
 
@@ -220,13 +215,11 @@ private:
     std::unique_ptr<doris::MetricPrototype> _spill_remote_put_requests_metric {nullptr};
     std::unique_ptr<doris::MetricPrototype> _spill_remote_get_requests_metric {nullptr};
     std::unique_ptr<doris::MetricPrototype> _spill_pending_delete_dir_count_metric {nullptr};
-    std::unique_ptr<doris::MetricPrototype> _spill_remote_inflight_upload_bytes_metric {nullptr};
 
     IntAtomicCounter* _spill_remote_write_bytes_counter {nullptr};
     IntAtomicCounter* _spill_remote_read_bytes_counter {nullptr};
     IntAtomicCounter* _spill_remote_put_requests_counter {nullptr};
     IntAtomicCounter* _spill_remote_get_requests_counter {nullptr};
     IntGauge* _spill_pending_delete_dir_count_gauge {nullptr};
-    IntGauge* _spill_remote_inflight_upload_bytes_gauge {nullptr};
 };
 } // namespace doris

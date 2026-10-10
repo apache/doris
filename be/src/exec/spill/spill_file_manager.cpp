@@ -234,8 +234,6 @@ Status SpillFileManager::init() {
                      "remain available to external writers that require native file paths";
     }
     RETURN_IF_ERROR(_init_spill_store_map());
-    _remote_upload_budget =
-            std::make_shared<SpillRemoteUploadBudget>(config::spill_s3_max_inflight_upload_bytes);
 
     for (auto* store : _local_stores) {
         auto gc_dir_root_dir = store->get_spill_data_gc_path();
@@ -307,9 +305,6 @@ void SpillFileManager::_init_metrics() {
     _spill_pending_delete_dir_count_gauge =
             register_gauge(_spill_pending_delete_dir_count_metric, doris::MetricUnit::NOUNIT,
                            "spill_pending_delete_dir_count");
-    _spill_remote_inflight_upload_bytes_gauge =
-            register_gauge(_spill_remote_inflight_upload_bytes_metric, doris::MetricUnit::BYTES,
-                           "spill_remote_inflight_upload_bytes");
 }
 
 void SpillFileManager::update_spill_remote_write(int64_t bytes, int64_t put_requests) {
@@ -343,21 +338,8 @@ void SpillFileManager::_spill_gc_thread_callback() {
         for (auto& [path, dir] : _spill_store_map) {
             static_cast<void>(dir->update_capacity());
         }
-        // Both configs are mutable; observe changes without a restart.
-        int64_t budget_limit = config::spill_s3_max_inflight_upload_bytes;
-        if (budget_limit < 2 * config::s3_write_buffer_size) {
-            LOG_EVERY_T(WARNING, 60)
-                    << "spill_s3_max_inflight_upload_bytes (" << budget_limit
-                    << ") is below 2 * s3_write_buffer_size (" << config::s3_write_buffer_size
-                    << "); spill uploads will run one buffer at a time";
-        }
-        if (budget_limit != _remote_upload_budget->limit_bytes()) {
-            _remote_upload_budget->set_limit_bytes(budget_limit);
-        }
         if (_spill_pending_delete_dir_count_gauge != nullptr) {
             _spill_pending_delete_dir_count_gauge->set_value(pending_delete_dir_count());
-            _spill_remote_inflight_upload_bytes_gauge->set_value(
-                    _remote_upload_budget->inflight_bytes());
         }
     }
 }

@@ -1801,10 +1801,11 @@ DECLARE_String(spill_storage_type);
 // changing the default vault does not move spill. Files already spilled stay on the vault
 // they were written to until they are deleted.
 DECLARE_String(spill_s3_storage_vault_id);
-// Upper bound of the allocated capacity of spill upload buffers that were submitted to object
-// storage and are not yet acknowledged (every buffer counts as s3_write_buffer_size, also a
-// partially filled last one). Bounds the upload buffer memory of spill; writers block once it
-// is reached.
+// Spill writers pause before handing another buffer to object storage while the S3 upload queue
+// (shared with every other S3 writer of this BE) holds at least this many bytes of buffers
+// waiting to be uploaded, every buffer counted as s3_write_buffer_size. Bounds the upload buffer
+// memory of a spill that produces data faster than object storage takes it. Buffers still being
+// filled by open writers are not queued and do not count.
 DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
 // Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
 // into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);
