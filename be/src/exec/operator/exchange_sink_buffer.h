@@ -57,6 +57,7 @@ class BroadcastPBlockHolder {
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
 
 public:
+    // NOLINTNEXTLINE(modernize-use-equals-default): construction must allocate a reusable block.
     BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
     ~BroadcastPBlockHolder();
 
@@ -283,9 +284,7 @@ public:
 
     void set_low_memory_mode() { _queue_capacity = 8; }
     std::string debug_each_instance_queue_size();
-#ifdef BE_TEST
-public:
-#else
+#ifndef BE_TEST
 private:
 #endif
     friend class ExchangeSinkLocalState;

@@ -25,6 +25,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/network_util.h"
 
 namespace doris {
@@ -36,12 +37,17 @@ namespace doris {
 // 2G: In the default "baidu_std" brpcd, upper limit of the request and attachment length is 2G.
 constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31);
 
+template <typename Params, typename Closure>
+Status request_embed_attachmentv2(Params* brpc_request, const std::string& data,
+                                  std::unique_ptr<Closure>& closure);
+
 // Embed column_values and brpc request serialization string in controller attachment.
 template <typename Params, typename Closure>
 Status request_embed_attachment_contain_blockv2(Params* brpc_request,
                                                 std::unique_ptr<Closure>& closure) {
-    std::string column_values = std::move(*brpc_request->mutable_block()->mutable_column_values());
-    brpc_request->mutable_block()->mutable_column_values()->clear();
+    auto* block = brpc_request->mutable_block();
+    std::string column_values = std::move(*block->mutable_column_values());
+    block->mutable_column_values()->clear();
     return request_embed_attachmentv2(brpc_request, column_values, closure);
 }
 
@@ -52,6 +58,9 @@ inline bool enable_http_send_block(const PTransmitDataParams& request) {
     if (!request.has_block() || !request.block().has_column_values()) {
         return false;
     }
+    // Force the http attachment path in tests without needing an actual >= 2G request,
+    // so regression tests can exercise transmit_block_httpv2/transmit_block_httpv2_with_attachment_data.
+    DBUG_EXECUTE_IF("proto_util.enable_http_send_block.always_http", { return true; });
     if (request.ByteSizeLong() < MIN_HTTP_BRPC_SIZE) {
         return false;
     }
@@ -67,12 +76,10 @@ void transmit_blockv2(PBackendService_Stub* stub, std::unique_ptr<Closure> closu
 }
 
 template <typename Closure>
-Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure,
-                             TNetworkAddress brpc_dest_addr) {
-    RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));
-
+Status transmit_block_httpv2_impl(ExecEnv* exec_env, std::unique_ptr<Closure> closure,
+                                  TNetworkAddress brpc_dest_addr) {
     std::string host = brpc_dest_addr.hostname;
-    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+    auto* dns_cache = ExecEnv::GetInstance()->dns_cache();
     if (dns_cache == nullptr) {
         LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
     } else if (!is_valid_ip(brpc_dest_addr.hostname)) {
@@ -100,6 +107,22 @@ Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure
     closure.release();
 
     return Status::OK();
+}
+
+template <typename Closure>
+Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure,
+                             TNetworkAddress brpc_dest_addr) {
+    RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));
+    return transmit_block_httpv2_impl(exec_env, std::move(closure), brpc_dest_addr);
+}
+
+template <typename Closure>
+Status transmit_block_httpv2_with_attachment_data(ExecEnv* exec_env,
+                                                  std::unique_ptr<Closure> closure,
+                                                  TNetworkAddress brpc_dest_addr,
+                                                  const std::string& data) {
+    RETURN_IF_ERROR(request_embed_attachmentv2(closure->request_.get(), data, closure));
+    return transmit_block_httpv2_impl(exec_env, std::move(closure), brpc_dest_addr);
 }
 
 template <typename Params, typename Closure>
