@@ -2008,6 +2008,8 @@ public abstract class RoutineLoadJob
             }
         });
         try {
+            // The original CREATE statement does not contain subsequent ALTER changes.
+            updateCsvParserProperties(jobProperties);
             ConnectContext ctx = new ConnectContext();
             ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId)
                     .orElseThrow(() -> new Exception("Database " + dbId + " does not exist")).getName());
@@ -2070,6 +2072,10 @@ public abstract class RoutineLoadJob
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)
+                || jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
+            updateCsvParserProperties(jobProperties);
+        }
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
@@ -2124,6 +2130,17 @@ public abstract class RoutineLoadJob
             }
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        }
+    }
+
+    private void updateCsvParserProperties(Map<String, String> properties) {
+        CsvFileFormatProperties csvFileFormatProperties = new CsvFileFormatProperties("csv");
+        csvFileFormatProperties.analyzeFileFormatProperties(properties, false);
+        if (properties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)) {
+            enclose = csvFileFormatProperties.getEnclose();
+        }
+        if (properties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
+            escape = csvFileFormatProperties.getEscape();
         }
     }
 
