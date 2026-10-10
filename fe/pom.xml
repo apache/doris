@@ -246,8 +246,8 @@ under the License.
         <module>fe-grpc</module>
     </modules>
     <properties>
-        <!-- iceberg 1.9.1 depends avro on 1.12 -->
-        <avro.version>1.12.1</avro.version>
+        <!-- iceberg 1.12.0 depends on avro 1.12.2 -->
+        <avro.version>1.12.2</avro.version>
         <parquet.version>1.18.0</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
@@ -360,7 +360,7 @@ under the License.
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>1.11.0</iceberg.version>
+        <iceberg.version>1.12.0</iceberg.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
         <!-- FE-only POC: validate whether Arrow Java 19.0.0 can compile before touching BE/C++ thirdparty. -->

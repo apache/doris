@@ -285,7 +285,7 @@ final class IcebergManifestCache {
     private static List<DataFile> loadDataFiles(ManifestFile manifest, Table table) throws IOException {
         List<DataFile> dataFiles = new ArrayList<>();
         // .copy() is mandatory: the ManifestReader iterator reuses the same object across iterations.
-        try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io())) {
+        try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io(), table.specs())) {
             for (DataFile dataFile : reader) {
                 dataFiles.add(dataFile.copy());
             }
