@@ -1773,13 +1773,15 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
 DECLARE_String(spill_storage_root_path);
-// Spill storage limit specified as number of bytes
+// Spill storage limit of each local spill path, specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of capaity ('<int>%').
 // Defaults to bytes if no unit is given.
 // Must larger than 0.
 // If specified as percentage, the final limit value is:
 //   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
+// It does not apply to the object storage store of spill_storage_type=s3, which is bounded by
+// spill_storage_limit_bytes only.
 DECLARE_String(spill_storage_limit);
 // Upper bound, in bytes, of the spill data kept by each spill store: every local spill path
 // and the object storage store of spill_storage_type=s3 are limited separately. For a local
@@ -1801,11 +1803,14 @@ DECLARE_String(spill_storage_type);
 // changing the default vault does not move spill. Files already spilled stay on the vault
 // they were written to until they are deleted.
 DECLARE_String(spill_s3_storage_vault_id);
-// Spill writers pause before handing another buffer to object storage while the S3 upload queue
-// (shared with every other S3 writer of this BE) holds at least this many bytes of buffers
-// waiting to be uploaded, every buffer counted as s3_write_buffer_size. Bounds the upload buffer
-// memory of a spill that produces data faster than object storage takes it. Buffers still being
-// filled by open writers are not queued and do not count.
+// Back-pressure threshold for spill uploads to object storage: spill writers pause before
+// handing another buffer to object storage while the S3 upload queue (shared with every other
+// S3 writer of this BE) holds at least this many bytes of buffers waiting for an upload thread,
+// every buffer counted as s3_write_buffer_size. It slows down a spill that produces data faster
+// than object storage takes it, but is not a hard memory limit: buffers being uploaded by a
+// thread and buffers still being filled by open writers are not counted, and the one buffer
+// each concurrently appending writer may add after the check and the final buffer of every
+// part are queued without waiting for the check.
 DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
 // Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
 // into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);

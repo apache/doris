@@ -38,8 +38,8 @@ class RemoteFileSystem;
 /// to. The objects of a spill file are deleted when its SpillFile is destroyed, which happens
 /// when the query is done with it; a deletion that failed is retried by the GC thread. Nothing
 /// else deletes spill objects: what a BE that crashed left behind stays until an object
-/// lifecycle rule of the bucket (expiring keys under spill/ and aborting incomplete multipart
-/// uploads) removes it.
+/// lifecycle rule of the bucket (expiring keys under <vault prefix>/spill/ and aborting
+/// incomplete multipart uploads) removes it.
 ///
 /// The file system is resolved lazily by ensure_ready(): the storage vault may not be known
 /// yet when BE starts. See select_vault_fs() for which vault is used. Every SpillFile keeps the

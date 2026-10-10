@@ -1732,7 +1732,7 @@ DEFINE_String(spill_storage_type, "local");
 // heartbeat_service_port.
 // The BE deletes the objects of a spill file when the query is done with it. What a BE that
 // crashed left behind is not deleted by Doris: give the bucket a lifecycle rule that expires
-// the keys under spill/ and aborts incomplete multipart uploads.
+// the keys under <vault prefix>/spill/ and aborts incomplete multipart uploads.
 DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
     return config == "local" || config == "s3";
 });

@@ -1500,13 +1500,6 @@ TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
     std::atomic<bool> finished {false};
     std::atomic<int> max_queue {0};
     std::atomic<bool> sampling {true};
-    // Runs before the threads are joined: an early ASSERT return must not leave the writer
-    // stuck behind blocked uploads.
-    Defer release_writer {[&]() {
-        sampling = false;
-        mock_store().set_block_uploads(false);
-        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
-    }};
     ScopedThread sampler([&]() {
         while (sampling.load()) {
             max_queue = std::max(max_queue.load(), upload_pool->get_queue_size());
@@ -1517,6 +1510,13 @@ TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
         spill_file = _write_blocks("query_6/sort-1-0-1", blocks, &write_status);
         finished = true;
     });
+    // Declared after the threads so that it runs before they are joined: an early ASSERT
+    // return must not leave the writer stuck behind blocked uploads.
+    Defer release_writer {[&]() {
+        sampling = false;
+        mock_store().set_block_uploads(false);
+        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
+    }};
 
     // The blocked uploads occupy the pool; the writer stalls once two buffers are queued.
     for (int i = 0; i < 250 && upload_pool->get_queue_size() < 2; ++i) {
@@ -1600,13 +1600,14 @@ TEST_F(SpillFileS3Test, PendingBuffersDoNotBlockWriters) {
     Status write_status;
     SpillFileSPtr active_file;
     std::atomic<bool> finished {false};
-    // Runs before writer_thread is joined: an early ASSERT return must not leave it stuck.
-    Defer release_writer {
-            [&]() { _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown")); }};
     ScopedThread writer_thread([&]() {
         active_file = _write_blocks("query_10/active", blocks, &write_status);
         finished = true;
     });
+    // Declared after writer_thread so that it runs before the join: an early ASSERT return
+    // must not leave it stuck.
+    Defer release_writer {
+            [&]() { _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown")); }};
     for (int i = 0; i < 500 && !finished.load(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -1655,12 +1656,6 @@ TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
     Status write_status;
     Status close_status;
     std::atomic<bool> writes_done {false};
-    // Runs before writer_thread is joined: an early ASSERT return must not leave the writer
-    // stuck behind blocked uploads.
-    Defer release_writer {[&]() {
-        mock_store().set_block_uploads(false);
-        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
-    }};
     ScopedThread writer_thread([&]() {
         for (const auto& block : blocks) {
             write_status = writer->write_block(_runtime_state.get(), block);
@@ -1672,6 +1667,12 @@ TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
         // Destroying the part waits for the stuck uploads; the test releases them below.
         close_status = writer->close();
     });
+    // Declared after writer_thread so that it runs before the join: an early ASSERT return
+    // must not leave the writer stuck behind blocked uploads.
+    Defer release_writer {[&]() {
+        mock_store().set_block_uploads(false);
+        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
+    }};
     for (int i = 0; i < 250 && upload_pool->get_queue_size() < 2; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -1916,8 +1917,8 @@ TEST_F(SpillFileS3Test, LateUploadFailureAbortsPart) {
     SpillFileSPtr spill_file;
     ScopedThread writer_thread(
             [&]() { spill_file = _write_blocks("query_11/sort-1-0-1", blocks, &write_status); });
-    // Runs before writer_thread is joined: an early ASSERT return must not leave the writer
-    // stuck behind blocked uploads.
+    // Declared after writer_thread so that it runs before the join: an early ASSERT return
+    // must not leave the writer stuck behind blocked uploads.
     Defer release_writer {[&]() {
         mock_store().set_block_uploads(false);
         _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
