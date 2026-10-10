@@ -87,8 +87,10 @@ void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFact
 }
 
 void register_aggregate_function_stddev_variance_samp_old(AggregateFunctionSimpleFactory& factory) {
-    BeExecVersionManager::registe_restrict_function_compatibility("variance_samp");
-    BeExecVersionManager::registe_restrict_function_compatibility("stddev_samp");
+    BeExecVersionManager::registe_restrict_function_compatibility(
+            "variance_samp", SUPPORT_RESTRICTED_AGGREGATES_VERSION);
+    BeExecVersionManager::registe_restrict_function_compatibility(
+            "stddev_samp", SUPPORT_RESTRICTED_AGGREGATES_VERSION);
 }
 
 void register_aggregate_function_stddev_variance_samp(AggregateFunctionSimpleFactory& factory) {
