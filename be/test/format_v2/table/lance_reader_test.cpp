@@ -1600,6 +1600,173 @@ TEST(LanceTableReaderVectorSearchTest, RejectsInvalidQueryParallelismBeforeOpeni
     EXPECT_NE(std::string::npos, status.to_string().find("query_parallelism"));
 }
 
+TEST(LanceTableReaderVectorSearchTest, ValidatesDistanceRangeBeforeDatasetAccess) {
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    const Columns columns {projected_column("_distance", TYPE_FLOAT, true)};
+    for (int mode = 0; mode < 6; ++mode) {
+        SCOPED_TRACE(mode);
+        auto params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+        auto& request = params.lance_scan_params.external_search_request;
+        auto& vector = request.search_query.vector_search;
+        vector.__set_distance_lower_bound(1.0);
+        vector.__set_distance_upper_bound(2.0);
+        if (mode == 0) vector.__set_distance_upper_bound(std::numeric_limits<double>::infinity());
+        if (mode == 1) vector.__set_distance_lower_bound(std::numeric_limits<double>::quiet_NaN());
+        if (mode == 2) vector.__set_distance_upper_bound(std::numeric_limits<double>::max());
+        if (mode == 3) vector.__set_distance_upper_bound(1.0);
+        if (mode == 4) vector.__set_distance_upper_bound(1.00000001);
+        if (mode == 5) vector.query_vector.__set_num_vectors(1);
+        RuntimeProfile profile("invalid_distance_range");
+        LanceTableReader reader;
+        const auto status = init_reader(&reader, columns, &state, &profile, &params);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(std::string::npos,
+                  status.to_string().find(mode == 5 ? "multi-vector" : "distance"));
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, AppliesDistanceBoundsAndOffset) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (int mode = 0; mode < 5; ++mode) {
+        SCOPED_TRACE(mode);
+        auto params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 10, mode == 4 ? 1 : 0);
+        auto& request = params.lance_scan_params.external_search_request;
+        auto& vector = request.search_query.vector_search;
+        if (mode != 1) vector.__set_distance_lower_bound(1.0);
+        if (mode != 2) vector.__set_distance_upper_bound(mode == 3 ? 1.1 : 8.25);
+        RuntimeProfile profile("distance_range");
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        const auto rows = read_vector_search_rows(&reader, &block);
+        if (mode == 4) {
+            EXPECT_TRUE(rows.empty());
+        } else {
+            ASSERT_FALSE(rows.empty());
+            EXPECT_EQ(mode == 1 ? 1 : 2, rows[0].first);
+            for (const auto& [id, distance] : rows) {
+                if (mode != 1) EXPECT_GE(distance, 1.0F);
+                if (mode != 2) EXPECT_LT(distance, mode == 3 ? 1.1F : 8.25F);
+            }
+            if (mode == 0 || mode == 3) EXPECT_EQ(1U, rows.size());
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, DistanceRangeFallbackPreservesExactScores) {
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const bool dot : {false, true}) {
+        const std::filesystem::path uri =
+                dot ? "./be/test/format_v2/table/lance/data/distance_range_dot.lance"
+                    : "./be/test/format_v2/table/lance/data/distance_range_sq.lance";
+        LanceFixtureInfo fixture;
+        ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+        for (const bool use_index : {false, true}) {
+            for (const bool filtered : {false, true}) {
+                SCOPED_TRACE(std::to_string(dot) + "/" + std::to_string(use_index) + "/" +
+                             std::to_string(filtered));
+                const float max = std::numeric_limits<float>::max();
+                auto params = make_float32_vector_search_params(
+                        dot ? std::array<float, 3> {-max, 0.0F, 0.0F}
+                            : std::array<float, 3> {0.51F, 0.0F, 0.0F},
+                        300, 0,
+                        filtered ? std::optional<std::string>("row_id >= 0") : std::nullopt);
+                auto& request = params.lance_scan_params.external_search_request;
+                auto& vector = request.search_query.vector_search;
+                vector.__set_distance_lower_bound(dot ? max : 0.0001);
+                if (dot) {
+                    vector.__set_metric(TVectorMetric::DOT_PRODUCT);
+                } else {
+                    vector.__set_distance_upper_bound(0.001);
+                }
+                request.vector_search_options.__set_use_index(use_index);
+                request.vector_search_options.__set_refine_factor(1);
+                request.vector_search_options.__set_query_parallelism(4);
+                // Range fallback splits have no index UUIDs even when use_index was requested.
+                // SQ quantization must not drop 0.0004, nor an absent upper bound drop FLT_MAX.
+                RuntimeProfile profile("distance_range_fallback");
+                LanceTableReader reader;
+                ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+                ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+                Block block;
+                add_output_columns(&block, columns);
+                const auto rows = read_vector_search_rows(&reader, &block);
+                ASSERT_EQ(1U, rows.size());
+                EXPECT_EQ(dot ? 0 : 256, rows[0].first);
+                if (dot) {
+                    EXPECT_FLOAT_EQ(max, rows[0].second);
+                } else {
+                    EXPECT_NEAR(0.0004F, rows[0].second, 1e-8F);
+                }
+                ASSERT_TRUE(reader.close().ok());
+            }
+        }
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, DistanceRangeCoversIndexedAndAppendedFragments) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/distance_range.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    ASSERT_EQ(2U, fixture.fragment_ids.size());
+    std::vector<std::string> segments;
+    ASSERT_TRUE(get_index_segment_uuids(uri, "embedding_idx", &segments).ok());
+    ASSERT_EQ(1U, segments.size());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const bool use_index : {false, true}) {
+        for (const bool filtered : {false, true}) {
+            std::vector<int64_t> ids;
+            for (size_t split = 0; split < fixture.fragment_ids.size(); ++split) {
+                SCOPED_TRACE(std::to_string(use_index) + "/" + std::to_string(filtered) + "/" +
+                             std::to_string(split));
+                auto params = make_float32_vector_search_params(
+                        {127.0F, 0.0F, 0.0F}, 10, 0,
+                        filtered ? std::optional<std::string>("row_id >= 127") : std::nullopt);
+                auto& request = params.lance_scan_params.external_search_request;
+                request.search_query.vector_search.__set_distance_lower_bound(1.0);
+                request.search_query.vector_search.__set_distance_upper_bound(4.0);
+                const bool indexed_split = use_index && split == 0;
+                request.vector_search_options.__set_use_index(indexed_split);
+                request.vector_search_options.__set_nprobes(1);
+                auto range = make_lance_range(uri, fixture.version, {fixture.fragment_ids[split]});
+                if (indexed_split) {
+                    range.table_format_params.lance_params.__set_index_segment_uuids(segments);
+                }
+                RuntimeProfile profile("mixed_distance_range");
+                LanceTableReader reader;
+                ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+                ASSERT_TRUE(prepare_range(&reader, range).ok());
+                Block block;
+                add_output_columns(&block, columns);
+                for (const auto& [id, distance] : read_vector_search_rows(&reader, &block)) {
+                    ids.push_back(id);
+                    EXPECT_FLOAT_EQ(1.0F, distance);
+                }
+                ASSERT_TRUE(reader.close().ok());
+            }
+            std::ranges::sort(ids);
+            EXPECT_EQ(filtered ? std::vector<int64_t> {128} : std::vector<int64_t>({126, 128}),
+                      ids);
+        }
+    }
+}
+
 TEST(LanceTableReaderVectorSearchTest, QueryParallelismPreservesResults) {
     const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;

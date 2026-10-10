@@ -64,10 +64,13 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static final String NPROBES = "nprobes";
     private static final String REFINE_FACTOR = "refine_factor";
     private static final String EF = "ef";
+    private static final String DISTANCE_LOWER_BOUND = "distance_lower_bound";
+    private static final String DISTANCE_UPPER_BOUND = "distance_upper_bound";
     private static final String USE_INDEX = "use_index";
     private static final Set<String> PROPERTIES = ImmutableSet.of(
             TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER,
-            NPROBES, REFINE_FACTOR, EF, USE_INDEX, QUERY_PARALLELISM, VERSION, TIMESTAMP, TAG, BRANCH);
+            NPROBES, REFINE_FACTOR, EF, USE_INDEX, QUERY_PARALLELISM,
+            VERSION, TIMESTAMP, TAG, BRANCH, DISTANCE_LOWER_BOUND, DISTANCE_UPPER_BOUND);
 
     public VectorSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {
@@ -82,6 +85,8 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static PreparedSearch prepare(Map<String, String> properties, boolean deferQueryVector)
             throws AnalysisException {
         Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
+        TVectorSearchParams vectorParams = parseDistanceBounds(params);
+        boolean hasDistanceRange = vectorParams.isSetDistanceLowerBound() || vectorParams.isSetDistanceUpperBound();
         boolean useIndex = !params.containsKey(USE_INDEX)
                 || parseBoolean(params.get(USE_INDEX), USE_INDEX);
         CommonSearch common = prepareCommon(params, NAME,
@@ -89,6 +94,10 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
 
         Field vectorField = requireSearchColumn(
                 common.metadata().getSchema(), required(params, COLUMN, NAME), "vector");
+        // Reject matrices at PREPARE as well as EXECUTE; lance-c only supports single-vector ranges.
+        if (hasDistanceRange && vectorField.getType() instanceof ArrowType.List) {
+            throw new AnalysisException("Distance bounds are not supported for Lance multi-vector search");
+        }
         int vectorFieldId = useIndex
                 ? requireLanceFieldId(common.metadata(), vectorField) : -1;
         // PREPARE needs the table schema, but the vector is supplied only at EXECUTE.
@@ -100,8 +109,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                     vectorField, required(params, QUERY_VECTOR, NAME));
         }
 
-        TVectorSearchParams vectorParams = new TVectorSearchParams()
-                .setColumn(vectorField.getName())
+        vectorParams.setColumn(vectorField.getName())
                 .setQueryVector(queryVector)
                 .setTopK(common.topK())
                 .setOffset(common.offset());
@@ -124,6 +132,36 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
         }
         return prepareSearch(
                 common, vectorFieldId, searchRequest, DISTANCE_COLUMN, "vector search");
+    }
+
+    @VisibleForTesting
+    static TVectorSearchParams parseDistanceBounds(Map<String, String> params) throws AnalysisException {
+        TVectorSearchParams vector = new TVectorSearchParams();
+        if (params.containsKey(DISTANCE_LOWER_BOUND)) {
+            vector.setDistanceLowerBound(parseDistanceBound(params.get(DISTANCE_LOWER_BOUND), DISTANCE_LOWER_BOUND));
+        }
+        if (params.containsKey(DISTANCE_UPPER_BOUND)) {
+            vector.setDistanceUpperBound(parseDistanceBound(params.get(DISTANCE_UPPER_BOUND), DISTANCE_UPPER_BOUND));
+        }
+        // Compare after FLOAT rounding, matching the native API even for nearly equal inputs.
+        if (vector.isSetDistanceLowerBound() && vector.isSetDistanceUpperBound()
+                && vector.getDistanceLowerBound() >= vector.getDistanceUpperBound()) {
+            throw new AnalysisException(
+                    "distance_lower_bound must be less than distance_upper_bound at FLOAT precision");
+        }
+        return vector;
+    }
+
+    private static float parseDistanceBound(String value, String property) throws AnalysisException {
+        try {
+            float bound = Float.parseFloat(value);
+            if (Float.isFinite(bound)) {
+                return bound;
+            }
+        } catch (NumberFormatException | NullPointerException ignored) {
+            // Report the SQL property rather than leaking a Java parsing exception.
+        }
+        throw new AnalysisException("'" + property + "' must be a finite FLOAT");
     }
 
     @VisibleForTesting
