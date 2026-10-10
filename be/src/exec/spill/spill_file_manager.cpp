@@ -37,6 +37,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/query_context.h"
+#include "storage/options.h"
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
@@ -66,20 +67,31 @@ Status reconcile_remote_spill_bytes(SpillDataDir* data_dir, const io::FileSystem
     return Status::OK();
 }
 
-// BE-wide object storage traffic of spill. The PerSecond windows give QPS and bytes/s directly.
+// BE-wide object storage traffic of spill. Rates are derived by the monitoring system.
 bvar::Adder<int64_t> g_spill_remote_read_bytes("spill_remote_read_bytes");
 bvar::Adder<int64_t> g_spill_remote_write_bytes("spill_remote_write_bytes");
 bvar::Adder<int64_t> g_spill_remote_get_requests("spill_remote_get_requests");
 bvar::Adder<int64_t> g_spill_remote_put_requests("spill_remote_put_requests");
-bvar::PerSecond<bvar::Adder<int64_t>> g_spill_remote_read_throughput("spill_remote_read_throughput",
-                                                                     &g_spill_remote_read_bytes,
-                                                                     10);
-bvar::PerSecond<bvar::Adder<int64_t>> g_spill_remote_write_throughput(
-        "spill_remote_write_throughput", &g_spill_remote_write_bytes, 10);
-bvar::PerSecond<bvar::Adder<int64_t>> g_spill_remote_get_qps("spill_remote_get_qps",
-                                                             &g_spill_remote_get_requests, 10);
-bvar::PerSecond<bvar::Adder<int64_t>> g_spill_remote_put_qps("spill_remote_put_qps",
-                                                             &g_spill_remote_put_requests, 10);
+
+namespace {
+std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> create_spill_store_map(
+        const std::vector<StorePath>& spill_store_paths) {
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
+    if (config::spill_storage_type == "s3") {
+        // One remote store, see RemoteSpillDataDir for the object layout.
+        spill_store_map.emplace("s3", std::make_unique<RemoteSpillDataDir>(
+                                              config::spill_s3_storage_vault));
+    }
+    // External spill sessions need native local paths even when query spill uses object
+    // storage. Query spill selects the remote store; external sessions select these roots.
+    for (const auto& spill_path : spill_store_paths) {
+        spill_store_map.emplace(spill_path.path, std::make_unique<LocalSpillDataDir>(
+                                                         spill_path.path, spill_path.capacity_bytes,
+                                                         spill_path.storage_medium));
+    }
+    return spill_store_map;
+}
+} // namespace
 
 ExternalSpillSession::ExternalSpillSession(SpillFileManager* manager, QueryContext* query_context,
                                            std::string relative_path)
@@ -174,6 +186,9 @@ SpillFileManager::~SpillFileManager() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 
+SpillFileManager::SpillFileManager(const std::vector<StorePath>& spill_store_paths)
+        : SpillFileManager(create_spill_store_map(spill_store_paths)) {}
+
 SpillFileManager::SpillFileManager(
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map)
         : _spill_store_map(std::move(spill_store_map)), _stop_background_threads_latch(1) {
@@ -204,6 +219,20 @@ void SpillFileManager::stop() {
 
 Status SpillFileManager::init() {
     LOG(INFO) << "init spill stream manager";
+    if (config::spill_storage_type == "s3") {
+        if (!config::is_cloud_mode()) {
+            return Status::InvalidArgument("spill_storage_type=s3 is only supported in cloud mode");
+        }
+        if (config::spill_file_part_size_bytes < config::s3_write_buffer_size) {
+            // Every part ends with a partially filled upload buffer that still allocates
+            // s3_write_buffer_size, so tiny parts waste upload memory.
+            LOG(WARNING) << "spill_file_part_size_bytes (" << config::spill_file_part_size_bytes
+                         << ") is below s3_write_buffer_size (" << config::s3_write_buffer_size
+                         << "); every spill part will hold a mostly empty upload buffer";
+        }
+        LOG(INFO) << "query spill data will be written to object storage; local spill paths "
+                     "remain available to external writers that require native file paths";
+    }
     RETURN_IF_ERROR(_init_spill_store_map());
     _remote_upload_budget =
             std::make_shared<SpillRemoteUploadBudget>(config::spill_s3_max_inflight_upload_bytes);

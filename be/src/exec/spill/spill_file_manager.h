@@ -47,6 +47,7 @@ class ResourceContext;
 
 class RemoteSpillDataDir;
 class SpillFileManager;
+struct StorePath;
 
 // Reconcile the byte counter for one remote spill prefix with the objects still listed there.
 // Used after uncertain publication or partial deletion, never on the normal write path.
@@ -87,9 +88,13 @@ private:
 class SpillFileManager {
 public:
     ~SpillFileManager();
+    // Builds the spill stores from the configuration: the remote store when
+    // spill_storage_type is "s3", and one local store per configured spill path.
+    explicit SpillFileManager(const std::vector<StorePath>& spill_store_paths);
     SpillFileManager(
             std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map);
 
+    // Validates the spill configuration and initializes the stores.
     Status init();
 
     void stop();
