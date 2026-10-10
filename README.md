@@ -45,7 +45,9 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://doris.apache.org/slack?utm_source=github&amp;utm_medium=community&amp;utm_content=github_readme" height=25></a>
+    <a href="https://doris.apache.org/slack?utm_source=github&amp;utm_medium=community&amp;utm_content=github_readme">
+  <img src="https://img.shields.io/badge/-Slack-4A154B?style=social&logo=slack" height="25">
+</a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
