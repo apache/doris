@@ -167,6 +167,17 @@ inline int64_t extract_tso_physical_time(int64_t tso) {
     return tso <= 0 ? 0 : tso >> kTsoLogicalBits;
 }
 
+inline int64_t row_binlog_ttl_cutoff_tso(int64_t reference_tso, int64_t ttl_seconds) {
+    DCHECK_GT(reference_tso, 0);
+    DCHECK_GE(ttl_seconds, 0);
+    const int64_t reference_ms = extract_tso_physical_time(reference_tso);
+    if (ttl_seconds > reference_ms / 1000) {
+        return 0;
+    }
+    constexpr int64_t kMaxLogical = (1L << kTsoLogicalBits) - 1;
+    return ((reference_ms - ttl_seconds * 1000) << kTsoLogicalBits) | kMaxLogical;
+}
+
 namespace segment_v2 {
 
 class SegmentAllocatedLsnMap {

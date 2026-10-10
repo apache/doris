@@ -1818,6 +1818,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (olapTable.getPartitionInvertedIndexFileStorageFormat()
                         != partitionInvertedIndexFileStorageFormat) {
                     metaChanged = true;
+                } else if (olapTable.needRowBinlog() && !olapTable.getBinlogConfig().equals(binlogConfig)) {
+                    // Do not install tablets created with an older retention policy after ALTER.
+                    metaChanged = true;
                 } else {
                     // compare schemaHash
                     for (Map.Entry<Long, MaterializedIndexMeta> entry
@@ -2472,7 +2475,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Cannot create table " + tableShowName
                     + " with ROW binlog when enable_feature_binlog=false");
         }
-        if (dbBinlogConfig.getEnable() && !createTableBinlogConfig.isEnableForCCR() && !createTableInfo.isTemp()) {
+        if (dbBinlogConfig.isEnableForCCR() && !createTableBinlogConfig.isEnableForCCR()
+                && !createTableInfo.isTemp()) {
             throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
         }
         if (createTableInfo.isTemp() && createTableBinlogConfig.isEnableForCCR()) {
@@ -3852,6 +3856,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 metaChanged = true;
             } else if (olapTable.getPartitionInvertedIndexFileStorageFormat()
                     != copiedTbl.getPartitionInvertedIndexFileStorageFormat()) {
+                metaChanged = true;
+            } else if (olapTable.needRowBinlog() && !olapTable.getBinlogConfig().equals(binlogConfig)) {
                 metaChanged = true;
             } else {
                 // compare schemaHash
