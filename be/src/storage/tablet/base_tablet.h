@@ -42,7 +42,7 @@ struct RowSetSplits;
 struct RowsetWriterContext;
 class RowsetWriter;
 class CalcDeleteBitmapToken;
-class SegmentCacheHandle;
+class RowsetSegmentCache;
 class RowIdConversion;
 struct PartialUpdateInfo;
 class PartialUpdateReadPlan;
@@ -186,7 +186,7 @@ public:
     Status lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema, bool with_seq_col,
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           RowLocation* row_location, int64_t version,
-                          std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                          std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
                           std::string* encoded_seq_value = nullptr,
                           OlapReaderStatistics* stats = nullptr,

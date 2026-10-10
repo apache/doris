@@ -120,4 +120,21 @@ void SegmentLoader::erase_segments(const RowsetMeta& rowset_meta) {
     }
 }
 
+Status RowsetSegmentCache::get(const BetaRowsetSharedPtr& rowset, RowsetSegmentRef seg,
+                               OlapReaderStatistics* stats, segment_v2::Segment** segment,
+                               const io::IOContext* io_ctx) {
+    DCHECK_LT(seg.pos, _segments.size());
+    auto& cached = _segments[seg.pos];
+    if (cached == nullptr) {
+        SegmentCacheHandle handle;
+        // Segment::lookup_row_key initializes the PK index and bloom filter when it probes this
+        // candidate. Do not initialize indexes for other segments in the rowset.
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(rowset, seg, &handle, true, false,
+                                                                stats, io_ctx));
+        cached = handle.get_segments().back();
+    }
+    *segment = cached.get();
+    return Status::OK();
+}
+
 } // namespace doris

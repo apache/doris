@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "storage/olap_common.h" // for rowset id
 #include "storage/segment/segment.h"
@@ -199,6 +200,21 @@ private:
 
     // Don't allow copy and assign
     DISALLOW_COPY_AND_ASSIGN(SegmentCacheHandle);
+};
+
+// Cache shared by successive key lookups against one immutable rowset. Slots are indexed by
+// metadata position, not physical segment ID; untouched slots stay empty. The owning lookup
+// keeps the rowset alive, and the shared pointers pin opened segments. Not thread-safe.
+class RowsetSegmentCache {
+public:
+    explicit RowsetSegmentCache(size_t num_segments) : _segments(num_segments) {}
+
+    // The returned pointer remains valid for the lifetime of this cache.
+    Status get(const BetaRowsetSharedPtr& rowset, RowsetSegmentRef seg, OlapReaderStatistics* stats,
+               segment_v2::Segment** segment, const io::IOContext* io_ctx = nullptr);
+
+private:
+    DorisVector<segment_v2::SegmentSharedPtr> _segments;
 };
 
 } // namespace doris

@@ -55,7 +55,7 @@ void maybe_add_sentinel_mark(TransformExecContext& ctx) {
 Status probe_and_plan(TransformExecContext& ctx, RowKeyEncoder& key_encoder, MowKeyProbe& probe,
                       HistoricalRowFetcher& fetcher,
                       const std::vector<RowsetSharedPtr>& specified_rowsets,
-                      std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                      std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
                       const std::vector<IOlapColumnDataAccessor*>& key_columns,
                       IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
                       size_t num_rows, Block* block, std::vector<bool>& use_default_or_null_flag,
@@ -100,7 +100,7 @@ Status probe_and_plan(TransformExecContext& ctx, RowKeyEncoder& key_encoder, Mow
 Status probe_and_plan_flexible(TransformExecContext& ctx, RowKeyEncoder& key_encoder,
                                MowKeyProbe& probe, HistoricalRowFetcher& fetcher,
                                const std::vector<RowsetSharedPtr>& specified_rowsets,
-                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                               std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
                                const std::vector<IOlapColumnDataAccessor*>& key_columns,
                                IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
                                size_t num_rows, Block* block,
@@ -189,7 +189,7 @@ Status FixedPartialUpdateFillStage::apply(TransformExecContext& ctx, Block* bloc
     DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
                     { sleep(60); })
     const std::vector<RowsetSharedPtr>& specified_rowsets = ctx.mow_context->rowset_ptrs;
-    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> segment_caches(specified_rowsets.size());
 
     MowKeyProbe probe = MowKeyProbe::for_partial_update(
             ctx.tablet.get(), tablet_schema.get(), schema.has_sequence_col(), ctx.mow_context,
@@ -230,7 +230,7 @@ Status FlexiblePartialUpdateFillStage::apply(TransformExecContext& ctx, Block* b
     Block full_block = schema.create_storage_block();
 
     const std::vector<RowsetSharedPtr>& specified_rowsets = ctx.mow_context->rowset_ptrs;
-    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> segment_caches(specified_rowsets.size());
 
     // encoder shared with the aggregator, which owns the conversion code
     RowKeyEncoder key_encoder(schema, /*mow=*/true);
