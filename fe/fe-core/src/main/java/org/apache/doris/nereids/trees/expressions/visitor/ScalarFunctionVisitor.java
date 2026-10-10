@@ -582,6 +582,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TypeOf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
@@ -2614,6 +2615,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTimestamp(Timestamp timestamp, C context) {
         return visitScalarFunction(timestamp, context);
+    }
+
+    default R visitTypeOf(TypeOf typeOf, C context) {
+        return visitScalarFunction(typeOf, context);
     }
 
     default R visitToBase64(ToBase64 toBase64, C context) {

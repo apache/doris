@@ -105,6 +105,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TypeOf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -145,6 +146,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
 
@@ -1728,6 +1730,42 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Expression e1 = parser.parseExpression(actualExpression);
         e1 = new ExpressionNormalization().rewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(e1, context), context);
         Assertions.assertTrue(e1.getDataType() instanceof VarcharType);
+    }
+
+    @Test
+    void testTypeOfRewriteDuringNormalization() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        boolean originalSkipFoldConstant = sessionVariable.isDebugSkipFoldConstant();
+        boolean originalFoldConstantByBe = sessionVariable.isEnableFoldConstantByBe();
+        try {
+            for (boolean skipFoldConstant : new boolean[] {false, true}) {
+                for (boolean foldConstantByBe : new boolean[] {false, true}) {
+                    sessionVariable.setDebugSkipFoldConstant(skipFoldConstant);
+                    sessionVariable.setEnableFoldConstantByBe(foldConstantByBe);
+                    assertTypeOfRewrite("typeof(cast(1 as integer))", "integer");
+                    assertTypeOfRewrite("typeof(cast(null as varchar(10)))", "varchar(10)");
+                    assertTypeOfRewrite("typeof(IA)", "integer");
+                    assertTypeOfRewrite("typeof(NULL)", "unknown");
+                    assertTypeOfRewrite("typeof('')", "varchar(0)");
+                    assertTypeOfRewrite("typeof(cast(null as decimal(12,3)))", "decimal(12,3)");
+                    assertTypeOfRewrite("typeof(cast(null as array<integer>))", "array(integer)");
+                    assertTypeOfRewrite("typeof(typeof(IA))", "varchar");
+                    // The child is not evaluated to determine its static type.
+                    assertTypeOfRewrite("typeof(IA + 0)", "bigint");
+                }
+            }
+        } finally {
+            sessionVariable.setDebugSkipFoldConstant(originalSkipFoldConstant);
+            sessionVariable.setEnableFoldConstantByBe(originalFoldConstantByBe);
+        }
+    }
+
+    private void assertTypeOfRewrite(String sql, String expected) {
+        Expression expression = replaceUnboundSlot(PARSER.parseExpression(sql), new HashMap<>());
+        Expression analyzed = ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(expression, context);
+        Assertions.assertTrue(analyzed instanceof TypeOf, sql + ": " + analyzed);
+        Expression normalized = new ExpressionNormalization().rewrite(analyzed, context);
+        Assertions.assertEquals(new StringLiteral(expected), normalized, sql);
     }
 
     @Test
