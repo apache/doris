@@ -777,7 +777,7 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
 
 bool FSFileCacheStorage::handle_already_loaded_block(
         BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset, size_t new_size,
-        int64_t tablet_id, std::lock_guard<std::mutex>& cache_lock) const {
+        const CacheContext& ctx, std::lock_guard<std::mutex>& cache_lock) const {
     auto file_it = mgr->_files.find(hash);
     if (file_it == mgr->_files.end()) {
         return false;
@@ -789,14 +789,21 @@ bool FSFileCacheStorage::handle_already_loaded_block(
     }
 
     auto block = cell_it->second.file_block;
-    if (tablet_id != 0 && block->tablet_id() == 0) {
-        block->set_tablet_id(tablet_id);
+    if (ctx.tablet_id != 0 && block->tablet_id() == 0) {
+        block->set_tablet_id(ctx.tablet_id);
     }
 
     size_t old_size = block->range().size();
     if (old_size != new_size) {
         mgr->reset_range(hash, offset, old_size, new_size, cache_lock);
     }
+
+    // A cell can already be here because restore_lru_queues_from_disk() put it there, and the
+    // LRU dump records neither the cache type nor the expiration time. We hold the real values
+    // now, so adopt them. Done after reset_range() so that the TTL accounting it may have
+    // touched is based on the size the cell ends up with.
+    mgr->converge_restored_block_meta(hash, offset, ctx.cache_type, ctx.expiration_time,
+                                      cache_lock);
     return true;
 }
 
@@ -809,8 +816,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
-            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size,
-                                            args.ctx.tablet_id, cache_lock)) {
+            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size, args.ctx,
+                                            cache_lock)) {
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed
@@ -1000,8 +1007,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
-            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size,
-                                            args.ctx.tablet_id, cache_lock)) {
+            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size, args.ctx,
+                                            cache_lock)) {
                 return;
             }
             mgr->add_cell(args.hash, args.ctx, args.offset, args.size, FileBlock::State::DOWNLOADED,
@@ -1172,7 +1179,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     context_original.cache_type = block_meta->type;
     context_original.tablet_id = key.meta.tablet_id;
 
-    if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,
+    if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, context_original,
                                     cache_lock)) {
         return;
     } else {

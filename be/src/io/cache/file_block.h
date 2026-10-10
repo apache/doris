@@ -138,6 +138,20 @@ public:
     [[nodiscard]] Status change_cache_type_lock(FileCacheType new_type,
                                                 std::lock_guard<std::mutex>&);
 
+    // Adopt the cache type and expiration time the storage layer reports for this block, and
+    // drop the lru-dump mark. Unlike change_cache_type_lock(), nothing is written back to
+    // storage: the caller is converging an in-memory cell onto the values storage already
+    // holds, so a write would at best be a no-op and at worst persist the placeholder we are
+    // replacing. Returns true if anything changed.
+    bool converge_meta_to_storage(FileCacheType new_type, uint64_t new_expiration_time,
+                                  std::lock_guard<std::mutex>& cache_lock);
+
+    // True while this block's cache type and expiration time are the placeholders that
+    // CacheLRUDumper::restore_queue() had to invent, because an LRU dump entry records
+    // neither. Both flag accessors are called under the cache lock.
+    bool meta_from_lru_dump() const { return _meta_from_lru_dump; }
+    void mark_meta_from_lru_dump() { _meta_from_lru_dump = true; }
+
     uint64_t expiration_time() const { return _key.meta.expiration_time; }
 
     std::string get_cache_file() const;
@@ -194,6 +208,8 @@ private:
     FileCacheKey _key;
     size_t _downloaded_size {0};
     bool _is_deleting {false};
+    // See meta_from_lru_dump().
+    bool _meta_from_lru_dump {false};
 
     FileBlockCell* cell {nullptr};
 };

@@ -297,6 +297,15 @@ public:
     void change_cache_type(const UInt128Wrapper& hash, size_t offset, FileCacheType new_type,
                            std::lock_guard<std::mutex>& cache_lock);
 
+    // Converge a cell that the LRU dump restored onto the cache type and expiration time the
+    // storage layer reports for it. The dump carries neither, so restore_queue() has to invent
+    // both; this is the first point at which the real values are known. Storage is the source
+    // of truth here, so nothing is written back to it. A no-op for any cell that is not still
+    // carrying those placeholders.
+    void converge_restored_block_meta(const UInt128Wrapper& hash, size_t offset, FileCacheType type,
+                                      uint64_t expiration_time,
+                                      std::lock_guard<std::mutex>& cache_lock);
+
     // remove all blocks that belong to the key
     void remove_if_cached(const UInt128Wrapper& key);
     void remove_if_cached_async(const UInt128Wrapper& key);
@@ -617,6 +626,8 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;
+    std::shared_ptr<bvar::Adder<size_t>> _ttl_converged_block_num_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _ttl_converged_bytes_metrics;
 
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;

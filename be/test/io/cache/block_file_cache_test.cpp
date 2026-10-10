@@ -10212,8 +10212,8 @@ TEST_F(BlockFileCacheTest, lru_restore_size_mismatch_does_not_underflow_on_clear
 
         auto* storage = dynamic_cast<io::FSFileCacheStorage*>(cache._storage.get());
         ASSERT_NE(storage, nullptr);
-        ASSERT_TRUE(storage->handle_already_loaded_block(&cache, hash, offset, new_size,
-                                                         /*tablet_id*/ 0, cache_lock));
+        ASSERT_TRUE(storage->handle_already_loaded_block(&cache, hash, offset, new_size, ctx,
+                                                         cache_lock));
         ASSERT_EQ(cell->file_block->range().size(), new_size);
         ASSERT_EQ(cell->file_block->range().right, offset + new_size - 1);
         ASSERT_EQ(cache._cur_cache_size, new_size);

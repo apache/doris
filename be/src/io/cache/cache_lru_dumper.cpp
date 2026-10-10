@@ -23,6 +23,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/lru_queue_recorder.h"
 #include "util/coding.h"
+#include "util/time.h"
 
 namespace doris::io {
 
@@ -467,13 +468,12 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
             CacheContext ctx;
             if (queue_name == "ttl") {
                 ctx.cache_type = FileCacheType::TTL;
-                // TODO(zhengyu): we haven't persist expiration time yet, use 3h default
-                // There are mulitiple places we can correct this fake 3h ttl, e.g.:
-                // 1. during load_cache_info_into_memory (this will cause overwriting the ttl of async load)
-                // 2. after restoring, use sync_meta to modify the ttl
-                // However, I plan not to do this in this commit but to figure a more elegant way
-                // after ttl expiration time being changed from file name encoding to rocksdb persistency.
-                ctx.expiration_time = 10800;
+                // A dump entry carries no expiration time, and add_cell() only keeps a block in
+                // the TTL queue while it has a non-zero one, so we have to put something here to
+                // reproduce the queue we just read. Park it on a deadline far enough ahead that
+                // nothing mistakes the block for expired; load_cache_info_into_memory() replaces
+                // it with the value the meta store holds, through handle_already_loaded_block().
+                ctx.expiration_time = UnixSeconds() + RESTORE_PLACEHOLDER_EXPIRATION_SEC;
             } else if (queue_name == "index") {
                 ctx.cache_type = FileCacheType::INDEX;
             } else if (queue_name == "normal") {
@@ -486,7 +486,13 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
                 return;
             }
             // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
-            _mgr->add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
+            auto* cell = _mgr->add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED,
+                                        cache_lock);
+            if (cell != nullptr && cell->file_block != nullptr) {
+                // Both the cache type and the expiration time above are guesses. Mark the block
+                // so that the async load knows it may replace them.
+                cell->file_block->mark_meta_from_lru_dump();
+            }
         }
         in.close();
     } else {
