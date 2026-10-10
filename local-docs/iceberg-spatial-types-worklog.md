@@ -315,3 +315,17 @@ Iceberg V3 schema
 - FE 构建成功；IcebergTypeMappingReadTest 13/13 通过；BE header hygiene 通过。
 - BE 完整构建仍未进入 CMake 编译：`build.sh` 的 submodule 准备阶段对已解包的 apache-orc 目录反复尝试 clone/下载，clucene 也未完成初始化。该依赖问题与源码编译结论分开记录，不能把本次 BE 构建视为通过。
 - clang-format 检查未执行成功，环境提供的 clang-format 不是 v16；已保留该验证缺口，不能宣称 C++ 格式检查通过。
+
+## 执行记录：阶段 4（空间函数绑定继续推进）
+
+- 从旧 PR 语义中移植并按 master 重写 `SpatialFunctionSignature`，使 `ST_*` 函数保留参数化 Geometry/Geography 的 CRS 与 algorithm，而不是在签名匹配时退化为普通字符串。
+- 补齐 `st_geogfromwkb` 的 FE/BE 注册；Geometry WKB 构造函数和 Geography WKB 构造函数现在返回对应空间类型，BE 侧使用 `DataTypeSpatial` / `ColumnSpatial`。
+- 首轮定向测试发现旧生成类仍返回 VARCHAR、`ST_ASTEXT` 未覆写空间签名；已在 `b50df6c2203` 修正。
+- 第二轮验证通过：`FE_UT_PARALLEL=1 ./run-fe-ut.sh --run org.apache.doris.nereids.trees.expressions.functions.scalar.SpatialConstructorFunctionTest`，6/6 通过，Maven BUILD SUCCESS。
+- `./build.sh --fe` 在修正 import 顺序后成功完成，Checkstyle 0 violations。构建输出中的 npm engine/audit 和大 chunk 为环境/既有构建告警，不影响本次 FE 编译结论。
+
+## 当前仍未完成的工作
+
+- BE 完整编译和 BE 空间函数单测尚未通过；当前仍被 submodule 准备阶段的 apache-orc/clucene 依赖目录与下载问题阻塞。
+- Iceberg writer/Arrow 双向读写、WKB/EWKB/SRID 校验、内部表 DDL 约束、嵌套类型限制和端到端回归仍未完成。
+- C++ clang-format 检查仍受环境 clang-format 版本不是 v16 影响；不能宣称格式检查通过。
