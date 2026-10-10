@@ -172,6 +172,25 @@ public class MTMVRewriteUtilTest {
     }
 
     @Test
+    public void testGetMTMVCanRewritePartitionsInGracePeriodWithDataButNoSnapshot() throws AnalysisException {
+        // A partition a refresh wrote is one grace may answer for even where the snapshot has been lost with
+        // the table -- a rename recreates it: the rows are there, and its version is one it was written at.
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+        Mockito.when(refreshSnapshot.getPartitionSnapshots()).thenReturn(Maps.newHashMap());
+        Mockito.when(p1.hasData()).thenReturn(true);
+
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(false);
+
+        Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false, null);
+        Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
+    }
+
+    @Test
     public void testGetMTMVCanRewritePartitionsInGracePeriodWithoutASnapshot() throws AnalysisException {
         // A partition alignment has just added is empty and no refresh has read it, so its creation time says
         // nothing about what it holds: grace must not answer for it, or a query rewritten to it reads no rows
