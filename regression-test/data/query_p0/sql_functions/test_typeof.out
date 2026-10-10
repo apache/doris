@@ -3,11 +3,15 @@
 unknown	varchar(0)	varchar(3)	boolean	tinyint	smallint	integer	bigint	decimal(38,0)	real	double	varchar(10)	varchar(4)	varchar	varbinary	decimal(5,1)	decimal(12,3)	decimal(38,10)	date	timestamp	timestamp	timestamp with time zone	ipv4	ipv6	json	variant	bitmap	hll
 
 -- !nested --
-array(array(integer))	map(varchar, array(decimal(12,3)))	row("x" integer, "y" varchar(10))	array(row("x" integer, "y" map(varchar, integer)))
+array(array(integer))	map(varchar, array(decimal(12,3)))	row("x" integer, "y" varchar(10))	array(row("x" integer, "y" map(varchar, integer)))	varchar	varchar(4)
 
 -- !columns --
 1	integer	varchar(10)	char(4)	decimal(12,3)	array(integer)	map(varchar, integer)	row("x" integer, "y" varchar(10))	bigint	false
 2	integer	varchar(10)	char(4)	decimal(12,3)	array(integer)	map(varchar, integer)	row("x" integer, "y" varchar(10))	bigint	false
+
+-- !aggregate_cardinality --
+empty	bigint
+nonempty	bigint
 
 -- !empty --
 
@@ -15,11 +19,47 @@ array(array(integer))	map(varchar, array(decimal(12,3)))	row("x" integer, "y" va
 unknown	varchar(0)	varchar(3)	boolean	tinyint	smallint	integer	bigint	decimal(38,0)	real	double	varchar(10)	varchar(4)	varchar	varbinary	decimal(5,1)	decimal(12,3)	decimal(38,10)	date	timestamp	timestamp	timestamp with time zone	ipv4	ipv6	json	variant	bitmap	hll
 
 -- !nested --
-array(array(integer))	map(varchar, array(decimal(12,3)))	row("x" integer, "y" varchar(10))	array(row("x" integer, "y" map(varchar, integer)))
+array(array(integer))	map(varchar, array(decimal(12,3)))	row("x" integer, "y" varchar(10))	array(row("x" integer, "y" map(varchar, integer)))	varchar	varchar(4)
 
 -- !columns --
 1	integer	varchar(10)	char(4)	decimal(12,3)	array(integer)	map(varchar, integer)	row("x" integer, "y" varchar(10))	bigint	false
 2	integer	varchar(10)	char(4)	decimal(12,3)	array(integer)	map(varchar, integer)	row("x" integer, "y" varchar(10))	bigint	false
+
+-- !aggregate_cardinality --
+empty	bigint
+nonempty	bigint
+
+-- !empty --
+
+-- !literals --
+unknown	varchar(0)	varchar(3)	boolean	tinyint	smallint	integer	bigint	decimal(38,0)	real	double	varchar(10)	varchar(4)	varchar	varbinary	decimal(5,1)	decimal(12,3)	decimal(38,10)	date	timestamp	timestamp	timestamp with time zone	ipv4	ipv6	json	variant	bitmap	hll
+
+-- !nested --
+array(array(integer))	map(varchar, array(decimal(12,3)))	row("x" integer, "y" varchar(10))	array(row("x" integer, "y" map(varchar, integer)))	varchar	varchar(4)
+
+-- !columns --
+1	integer	varchar(10)	char(4)	decimal(12,3)	array(integer)	map(varchar, integer)	row("x" integer, "y" varchar(10))	bigint	false
+2	integer	varchar(10)	char(4)	decimal(12,3)	array(integer)	map(varchar, integer)	row("x" integer, "y" varchar(10))	bigint	false
+
+-- !aggregate_cardinality --
+empty	bigint
+nonempty	bigint
+
+-- !empty --
+
+-- !literals --
+unknown	varchar(0)	varchar(3)	boolean	tinyint	smallint	integer	bigint	decimal(38,0)	real	double	varchar(10)	varchar(4)	varchar	varbinary	decimal(5,1)	decimal(12,3)	decimal(38,10)	date	timestamp	timestamp	timestamp with time zone	ipv4	ipv6	json	variant	bitmap	hll
+
+-- !nested --
+array(array(integer))	map(varchar, array(decimal(12,3)))	row("x" integer, "y" varchar(10))	array(row("x" integer, "y" map(varchar, integer)))	varchar	varchar(4)
+
+-- !columns --
+1	integer	varchar(10)	char(4)	decimal(12,3)	array(integer)	map(varchar, integer)	row("x" integer, "y" varchar(10))	bigint	false
+2	integer	varchar(10)	char(4)	decimal(12,3)	array(integer)	map(varchar, integer)	row("x" integer, "y" varchar(10))	bigint	false
+
+-- !aggregate_cardinality --
+empty	bigint
+nonempty	bigint
 
 -- !empty --
 
