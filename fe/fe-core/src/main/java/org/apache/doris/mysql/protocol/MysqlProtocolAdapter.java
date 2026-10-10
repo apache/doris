@@ -62,8 +62,8 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     private static final String SSL_PROTOCOL = "TLS";
 
     private final MysqlChannel channel;
-    // the protocol capability which server say it can support
-    private final MysqlCapability serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
+    // the protocol capability which server say it can support (fixed for the connection's lifetime)
+    private final MysqlCapability serverCapability = MysqlCapability.serverCapability();
     // the protocol capability after server and client negotiate
     private volatile MysqlCapability capability;
     // This context is used for SSL connection between server and mysql client.

@@ -54,7 +54,7 @@ public class MysqlHandshakePacketTest {
 
     @Test
     public void testWrite() {
-        MysqlHandshakePacket packet = new MysqlHandshakePacket(1090);
+        MysqlHandshakePacket packet = new MysqlHandshakePacket(1090, MysqlCapability.DEFAULT_CAPABILITY);
         MysqlSerializer serializer = MysqlSerializer.newInstance(capability);
 
         packet.writeTo(serializer);
