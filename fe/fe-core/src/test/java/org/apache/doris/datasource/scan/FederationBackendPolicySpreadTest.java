@@ -117,8 +117,8 @@ public class FederationBackendPolicySpreadTest {
     }
 
     private static IntUnaryOperator selectCandidate(int index) {
-        // Replace the reservoir through the desired index, then keep that node.
-        return bound -> bound <= index + 1 ? 0 : bound - 1;
+        // Select only when the reservoir reaches the desired candidate index.
+        return bound -> bound == index + 1 ? 0 : bound - 1;
     }
 
     @Test
