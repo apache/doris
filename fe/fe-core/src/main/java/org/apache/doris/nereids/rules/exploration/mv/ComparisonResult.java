@@ -124,6 +124,19 @@ public class ComparisonResult {
             return this;
         }
 
+        /**
+         * Require one view-side FK slot to be non-null before eliminating its inner join.
+         * Each composite-FK column is a separate requirement: an inner join rejects a row
+         * if any one of its FK columns is null.
+         *
+         * @param slot nullable view-side foreign-key slot
+         * @return this builder
+         */
+        public Builder addRequiredNonNullViewSlot(Slot slot) {
+            viewNoNullableSlotBuilder.add(ImmutableSet.of(slot));
+            return this;
+        }
+
         public Builder addQueryAllPulledUpExpressions(Collection<? extends Expression> expressions) {
             queryAllPulledUpExpressionsBuilder.addAll(expressions);
             return this;

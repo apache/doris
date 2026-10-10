@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -27,22 +30,31 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -74,6 +86,41 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                         + ")\n"
                         + "UNIQUE KEY(id1)\n"
                         + "DISTRIBUTED BY HASH(id1) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS self_ref (\n"
+                        + "    id int not null,\n"
+                        + "    parent_id int not null\n"
+                        + ")\n"
+                        + "UNIQUE KEY(id)\n"
+                        + "PARTITION BY RANGE(id) (\n"
+                        + "    PARTITION p1 VALUES LESS THAN (2),\n"
+                        + "    PARTITION p2 VALUES LESS THAN (MAXVALUE)\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS composite_pri (\n"
+                        + "    a int not null,\n"
+                        + "    b int not null\n"
+                        + ")\n"
+                        + "UNIQUE KEY(a, b)\n"
+                        + "DISTRIBUTED BY HASH(a) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS composite_foreign (\n"
+                        + "    fa int not null,\n"
+                        + "    fb int not null\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(fa, fb)\n"
+                        + "DISTRIBUTED BY HASH(fa) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS wide_composite_pri (\n"
+                        + "    c01 int not null, c02 int not null, c03 int not null, c04 int not null,\n"
+                        + "    c05 int not null, c06 int not null, c07 int not null, c08 int not null,\n"
+                        + "    c09 int not null, c10 int not null, c11 int not null, c12 int not null,\n"
+                        + "    c13 int not null, c14 int not null, c15 int not null, c16 int not null\n"
+                        + ")\n"
+                        + "UNIQUE KEY(c01, c02, c03, c04, c05, c06, c07, c08, "
+                        + "c09, c10, c11, c12, c13, c14, c15, c16)\n"
+                        + "DISTRIBUTED BY HASH(c01) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         addConstraint("Alter table pri add constraint pk primary key (id1)");
@@ -82,6 +129,14 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 + "references pri(id1)");
         addConstraint("Alter table foreign_null add constraint f_not_null foreign key (id3)\n"
                 + "references pri(id1)");
+        addConstraint("Alter table self_ref add constraint self_pk primary key (id)");
+        addConstraint("Alter table self_ref add constraint self_fk foreign key (parent_id)\n"
+                + "references self_ref(id)");
+        addConstraint("Alter table composite_pri add constraint composite_pk primary key (a, b)");
+        addConstraint("Alter table composite_foreign add constraint composite_fk foreign key (fa, fb)\n"
+                + "references composite_pri(a, b)");
+        addConstraint("Alter table wide_composite_pri add constraint wide_composite_pk primary key "
+                + "(c01, c02, c03, c04, c05, c06, c07, c08, c09, c10, c11, c12, c13, c14, c15, c16)");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
@@ -110,6 +165,314 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyPlainPrimaryCanEliminateJoin() {
+        String sql = "select f.parent_id from self_ref p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyLimitedPrimaryKeepsJoin() {
+        String sql = "select f.parent_id from "
+                + "(select id from self_ref order by id limit 1) p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.parent_id from self_ref f inner join "
+                + "(select id from self_ref order by id limit 1) p "
+                + "on f.parent_id = p.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.parent_id from "
+                + "(select id as pk from (select id from self_ref order by id limit 1) limited_primary) p "
+                + "inner join self_ref f on p.pk = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyProjectAliasKeepsPrimaryKeyActive() {
+        String sql = "select f.parent_id from (select id as pk from self_ref) p "
+                + "inner join self_ref f on p.pk = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyProjectAliasPreservesHiddenFilter() {
+        String sql = "select f.parent_id from "
+                + "(select id as pk from self_ref where parent_id = 1) p "
+                + "inner join self_ref f on p.pk = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testRestrictedPrimaryScanKeepsJoin() {
+        String sql = "select f.parent_id from self_ref partition(p1) p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.parent_id from self_ref p tablesample(1 rows) "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testDuplicateProducingPrimaryScanKeepsJoin() {
+        boolean saved = connectContext.getSessionVariable().skipStorageEngineMerge;
+        connectContext.getSessionVariable().skipStorageEngineMerge = true;
+        try {
+            String sql = "select f.parent_id from self_ref p "
+                    + "inner join self_ref f on p.id = f.parent_id";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalJoin())
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().skipStorageEngineMerge = saved;
+        }
+    }
+
+    @Test
+    void testCompositePrimaryKeyRequiresCompleteKey() {
+        String sql = "select f.fa from composite_pri p "
+                + "inner join composite_foreign f on p.a = f.fa";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.fa from composite_pri p inner join composite_foreign f "
+                + "on p.a = f.fa and p.b = f.fb";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    /** A composite FK cannot be assembled from slots produced by two aliases of the same table. */
+    @Test
+    void testCompositeForeignKeyCannotMixRelationInstances() {
+        String sql = "select f1.fa, f2.fb from composite_pri p "
+                + "inner join (composite_foreign f1 cross join composite_foreign f2) "
+                + "on p.a = f1.fa and p.b = f2.fb";
+        Plan rewritten = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+        Assertions.assertEquals(2,
+                rewritten.<LogicalJoin<?, ?>>collectToList(LogicalJoin.class::isInstance).size());
+    }
+
+    /** Selector-free external scans can use a declared PK; scan-specific selectors cannot. */
+    @Test
+    void testExternalScanSelectorsCannotActivatePrimaryKey() {
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(scan.getSelectedPartitions()).thenReturn(LogicalFileScan.SelectedPartitions.NOT_PRUNED);
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
+        Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
+
+        ForeignKeyContext context = new ForeignKeyContext();
+        Assertions.assertTrue(context.canActivatePrimaryKey(scan));
+
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.of(new TableSample(1, false, 0)));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan));
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
+
+        Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.of(TableSnapshot.versionOf("1")));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan));
+        Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
+
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.TAG, ImmutableMap.of(), ImmutableList.of("v1"));
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.of(scanParams));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan));
+    }
+
+    /**
+     * Foreign-key proof requires current-state rows, even when a versioned foreign scan still
+     * exposes the same catalog columns. Cover external snapshots, branches, tags and options,
+     * native incremental reads, raw-version reads, direct indexes, and stream-scan modes separately
+     * from PK completeness. Raw-version and direct-index rejection is required on the foreign side
+     * as well as the primary side because superseded or re-aggregated foreign rows need not
+     * reference a current primary row.
+     */
+    @Test
+    void testVersionedOrDirectIndexScansCannotSupplyForeignKeyProof() {
+        ForeignKeyContext context = new ForeignKeyContext();
+        LogicalFileScan fileScan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.empty());
+        Mockito.when(fileScan.getScanParams()).thenReturn(Optional.empty());
+        Assertions.assertTrue(context.canUseCurrentConstraint(fileScan));
+
+        Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.of(TableSnapshot.versionOf("1")));
+        Assertions.assertFalse(context.canUseCurrentConstraint(fileScan));
+        Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.empty());
+
+        for (String selector : ImmutableList.of(TableScanParams.TAG, TableScanParams.BRANCH,
+                TableScanParams.INCREMENTAL_READ)) {
+            TableScanParams params = new TableScanParams(selector, ImmutableMap.of(), ImmutableList.of("old"));
+            Mockito.when(fileScan.getScanParams()).thenReturn(Optional.of(params));
+            Assertions.assertFalse(context.canUseCurrentConstraint(fileScan));
+        }
+        TableScanParams options = new TableScanParams(
+                TableScanParams.OPTIONS, ImmutableMap.of("snapshot-id", "1"), ImmutableList.of());
+        Mockito.when(fileScan.getScanParams()).thenReturn(Optional.of(options));
+        Assertions.assertFalse(context.canUseCurrentConstraint(fileScan));
+
+        LogicalOlapScan olapScan = Mockito.mock(LogicalOlapScan.class);
+        Mockito.when(olapScan.getScanParams()).thenReturn(Optional.empty());
+        Mockito.when(olapScan.isDuplicateProducingScanMode()).thenReturn(false);
+        Mockito.when(olapScan.isDirectMvScan()).thenReturn(false);
+        Assertions.assertTrue(context.canUseCurrentConstraint(olapScan));
+
+        Mockito.when(olapScan.isDirectMvScan()).thenReturn(true);
+        Assertions.assertFalse(context.canUseCurrentConstraint(olapScan));
+        Mockito.when(olapScan.isDirectMvScan()).thenReturn(false);
+
+        Mockito.when(olapScan.isDuplicateProducingScanMode()).thenReturn(true);
+        Assertions.assertFalse(context.canUseCurrentConstraint(olapScan));
+        Mockito.when(olapScan.isDuplicateProducingScanMode()).thenReturn(false);
+
+        Mockito.when(olapScan.getScanParams()).thenReturn(Optional.of(
+                new TableScanParams(TableScanParams.INCREMENTAL_READ, ImmutableMap.of(), ImmutableList.of())));
+        Assertions.assertFalse(context.canUseCurrentConstraint(olapScan));
+        Assertions.assertFalse(context.canUseCurrentConstraint(Mockito.mock(LogicalOlapTableStreamScan.class)));
+    }
+
+    /**
+     * A native row-binlog read on the foreign side must retain the join to the current PK table.
+     * Change records can contain foreign rows that no longer have a matching current PK row, so
+     * treating their column names as proof would change the query result.
+     */
+    @Test
+    void testChangeReadForeignScanKeepsJoin() throws Exception {
+        createTables("create table self_ref_change (id int not null, parent_id int not null) "
+                + "unique key(id) distributed by hash(id) buckets 1 "
+                + "properties (\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
+                + "\"binlog.format\" = \"ROW\")");
+        addConstraint("alter table self_ref_change add constraint self_ref_change_pk primary key (id)");
+        addConstraint("alter table self_ref_change add constraint self_ref_change_fk "
+                + "foreign key (parent_id) references self_ref_change(id)");
+
+        String sql = "select f.parent_id from self_ref_change p "
+                + "inner join self_ref_change@incr('incrementType'='DETAIL') f "
+                + "on p.id = f.parent_id";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(logicalJoin());
+    }
+
+    /** Aliasing every component of a wide PK records one entry per slot, not all alias subsets. */
+    @Test
+    void testCompositePrimaryKeyAliasStateGrowsLinearly() {
+        String sql = "select c01 as a01, c02 as a02, c03 as a03, c04 as a04, "
+                + "c05 as a05, c06 as a06, c07 as a07, c08 as a08, "
+                + "c09 as a09, c10 as a10, c11 as a11, c12 as a12, "
+                + "c13 as a13, c14 as a14, c15 as a15, c16 as a16 "
+                + "from wide_composite_pri";
+        Plan analyzed = PlanChecker.from(connectContext).analyze(sql).getPlan();
+        LogicalProject<?> project = analyzed.<LogicalProject<?>>collectToList(
+                LogicalProject.class::isInstance).get(0);
+        ForeignKeyContext context = new ForeignKeyContext().collectForeignKeyConstraint(project);
+
+        Assertions.assertEquals(32, context.activePrimaryKeySlotCount());
+        Assertions.assertEquals(1, context.primaryKeys.size());
+    }
+
+    /**
+     * Collect 24 distinct PK-bearing scans into one context to guard against quadratic work.
+     * Each scan must activate its own key without iterating declarations collected from earlier
+     * scans, and the scan eligibility check must run exactly once per relation.
+     */
+    @Test
+    void testPrimaryKeyActivationScalesWithDistinctTables() throws Exception {
+        int tableCount = 24;
+        List<String> tableNames = new ArrayList<>();
+        List<String> createTableStatements = new ArrayList<>();
+        for (int i = 0; i < tableCount; i++) {
+            String tableName = "fk_pk_perf_" + i;
+            tableNames.add(tableName);
+            createTableStatements.add("create table " + tableName + " (id int not null) "
+                    + "unique key(id) distributed by hash(id) buckets 1 "
+                    + "properties (\"replication_num\" = \"1\")");
+        }
+        createTables(createTableStatements.toArray(new String[0]));
+        for (String tableName : tableNames) {
+            addConstraint("alter table " + tableName + " add constraint " + tableName + "_pk primary key (id)");
+        }
+
+        String sql = "select * from " + String.join(" cross join ", tableNames);
+        Plan analyzed = PlanChecker.from(connectContext).analyze(sql).getPlan();
+        List<LogicalOlapScan> scans = analyzed.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance);
+        Assertions.assertEquals(tableCount, scans.size());
+
+        ForeignKeyContext context = Mockito.spy(new ForeignKeyContext());
+        context.primaryKeys = Mockito.spy(context.primaryKeys);
+        for (LogicalOlapScan scan : scans) {
+            context.collectForeignKeyConstraint(scan);
+        }
+        Assertions.assertEquals(tableCount, context.primaryKeys.size());
+        Assertions.assertEquals(tableCount, context.activePrimaryKeySlotCount());
+        Mockito.verify(context.primaryKeys, Mockito.never()).iterator();
+        Mockito.verify(context, Mockito.times(tableCount)).canActivatePrimaryKey(Mockito.any(LogicalOlapScan.class));
+    }
+
+    @Test
+    void testSelfForeignKeyCompatibleFilterKeepsPrimaryKeyActive() {
+        String sql = "select f.parent_id from self_ref p "
+                + "inner join self_ref f on p.id = f.parent_id where p.id = 1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyUnmatchedPrimaryFilterKeepsJoin() {
+        String sql = "select f.parent_id from (select id from self_ref where parent_id = 1) p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
                 .printlnTree();
     }
 
