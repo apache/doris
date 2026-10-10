@@ -22,6 +22,7 @@
 
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
@@ -1208,6 +1209,318 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
     EXPECT_TRUE(wrapper->is_valid());
     EXPECT_EQ(wrapper->column_type(), column_return_type);
     EXPECT_EQ(wrapper->contain_null(), false);
+}
+
+// Merging a bloom filter into an IN_OR_BLOOM filter which is still an IN filter takes a copy of
+// the input bloom filter, the input may still be probed by its own consumers.
+TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomCopiesBloomFilter) {
+    using DataType = DataTypeInt32;
+    auto make_params = [](int32_t max_in_num) {
+        return RuntimeFilterParams {.filter_id = 0,
+                                    .filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER,
+                                    .column_return_type = PrimitiveType::TYPE_INT,
+                                    .null_aware = false,
+                                    .max_in_num = max_in_num,
+                                    .runtime_bloom_filter_min_size = 64,
+                                    .runtime_bloom_filter_max_size = 128,
+                                    .bloom_filter_size = 64,
+                                    .build_bf_by_runtime_size = false,
+                                    .bloom_filter_size_calculated_by_ndv = false};
+    };
+    auto in_params = make_params(18);
+    auto wrapper = std::make_shared<RuntimeFilterWrapper>(&in_params);
+    ASSERT_TRUE(wrapper->init(16).ok());
+    ASSERT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+    std::vector<int> data_vector(10);
+    std::iota(data_vector.begin(), data_vector.end(), 0);
+    ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>(data_vector), 0).ok());
+
+    auto bloom_params = make_params(8);
+    auto bloom_wrapper = std::make_shared<RuntimeFilterWrapper>(&bloom_params);
+    ASSERT_TRUE(bloom_wrapper->init(16).ok());
+    ASSERT_EQ(bloom_wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    std::vector<int> bloom_data_vector(10);
+    std::iota(bloom_data_vector.begin(), bloom_data_vector.end(), 10);
+    ASSERT_TRUE(bloom_wrapper->insert(ColumnHelper::create_column<DataType>(bloom_data_vector), 0)
+                        .ok());
+    bloom_wrapper->set_state(RuntimeFilterWrapper::State::READY);
+    char* bloom_data = nullptr;
+    int bloom_len = 0;
+    bloom_wrapper->bloom_filter_func()->get_data(&bloom_data, &bloom_len);
+    ASSERT_GT(bloom_len, 0);
+    const std::string snapshot(bloom_data, bloom_len);
+
+    ASSERT_TRUE(wrapper->merge(bloom_wrapper.get()).ok());
+    EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    EXPECT_NE(wrapper->bloom_filter_func(), bloom_wrapper->bloom_filter_func());
+    char* merged_data = nullptr;
+    int merged_len = 0;
+    wrapper->bloom_filter_func()->get_data(&merged_data, &merged_len);
+    EXPECT_NE(merged_data, bloom_data);
+    EXPECT_EQ(merged_len, bloom_len);
+    // The input bloom filter is unchanged, the merged one has the IN values added.
+    EXPECT_EQ(snapshot, std::string(bloom_data, bloom_len));
+    EXPECT_NE(snapshot, std::string(merged_data, merged_len));
+
+    std::vector<int> final_data_vector(20);
+    std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
+    std::vector<uint8_t> final_res(20);
+    wrapper->bloom_filter_func()->find_fixed_len(
+            ColumnHelper::create_column<DataType>(final_data_vector), final_res.data());
+    EXPECT_TRUE(
+            std::all_of(final_res.begin(), final_res.end(), [](uint8_t i) -> bool { return i; }));
+}
+
+// When the caller tells merge() that `other` is exclusively owned (e.g. an RPC-only filter with
+// no other reader, see `RuntimeFilterMergeControllerEntity::merge`), the bloom filter is taken
+// over directly instead of cloned.
+TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomExclusivelyOwnedTakesOwnership) {
+    using DataType = DataTypeInt32;
+    auto make_params = [](int32_t max_in_num) {
+        return RuntimeFilterParams {.filter_id = 0,
+                                    .filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER,
+                                    .column_return_type = PrimitiveType::TYPE_INT,
+                                    .null_aware = false,
+                                    .max_in_num = max_in_num,
+                                    .runtime_bloom_filter_min_size = 64,
+                                    .runtime_bloom_filter_max_size = 128,
+                                    .bloom_filter_size = 64,
+                                    .build_bf_by_runtime_size = false,
+                                    .bloom_filter_size_calculated_by_ndv = false};
+    };
+    auto in_params = make_params(18);
+    auto wrapper = std::make_shared<RuntimeFilterWrapper>(&in_params);
+    ASSERT_TRUE(wrapper->init(16).ok());
+    ASSERT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+    std::vector<int> data_vector(10);
+    std::iota(data_vector.begin(), data_vector.end(), 0);
+    ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>(data_vector), 0).ok());
+
+    auto bloom_params = make_params(8);
+    auto bloom_wrapper = std::make_shared<RuntimeFilterWrapper>(&bloom_params);
+    ASSERT_TRUE(bloom_wrapper->init(16).ok());
+    ASSERT_EQ(bloom_wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    std::vector<int> bloom_data_vector(10);
+    std::iota(bloom_data_vector.begin(), bloom_data_vector.end(), 10);
+    ASSERT_TRUE(bloom_wrapper->insert(ColumnHelper::create_column<DataType>(bloom_data_vector), 0)
+                        .ok());
+    bloom_wrapper->set_state(RuntimeFilterWrapper::State::READY);
+    auto bloom_filter_func_before_merge = bloom_wrapper->bloom_filter_func();
+
+    ASSERT_TRUE(wrapper->merge(bloom_wrapper.get(), /*other_exclusively_owned=*/true).ok());
+    EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    // No clone: the merger took over `other`'s bloom filter directly.
+    EXPECT_EQ(wrapper->bloom_filter_func(), bloom_filter_func_before_merge);
+    EXPECT_EQ(wrapper->bloom_filter_func(), bloom_wrapper->bloom_filter_func());
+
+    std::vector<int> final_data_vector(20);
+    std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
+    std::vector<uint8_t> final_res(20);
+    wrapper->bloom_filter_func()->find_fixed_len(
+            ColumnHelper::create_column<DataType>(final_data_vector), final_res.data());
+    EXPECT_TRUE(
+            std::all_of(final_res.begin(), final_res.end(), [](uint8_t i) -> bool { return i; }));
+}
+
+TEST_F(RuntimeFilterWrapperTest, TestClone) {
+    using DataType = DataTypeInt32;
+    auto make_params = [](RuntimeFilterType filter_type, bool null_aware, int32_t max_in_num,
+                          PrimitiveType column_type = PrimitiveType::TYPE_INT) {
+        return RuntimeFilterParams {.filter_id = 3,
+                                    .filter_type = filter_type,
+                                    .column_return_type = column_type,
+                                    .null_aware = null_aware,
+                                    .max_in_num = max_in_num,
+                                    .runtime_bloom_filter_min_size = 64,
+                                    .runtime_bloom_filter_max_size = 128,
+                                    .bloom_filter_size = 64,
+                                    .build_bf_by_runtime_size = false,
+                                    .bloom_filter_size_calculated_by_ndv = true};
+    };
+    {
+        // In filter, the copy starts with an empty bucket prune cache.
+        auto params = make_params(RuntimeFilterType::IN_FILTER, true, 8);
+        auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        ASSERT_TRUE(wrapper->init(3).ok());
+        ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>({1, 2}), 0).ok());
+        wrapper->hybrid_set()->insert((const void*)nullptr);
+        wrapper->set_state(RuntimeFilterWrapper::State::READY);
+        auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataType>());
+        ASSERT_EQ(hashes->size(), 3);
+
+        std::shared_ptr<RuntimeFilterWrapper> cloned;
+        ASSERT_TRUE(wrapper->clone(&cloned).ok());
+        EXPECT_NE(cloned, wrapper);
+        EXPECT_EQ(cloned->get_state(), RuntimeFilterWrapper::State::READY);
+        EXPECT_EQ(cloned->filter_id(), wrapper->filter_id());
+        EXPECT_EQ(cloned->get_real_type(), RuntimeFilterType::IN_FILTER);
+        EXPECT_EQ(cloned->_max_in_num, wrapper->_max_in_num);
+        EXPECT_NE(cloned->hybrid_set(), wrapper->hybrid_set());
+        EXPECT_EQ(cloned->hybrid_set()->size(), 2);
+        int32_t value = 1;
+        EXPECT_TRUE(cloned->hybrid_set()->find(&value));
+        value = 2;
+        EXPECT_TRUE(cloned->hybrid_set()->find(&value));
+        EXPECT_TRUE(cloned->contain_null());
+        EXPECT_FALSE(cloned->_bucket_prune_hashes_started.load());
+
+        value = 3;
+        cloned->hybrid_set()->insert(&value);
+        EXPECT_EQ(wrapper->hybrid_set()->size(), 2);
+        EXPECT_FALSE(wrapper->hybrid_set()->find(&value));
+        value = 4;
+        wrapper->hybrid_set()->insert(&value);
+        EXPECT_EQ(cloned->hybrid_set()->size(), 3);
+        EXPECT_FALSE(cloned->hybrid_set()->find(&value));
+    }
+    {
+        // MinMax filter
+        auto params = make_params(RuntimeFilterType::MINMAX_FILTER, false, 0);
+        auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>({3, 7}), 0).ok());
+        wrapper->set_state(RuntimeFilterWrapper::State::READY);
+
+        std::shared_ptr<RuntimeFilterWrapper> cloned;
+        ASSERT_TRUE(wrapper->clone(&cloned).ok());
+        EXPECT_EQ(cloned->get_state(), RuntimeFilterWrapper::State::READY);
+        EXPECT_NE(cloned->minmax_func(), wrapper->minmax_func());
+        EXPECT_EQ(*(int32_t*)cloned->minmax_func()->get_min(), 3);
+        EXPECT_EQ(*(int32_t*)cloned->minmax_func()->get_max(), 7);
+
+        ASSERT_TRUE(cloned->insert(ColumnHelper::create_column<DataType>({1, 9}), 0).ok());
+        EXPECT_EQ(*(int32_t*)wrapper->minmax_func()->get_min(), 3);
+        EXPECT_EQ(*(int32_t*)wrapper->minmax_func()->get_max(), 7);
+    }
+    {
+        // Bloom filter
+        auto params = make_params(RuntimeFilterType::BLOOM_FILTER, false, 0);
+        auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        ASSERT_TRUE(wrapper->init(80).ok());
+        std::vector<int32_t> data(10);
+        std::iota(data.begin(), data.end(), 0);
+        ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>(data), 0).ok());
+        wrapper->set_state(RuntimeFilterWrapper::State::READY);
+
+        std::shared_ptr<RuntimeFilterWrapper> cloned;
+        ASSERT_TRUE(wrapper->clone(&cloned).ok());
+        EXPECT_EQ(cloned->get_state(), RuntimeFilterWrapper::State::READY);
+        EXPECT_NE(cloned->bloom_filter_func(), wrapper->bloom_filter_func());
+        ASSERT_EQ(cloned->bloom_filter_func()->get_size(),
+                  wrapper->bloom_filter_func()->get_size());
+        char* origin_data = nullptr;
+        int origin_len = 0;
+        wrapper->bloom_filter_func()->get_data(&origin_data, &origin_len);
+        char* cloned_data = nullptr;
+        int cloned_len = 0;
+        cloned->bloom_filter_func()->get_data(&cloned_data, &cloned_len);
+        ASSERT_EQ(cloned_len, origin_len);
+        EXPECT_NE(cloned_data, origin_data);
+        EXPECT_EQ(memcmp(cloned_data, origin_data, origin_len), 0);
+
+        std::string snapshot(origin_data, origin_len);
+        ASSERT_TRUE(cloned->insert(ColumnHelper::create_column<DataType>({100, 200, 300}), 0).ok());
+        EXPECT_EQ(memcmp(snapshot.data(), origin_data, origin_len), 0);
+    }
+    {
+        // In or bloom filter keeps its real type.
+        auto params = make_params(RuntimeFilterType::IN_OR_BLOOM_FILTER, false, 2);
+        auto in_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        ASSERT_TRUE(in_wrapper->init(1).ok());
+        ASSERT_TRUE(in_wrapper->insert(ColumnHelper::create_column<DataType>({1}), 0).ok());
+        in_wrapper->set_state(RuntimeFilterWrapper::State::READY);
+        // `init()` leaves the bloom filter of an IN filter unallocated, so allocate it by hand:
+        // the copy must skip the unused bloom filter, not merely find none to copy.
+        ASSERT_TRUE(in_wrapper->bloom_filter_func()->init_with_fixed_length(1).ok());
+        ASSERT_GT(in_wrapper->bloom_filter_func()->get_size(), 0);
+        std::shared_ptr<RuntimeFilterWrapper> cloned;
+        ASSERT_TRUE(in_wrapper->clone(&cloned).ok());
+        EXPECT_EQ(cloned->get_real_type(), RuntimeFilterType::IN_FILTER);
+        EXPECT_EQ(cloned->hybrid_set()->size(), 1);
+        EXPECT_NE(cloned->bloom_filter_func(), in_wrapper->bloom_filter_func());
+        // The unused bloom filter of an IN filter is not copied.
+        EXPECT_EQ(cloned->bloom_filter_func()->get_size(), 0);
+
+        auto bloom_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        ASSERT_TRUE(bloom_wrapper->init(3).ok());
+        ASSERT_TRUE(
+                bloom_wrapper->insert(ColumnHelper::create_column<DataType>({1, 2, 3}), 0).ok());
+        bloom_wrapper->set_state(RuntimeFilterWrapper::State::READY);
+        ASSERT_TRUE(bloom_wrapper->clone(&cloned).ok());
+        EXPECT_EQ(cloned->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+        EXPECT_EQ(cloned->hybrid_set(), nullptr);
+        EXPECT_EQ(cloned->bloom_filter_func()->get_size(),
+                  bloom_wrapper->bloom_filter_func()->get_size());
+    }
+    {
+        // A disabled filter which is never initialized has no bloom filter allocated.
+        auto params = make_params(RuntimeFilterType::IN_OR_BLOOM_FILTER, false, 2);
+        auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        wrapper->set_state(RuntimeFilterWrapper::State::DISABLED, "some reason");
+        std::shared_ptr<RuntimeFilterWrapper> cloned;
+        ASSERT_TRUE(wrapper->clone(&cloned).ok());
+        EXPECT_EQ(cloned->get_state(), RuntimeFilterWrapper::State::DISABLED);
+        EXPECT_NE(cloned->_reason.status().msg().find("some reason"), std::string::npos);
+        EXPECT_EQ(cloned->bloom_filter_func()->get_size(), 0);
+    }
+    {
+        // String in filter, the copy owns its strings.
+        auto params =
+                make_params(RuntimeFilterType::IN_FILTER, false, 8, PrimitiveType::TYPE_STRING);
+        auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        ASSERT_TRUE(wrapper->init(2).ok());
+        const std::string long_value(64, 'x');
+        ASSERT_TRUE(
+                wrapper->insert(ColumnHelper::create_column<DataTypeString>({"a", long_value}), 0)
+                        .ok());
+        wrapper->set_state(RuntimeFilterWrapper::State::READY);
+        std::shared_ptr<RuntimeFilterWrapper> cloned;
+        ASSERT_TRUE(wrapper->clone(&cloned).ok());
+        wrapper->hybrid_set()->clear();
+        wrapper.reset();
+        EXPECT_EQ(cloned->hybrid_set()->size(), 2);
+        StringRef value("a");
+        EXPECT_TRUE(cloned->hybrid_set()->find(&value));
+        value = StringRef(long_value);
+        EXPECT_TRUE(cloned->hybrid_set()->find(&value));
+    }
+    {
+        // Null aware bloom filter and minmax filter keep `contain_null`.
+        auto column = ColumnHelper::create_nullable_column<DataType>({1, 2, 0}, {0, 0, 1});
+        for (auto filter_type :
+             {RuntimeFilterType::BLOOM_FILTER, RuntimeFilterType::MINMAX_FILTER}) {
+            auto params = make_params(filter_type, true, 0);
+            auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+            ASSERT_TRUE(wrapper->init(3).ok());
+            ASSERT_TRUE(wrapper->insert(column, 0).ok());
+            wrapper->set_state(RuntimeFilterWrapper::State::READY);
+            ASSERT_TRUE(wrapper->contain_null());
+            std::shared_ptr<RuntimeFilterWrapper> cloned;
+            ASSERT_TRUE(wrapper->clone(&cloned).ok());
+            EXPECT_EQ(cloned->get_real_type(), filter_type);
+            EXPECT_TRUE(cloned->contain_null());
+        }
+    }
+    {
+        // Min filter and max filter
+        for (auto filter_type : {RuntimeFilterType::MIN_FILTER, RuntimeFilterType::MAX_FILTER}) {
+            auto params = make_params(filter_type, false, 0);
+            auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+            ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>({3, 7}), 0).ok());
+            wrapper->set_state(RuntimeFilterWrapper::State::READY);
+            std::shared_ptr<RuntimeFilterWrapper> cloned;
+            ASSERT_TRUE(wrapper->clone(&cloned).ok());
+            EXPECT_EQ(cloned->get_real_type(), filter_type);
+            EXPECT_NE(cloned->minmax_func(), wrapper->minmax_func());
+            ASSERT_TRUE(cloned->insert(ColumnHelper::create_column<DataType>({1, 9}), 0).ok());
+            if (filter_type == RuntimeFilterType::MIN_FILTER) {
+                EXPECT_EQ(*(int32_t*)cloned->minmax_func()->get_min(), 1);
+                EXPECT_EQ(*(int32_t*)wrapper->minmax_func()->get_min(), 3);
+            } else {
+                EXPECT_EQ(*(int32_t*)cloned->minmax_func()->get_max(), 9);
+                EXPECT_EQ(*(int32_t*)wrapper->minmax_func()->get_max(), 7);
+            }
+        }
+    }
 }
 
 TEST_F(RuntimeFilterWrapperTest, TestErrorPath) {
