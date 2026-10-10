@@ -26,6 +26,10 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -36,19 +40,23 @@ import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
@@ -64,6 +72,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -359,6 +368,106 @@ public class RoutineLoadJobPersistenceTest {
         Assertions.assertNull(callbackFactory.getCallback(job.getId()));
         Assertions.assertEquals(previousOrigin, job.origStmt.originStmt);
         Assertions.assertEquals(",", job.getColumnSeparator().getSeparator());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testCloudSourceReplayFailureCancelsOnlyAlterWithLoadDefinition(boolean hasLoadDefinition)
+            throws Exception {
+        RoutineLoadJob job = newPausedJob(6002L, "cloud_replay_job");
+        job.origStmt = createOriginStatement("cloud_replay_job", "COLUMNS TERMINATED BY ','");
+        String previousOrigin = job.origStmt.originStmt;
+        manager.replayCreateRoutineLoadJob(job);
+        AlterRoutineLoadJobOperationLog log = cloudSourceAlterLog(job, hasLoadDefinition);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(proxy.resetRLProgress(Mockito.any())).thenThrow(new RpcException("MS", "unavailable"));
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<MetaServiceProxy> proxyMock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            proxyMock.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+
+            Assertions.assertDoesNotThrow(() -> manager.replayAlterRoutineLoadJob(log));
+
+            Mockito.verify(proxy).resetRLProgress(Mockito.argThat(request ->
+                    request.getDbId() == job.getDbId() && request.getJobId() == job.getId()));
+            Assertions.assertEquals(previousOrigin, job.origStmt.originStmt);
+            Assertions.assertNull(job.getWhereExpr());
+            if (hasLoadDefinition) {
+                Assertions.assertEquals(JobState.CANCELLED, job.getState());
+                Assertions.assertTrue(job.cancelReason.getMsg().contains("unavailable"));
+                Assertions.assertTrue(job.getEndTimestamp() > 0);
+                Assertions.assertNull(callbackFactory.getCallback(job.getId()));
+                manager.replayChangeRoutineLoadJob(new RoutineLoadOperation(job.getId(), JobState.NEED_SCHEDULE));
+                Assertions.assertEquals(JobState.CANCELLED, job.getState());
+                Assertions.assertNull(callbackFactory.getCallback(job.getId()));
+            } else {
+                // Old and source-only journals have no load definition and keep their previous behavior.
+                Assertions.assertEquals(JobState.PAUSED, job.getState());
+                Assertions.assertNull(job.cancelReason);
+                Assertions.assertEquals(-1, job.getEndTimestamp());
+                Assertions.assertSame(job, callbackFactory.getCallback(job.getId()));
+            }
+
+            RoutineLoadJob otherJob = newPausedJob(6003L, "other_job");
+            manager.replayCreateRoutineLoadJob(otherJob);
+            manager.replayChangeRoutineLoadJob(new RoutineLoadOperation(otherJob.getId(), JobState.NEED_SCHEDULE));
+            Assertions.assertEquals(JobState.NEED_SCHEDULE, otherJob.getState());
+            Mockito.verifyNoInteractions(editLog);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Cloud.MetaServiceCode.class, names = {"OK", "ROUTINE_LOAD_PROGRESS_NOT_FOUND"})
+    public void testCloudSourceReplayAppliesLoadDefinition(Cloud.MetaServiceCode code) throws Exception {
+        RoutineLoadJob job = newPausedJob(6002L, "cloud_replay_job");
+        job.origStmt = createOriginStatement("cloud_replay_job", "COLUMNS TERMINATED BY ','");
+        manager.replayCreateRoutineLoadJob(job);
+        mockCatalog("current_table");
+        Auth auth = Mockito.mock(Auth.class);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.getDefaultCloudCluster(Mockito.anyString())).thenReturn("test_compute_group");
+        CloudSystemInfoService systemInfo = Mockito.mock(CloudSystemInfoService.class);
+        envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
+        Mockito.when(systemInfo.getCloudClusterNames()).thenReturn(Lists.newArrayList("test_compute_group"));
+        AlterRoutineLoadJobOperationLog log = cloudSourceAlterLog(job, true);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(proxy.resetRLProgress(Mockito.any())).thenReturn(Cloud.ResetRLProgressResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(code)).build());
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<MetaServiceProxy> proxyMock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            proxyMock.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+
+            manager.replayAlterRoutineLoadJob(log);
+
+            Mockito.verify(proxy).resetRLProgress(Mockito.any());
+            Assertions.assertEquals(JobState.PAUSED, job.getState());
+            Assertions.assertEquals("127.0.0.2:9092", ((KafkaRoutineLoadJob) job).getBrokerList());
+            Assertions.assertNotNull(job.getWhereExpr());
+            Assertions.assertTrue(job.origStmt.originStmt.contains("WHERE"));
+            Assertions.assertNull(job.cancelReason);
+            Assertions.assertSame(job, callbackFactory.getCallback(job.getId()));
+            manager.replayChangeRoutineLoadJob(new RoutineLoadOperation(job.getId(), JobState.NEED_SCHEDULE));
+            Assertions.assertEquals(JobState.NEED_SCHEDULE, job.getState());
+            Mockito.verifyNoInteractions(editLog);
+        }
+    }
+
+    private AlterRoutineLoadJobOperationLog cloudSourceAlterLog(RoutineLoadJob job, boolean hasLoadDefinition)
+            throws Exception {
+        KafkaDataSourceProperties sourceProperties = new KafkaDataSourceProperties(
+                Map.of("kafka_broker_list", "127.0.0.2:9092"));
+        sourceProperties.setAlter(true);
+        sourceProperties.setTimezone("Asia/Shanghai");
+        sourceProperties.analyze();
+        OriginStatement alterStatement = hasLoadDefinition
+                ? new OriginStatement("ALTER ROUTINE LOAD FOR cloud_replay_job WHERE c1 = 'new' "
+                        + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.2:9092\")", 0)
+                : null;
+        return new AlterRoutineLoadJobOperationLog(job.getId(), Maps.newHashMap(), sourceProperties,
+                alterStatement, hasLoadDefinition ? SqlModeHelper.MODE_DEFAULT : null);
     }
 
     @ParameterizedTest

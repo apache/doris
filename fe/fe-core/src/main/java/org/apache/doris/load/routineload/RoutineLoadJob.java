@@ -2071,6 +2071,12 @@ public abstract class RoutineLoadJob
         }
     }
 
+    protected void cancelFailedLoadDefinitionReplay(Exception e) {
+        cancelUnrecoverableJob("FE replay alter routine load failed", e);
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
+        LOG.warn("error happens when replaying alter routine load stmt of job {}, cancel it", id, e);
+    }
+
     protected void replayLoadDefinition(OriginStatement alterStatement, Long sqlMode,
             Map<String, String> alterSessionVariables) {
         if (alterStatement == null) {
@@ -2099,9 +2105,7 @@ public abstract class RoutineLoadJob
             // Like gsonPostProcess(), an ALTER that this FE can not analyze any more (for example, after an
             // upgrade changed the analysis rules) must not stop journal replay. The job keeps its previous
             // definition and is cancelled, so it never loads data with a definition other than the ALTERed one.
-            cancelUnrecoverableJob("FE replay alter routine load failed", e);
-            Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
-            LOG.warn("error happens when replaying alter routine load stmt of job {}, cancel it", id, e);
+            cancelFailedLoadDefinitionReplay(e);
         }
     }
 

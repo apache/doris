@@ -940,8 +940,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
             replayLoadDefinition(log.getOriginStatement(), log.getSqlMode(), log.getSessionVariables());
         } catch (UserException e) {
-            // should not happen
-            LOG.error("failed to replay modify kafka routine load job: {}", id, e);
+            if (log.getOriginStatement() != null) {
+                // Source replay (including the cloud progress RPC) can fail before the load definition
+                // is installed. Do not let a later RESUME run the job with the previous definition.
+                cancelFailedLoadDefinitionReplay(e);
+            } else {
+                LOG.error("failed to replay modify kafka routine load job: {}", id, e);
+            }
         }
     }
 
