@@ -681,7 +681,7 @@ void CloudStorageEngine::_binlog_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         int64_t cur_time = UnixMillis();
-        if (config::enable_feature_binlog && !config::disable_auto_compaction) {
+        if (!config::disable_auto_compaction) {
             Status st = _adjust_compaction_thread_num();
             if (!st.ok()) {
                 break;

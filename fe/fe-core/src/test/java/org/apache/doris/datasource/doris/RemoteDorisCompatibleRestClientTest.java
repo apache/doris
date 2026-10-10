@@ -26,8 +26,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import okhttp3.Request;
 import okhttp3.Response;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -56,7 +56,7 @@ public class RemoteDorisCompatibleRestClientTest extends DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
 
-        Assert.assertArrayEquals(columns.toArray(), res.toArray());
+        Assertions.assertArrayEquals(columns.toArray(), res.toArray());
     }
 
     private String execute(String url) throws IOException {

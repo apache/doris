@@ -520,11 +520,11 @@ Status DataDir::load() {
     }
 
     // Row binlog rowset is now a normal rowset under its own binlog tablet, loaded above.
-    // Index them by txn id so each base rowset can re-attach its paired binlog rowset on recovery.
-    std::map<int64_t, RowsetMetaSharedPtr> txn_id_to_row_binlog_meta;
+    // Index them by txn and tablet id so each base rowset can re-attach its paired binlog rowset.
+    std::map<std::pair<int64_t, int64_t>, RowsetMetaSharedPtr> row_binlog_metas;
     for (auto&& rowset_meta : dir_rowset_metas) {
         if (rowset_meta->is_row_binlog()) {
-            txn_id_to_row_binlog_meta[rowset_meta->txn_id()] = rowset_meta;
+            row_binlog_metas[{rowset_meta->txn_id(), rowset_meta->tablet_id()}] = rowset_meta;
         }
     }
 
@@ -558,8 +558,9 @@ Status DataDir::load() {
         }
 
         RowBinlogTxnInfo attach_row_binlog;
-        if (auto it = txn_id_to_row_binlog_meta.find(rowset_meta->txn_id());
-            it != txn_id_to_row_binlog_meta.end()) {
+        if (auto it = row_binlog_metas.find(
+                    {rowset_meta->txn_id(), tablet->tablet_meta()->binlog_tablet_id()});
+            it != row_binlog_metas.end()) {
             const RowsetMetaSharedPtr& attach_row_binlog_rowset_meta = it->second;
             DCHECK_EQ(attach_row_binlog_rowset_meta->rowset_state(), rowset_meta->rowset_state());
             TabletSharedPtr binlog_tablet = _engine.tablet_manager()->get_tablet(

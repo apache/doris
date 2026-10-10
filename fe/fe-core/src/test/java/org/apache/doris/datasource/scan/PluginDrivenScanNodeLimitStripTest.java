@@ -17,6 +17,11 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.catalog.Type;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -50,5 +55,12 @@ public class PluginDrivenScanNodeLimitStripTest {
         // e.g. limit-opt on a genuinely empty/partition-equality filter).
         Assertions.assertEquals(10L, PluginDrivenScanNode.effectiveSourceLimit(10L, false));
         Assertions.assertEquals(-1L, PluginDrivenScanNode.effectiveSourceLimit(-1L, false));
+    }
+
+    @Test
+    public void tryCastSubclassIsNotPushable() {
+        TryCastExpr tryCast = new TryCastExpr(Type.INT, new StringLiteral("abc"), true, false);
+
+        Assertions.assertTrue(PluginDrivenScanNode.containsCastExpr(new IsNullPredicate(tryCast, false)));
     }
 }

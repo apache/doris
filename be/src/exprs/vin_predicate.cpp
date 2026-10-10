@@ -66,6 +66,7 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_IN_SIZE(TYPE_DATETIME);
         RETURN_RAW_IN_SIZE(TYPE_DATEV2);
         RETURN_RAW_IN_SIZE(TYPE_DATETIMEV2);
+        RETURN_RAW_IN_SIZE(TYPE_TIMESTAMP_NS);
         RETURN_RAW_IN_SIZE(TYPE_TIMESTAMPTZ);
         RETURN_RAW_IN_SIZE(TYPE_TIMEV2);
         RETURN_RAW_IN_SIZE(TYPE_DECIMAL32);
@@ -75,6 +76,7 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_IN_SIZE(TYPE_DECIMAL256);
         RETURN_RAW_IN_SIZE(TYPE_IPV4);
         RETURN_RAW_IN_SIZE(TYPE_IPV6);
+        RETURN_RAW_IN_SIZE(TYPE_UUID);
 #undef RETURN_RAW_IN_SIZE
     default:
         return 0;
@@ -167,7 +169,7 @@ void VInPredicate::_prepare_zonemap_min_max(VExprContext* context) {
         return;
     }
 
-    auto bloom_probe = expr_zonemap::extract_bloom_filter_probe(_children[0]);
+    auto bloom_probe = expr_zonemap::extract_metadata_probe(_children[0]);
     if (!bloom_probe.has_value()) {
         return;
     }
@@ -175,7 +177,9 @@ void VInPredicate::_prepare_zonemap_min_max(VExprContext* context) {
     // dictionary, and raw evaluation direct-slot-only while Bloom may consume a nested leaf.
     const auto data_type = remove_nullable(bloom_probe->value_type);
     DORIS_CHECK(data_type != nullptr);
-    if (is_complex_type(data_type->get_primitive_type())) {
+    // Binary IN is rejected by the SQL function; do not build storage predicates for its keys.
+    if (is_complex_type(data_type->get_primitive_type()) ||
+        data_type->get_primitive_type() == TYPE_VARBINARY) {
         return;
     }
 
@@ -225,7 +229,7 @@ ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalCon
 
 bool VInPredicate::can_evaluate_bloom_filter() const {
     return _zonemap_min_max != nullptr && !_is_not_in &&
-           expr_zonemap::extract_bloom_filter_probe(get_child(0)).has_value();
+           expr_zonemap::extract_metadata_probe(get_child(0)).has_value();
 }
 
 bool VInPredicate::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,

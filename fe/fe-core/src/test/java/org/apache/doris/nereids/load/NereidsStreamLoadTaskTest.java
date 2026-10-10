@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.load;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -56,5 +57,43 @@ public class NereidsStreamLoadTaskTest {
         Assertions.assertEquals("$.payload.items", streamLoadTask.getJsonRoot());
         Assertions.assertTrue(streamLoadTask.isStripOuterArray());
         Assertions.assertTrue(streamLoadTask.isNumAsString());
+    }
+
+    @Test
+    public void testDefaultSendBatchParallelism() throws UserException {
+        Assertions.assertEquals(1,
+                NereidsStreamLoadTask.fromTStreamLoadPutRequest(newRequest()).getSendBatchParallelism());
+    }
+
+    @Test
+    public void testSendBatchParallelismBoundary() throws UserException {
+        for (int parallelism : new int[] {Integer.MIN_VALUE, -1, 0, 1, 256}) {
+            TStreamLoadPutRequest request = newRequest();
+            request.setSendBatchParallelism(parallelism);
+            Assertions.assertEquals(parallelism,
+                    NereidsStreamLoadTask.fromTStreamLoadPutRequest(request).getSendBatchParallelism());
+        }
+    }
+
+    @Test
+    public void testRejectExcessiveSendBatchParallelism() {
+        for (int parallelism : new int[] {257, Integer.MAX_VALUE}) {
+            TStreamLoadPutRequest request = newRequest();
+            request.setSendBatchParallelism(parallelism);
+            UserException exception = Assertions.assertThrows(UserException.class,
+                    () -> NereidsStreamLoadTask.fromTStreamLoadPutRequest(request));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "send_batch_parallelism value should less than or equal 256, you set value is: " + parallelism));
+        }
+    }
+
+    private TStreamLoadPutRequest newRequest() {
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setLoadId(new TUniqueId(1, 2));
+        request.setTxnId(3);
+        request.setFileType(TFileType.FILE_STREAM);
+        request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
+        request.setCompressType(TFileCompressType.UNKNOWN);
+        return request;
     }
 }

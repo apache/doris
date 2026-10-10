@@ -20,7 +20,7 @@ import java.util.regex.Pattern
 import org.apache.doris.regression.action.ProfileAction
 
 suite("test_expr_zonemap_pruning") {
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_expr_zonemap_filter = true """
     sql """ set enable_profile = true """
     sql """ set profile_level = 2 """
 
@@ -172,6 +172,111 @@ suite("test_expr_zonemap_pruning") {
     """
     assertEquals(4096L, pageReachabilityRows[0][1] as long)
     assertProfileCounterPositive(pageReachabilityToken, "ExprZoneMapFilteredPages")
+
+    sql """ DROP TABLE IF EXISTS test_monotonic_zonemap """
+    sql """
+        CREATE TABLE test_monotonic_zonemap (
+            id INT,
+            v VARCHAR(512),
+            dt DATETIMEV2,
+            payload VARCHAR(512),
+            INDEX idx_id (id) USING INVERTED
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true",
+            "storage_page_size" = "4096",
+            "compression" = "no_compression"
+        )
+    """
+    sql """
+        INSERT INTO test_monotonic_zonemap
+        SELECT CAST(number AS INT),
+               CONCAT('a_', LPAD(CAST(number AS STRING), 5, '0')),
+               seconds_add(CAST('2026-07-28 00:00:00' AS DATETIMEV2), number),
+               REPEAT('x', 256)
+        FROM numbers("number" = "4096")
+    """
+    sql """ sync """
+    sql """
+        INSERT INTO test_monotonic_zonemap
+        SELECT CAST(number + 4096 AS INT),
+               CONCAT('m_', LPAD(CAST(number AS STRING), 5, '0')),
+               seconds_add(CAST('2026-08-28 00:00:00' AS DATETIMEV2), number),
+               REPEAT('x', 256)
+        FROM numbers("number" = "4096")
+    """
+    sql """ sync """
+
+    sql """ set enable_expr_zonemap_filter = false """
+    sql """ set enable_count_on_index_pushdown = true """
+    explain {
+        sql """
+            SELECT COUNT(*) FROM test_monotonic_zonemap
+            WHERE date_trunc(dt, 'day') = '2026-07-28 00:00:00'
+        """
+        contains "pushAggOp=COUNT_ON_INDEX"
+    }
+
+    def inferredPrefixRangeToken = "expr_zonemap_pruning_inferred_prefix_range_" + UUID.randomUUID().toString()
+    def inferredPrefixRangeRows = sql """
+        SELECT '${inferredPrefixRangeToken}', COUNT(*) FROM test_monotonic_zonemap
+        WHERE substring(v, 1, 1) = 'a'
+    """
+    assertEquals(4096L, inferredPrefixRangeRows[0][1] as long)
+    assertProfileCounterPositive(inferredPrefixRangeToken, "RowsStatsFiltered")
+
+    def inferredDateRangeToken = "expr_zonemap_pruning_inferred_date_range_" + UUID.randomUUID().toString()
+    def inferredDateRangeRows = sql """
+        SELECT '${inferredDateRangeToken}', COUNT(*) FROM test_monotonic_zonemap
+        WHERE date_trunc(dt, 'day') = '2026-07-28 00:00:00'
+    """
+    assertEquals(4096L, inferredDateRangeRows[0][1] as long)
+    assertProfileCounterPositive(inferredDateRangeToken, "RowsStatsFiltered")
+
+    def inferredDateFormatToken = "expr_zonemap_pruning_inferred_date_format_" + UUID.randomUUID().toString()
+    def inferredDateFormatRows = sql """
+        SELECT '${inferredDateFormatToken}', COUNT(*) FROM test_monotonic_zonemap
+        WHERE date_format(dt, '%Y-%m-%d') >= '2026-08-01'
+    """
+    assertEquals(4096L, inferredDateFormatRows[0][1] as long)
+    assertProfileCounterPositive(inferredDateFormatToken, "RowsStatsFiltered")
+
+    def inferredDateFormatEqualityToken =
+            "expr_zonemap_pruning_inferred_date_format_equality_" + UUID.randomUUID().toString()
+    def inferredDateFormatEqualityRows = sql """
+        SELECT '${inferredDateFormatEqualityToken}', COUNT(*) FROM test_monotonic_zonemap
+        WHERE date_format(dt, '%Y-%m-%d') = '2026-07-28'
+    """
+    assertEquals(4096L, inferredDateFormatEqualityRows[0][1] as long)
+    assertProfileCounterPositive(inferredDateFormatEqualityToken, "RowsStatsFiltered")
+
+    sql """ set enable_count_on_index_pushdown = false """
+    explain {
+        sql """
+            SELECT COUNT(*) FROM test_monotonic_zonemap
+            WHERE date_trunc(dt, 'day') = '2026-07-28 00:00:00'
+        """
+        contains "pushAggOp=NONE"
+    }
+    def inferredDirectScanToken =
+            "expr_zonemap_pruning_inferred_direct_scan_" + UUID.randomUUID().toString()
+    def inferredDirectScanRows = sql """
+        SELECT '${inferredDirectScanToken}', COUNT(*) FROM test_monotonic_zonemap
+        WHERE date_trunc(dt, 'day') = '2026-07-28 00:00:00'
+    """
+    assertEquals(4096L, inferredDirectScanRows[0][1] as long)
+    assertProfileCounterPositive(inferredDirectScanToken, "RowsStatsFiltered")
+
+    def largeQuarterPeriodRows = sql """
+        SELECT COUNT(*) FROM test_monotonic_zonemap
+        WHERE quarter_floor(dt, 1431655766) = '0001-01-01 00:00:00'
+    """
+    assertEquals(8192L, largeQuarterPeriodRows[0][0] as long)
+    sql """ set enable_count_on_index_pushdown = true """
+    sql """ set enable_expr_zonemap_filter = true """
 
     sql """ DROP TABLE IF EXISTS test_expr_zonemap_pruning_char """
     sql """

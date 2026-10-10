@@ -380,8 +380,8 @@ public class IcebergConnectorMetadataMvccTest {
                 ConnectorMvccSnapshot.builder().snapshotId(f.s1).schemaId(f.schemaIdS1).build());
         ConnectorTableSchema atV1 = md.getTableSchema(null, handle(),
                 ConnectorMvccSnapshot.builder().snapshotId(f.s2).schemaId(f.schemaIdS2).build());
-        Assertions.assertEquals(java.util.Arrays.asList("id", "name"), columnNames(atV0));
-        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname"), columnNames(atV1));
+        Assertions.assertEquals(java.util.Arrays.asList("id", "name", "_file", "_pos"), columnNames(atV0));
+        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname", "_file", "_pos"), columnNames(atV1));
     }
 
     @Test
@@ -389,9 +389,9 @@ public class IcebergConnectorMetadataMvccTest {
         Fixture f = fixture();
         IcebergConnectorMetadata md = metadataFor(f.table, new RecordingIcebergCatalogOps());
         // null snapshot and schemaId<0 both fall back to the latest schema (fullname).
-        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname"),
+        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname", "_file", "_pos"),
                 columnNames(md.getTableSchema(null, handle(), null)));
-        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname"), columnNames(md.getTableSchema(
+        Assertions.assertEquals(java.util.Arrays.asList("id", "fullname", "_file", "_pos"), columnNames(md.getTableSchema(
                 null, handle(), ConnectorMvccSnapshot.builder().snapshotId(f.s2).schemaId(-1L).build())));
     }
 
@@ -431,8 +431,8 @@ public class IcebergConnectorMetadataMvccTest {
         // (isDigital == false) must route through IcebergTimeUtils.datetimeToMillis(session zone) ->
         // SnapshotUtil.snapshotIdAsOfTime, distinct from the digital epoch-millis parseLong path the existing
         // test drives. A null session resolves to UTC (resolveSessionZone); zone-correctness itself is pinned by
-        // IcebergTimeUtilsTest. Format one second AFTER S2 in UTC so the second-precision parse (which truncates
-        // sub-second millis) still lands at-or-after S2's commit -> resolves to S2. MUTATION: routing the
+        // IcebergTimeUtilsTest. Format one second AFTER S2 in UTC, at whole-second precision, so the string lands
+        // after S2's commit -> resolves to S2 (fractional seconds: see the test below). MUTATION: routing the
         // datetime string through the digital parseLong branch -> NumberFormatException -> red; never wiring the
         // datetime branch through resolveTimeTravel -> empty/wrong snapshot -> red.
         String datetime = java.time.Instant.ofEpochMilli(f.tsS2 + 1000)
@@ -443,6 +443,31 @@ public class IcebergConnectorMetadataMvccTest {
         Assertions.assertTrue(snap.isPresent(), "datetime string at-or-after S2 must resolve");
         Assertions.assertEquals(f.s2, snap.get().getSnapshotId());
         Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId());
+    }
+
+    @Test
+    public void resolveTimestampDatetimeStringKeepsFractionalSeconds() {
+        Fixture f = fixture();
+        // Snapshots committed within the same second are told apart only by the fraction, which a client
+        // gets from e.g. date_format(committed_at, '%Y-%m-%d %H:%i:%s.%f'). S2's exact commit millis, written
+        // with 3 or 6 fractional digits, resolves to S2; one millisecond earlier no longer reaches S2 (it is
+        // S1 or nothing, depending on when S1 committed). A parser that rejects the fraction throws, and one
+        // that truncates it to the second lands before S2 unless S2 happened to commit on a whole second.
+        java.time.ZonedDateTime commit = java.time.Instant.ofEpochMilli(f.tsS2).atZone(java.time.ZoneOffset.UTC);
+        for (String pattern : new String[] {"yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss.SSSSSS"}) {
+            String datetime = commit.format(java.time.format.DateTimeFormatter.ofPattern(pattern));
+            Optional<ConnectorMvccSnapshot> snap = metadataFor(f.table, new RecordingIcebergCatalogOps())
+                    .resolveTimeTravel(null, handle(), ConnectorTimeTravelSpec.timestamp(datetime, false));
+            Assertions.assertTrue(snap.isPresent(), "S2's exact commit time must resolve: " + datetime);
+            Assertions.assertEquals(f.s2, snap.get().getSnapshotId(), datetime);
+            Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId(), datetime);
+        }
+        String justBefore = java.time.Instant.ofEpochMilli(f.tsS2 - 1).atZone(java.time.ZoneOffset.UTC)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
+        Optional<ConnectorMvccSnapshot> before = metadataFor(f.table, new RecordingIcebergCatalogOps())
+                .resolveTimeTravel(null, handle(), ConnectorTimeTravelSpec.timestamp(justBefore, false));
+        Assertions.assertFalse(before.isPresent() && before.get().getSnapshotId() == f.s2,
+                "one millisecond before S2's commit must not resolve to S2: " + justBefore);
     }
 
     // ---------------------------------------------------------------------

@@ -144,11 +144,16 @@ Status DataTypeSerDe::default_from_string(StringRef& str, IColumn& column) const
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
-Status DataTypeSerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                       ColumnString& to_column) const {
+Status DataTypeSerDe::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column,
+        const NullMap::value_type* source_null_map) const {
     const auto size = from_column.size();
     JsonbWriter writer;
     for (int i = 0; i < size; i++) {
+        if (source_null_map && source_null_map[i]) {
+            to_column.insert_default();
+            continue;
+        }
         writer.reset();
         RETURN_IF_ERROR(serialize_column_to_jsonb(from_column, i, writer));
         to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
@@ -170,12 +175,16 @@ Status DataTypeSerDe::parse_column_from_jsonb_string(IColumn& column, const Json
     return deserialize_one_cell_from_json(column, slice, format_options);
 }
 
-Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                           const ColumnString& col_from_json,
-                                                           CastParameters& castParms) const {
+Status DataTypeSerDe::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json, CastParameters& castParms,
+        const NullMap::value_type* source_null_map) const {
     const size_t size = col_from_json.size();
     const bool is_strict = castParms.is_strict;
     for (size_t i = 0; i < size; ++i) {
+        if (source_null_map && source_null_map[i]) {
+            column_to.insert_default();
+            continue;
+        }
         const auto& val = col_from_json.get_data_at(i);
         const auto* value = handle_jsonb_value(val);
         if (!value) {
@@ -286,11 +295,13 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
         HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_UUID, TYPE_UUID)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATE, TYPE_DATE)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMP_NS, TYPE_TIMESTAMP_NS)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
@@ -351,11 +362,13 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
         HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_UUID, TYPE_UUID)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATE, TYPE_DATE)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMP_NS, TYPE_TIMESTAMP_NS)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)

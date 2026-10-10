@@ -27,8 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -92,9 +90,9 @@ public class DistinctWindowExpression extends OneRewriteRuleFactory {
                 }
                 return Optional.of(new MultiDistinctCount(false, func.child(0)));
             } else if (func instanceof Sum) {
-                return Optional.of(new MultiDistinctSum(false, ((Sum) func).child()));
+                return Optional.of(((Sum) func).convertToMultiDistinct());
             } else if (func instanceof GroupConcat) {
-                return Optional.of(new MultiDistinctGroupConcat(false, func.children()));
+                return Optional.of(((GroupConcat) func).convertToMultiDistinct());
             }
         }
         return Optional.empty();

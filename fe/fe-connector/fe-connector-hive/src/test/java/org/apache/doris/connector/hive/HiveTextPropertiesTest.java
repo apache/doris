@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -175,5 +177,172 @@ public class HiveTextPropertiesTest {
         // An explicit quoteChar="\"" is the double-quote case and must still trim.
         Map<String, String> r = HiveTextProperties.extract(OPEN_CSV_SERDE, sd("quoteChar", "\""), new HashMap<>());
         Assertions.assertEquals("true", r.get(PREFIX + "trim_double_quotes"));
+    }
+
+    @Test
+    public void testCsvTableParameters() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE, sd(),
+                sd("separatorChar", "s", "quoteChar", "q", "escapeChar", "e"));
+        assertCsvProperties(result, "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvTableParametersOverrideSerdeParameters() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("separatorChar", ",", "quoteChar", "\"", "escapeChar", "\\"),
+                sd("separatorChar", "s", "quoteChar", "q", "escapeChar", "e"));
+        assertCsvProperties(result, "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvPropertiesFallBackIndividually() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("separatorChar", "s", "quoteChar", "q"), sd("quoteChar", "\""));
+        assertCsvProperties(result, "s", "\"", "\\", "true");
+    }
+
+    @Test
+    public void testCsvSerdeParameters() {
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("separatorChar", "s", "quoteChar", "q", "escapeChar", "e"), null);
+        assertCsvProperties(result, "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvDefaultsWithMissingParameterMaps() {
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, null, null),
+                ",", "\"", "\\", "true");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, null,
+                sd("separatorChar", "s", "quoteChar", "q", "escapeChar", "e")),
+                "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvIgnoresTableAndSerdeRecordDelimiters() {
+        for (String value : new String[] {"|", "", "\r\n"}) {
+            Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("line.delim", value));
+            Assertions.assertEquals("\n", result.get(PREFIX + "line_delimiter"));
+        }
+        Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("line.delim", "\r\n"), sd("line.delim", "|"));
+        Assertions.assertEquals("\n", result.get(PREFIX + "line_delimiter"));
+    }
+
+    @Test
+    public void testCsvUsesFirstJavaCharacterFromEitherPropertySource() {
+        Map<String, String> properties = sd("separatorChar", "ss", "quoteChar", "qq", "escapeChar", "ee");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), properties),
+                "s", "q", "e", "false");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, properties, sd()),
+                "s", "q", "e", "false");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(),
+                sd("separatorChar", "99", "quoteChar", "\"suffix", "escapeChar", "eé")),
+                "9", "\"", "e", "true");
+    }
+
+    @Test
+    public void testCsvRejectsEmptyCharacterPropertiesInsteadOfFallingBack() {
+        for (String key : new String[] {"separatorChar", "quoteChar", "escapeChar"}) {
+            DorisConnectorException tableError = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(key, "x"), sd(key, "")));
+            Assertions.assertTrue(tableError.getMessage().contains(key));
+            Assertions.assertTrue(tableError.getMessage().contains("empty"));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(key, ""), sd()));
+        }
+    }
+
+    @Test
+    public void testCsvRejectsNonAsciiQuoteAndEscapeFromEitherSource() {
+        for (String key : new String[] {"quoteChar", "escapeChar"}) {
+            for (String value : new String[] {"é", "中", "😀"}) {
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd(key, value)), key);
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(key, value), sd()), key);
+            }
+        }
+    }
+
+    @Test
+    public void testCsvPreservesUtf8SeparatorButRejectsSurrogates() {
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("separatorChar", "ésuffix")),
+                "é", "\"", "\\", "true");
+        for (String value : new String[] {"😀", String.valueOf(Character.MIN_HIGH_SURROGATE),
+                String.valueOf(Character.MIN_LOW_SURROGATE)}) {
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("separatorChar", value)));
+        }
+    }
+
+    @Test
+    public void testCsvValidatesOnlyTheEffectiveCharacterProperties() {
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("separatorChar", "", "quoteChar", "é", "escapeChar", ""),
+                sd("separatorChar", "ss", "quoteChar", "qq", "escapeChar", "ee")),
+                "s", "q", "e", "false");
+    }
+
+    @Test
+    public void testCsvDefaultEscapeSentinelFromEitherPropertySource() {
+        for (String value : new String[] {"\"", "\"suffix"}) {
+            assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("escapeChar", value)),
+                    ",", "\"", "\\", "true");
+            assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd("escapeChar", value), sd()),
+                    ",", "\"", "\\", "true");
+        }
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("escapeChar", "e"), sd("escapeChar", "\"", "quoteChar", "q")),
+                ",", "q", "\\", "false");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("escapeChar", "\""), sd("escapeChar", "e")), ",", "\"", "e", "true");
+    }
+
+    @Test
+    public void testCsvRejectsConflictingEffectiveCharacters() {
+        String[][] pairs = {{"separatorChar", "quoteChar"}, {"separatorChar", "escapeChar"},
+                {"quoteChar", "escapeChar"}};
+        for (String[] pair : pairs) {
+            Map<String, String> properties = sd(pair[0], "|first", pair[1], "|second");
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), properties));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, properties, sd()));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(pair[0], "|"), sd(pair[1], "|")));
+        }
+        // Resolve the writer-default escape sentinel before checking parser-character conflicts.
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> HiveTextProperties.extract(OPEN_CSV_SERDE,
+                        sd("separatorChar", "\\"), sd("escapeChar", "\"")));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> HiveTextProperties.extract(OPEN_CSV_SERDE,
+                        sd("quoteChar", "\\"), sd("escapeChar", "\"")));
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(),
+                sd("separatorChar", "\"", "quoteChar", "q", "escapeChar", "\"")),
+                "\"", "q", "\\", "false");
+    }
+
+    @Test
+    public void testCsvRejectsNulSeparatorButAllowsDisabledQuoteAndEscape() {
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("separatorChar", "\0")));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd("separatorChar", "\0"), sd()));
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(),
+                sd("quoteChar", "\0", "escapeChar", "\0")), ",", "\0", "\0", "false");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("quoteChar", "\0", "escapeChar", "\0"), sd()), ",", "\0", "\0", "false");
+    }
+
+    private static void assertCsvProperties(Map<String, String> result,
+            String separator, String quote, String escape, String trimDoubleQuotes) {
+        Assertions.assertAll(
+                () -> Assertions.assertEquals(separator, result.get(PREFIX + "column_separator")),
+                () -> Assertions.assertEquals(quote, result.get(PREFIX + "enclose")),
+                () -> Assertions.assertEquals(escape, result.get(PREFIX + "escape")),
+                () -> Assertions.assertEquals(trimDoubleQuotes, result.get(PREFIX + "trim_double_quotes")),
+                () -> Assertions.assertEquals("\n", result.get(PREFIX + "line_delimiter")),
+                () -> Assertions.assertEquals("", result.get(PREFIX + "null_format")));
     }
 }

@@ -20,11 +20,15 @@ package org.apache.doris.connector.jdbc;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorBetween;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -536,6 +540,39 @@ class JdbcQueryBuilderTest {
     }
 
     @Test
+    void testSqlserverBooleanTrueLiteral() {
+        // SQL Server has no boolean literal and reads TRUE as a column name (issue #64464).
+        JdbcQueryBuilder builder = sqlserverBuilder();
+        ConnectorExpression filter = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("bit_value", ConnectorType.of("BOOLEAN")),
+                ConnectorLiteral.ofBoolean(true));
+        String sql = builder.buildQuery(DB, TABLE, columns("bit_value"),
+                Optional.of(filter), -1);
+        Assertions.assertTrue(sql.contains("[bit_value] = 1"),
+                "SQL Server booleans must use 1/0 integers. SQL: " + sql);
+        Assertions.assertFalse(sql.contains("TRUE"),
+                "SQL Server must not render TRUE keyword. SQL: " + sql);
+    }
+
+    @Test
+    void testSqlserverBooleanInList() {
+        // `bit_value IN ('1', '0')` reaches the connector as an IN list of boolean literals; every
+        // item goes through the same 1/0 rendering as a comparison.
+        JdbcQueryBuilder builder = sqlserverBuilder();
+        ConnectorExpression filter = new ConnectorIn(
+                new ConnectorColumnRef("bit_value", ConnectorType.of("BOOLEAN")),
+                Arrays.asList(ConnectorLiteral.ofBoolean(true), ConnectorLiteral.ofBoolean(false)),
+                false);
+        String sql = builder.buildQuery(DB, TABLE, columns("bit_value"),
+                Optional.of(filter), -1);
+        Assertions.assertTrue(sql.contains("[bit_value] IN (1, 0)"),
+                "SQL Server boolean IN lists must use 1/0 integers. SQL: " + sql);
+        Assertions.assertFalse(sql.contains("TRUE") || sql.contains("FALSE"),
+                "SQL Server must not render TRUE/FALSE keywords. SQL: " + sql);
+    }
+
+    @Test
     void testOceanbaseOracleBooleanLiteral() {
         JdbcQueryBuilder builder = oceanBaseOracleBuilder();
         ConnectorExpression filter = new ConnectorComparison(
@@ -547,4 +584,42 @@ class JdbcQueryBuilderTest {
         Assertions.assertTrue(sql.contains(" 1"),
                 "OceanBase Oracle booleans must use 1/0 integers. SQL: " + sql);
     }
+
+    @Test
+    void testClickHouseUuidRangesRemainLocalWithoutRemoteLimit() {
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.CLICKHOUSE);
+        ConnectorType uuidType = ConnectorType.of("UUID");
+        ConnectorColumnRef column = new ConnectorColumnRef("u", uuidType);
+        ConnectorLiteral literal = new ConnectorLiteral(uuidType, "80000000-0000-0000-0000-000000000000");
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.LT,
+                ConnectorComparison.Operator.LE, ConnectorComparison.Operator.GT, ConnectorComparison.Operator.GE)) {
+            for (ConnectorExpression right : Arrays.asList(literal, new ConnectorColumnRef("v", uuidType))) {
+                ConnectorExpression range = new ConnectorComparison(op, column, right);
+                for (ConnectorExpression filter : Arrays.asList(range, new ConnectorNot(range),
+                        new ConnectorOr(Arrays.asList(range, simpleComparison("id", 1))),
+                        new ConnectorComparison(op, right, column))) {
+                    String sql = builder.buildQuery(DB, TABLE, columns("id", "u", "v"), Optional.of(filter), 1);
+                    Assertions.assertFalse(sql.contains(" WHERE "), sql);
+                    Assertions.assertFalse(sql.contains(" LIMIT "), sql);
+                }
+                String sql = builder.buildQuery(DB, TABLE, columns("id", "u", "v"),
+                        Optional.of(new ConnectorAnd(Arrays.asList(range, simpleComparison("id", 1)))), 1);
+                Assertions.assertTrue(sql.contains(" WHERE "), sql);
+                Assertions.assertFalse(sql.contains(op.getSymbol()), sql);
+                Assertions.assertFalse(sql.contains(" LIMIT "), sql);
+            }
+        }
+        ConnectorExpression between = new ConnectorBetween(column, literal, literal);
+        String sql = builder.buildQuery(DB, TABLE, columns("u"), Optional.of(between), 1);
+        Assertions.assertFalse(sql.contains(" WHERE "), sql);
+        Assertions.assertFalse(sql.contains(" LIMIT "), sql);
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                ConnectorComparison.Operator.NE)) {
+            sql = builder.buildQuery(DB, TABLE, columns("u"),
+                    Optional.of(new ConnectorComparison(op, column, literal)), 1);
+            Assertions.assertTrue(sql.contains(" WHERE "), sql);
+            Assertions.assertTrue(sql.contains(" LIMIT 1"), sql);
+        }
+    }
+
 }

@@ -198,7 +198,7 @@ suite("iceberg_schema_change_ddl_with_branch", "p0,external") {
     
     // All branches expose the current table columns: id, name, grade, email, phone.
 
-    // Verify all branches have the latest columns
+    // Branches bind predicates against the current table schema even when their head snapshot is historical.
     qt_all_branches_have_grade """ SELECT id, grade FROM ${branch_table_name}@branch(branch1) WHERE grade > 0 ORDER BY id """
     qt_all_branches_have_email """ SELECT id, email FROM ${branch_table_name}@branch(branch2) WHERE email IS NOT NULL ORDER BY id """
     qt_all_branches_have_phone """ SELECT id, phone FROM ${branch_table_name}@branch(branch3) WHERE phone IS NOT NULL ORDER BY id """

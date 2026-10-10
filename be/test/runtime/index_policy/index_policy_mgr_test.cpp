@@ -28,22 +28,51 @@
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/analyzer/segment_analyzer_context.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
-#include "storage/index/inverted/common_grams/common_word_set.h"
+#include "storage/index/inverted/inverted_index_parser.h"
 #include "util/defer_op.h"
 
 namespace doris {
 namespace {
 
-TIndexPolicy common_grams_policy(int64_t id, std::string name) {
+TIndexPolicy make_analyzer_policy(int64_t id, std::string name, std::string tokenizer) {
     TIndexPolicy policy;
     policy.id = id;
     policy.name = std::move(name);
-    policy.type = TIndexPolicyType::TOKEN_FILTER;
-    policy.properties["type"] = "common_grams";
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = std::move(tokenizer);
     return policy;
+}
+
+TIndexPolicy make_tokenizer_policy(int64_t id, std::string name, std::string type) {
+    TIndexPolicy policy;
+    policy.id = id;
+    policy.name = std::move(name);
+    policy.type = TIndexPolicyType::TOKENIZER;
+    policy.properties["type"] = std::move(type);
+    return policy;
+}
+
+size_t count_analyzer_terms(IndexPolicyMgr& manager, const std::string& name) {
+    auto analyzer = manager.get_policy_by_name(name);
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "one two";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    return segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
+                                                                                 analyzer.get())
+            .size();
+}
+
+void assert_collision_sequence(const std::vector<TIndexPolicy>& updates, int64_t older_id,
+                               int64_t newer_id) {
+    IndexPolicyMgr manager;
+    manager.apply_policy_changes(updates, {});
+    EXPECT_EQ(count_analyzer_terms(manager, "Colliding_Analyzer"), 2);
+    EXPECT_EQ(manager.get_index_policys().size(), 2);
+
+    manager.apply_policy_changes({}, {older_id});
+    EXPECT_EQ(count_analyzer_terms(manager, "Colliding_Analyzer"), 2);
+    manager.apply_policy_changes({}, {newer_id});
+    EXPECT_THROW(manager.get_policy_by_name("colliding_analyzer"), Exception);
 }
 
 } // namespace
@@ -134,13 +163,64 @@ TEST_F(IndexPolicyMgrTest, TestApplyPolicyChanges) {
         ASSERT_NE(policies[duplicateId.id].name, "duplicate_id");
     }
 
-    // Test duplicate name
+    // Legacy duplicate names are retained, with the higher ID authoritative.
     TIndexPolicy duplicateName;
     duplicateName.id = 8;
     duplicateName.name = "tokenizer2"; // Same as tokenizer2
     mgr.apply_policy_changes({duplicateName}, {});
     policies = mgr.get_index_policys();
-    ASSERT_FALSE(policies.contains(duplicateName.id));
+    ASSERT_TRUE(policies.contains(duplicateName.id));
+}
+
+TEST_F(IndexPolicyMgrTest, NormalizedNameCollisionUsesHigherIdIndependentOfArrivalOrder) {
+    TIndexPolicy older = make_analyzer_policy(100, "COLLIDING_ANALYZER", "keyword");
+    TIndexPolicy newer = make_analyzer_policy(101, "colliding_analyzer", "standard");
+
+    assert_collision_sequence({older, newer}, older.id, newer.id);
+    assert_collision_sequence({newer, older}, older.id, newer.id);
+
+    IndexPolicyMgr manager;
+    manager.apply_policy_changes({older, newer}, {});
+    manager.apply_policy_changes({}, {newer.id});
+    EXPECT_EQ(count_analyzer_terms(manager, "COLLIDING_ANALYZER"), 1);
+}
+
+TEST_F(IndexPolicyMgrTest, LegacyExactNameCollisionPreservesDependentAnalyzerTerms) {
+    TIndexPolicy historical = make_tokenizer_policy(100, "IK_SMART", "standard");
+    TIndexPolicy newer = make_tokenizer_policy(101, "ik_smart", "keyword");
+    TIndexPolicy upper_dependent = make_analyzer_policy(102, "legacy_exact_analyzer", "IK_SMART");
+    TIndexPolicy lower_dependent =
+            make_analyzer_policy(103, "normalized_exact_analyzer", "ik_smart");
+
+    for (const std::vector<TIndexPolicy>& updates :
+         {std::vector<TIndexPolicy> {historical, newer, upper_dependent, lower_dependent},
+          std::vector<TIndexPolicy> {lower_dependent, upper_dependent, newer, historical}}) {
+        IndexPolicyMgr manager;
+        manager.apply_policy_changes(updates, {});
+
+        EXPECT_EQ(count_analyzer_terms(manager, upper_dependent.name), 2);
+        EXPECT_EQ(count_analyzer_terms(manager, lower_dependent.name), 1);
+    }
+}
+
+TEST_F(IndexPolicyMgrTest, MatchDispatchPreservesReplayedExactIkTerms) {
+    IndexPolicyMgr manager;
+    const auto historical = make_analyzer_policy(110, "IK", "keyword");
+    manager.apply_policy_changes({historical}, {});
+
+    const auto config = AnalyzerConfigParser::parse("IK", "english");
+    ASSERT_TRUE(config.uses_provider());
+    EXPECT_EQ(config.provider_name, historical.name);
+    EXPECT_EQ(config.analyzer_key, build_analyzer_key_from_properties({{"analyzer", "IK"}}));
+    auto analyzer = manager.get_analyzer_provider_by_name(config.provider_name, {})->get_analyzer();
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "abc def";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    const auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+            reader, analyzer.get());
+    ASSERT_EQ(terms.size(), 1);
+    EXPECT_EQ(terms.front().get_single_term(), text);
+    EXPECT_EQ(count_analyzer_terms(manager, historical.name), 1);
 }
 
 TEST_F(IndexPolicyMgrTest, TestGetPolicyByName) {
@@ -200,68 +280,222 @@ TEST_F(IndexPolicyMgrTest, TestTokenFilterProcessing) {
     ASSERT_NE(emptyAnalyzer, nullptr);
 }
 
-TEST_F(IndexPolicyMgrTest, CommonGramsProviderRetainsImmutablePurposeConfiguration) {
-    TIndexPolicy tokenizer;
-    tokenizer.id = 20;
-    tokenizer.name = "cg_tokenizer";
-    tokenizer.type = TIndexPolicyType::TOKENIZER;
-    tokenizer.properties["type"] = "char_group";
-    tokenizer.properties["tokenize_on_chars"] = "[whitespace]";
+TEST_F(IndexPolicyMgrTest, ReplayedPoliciesRejectWrongExactNestedFilterTypes) {
+    IndexPolicyMgr manager;
 
-    auto common_grams = common_grams_policy(21, "cg_filter");
-
-    TIndexPolicy analyzer_policy;
-    analyzer_policy.id = 22;
-    analyzer_policy.name = "cg_analyzer";
-    analyzer_policy.type = TIndexPolicyType::ANALYZER;
-    analyzer_policy.properties["tokenizer"] = "cg_tokenizer";
-    analyzer_policy.properties["token_filter"] = "lowercase,cg_filter";
-    mgr.apply_policy_changes({tokenizer, common_grams, analyzer_policy}, {});
-
-    auto provider = mgr.get_analyzer_provider_by_name("cg_analyzer");
-    ASSERT_NE(provider, nullptr);
-    auto analyze = [](const segment_v2::inverted_index::AnalyzerProviderPtr& analyzer_provider,
-                      segment_v2::inverted_index::AnalysisPurpose purpose, std::string_view text) {
-        auto analyzer = analyzer_provider->get_analyzer(purpose);
-        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-        reader->init(text.data(), static_cast<int32_t>(text.size()), true);
-        return segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                reader, analyzer.get());
+    auto make_filter = [](int64_t id, std::string name, TIndexPolicyType::type policy_type,
+                          std::string factory_type) {
+        TIndexPolicy policy;
+        policy.id = id;
+        policy.name = std::move(name);
+        policy.type = policy_type;
+        policy.properties["type"] = std::move(factory_type);
+        return policy;
+    };
+    auto make_container = [](int64_t id, std::string name, TIndexPolicyType::type policy_type,
+                             std::string property, std::string filter_name) {
+        TIndexPolicy policy;
+        policy.id = id;
+        policy.name = std::move(name);
+        policy.type = policy_type;
+        if (policy_type == TIndexPolicyType::ANALYZER) {
+            policy.properties["tokenizer"] = "keyword";
+        }
+        policy.properties[std::move(property)] = std::move(filter_name);
+        return policy;
     };
 
-    auto index = analyze(provider, segment_v2::inverted_index::AnalysisPurpose::kIndex,
-                         "Man of the Year");
-    auto plain = analyze(provider, segment_v2::inverted_index::AnalysisPurpose::kPlainQuery,
-                         "Man of the Year");
-    auto exact = analyze(provider, segment_v2::inverted_index::AnalysisPurpose::kExactPhraseQuery,
-                         "Man of the Year");
-    auto prefix = analyze(provider, segment_v2::inverted_index::AnalysisPurpose::kPhrasePrefixQuery,
-                          "the wo");
-    EXPECT_EQ(index.size(), 7);
-    EXPECT_EQ(plain.size(), 4);
-    EXPECT_EQ(exact.size(), 3);
-    EXPECT_EQ(prefix.size(), 1);
-    auto prefix_gram = segment_v2::inverted_index::encode_common_gram("the", "wo");
-    ASSERT_TRUE(prefix_gram.has_value()) << prefix_gram.error();
-    EXPECT_EQ(prefix.front().get_single_term(), prefix_gram.value());
+    manager.apply_policy_changes(
+            {make_filter(120, "AnalyzerToken", TIndexPolicyType::CHAR_FILTER, "char_replace"),
+             make_filter(121, "analyzertoken", TIndexPolicyType::TOKEN_FILTER, "lowercase"),
+             make_container(122, "wrong_analyzer_token_filter", TIndexPolicyType::ANALYZER,
+                            "token_filter", "AnalyzerToken"),
+             make_filter(130, "AnalyzerChar", TIndexPolicyType::TOKEN_FILTER, "lowercase"),
+             make_filter(131, "analyzerchar", TIndexPolicyType::CHAR_FILTER, "char_replace"),
+             make_container(132, "wrong_analyzer_char_filter", TIndexPolicyType::ANALYZER,
+                            "char_filter", "AnalyzerChar"),
+             make_filter(140, "NormalizerToken", TIndexPolicyType::CHAR_FILTER, "char_replace"),
+             make_filter(141, "normalizertoken", TIndexPolicyType::TOKEN_FILTER, "lowercase"),
+             make_container(142, "wrong_normalizer_token_filter", TIndexPolicyType::NORMALIZER,
+                            "token_filter", "NormalizerToken"),
+             make_filter(150, "NormalizerChar", TIndexPolicyType::TOKEN_FILTER, "lowercase"),
+             make_filter(151, "normalizerchar", TIndexPolicyType::CHAR_FILTER, "char_replace"),
+             make_container(152, "wrong_normalizer_char_filter", TIndexPolicyType::NORMALIZER,
+                            "char_filter", "NormalizerChar")},
+            {});
 
-    auto single_index = mgr.get_analyzer_by_name(
-            "cg_analyzer", segment_v2::inverted_index::AnalysisPurpose::kIndex);
-    auto single_reader = std::make_shared<lucene::util::SStringReader<char>>();
-    const std::string single_input = "Man of the Year";
-    single_reader->init(single_input.data(), static_cast<int32_t>(single_input.size()), true);
-    EXPECT_EQ(segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                      single_reader, single_index.get())
-                      .size(),
-              7);
+    auto expect_type_mismatch = [&manager](const std::string& name,
+                                           const std::string& expected_type) {
+        try {
+            manager.get_policy_by_name(name);
+            FAIL() << "Expected a nested filter type mismatch for " << name;
+        } catch (const Exception& exception) {
+            EXPECT_NE(std::string(exception.what()).find("expected " + expected_type),
+                      std::string::npos);
+        }
+    };
+
+    expect_type_mismatch("wrong_analyzer_token_filter", "TOKEN_FILTER");
+    expect_type_mismatch("wrong_analyzer_char_filter", "CHAR_FILTER");
+    expect_type_mismatch("wrong_normalizer_token_filter", "TOKEN_FILTER");
+    expect_type_mismatch("wrong_normalizer_char_filter", "CHAR_FILTER");
+}
+
+TEST_F(IndexPolicyMgrTest, ReplayedPoliciesRejectWrongExactTokenizerType) {
+    IndexPolicyMgr manager;
+
+    // The exact name resolves to a char filter whose factory type is also a tokenizer type.
+    TIndexPolicy exact_char_filter;
+    exact_char_filter.id = 160;
+    exact_char_filter.name = "AnalyzerTokenizer";
+    exact_char_filter.type = TIndexPolicyType::CHAR_FILTER;
+    exact_char_filter.properties["type"] = "empty";
+
+    TIndexPolicy normalized_tokenizer;
+    normalized_tokenizer.id = 161;
+    normalized_tokenizer.name = "analyzertokenizer";
+    normalized_tokenizer.type = TIndexPolicyType::TOKENIZER;
+    normalized_tokenizer.properties["type"] = "standard";
+
+    TIndexPolicy analyzer;
+    analyzer.id = 162;
+    analyzer.name = "wrong_analyzer_tokenizer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "AnalyzerTokenizer";
+
+    manager.apply_policy_changes({exact_char_filter, normalized_tokenizer, analyzer}, {});
+
+    try {
+        manager.get_policy_by_name("wrong_analyzer_tokenizer");
+        FAIL() << "Expected a tokenizer type mismatch";
+    } catch (const Exception& exception) {
+        EXPECT_NE(std::string(exception.what()).find("expected TOKENIZER"), std::string::npos)
+                << exception.what();
+    }
+}
+
+TEST_F(IndexPolicyMgrTest, BuiltinNormalizerWinsOverNormalizedLegacyPolicy) {
+    IndexPolicyMgr manager;
+
+    // FE resolves "lowercase" to the built-in normalizer when only a case-distinct legacy
+    // policy exists, so BE must not bind that policy through the normalized fallback.
+    TIndexPolicy legacy;
+    legacy.id = 170;
+    legacy.name = "LOWERCASE";
+    legacy.type = TIndexPolicyType::TOKEN_FILTER;
+    legacy.properties["type"] = "lowercase";
+    manager.apply_policy_changes({legacy}, {});
+
+    EXPECT_NE(manager.get_policy_by_name("lowercase"), nullptr);
+    EXPECT_NE(manager.get_analyzer_by_name("lowercase"), nullptr);
+    std::string resolved_name;
+    std::string legacy_name;
+    auto provider =
+            manager.get_analyzer_provider_by_name("lowercase", {}, &resolved_name, &legacy_name);
+    EXPECT_NE(provider, nullptr);
+    EXPECT_EQ(resolved_name, "lowercase");
+    EXPECT_TRUE(legacy_name.empty());
+
+    // The exact spelling still binds the replayed policy, which is not a top-level policy.
+    EXPECT_THROW(manager.get_policy_by_name("LOWERCASE"), Exception);
+}
+
+TEST_F(IndexPolicyMgrTest, ExactCustomNormalizerDoesNotPublishBuiltinAlias) {
+    IndexPolicyMgr manager;
+
+    // "lowercase" is reserved for the built-in normalizer, so an exact custom policy must not
+    // advertise it as a compatibility alias for reader selection.
+    TIndexPolicy legacy;
+    legacy.id = 180;
+    legacy.name = "LOWERCASE";
+    legacy.type = TIndexPolicyType::NORMALIZER;
+    legacy.properties["token_filter"] = "asciifolding";
+    manager.apply_policy_changes({legacy}, {});
+
+    std::string resolved_name;
+    std::string legacy_name;
+    auto provider =
+            manager.get_analyzer_provider_by_name("LOWERCASE", {}, &resolved_name, &legacy_name);
+    ASSERT_NE(provider, nullptr);
+    EXPECT_EQ(resolved_name, "LOWERCASE");
+    EXPECT_TRUE(legacy_name.empty()) << legacy_name;
+}
+
+TEST_F(IndexPolicyMgrTest, PolicyOnTheCanonicalNameLeavesOtherSpellingsOnTheBuiltin) {
+    IndexPolicyMgr manager;
+
+    // A policy replayed under the canonical name shadows the built-in normalizer for that exact
+    // spelling only. FE relies on this to keep an index bound to the built-in: it persists the
+    // user's spelling when the canonical one is taken.
+    TIndexPolicy shadow;
+    shadow.id = 190;
+    shadow.name = "lowercase";
+    shadow.type = TIndexPolicyType::NORMALIZER;
+    shadow.properties["token_filter"] = "asciifolding";
+    manager.apply_policy_changes({shadow}, {});
+
+    // asciifolding leaves "Ab" alone, so the emitted term tells the two bindings apart.
+    const std::string text = "Ab";
+    auto analyze = [&](const std::string& name) {
+        auto analyzer = manager.get_analyzer_by_name(name);
+        auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+        reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+        auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                reader, analyzer.get());
+        EXPECT_EQ(terms.size(), 1) << name;
+        return terms.empty() ? std::string() : terms[0].get_single_term();
+    };
+
+    EXPECT_EQ(analyze("lowercase"), "Ab");
+    EXPECT_EQ(analyze("LowerCase"), "ab");
+    EXPECT_EQ(analyze("LOWERCASE"), "ab");
+}
+
+TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
+    TIndexPolicy analyzer;
+    analyzer.id = 20;
+    analyzer.name = "uppercase_ik_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "IK_SMART";
+    mgr.apply_policy_changes({analyzer}, {});
+
+    auto built = mgr.get_policy_by_name(analyzer.name);
+    ASSERT_NE(built, nullptr);
+}
+
+TEST_F(IndexPolicyMgrTest, ExistingPolicyTakesPrecedenceOverNewBuiltinName) {
+    TIndexPolicy legacy_tokenizer;
+    legacy_tokenizer.id = 21;
+    legacy_tokenizer.name = "ik_smart";
+    legacy_tokenizer.type = TIndexPolicyType::TOKENIZER;
+    legacy_tokenizer.properties["type"] = "ngram";
+    legacy_tokenizer.properties["min_gram"] = "2";
+    legacy_tokenizer.properties["max_gram"] = "2";
+
+    TIndexPolicy analyzer;
+    analyzer.id = 22;
+    analyzer.name = "legacy_collision_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "IK_SMART";
+    mgr.apply_policy_changes({legacy_tokenizer, analyzer}, {});
+
+    auto built = mgr.get_policy_by_name(analyzer.name);
+    ASSERT_NE(built, nullptr);
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "abcd";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
+                                                                                       built.get());
+    ASSERT_EQ(terms.size(), 3);
+    EXPECT_EQ(terms[0].get_single_term(), "ab");
+    EXPECT_EQ(terms[1].get_single_term(), "bc");
+    EXPECT_EQ(terms[2].get_single_term(), "cd");
 }
 
 TEST_F(IndexPolicyMgrTest, AnalyzerProviderPreservesPurposeInsensitiveNormalizers) {
     auto builtin = mgr.get_analyzer_provider_by_name("lowercase");
-    auto builtin_analyzer =
-            builtin->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
-    EXPECT_EQ(builtin->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kIndex),
-              builtin_analyzer);
+    auto builtin_analyzer = builtin->get_analyzer();
+    EXPECT_EQ(builtin->get_analyzer(), builtin_analyzer);
 
     TIndexPolicy normalizer;
     normalizer.id = 23;
@@ -271,149 +505,8 @@ TEST_F(IndexPolicyMgrTest, AnalyzerProviderPreservesPurposeInsensitiveNormalizer
     mgr.apply_policy_changes({normalizer}, {});
 
     auto configured = mgr.get_analyzer_provider_by_name("test_normalizer");
-    auto configured_analyzer =
-            configured->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
-    EXPECT_EQ(configured->get_analyzer(segment_v2::inverted_index::AnalysisPurpose::kIndex),
-              configured_analyzer);
-}
-
-TEST_F(IndexPolicyMgrTest, FindsFreshAnalyzerProviderBySegmentBaseFingerprint) {
-    using segment_v2::inverted_index::AnalysisPurpose;
-    using segment_v2::inverted_index::InvertedIndexAnalyzer;
-
-    const std::map<std::string, std::string> slash_to_space = {
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "/"},
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}};
-    auto configured = mgr.get_analyzer_provider_by_name("analyzer1", slash_to_space);
-    const std::string segment_fingerprint(configured->base_analyzer_fingerprint());
-
-    auto first = mgr.get_analyzer_provider_by_base_fingerprint(segment_fingerprint, slash_to_space);
-    ASSERT_NE(first, nullptr);
-    EXPECT_EQ(first->base_analyzer_fingerprint(), segment_fingerprint);
-    EXPECT_EQ(mgr.get_analyzer_provider_by_base_fingerprint(segment_fingerprint), nullptr);
-    EXPECT_EQ(mgr.get_analyzer_provider_by_base_fingerprint("unknown", slash_to_space), nullptr);
-
-    auto second =
-            mgr.get_analyzer_provider_by_base_fingerprint(segment_fingerprint, slash_to_space);
-    ASSERT_NE(second, nullptr);
-    EXPECT_NE(first, second);
-    EXPECT_NE(first->get_analyzer(AnalysisPurpose::kPlainQuery),
-              second->get_analyzer(AnalysisPurpose::kPlainQuery));
-
-    mgr.apply_policy_changes({}, {5});
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    const std::string input = "ASCII TERM";
-    reader->init(input.data(), static_cast<int32_t>(input.size()), true);
-    const auto terms = InvertedIndexAnalyzer::get_analyse_result(
-            reader, first->get_analyzer(AnalysisPurpose::kPlainQuery).get());
-    ASSERT_EQ(terms.size(), 2U);
-    EXPECT_EQ(terms[0].get_single_term(), "ascii");
-    EXPECT_EQ(terms[1].get_single_term(), "term");
-}
-
-TEST_F(IndexPolicyMgrTest, RebuildsQueryContextForPersistedSegmentAnalyzer) {
-    const std::map<std::string, std::string> slash_to_space = {
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "/"},
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}};
-    auto segment_provider = mgr.get_analyzer_provider_by_name("analyzer1", slash_to_space);
-    const std::string segment_fingerprint(segment_provider->base_analyzer_fingerprint());
-
-    segment_v2::inverted_index::Settings tokenizer_settings;
-    tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
-    segment_v2::inverted_index::CustomAnalyzerConfig::Builder request_builder;
-    request_builder.with_tokenizer_config("char_group", tokenizer_settings);
-    auto request_provider = std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(
-            request_builder.build());
-    ASSERT_NE(request_provider->base_analyzer_fingerprint(), segment_fingerprint);
-
-    InvertedIndexAnalyzerCtx request_context;
-    request_context.analyzer_name = "request_analyzer";
-    request_context.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    request_context.char_filter_map = {{"stale", "filter"}};
-    request_context.analyzer = request_provider->get_analyzer(
-            segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
-    request_context.analyzer_provider = request_provider;
-    request_context.common_grams_identity = segment_v2::inverted_index::CommonGramsQueryIdentity {
-            .common_grams_dictionary_identity = "stale-dictionary",
-            .base_analyzer_fingerprint = std::string(request_provider->base_analyzer_fingerprint()),
-            .common_grams_fingerprint = "stale-common-grams"};
-
-    const std::map<std::string, std::string> physical_properties = slash_to_space;
-    auto rebuilt = segment_v2::inverted_index::maybe_rebuild_segment_analyzer_context(
-            &request_context, segment_fingerprint, physical_properties, &mgr);
-    ASSERT_TRUE(rebuilt.has_value()) << rebuilt.error();
-    ASSERT_TRUE(rebuilt->has_value());
-    const auto& effective = rebuilt->value();
-    EXPECT_EQ(effective.analyzer_name, request_context.analyzer_name);
-    EXPECT_EQ(effective.parser_type, request_context.parser_type);
-    EXPECT_EQ(effective.char_filter_map, slash_to_space);
-    EXPECT_EQ(effective.analyzer, nullptr);
-    ASSERT_NE(effective.analyzer_provider, nullptr);
-    EXPECT_EQ(effective.analyzer_provider->base_analyzer_fingerprint(), segment_fingerprint);
-    EXPECT_FALSE(effective.common_grams_identity.has_value());
-    EXPECT_NE(effective.analyzer_provider, segment_provider);
-
-    InvertedIndexAnalyzerCtx matching_context = request_context;
-    matching_context.analyzer_provider = segment_provider;
-    auto unchanged = segment_v2::inverted_index::maybe_rebuild_segment_analyzer_context(
-            &matching_context, segment_fingerprint, physical_properties, &mgr);
-    ASSERT_TRUE(unchanged.has_value()) << unchanged.error();
-    EXPECT_FALSE(unchanged->has_value());
-
-    auto unavailable = segment_v2::inverted_index::maybe_rebuild_segment_analyzer_context(
-            &request_context, "missing-segment-fingerprint", physical_properties, &mgr);
-    ASSERT_FALSE(unavailable.has_value());
-    EXPECT_EQ(unavailable.error().code(), ErrorCode::INVERTED_INDEX_BYPASS);
-}
-
-TEST_F(IndexPolicyMgrTest, SegmentAnalyzerAdmissionKeepsLegacyRequestWithoutMetadata) {
-    auto admitted = segment_v2::inverted_index::maybe_rebuild_segment_analyzer_context(
-            nullptr, std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata> {}, {},
-            nullptr);
-
-    ASSERT_TRUE(admitted.has_value()) << admitted.error();
-    EXPECT_FALSE(admitted->has_value());
-}
-
-TEST_F(IndexPolicyMgrTest, SegmentAnalyzerAdmissionBypassesTypedMetadataWithoutBaseFingerprint) {
-    segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
-    auto admitted = segment_v2::inverted_index::maybe_rebuild_segment_analyzer_context(
-            nullptr, std::optional {metadata}, {}, &mgr);
-
-    ASSERT_FALSE(admitted.has_value());
-    EXPECT_EQ(admitted.error().code(), ErrorCode::INVERTED_INDEX_BYPASS);
-}
-
-TEST_F(IndexPolicyMgrTest, SegmentAnalyzerAdmissionRebuildsTypedMetadata) {
-    const std::map<std::string, std::string> slash_to_space = {
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "/"},
-            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}};
-    auto segment_provider = mgr.get_analyzer_provider_by_name("analyzer1", slash_to_space);
-    const std::string segment_fingerprint(segment_provider->base_analyzer_fingerprint());
-
-    segment_v2::inverted_index::Settings tokenizer_settings;
-    tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
-    segment_v2::inverted_index::CustomAnalyzerConfig::Builder request_builder;
-    request_builder.with_tokenizer_config("char_group", tokenizer_settings);
-    auto request_provider = std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(
-            request_builder.build());
-
-    InvertedIndexAnalyzerCtx request_context;
-    request_context.analyzer_provider = request_provider;
-    request_context.analyzer = request_provider->get_analyzer(
-            segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
-    segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
-    metadata.base_analyzer_fingerprint = segment_fingerprint;
-
-    auto rebuilt = segment_v2::inverted_index::maybe_rebuild_segment_analyzer_context(
-            &request_context, std::optional {metadata}, slash_to_space, &mgr);
-
-    ASSERT_TRUE(rebuilt.has_value()) << rebuilt.error();
-    ASSERT_TRUE(rebuilt->has_value());
-    EXPECT_EQ(rebuilt->value().analyzer_provider->base_analyzer_fingerprint(), segment_fingerprint);
+    auto configured_analyzer = configured->get_analyzer();
+    EXPECT_EQ(configured->get_analyzer(), configured_analyzer);
 }
 
 } // namespace doris

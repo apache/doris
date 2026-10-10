@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.qe.ResultSet;
 
@@ -36,23 +35,8 @@ import java.util.Optional;
   *    the PhysicalEmptyRelation implement this interface.
   * </li>
   * </p>
-  * <p>
-  * If you want to cache the result set in fe, you can implement this interface and write this code:
-  * </p>
-  * <pre>
-  * StatementContext statementContext = cascadesContext.getStatementContext();
-  * boolean enableSqlCache
-  *         = CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable());
-  * if (sqlCacheContext.isPresent() && enableSqlCache) {
-  *     sqlCacheContext.get().setResultSetInFe(resultSet);
-  *     Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
-  *             statementContext.getConnectContext(),
-  *             statementContext.getOriginStatement().originStmt
-  *     );
-  * }
-  * </pre>
+  * The planner centrally handles SQL cache admission after an implementation returns a result set.
   */
 public interface ComputeResultSet {
-    Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext,
-            List<Slot> outputSlots);
+    Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, List<Slot> outputSlots);
 }

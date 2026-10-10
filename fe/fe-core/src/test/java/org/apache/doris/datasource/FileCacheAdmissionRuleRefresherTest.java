@@ -23,10 +23,10 @@ import org.apache.doris.datasource.scan.FileCacheAdmissionManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.awaitility.Awaitility;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,7 +45,7 @@ public class FileCacheAdmissionRuleRefresherTest {
 
     private static FileCacheAdmissionManager manager;
 
-    @BeforeClass
+    @BeforeAll
     public static void setUpClass() throws Exception {
         Path currentDir = Paths.get("").toAbsolutePath();
         Path jsonFileDir = currentDir.resolve("jsonFileDir-test");
@@ -65,13 +65,13 @@ public class FileCacheAdmissionRuleRefresherTest {
     public void testJsonFileCreated() throws Exception {
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_1", "catalog_1", "database_1", "table_1", reason1);
-        Assert.assertFalse(result1);
-        Assert.assertEquals("default rule", reason1.get());
+        Assertions.assertFalse(result1);
+        Assertions.assertEquals("default rule", reason1.get());
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user_2", "catalog_2", "database_2", "table_2", reason2);
-        Assert.assertFalse(result2);
-        Assert.assertEquals("default rule", reason2.get());
+        Assertions.assertFalse(result2);
+        Assertions.assertEquals("default rule", reason2.get());
 
         List<FileCacheAdmissionManager.AdmissionRule> rules = new ArrayList<>();
         long createdTime = 0;
@@ -100,13 +100,13 @@ public class FileCacheAdmissionRuleRefresherTest {
         Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
             AtomicReference<String> reason3 = new AtomicReference<>();
             boolean result3 = manager.isAdmittedAtTableLevel("user_1", "catalog_1", "database_1", "table_1", reason3);
-            Assert.assertTrue(result3);
-            Assert.assertEquals("user table-level whitelist rule", reason3.get());
+            Assertions.assertTrue(result3);
+            Assertions.assertEquals("user table-level whitelist rule", reason3.get());
 
             AtomicReference<String> reason4 = new AtomicReference<>();
             boolean result4 = manager.isAdmittedAtTableLevel("user_2", "catalog_2", "database_2", "table_2", reason4);
-            Assert.assertTrue(result4);
-            Assert.assertEquals("user table-level whitelist rule", reason4.get());
+            Assertions.assertTrue(result4);
+            Assertions.assertEquals("user table-level whitelist rule", reason4.get());
         });
     }
 
@@ -139,27 +139,27 @@ public class FileCacheAdmissionRuleRefresherTest {
         Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
             AtomicReference<String> reason1 = new AtomicReference<>();
             boolean result1 = manager.isAdmittedAtTableLevel("user_3", "catalog_3", "database_3", "table_3", reason1);
-            Assert.assertTrue(result1);
-            Assert.assertEquals("user table-level whitelist rule", reason1.get());
+            Assertions.assertTrue(result1);
+            Assertions.assertEquals("user table-level whitelist rule", reason1.get());
 
             AtomicReference<String> reason2 = new AtomicReference<>();
             boolean result2 = manager.isAdmittedAtTableLevel("user_4", "catalog_4", "database_4", "table_4", reason2);
-            Assert.assertTrue(result2);
-            Assert.assertEquals("user table-level whitelist rule", reason2.get());
+            Assertions.assertTrue(result2);
+            Assertions.assertEquals("user table-level whitelist rule", reason2.get());
         });
 
-        Assert.assertTrue(jsonFile4.delete());
+        Assertions.assertTrue(jsonFile4.delete());
 
         Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
             AtomicReference<String> reason3 = new AtomicReference<>();
             boolean result3 = manager.isAdmittedAtTableLevel("user_3", "catalog_3", "database_3", "table_3", reason3);
-            Assert.assertTrue(result3);
-            Assert.assertEquals("user table-level whitelist rule", reason3.get());
+            Assertions.assertTrue(result3);
+            Assertions.assertEquals("user table-level whitelist rule", reason3.get());
 
             AtomicReference<String> reason4 = new AtomicReference<>();
             boolean result4 = manager.isAdmittedAtTableLevel("user_4", "catalog_4", "database_4", "table_4", reason4);
-            Assert.assertFalse(result4);
-            Assert.assertEquals("default rule", reason4.get());
+            Assertions.assertFalse(result4);
+            Assertions.assertEquals("default rule", reason4.get());
         });
     }
 
@@ -183,13 +183,13 @@ public class FileCacheAdmissionRuleRefresherTest {
         Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
             AtomicReference<String> reason1 = new AtomicReference<>();
             boolean result1 = manager.isAdmittedAtTableLevel("user_5", "catalog_5", "database_5", "table_5", reason1);
-            Assert.assertTrue(result1);
-            Assert.assertEquals("user table-level whitelist rule", reason1.get());
+            Assertions.assertTrue(result1);
+            Assertions.assertEquals("user table-level whitelist rule", reason1.get());
 
             AtomicReference<String> reason2 = new AtomicReference<>();
             boolean result2 = manager.isAdmittedAtTableLevel("user_6", "catalog_6", "database_6", "table_6", reason2);
-            Assert.assertFalse(result2);
-            Assert.assertEquals("default rule", reason2.get());
+            Assertions.assertFalse(result2);
+            Assertions.assertEquals("default rule", reason2.get());
         });
 
         rules.clear();
@@ -203,13 +203,13 @@ public class FileCacheAdmissionRuleRefresherTest {
         Awaitility.await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
             AtomicReference<String> reason3 = new AtomicReference<>();
             boolean result3 = manager.isAdmittedAtTableLevel("user_5", "catalog_5", "database_5", "table_5", reason3);
-            Assert.assertFalse(result3);
-            Assert.assertEquals("default rule", reason3.get());
+            Assertions.assertFalse(result3);
+            Assertions.assertEquals("default rule", reason3.get());
 
             AtomicReference<String> reason4 = new AtomicReference<>();
             boolean result4 = manager.isAdmittedAtTableLevel("user_6", "catalog_6", "database_6", "table_6", reason4);
-            Assert.assertTrue(result4);
-            Assert.assertEquals("user table-level whitelist rule", reason4.get());
+            Assertions.assertTrue(result4);
+            Assertions.assertEquals("user table-level whitelist rule", reason4.get());
         });
     }
 
@@ -236,7 +236,7 @@ public class FileCacheAdmissionRuleRefresherTest {
         });
     }
 
-    @AfterClass
+    @AfterAll
     public static void deleteJsonFile() throws Exception {
         Path currentDir = Paths.get("").toAbsolutePath();
         Path jsonFileDir = currentDir.resolve("jsonFileDir-test");

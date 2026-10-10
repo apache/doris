@@ -34,8 +34,8 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -65,7 +65,7 @@ public class StageUtilTest {
     @Test
     public void testListAndFilterFilesV2() throws Exception {
         List<String> keys = readMockedOssUrl();
-        Assert.assertEquals(4956, keys.size());
+        Assertions.assertEquals(4956, keys.size());
 
         // Mock FileSystemFactory and related dependencies
         ObjFileSystem mockFs = Mockito.mock(ObjFileSystem.class);
@@ -112,7 +112,7 @@ public class StageUtilTest {
             LOG.info("triple:{}, fileStatus.size():{}", triple, fileStatus.size());
             // All 4956 test keys match the pattern, but the meta size limit (51200 bytes)
             // caps the result at 500 files (5 batches of cloud_filter_copy_file_num_limit=100).
-            Assert.assertEquals(500, fileStatus.size());
+            Assertions.assertEquals(500, fileStatus.size());
         }
     }
 }

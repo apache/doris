@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -34,6 +35,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -65,6 +68,9 @@ public class DateFunctionRewrite implements ExpressionPatternRuleFactory {
     }
 
     private static Expression rewriteEqualTo(EqualTo equalTo) {
+        if (isTimeStampNsDateComparison(equalTo)) {
+            return rewriteTimeStampNsDateComparison(equalTo);
+        }
         if (equalTo.left() instanceof Date) {
             // V1
             if (equalTo.left().child(0).getDataType() instanceof DateTimeType
@@ -91,26 +97,46 @@ public class DateFunctionRewrite implements ExpressionPatternRuleFactory {
     }
 
     private static Expression rewriteGreaterThan(GreaterThan greaterThan) {
+        if (isTimeStampNsDateComparison(greaterThan)) {
+            return rewriteTimeStampNsDateComparison(greaterThan);
+        }
         if (greaterThan.left() instanceof Date) {
             // V1
             if (greaterThan.left().child(0).getDataType() instanceof DateTimeType
                     && greaterThan.right() instanceof DateLiteral) {
-                DateTimeLiteral newLiteral = ((DateLiteral) greaterThan.right()).toBeginOfTomorrow();
-                return new GreaterThanEqual(greaterThan.left().child(0), newLiteral);
+                Expression dateTime = greaterThan.left().child(0);
+                DateLiteral date = (DateLiteral) greaterThan.right();
+                if (isTomorrowOutOfRange(date)) {
+                    return ExpressionUtils.falseOrNull(dateTime);
+                }
+                DateTimeLiteral newLiteral = date.toBeginOfTomorrow();
+                return new GreaterThanEqual(dateTime, newLiteral);
             }
 
             // V2
             if (greaterThan.left().child(0).getDataType() instanceof DateTimeV2Type
                     && greaterThan.right() instanceof DateV2Literal) {
-                DateTimeV2Literal newLiteral = ((DateV2Literal) greaterThan.right()).toBeginOfTomorrow();
-                return new GreaterThanEqual(greaterThan.left().child(0), newLiteral);
+                Expression dateTime = greaterThan.left().child(0);
+                DateV2Literal date = (DateV2Literal) greaterThan.right();
+                if (isTomorrowOutOfRange(date)) {
+                    return ExpressionUtils.falseOrNull(dateTime);
+                }
+                DateTimeV2Literal newLiteral = date.toBeginOfTomorrow();
+                return new GreaterThanEqual(dateTime, newLiteral);
             }
         }
 
         return greaterThan;
     }
 
+    private static boolean isTomorrowOutOfRange(DateLiteral date) {
+        return DateLiteral.isDateOutOfRange(date.toJavaDateType().plusDays(1));
+    }
+
     private static Expression rewriteGreaterThanEqual(GreaterThanEqual greaterThanEqual) {
+        if (isTimeStampNsDateComparison(greaterThanEqual)) {
+            return rewriteTimeStampNsDateComparison(greaterThanEqual);
+        }
         if (greaterThanEqual.left() instanceof Date) {
             // V1
             if (greaterThanEqual.left().child(0).getDataType() instanceof DateTimeType
@@ -130,6 +156,9 @@ public class DateFunctionRewrite implements ExpressionPatternRuleFactory {
     }
 
     private static Expression rewriteLessThan(LessThan lessThan) {
+        if (isTimeStampNsDateComparison(lessThan)) {
+            return rewriteTimeStampNsDateComparison(lessThan);
+        }
         if (lessThan.left() instanceof Date) {
             // V1
             if (lessThan.left().child(0).getDataType() instanceof DateTimeType
@@ -149,6 +178,9 @@ public class DateFunctionRewrite implements ExpressionPatternRuleFactory {
     }
 
     private static Expression rewriteLessThanEqual(LessThanEqual lessThanEqual) {
+        if (isTimeStampNsDateComparison(lessThanEqual)) {
+            return rewriteTimeStampNsDateComparison(lessThanEqual);
+        }
         if (lessThanEqual.left() instanceof Date) {
             // V1
             if (lessThanEqual.left().child(0).getDataType() instanceof DateTimeType
@@ -166,5 +198,16 @@ public class DateFunctionRewrite implements ExpressionPatternRuleFactory {
             }
         }
         return lessThanEqual;
+    }
+
+    private static boolean isTimeStampNsDateComparison(ComparisonPredicate comparison) {
+        return comparison.left() instanceof Date
+                && comparison.left().child(0).getDataType() instanceof TimeStampNsType
+                && comparison.right() instanceof DateLiteral;
+    }
+
+    private static Expression rewriteTimeStampNsDateComparison(ComparisonPredicate comparison) {
+        return SimplifyComparisonPredicate.processDateTimeLikeComparisonPredicateDateLiteral(
+                comparison, comparison.left().child(0), (DateLiteral) comparison.right());
     }
 }

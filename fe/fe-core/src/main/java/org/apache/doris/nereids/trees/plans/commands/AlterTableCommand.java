@@ -173,12 +173,29 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             }
             return;
         }
+        if (table instanceof PluginDrivenExternalTable) {
+            for (AlterTableOp alterTableOp : alterTableOps) {
+                checkExternalGeneratedColumn(getColumnDefinition(alterTableOp));
+                if (alterTableOp instanceof AddColumnsOp) {
+                    for (ColumnDefinition definition : ((AddColumnsOp) alterTableOp).getColumnDefinitions()) {
+                        checkExternalGeneratedColumn(definition);
+                    }
+                }
+            }
+        }
         for (AlterTableOp alterTableOp : alterTableOps) {
             ColumnPath columnPath = getNestedColumnPath(alterTableOp);
             if (columnPath != null) {
                 throw new AnalysisException("Nested column path is only supported for Iceberg tables: "
                         + columnPath.getFullPath());
             }
+        }
+    }
+
+    private static void checkExternalGeneratedColumn(ColumnDefinition columnDefinition) throws AnalysisException {
+        if (columnDefinition != null && columnDefinition.getGeneratedColumnDesc().isPresent()) {
+            throw new AnalysisException(
+                    "Generated columns are not supported for external ADD/MODIFY COLUMN");
         }
     }
 

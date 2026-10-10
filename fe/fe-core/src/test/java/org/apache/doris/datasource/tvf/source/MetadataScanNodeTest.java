@@ -27,13 +27,12 @@ import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.MockitoAnnotations;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -41,7 +40,6 @@ import java.util.List;
 /**
  * Test for MetadataScanNode, focusing on initedScanRangeLocations logic
  */
-@RunWith(MockitoJUnitRunner.class)
 public class MetadataScanNodeTest {
 
     @Mock
@@ -53,8 +51,9 @@ public class MetadataScanNodeTest {
     private TupleDescriptor tupleDescriptor;
     private PlanNodeId planNodeId;
 
-    @Before
+    @BeforeEach
     public void setUp() {
+        MockitoAnnotations.openMocks(this);
         tupleDescriptor = new TupleDescriptor(new TupleId(1));
         planNodeId = new PlanNodeId(1);
     }
@@ -71,7 +70,7 @@ public class MetadataScanNodeTest {
         field.setAccessible(true);
         boolean initedValue = (Boolean) field.get(scanNode);
 
-        Assert.assertFalse("initedScanRangeLocations should be false initially", initedValue);
+        Assertions.assertFalse(initedValue, "initedScanRangeLocations should be false initially");
     }
 
     /**
@@ -100,18 +99,16 @@ public class MetadataScanNodeTest {
         Field field = MetadataScanNode.class.getDeclaredField("initedScanRangeLocations");
         field.setAccessible(true);
 
-        Assert.assertFalse("initedScanRangeLocations should be false initially",
-                (Boolean) field.get(scanNode));
+        Assertions.assertFalse((Boolean) field.get(scanNode), "initedScanRangeLocations should be false initially");
 
         // Call getScanRangeLocations for the first time
         List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(1000);
 
         // Check that initedScanRangeLocations is now true
-        Assert.assertTrue("initedScanRangeLocations should be true after first call",
-                (Boolean) field.get(scanNode));
+        Assertions.assertTrue((Boolean) field.get(scanNode), "initedScanRangeLocations should be true after first call");
 
         // Verify we got some scan range locations
-        Assert.assertNotNull("Scan range locations should not be null", locations);
+        Assertions.assertNotNull(locations, "Scan range locations should not be null");
     }
 
     /**
@@ -138,10 +135,8 @@ public class MetadataScanNodeTest {
         List<TScanRangeLocations> locations3 = scanNode.getScanRangeLocations(1000);
 
         // All calls should return the same cached result
-        Assert.assertEquals("Multiple calls should return same result",
-                locations1.size(), locations2.size());
-        Assert.assertEquals("Multiple calls should return same result",
-                locations1.size(), locations3.size());
+        Assertions.assertEquals(locations1.size(), locations2.size(), "Multiple calls should return same result");
+        Assertions.assertEquals(locations1.size(), locations3.size(), "Multiple calls should return same result");
 
         // Verify that getMetaScanRange was only called once (during first call)
         Mockito.verify(mockTvf, Mockito.times(1)).getMetaScanRange(Mockito.anyList());

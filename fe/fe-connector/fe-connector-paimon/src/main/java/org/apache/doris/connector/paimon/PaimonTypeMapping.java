@@ -35,7 +35,9 @@ import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
@@ -227,6 +229,10 @@ public final class PaimonTypeMapping {
         switch (name) {
             case "BOOLEAN":
                 return new BooleanType();
+            case "TINYINT":
+                return new TinyIntType();
+            case "SMALLINT":
+                return new SmallIntType();
             case "INT":
             case "INTEGER":
                 return new IntType();

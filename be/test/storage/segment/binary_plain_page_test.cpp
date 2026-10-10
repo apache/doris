@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "core/column/column_string.h"
 #include "storage/olap_common.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
@@ -46,16 +47,17 @@ public:
 
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
-        PageBuilderType page_builder(options);
-        Status ret0 = page_builder.init();
-        EXPECT_TRUE(ret0.ok());
+        PageBuilder* builder = nullptr;
+        ASSERT_TRUE(PageBuilderType::create(&builder, options).ok());
+        std::unique_ptr<PageBuilder> page_builder(builder);
         size_t count = slices.size();
 
         Slice* ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        Status ret = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
         EXPECT_TRUE(ret.ok());
 
-        OwnedSlice owned_slice = page_builder.finish();
+        OwnedSlice owned_slice;
+        EXPECT_TRUE(page_builder->finish(&owned_slice).ok());
 
         PageDecoderOptions decoder_options;
         PageDecoderType page_decoder(owned_slice.slice(), decoder_options);
@@ -63,39 +65,23 @@ public:
         EXPECT_TRUE(status.ok());
 
         //test1
-        Arena pool;
         size_t size = 3;
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, true,
-                                  get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR), nullptr,
-                                  &cvb);
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
-
-        status = page_decoder.next_batch(&size, &column_block_view);
-        Slice* values = reinterpret_cast<Slice*>(block.data());
+        MutableColumnPtr column = ColumnString::create();
+        status = page_decoder.next_batch(&size, column);
         EXPECT_TRUE(status.ok());
 
-        Slice* value = reinterpret_cast<Slice*>(values);
         EXPECT_EQ(3, size);
-        EXPECT_EQ("Hello", value[0].to_string());
-        EXPECT_EQ(",", value[1].to_string());
-        EXPECT_EQ("Doris", value[2].to_string());
+        EXPECT_EQ("Hello", column->get_data_at(0).to_string());
+        EXPECT_EQ(",", column->get_data_at(1).to_string());
+        EXPECT_EQ("Doris", column->get_data_at(2).to_string());
 
-        std::unique_ptr<ColumnVectorBatch> cvb2;
-        ColumnVectorBatch::create(1, true, get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR),
-                                  nullptr, &cvb2);
-        ColumnBlock block2(cvb2.get(), &pool);
-        ColumnBlockView column_block_view2(&block2);
-
+        MutableColumnPtr column2 = ColumnString::create();
         size_t fetch_num = 1;
-        page_decoder.seek_to_position_in_page(2);
-        status = page_decoder.next_batch(&fetch_num, &column_block_view2);
-        Slice* values2 = reinterpret_cast<Slice*>(block2.data());
+        EXPECT_TRUE(page_decoder.seek_to_position_in_page(2).ok());
+        status = page_decoder.next_batch(&fetch_num, column2);
         EXPECT_TRUE(status.ok());
-        Slice* value2 = reinterpret_cast<Slice*>(values2);
         EXPECT_EQ(1, fetch_num);
-        EXPECT_EQ("Doris", value2[0].to_string());
+        EXPECT_EQ("Doris", column2->get_data_at(0).to_string());
     }
 };
 

@@ -63,6 +63,43 @@ public class ConnectorSessionImplTest {
     }
 
     @Test
+    public void testExternalScanTaskReuseRequiresExplicitSessionProperty() {
+        ConnectorSession missing = ConnectorSessionBuilder.create().build();
+        ConnectorSession disabled = ConnectorSessionBuilder.create()
+                .withSessionProperties(Map.of("enable_external_scan_task_reuse", "false"))
+                .build();
+        ConnectorSession enabled = ConnectorSessionBuilder.create()
+                .withSessionProperties(Map.of("enable_external_scan_task_reuse", "TRUE"))
+                .build();
+        ConnectorSession catalogOnly = ConnectorSessionBuilder.create()
+                .withCatalogProperties(Map.of("enable_external_scan_task_reuse", "true"))
+                .build();
+
+        Assertions.assertFalse(missing.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(disabled.isExternalScanTaskReuseEnabled());
+        Assertions.assertTrue(enabled.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(catalogOnly.isExternalScanTaskReuseEnabled());
+    }
+
+    @Test
+    public void testExternalScanTaskReuseFollowsTheSessionVariable() {
+        // Connectors see the switch only through the session properties copied out of the SessionVariable, and a
+        // missing property means off. Renaming enable_external_scan_task_reuse or making it invisible would turn
+        // reuse off for every connector, which the connector tests (they set the property by hand) cannot notice.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            Assertions.assertTrue(ConnectorSessionBuilder.from(ctx).build().isExternalScanTaskReuseEnabled(),
+                    "scan reuse is on by default");
+            ctx.getSessionVariable().enableExternalScanTaskReuse = false;
+            Assertions.assertFalse(ConnectorSessionBuilder.from(ctx).build().isExternalScanTaskReuseEnabled(),
+                    "turning the session variable off must reach the connector");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testSessionPropertyOverridesCatalogProperty() {
         Map<String, String> catalogProps = new HashMap<>();
         catalogProps.put("timeout", "3000");

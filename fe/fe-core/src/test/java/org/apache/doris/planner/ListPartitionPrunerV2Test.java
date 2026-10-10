@@ -27,8 +27,8 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +54,7 @@ public class ListPartitionPrunerV2Test {
         idToPartitionItem.put(2L, listPartitionItem2);
 
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-        Assert.assertEquals("1.123000", partitionValuesMap.get(1L).get(0));
-        Assert.assertEquals("1.123", partitionValuesMap.get(2L).get(0));
+        Assertions.assertEquals("1.123000", partitionValuesMap.get(1L).get(0));
+        Assertions.assertEquals("1.123", partitionValuesMap.get(2L).get(0));
     }
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 
@@ -209,7 +208,7 @@ public class VariantType extends ScalarType {
         // set the count
         scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         scalarType.setVariantEnableDocMode(enableVariantDocMode);
-        scalarType.setVariantIsV2(Config.enable_variant_v2);
+        scalarType.setVariantIsV2(true);
     }
 
     @Override

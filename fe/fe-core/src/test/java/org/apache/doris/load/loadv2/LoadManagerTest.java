@@ -26,10 +26,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -48,13 +48,13 @@ public class LoadManagerTest {
     private int oldStreamingLabelKeepMaxSecond;
     private int oldLabelNumThreshold;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         oldStreamingLabelKeepMaxSecond = Config.streaming_label_keep_max_second;
         oldLabelNumThreshold = Config.label_num_threshold;
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         Config.streaming_label_keep_max_second = oldStreamingLabelKeepMaxSecond;
         Config.label_num_threshold = oldLabelNumThreshold;
@@ -93,7 +93,7 @@ public class LoadManagerTest {
 
             Map<Long, LoadJob> loadJobs = Deencapsulation.getField(loadManager, fieldName);
             Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
-            Assert.assertEquals(loadJobs, newLoadJobs);
+            Assertions.assertEquals(loadJobs, newLoadJobs);
         }
     }
 
@@ -129,7 +129,7 @@ public class LoadManagerTest {
             LoadManager newLoadManager = deserializeFromFile(file);
             Map<Long, LoadJob> newLoadJobs = Deencapsulation.getField(newLoadManager, fieldName);
 
-            Assert.assertEquals(0, newLoadJobs.size());
+            Assertions.assertEquals(0, newLoadJobs.size());
         }
     }
 
@@ -164,11 +164,11 @@ public class LoadManagerTest {
             Map<Long, LoadJob> idToJobs = Deencapsulation.getField(loadManager, fieldName);
             Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Deencapsulation.getField(loadManager,
                     "dbIdToLabelToLoadJobs");
-            Assert.assertEquals(1, idToJobs.size());
-            Assert.assertEquals(1, dbIdToLabelToLoadJobs.size());
+            Assertions.assertEquals(1, idToJobs.size());
+            Assertions.assertEquals(1, dbIdToLabelToLoadJobs.size());
             LoadJob loadJob = idToJobs.get(job2.getId());
-            Assert.assertEquals("job2", loadJob.getLabel());
-            Assert.assertNotNull(dbIdToLabelToLoadJobs.get(1L).get("job2"));
+            Assertions.assertEquals("job2", loadJob.getLabel());
+            Assertions.assertNotNull(dbIdToLabelToLoadJobs.get(1L).get("job2"));
         }
     }
 

@@ -269,6 +269,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _delete_bitmap(b._delete_bitmap),
           _binlog_config(b._binlog_config),
           _tablet_role(b._tablet_role),
+          _binlog_tablet_id(b._binlog_tablet_id),
           _compaction_policy(b._compaction_policy),
           _time_series_compaction_goal_size_mbytes(b._time_series_compaction_goal_size_mbytes),
           _time_series_compaction_file_count_threshold(
@@ -332,6 +333,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_is_nullable(tcolumn.is_allow_null);
     if (tcolumn.__isset.default_value) {
         column->set_default_value(tcolumn.default_value);
+    }
+    if (tcolumn.__isset.default_value_expr) {
+        column->set_default_value_expr(tcolumn.default_value_expr);
     }
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
@@ -712,6 +716,25 @@ Status TabletMeta::save_meta(DataDir* data_dir) {
     return _save_meta(data_dir);
 }
 
+int64_t TabletMeta::file_cache_ttl_expiration_time() const {
+    int64_t ttl = ttl_seconds();
+    int64_t ctime = creation_time();
+    if (ttl <= 0 || ctime <= 0) {
+        return 0;
+    }
+    // FE caps file_cache_ttl_seconds at Long.MAX_VALUE / 2, so this cannot wrap, but a tablet
+    // meta that reached us from anywhere else still must not turn a huge ttl into a past
+    // deadline that silently downgrades the tablet to normal cache.
+    if (ctime > std::numeric_limits<int64_t>::max() - ttl) {
+        return std::numeric_limits<int64_t>::max();
+    }
+    int64_t expiration_time = ctime + ttl;
+    // Already past the deadline: report no TTL at all, so callers stamp the blocks they
+    // create as NORMAL right away instead of putting them in the TTL queue for
+    // BlockFileCacheTtlMgr to take straight back out again.
+    return expiration_time > UnixSeconds() ? expiration_time : 0;
+}
+
 Status TabletMeta::_save_meta(DataDir* data_dir) {
     // check if tablet uid is valid
     if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
@@ -902,6 +925,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
     _tablet_role = tablet_meta_pb.tablet_role();
+    _binlog_tablet_id = tablet_meta_pb.binlog_tablet_id();
     _compaction_policy = tablet_meta_pb.compaction_policy();
     _time_series_compaction_goal_size_mbytes =
             tablet_meta_pb.time_series_compaction_goal_size_mbytes();
@@ -1005,6 +1029,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
     tablet_meta_pb->set_tablet_role(_tablet_role);
+    if (_binlog_tablet_id > 0) {
+        tablet_meta_pb->set_binlog_tablet_id(_binlog_tablet_id);
+    }
     tablet_meta_pb->set_compaction_policy(compaction_policy());
     tablet_meta_pb->set_time_series_compaction_goal_size_mbytes(
             time_series_compaction_goal_size_mbytes());
@@ -1249,6 +1276,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_policy_id != b._storage_policy_id) return false;
+    if (a._binlog_tablet_id != b._binlog_tablet_id) return false;
     if (a._compaction_policy != b._compaction_policy) return false;
     if (a._time_series_compaction_goal_size_mbytes != b._time_series_compaction_goal_size_mbytes)
         return false;

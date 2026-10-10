@@ -77,15 +77,31 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
 
     }
 
+    /**
+     * Whether {@code filter} keeps its predicate slots lazy.
+     *
+     * <p>With {@code topn_lazy_materialization_using_index} the predicate of a filter directly above an OLAP
+     * scan is evaluated while scanning, so its slots only have to be re-materialized above the TopN instead
+     * of being carried through it. This is the single definition of that shape:
+     * {@link MaterializeProbeVisitor#visitPhysicalFilter} reports those slots as lazy sources,
+     * {@link LazySlotPruning#visitPhysicalFilter} keeps them out of the scan's lazy slots (the scan still
+     * produces them for the predicate) and {@link LazyMaterializeTopN} must not require them materialized.
+     */
+    static boolean isIndexLazyFilter(PhysicalFilter<? extends Plan> filter) {
+        if (!(filter.child() instanceof PhysicalOlapScan)) {
+            return false;
+        }
+        if (!SessionVariable.getTopNLazyMaterializationUsingIndex()) {
+            return false;
+        }
+        // Reject OLAP tables whose storage semantics cannot be reconstructed from one row-id.
+        return supportOlapTopnLazyMaterialize(((PhysicalOlapScan) filter.child()).getTable());
+    }
+
     @Override
     public Optional<MaterializeSource> visitPhysicalFilter(PhysicalFilter<? extends Plan> filter,
                                                            ProbeContext context) {
-        if (SessionVariable.getTopNLazyMaterializationUsingIndex() && filter.child() instanceof PhysicalOlapScan) {
-            // Reject OLAP tables whose storage semantics cannot be reconstructed from one row-id.
-            OlapTable table = ((PhysicalOlapScan) filter.child()).getTable();
-            if (!supportOlapTopnLazyMaterialize(table)) {
-                return Optional.empty();
-            }
+        if (isIndexLazyFilter(filter)) {
             if (filter.getInputSlots().contains(context.slot)) {
                 Relation relation = (Relation) filter.child();
                 return Optional.of(new MaterializeSource(
@@ -152,7 +168,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
      *       topn lazy materialization keeps only one row-id for each relation.</li>
      * </ul>
      */
-    private boolean supportOlapTopnLazyMaterialize(OlapTable table) {
+    private static boolean supportOlapTopnLazyMaterialize(OlapTable table) {
         if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
             return false;
         }

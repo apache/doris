@@ -59,6 +59,7 @@ import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.LeadingHint;
@@ -74,7 +75,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -98,6 +99,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
@@ -502,8 +504,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     /**
      * Build the time-travel (FOR VERSION/TIME AS OF) plan for an olap scan.
-     * dup: Filter(__DORIS_COMMIT_TSO_COL__ &lt;= targetTso).
-     * mow: base(survived rows, tso&lt;=t1) UNION ALL binlog(before-image of UPDATE_BEFORE/DELETE).
+     * dup: Filter(__DORIS_COMMIT_TSO_COL__ &lt; targetTso), targetTso being the exclusive upper bound.
+     * mow: base(survived rows, tso &lt; targetTso) UNION ALL binlog(before-image of UPDATE_BEFORE/DELETE).
      */
     private LogicalPlan buildTimeTravelPlan(LogicalOlapScan scan, OlapTable olapTable,
             TableSnapshot snapshot, UnboundRelation unboundRelation, List<String> qualifier,
@@ -541,8 +543,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     /**
-     * Add Filter(__DORIS_COMMIT_TSO_COL__ &lt;= targetTso) on top of {@code child}. The tso slot is
-     * resolved from {@code child} output; {@code child} must pass through the scan output slots.
+     * Add Filter(__DORIS_COMMIT_TSO_COL__ &lt; targetTso) on top of {@code child}, where targetTso is
+     * the right-open (exclusive) upper bound from resolveSnapshotTso. The tso slot is resolved from
+     * {@code child} output; {@code child} must pass through the scan output slots.
      */
     private LogicalPlan addCommitTsoFilter(LogicalPlan child, long targetTso, OlapTable olapTable) {
         Slot tsoSlot = null;
@@ -554,49 +557,66 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         Preconditions.checkArgument(tsoSlot != null,
                 "%s not found on table %s", Column.COMMIT_TSO_COL, olapTable.getQualifiedName());
-        Expression conjunct = new LessThanEqual(tsoSlot, new BigIntLiteral(targetTso));
+        Expression conjunct = new LessThan(tsoSlot, new BigIntLiteral(targetTso));
         return new LogicalFilter<>(ImmutableSet.of(conjunct), child);
     }
 
     /**
-     * Resolve a TableSnapshot to a target commit tso (inclusive upper bound).
-     * VERSION: the literal is the tso itself. TIME: wall-clock string -&gt; ms -&gt; tso upper bound.
+     * Resolve a TableSnapshot to the right-open (exclusive) commit-tso upper bound: the scan keeps
+     * rows with commit_tso &lt; the returned value. VERSION: literal tso + 1 (so the literal itself is
+     * included). TIME: successor of (requested millisecond, logical counter 0), so that exact TSO
+     * is included but larger logical counters in the same millisecond are excluded. Used uniformly
+     * by the dup filter, the mow union left filter and the mow union right-branch lower bound.
      */
     private long resolveSnapshotTso(TableSnapshot snapshot) {
         if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
+            long version;
             try {
-                return Long.parseLong(snapshot.getValue().trim());
+                version = Long.parseLong(snapshot.getValue().trim());
             } catch (NumberFormatException e) {
                 throw new AnalysisException(
                         "Invalid version in FOR VERSION AS OF: " + snapshot.getValue());
             }
+            // UNBOUNDED_TSO (Long.MAX_VALUE) is the "latest / unbounded" sentinel: keep it as the
+            // exclusive upper bound above every real TSO. A real version is converted to its
+            // right-open successor so that commit_tso < result includes the requested version.
+            return version == TSOTimestamp.UNBOUNDED_TSO
+                    ? TSOTimestamp.UNBOUNDED_TSO
+                    : TSOTimestamp.nextTso(version);
         }
         long ms = OlapScanNode.parseChangeTimestamp(snapshot.getValue());
-        return TSOTimestamp.composeFullTimestamp(ms);
+        return TSOTimestamp.nextTso(TSOTimestamp.composePhysicalTimestamp(ms));
     }
 
     /**
-     * mow time-travel: A|t1 = base(survived rows, tso&lt;=t1) UNION ALL binlog(before-image of
-     * UPDATE_BEFORE/DELETE since t1). The binlog right branch reuses the @incr (MIN_DELTA) machinery;
+     * mow time-travel: A|t1 = base(survived rows, tso &lt; targetTso) UNION ALL binlog(before-image of
+     * UPDATE_BEFORE/DELETE from targetTso). The binlog right branch reuses the @incr (MIN_DELTA) machinery;
      * BE splits each change into rows where UPDATE_BEFORE/DELETE rows already carry the before value.
      */
     private LogicalPlan buildMowTimeTravelUnion(LogicalOlapScan baseScan, OlapTable olapTable,
             long targetTso, UnboundRelation unboundRelation, List<String> qualifier,
             List<Long> partIds, List<Long> tabletIds, CascadesContext cascadesContext) {
-        // union baseline = base visible columns (key + value); hidden cols are filtered out.
-        List<Slot> visibleOutput = baseScan.getOutput().stream()
+        // Use unbound visible columns so each branch projection binds after its policy is expanded.
+        // Otherwise the projections keep the scan's raw slots and can bypass data masking.
+        // Keep the original qualifier in the UnboundSlot name parts so projectFromUnboundSlots can
+        // preserve it on the projection alias.
+        List<UnboundSlot> visibleOutput = baseScan.getOutput().stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || ((SlotReference) slot).isVisible())
+                .map(slot -> new UnboundSlot(Utils.qualifiedNameParts(slot.getQualifier(), slot.getName())))
                 .collect(Collectors.toList());
 
-        // left: base survived rows at t1 = delete_sign=0 AND commit_tso<=t1, projected to visible.
+        // left: base survived rows at t1 = delete_sign=0 AND commit_tso < targetTso, projected to visible.
         LogicalPlan left = checkAndAddDeleteSignFilter(baseScan, ConnectContext.get(), olapTable, true);
-        left = projectFromOriginSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
+        left = addCommitTsoFilter(left, targetTso, olapTable);
+        left = projectFromUnboundSlots(new LogicalCheckPolicy<>(left), visibleOutput);
 
-        // right: binlog MIN_DELTA over tso>t1, keep UPDATE_BEFORE/DELETE rows (before image),
+        // right: binlog MIN_DELTA over tso >= targetTso, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
         // already carry the pre-change value in the (same-named) value columns.
         RowBinlogTableWrapper binlogTable = new RowBinlogTableWrapper(olapTable, CollectionUtils.isEmpty(partIds)
+                // targetTso is the exclusive upper bound; the right branch reads tso >= targetTso,
+                // seamlessly meeting the left branch's commit_tso < targetTso.
                 ? makeUniformedTimestampRangeMap(olapTable.getPartitionIds(), Pair.of(targetTso, null)) :
                 makeUniformedTimestampRangeMap(partIds, Pair.of(targetTso, null)));
         RelationId binlogRelationId = cascadesContext.getStatementContext().getNextRelationId();
@@ -612,9 +632,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, incrParams, Lists.newArrayList()));
 
         LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true);
-        right = projectFromOriginSlots(right, visibleOutput);
+        right = projectFromUnboundSlots(new LogicalCheckPolicy<>(right), visibleOutput);
 
-        // both children are bound; BindExpression aligns by position and fills the union output.
+        // BindExpression binds both branch projections, aligns them by position, and fills the union output.
         // buildNewOutputs() rebuilds the union output slots with empty qualifiers, so wrap the union
         // in a subquery alias to restore the original catalog.db.table qualifier. Use the scan's
         // fully-qualified name (catalog.db.table) rather than the table-less qualifier, otherwise
@@ -709,13 +729,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Pair<Long, Long> parseTimestampRange(TableScanParams scanParams) {
         Map<String, String> params = scanParams.getMapParams();
+        // @incr reads a left-closed right-open range [startTso, endTso): BE applies GE/LT directly.
+        // composePhysicalTimestamp maps a millisecond to its start (logical counter 0), so GE includes
+        // the whole startMs and LT excludes the whole endMs. No +1 shift is needed here.
         Long startTimestamp = OlapScanNode.parseChangeTimestamp(
                 params.getOrDefault(OlapScanNode.OLAP_START_TIMESTAMP, "0"));
-        startTimestamp = TSOTimestamp.composeFullTimestamp(startTimestamp);
+        startTimestamp = TSOTimestamp.composePhysicalTimestamp(startTimestamp);
         Long endTimestamp = null;
         if (params.containsKey((OlapScanNode.OLAP_END_TIMESTAMP))) {
             endTimestamp = OlapScanNode.parseChangeTimestamp(params.get(OlapScanNode.OLAP_END_TIMESTAMP));
-            endTimestamp = TSOTimestamp.composeFullTimestamp(endTimestamp);
+            endTimestamp = TSOTimestamp.composePhysicalTimestamp(endTimestamp);
         }
         return Pair.of(startTimestamp, endTimestamp);
     }
@@ -1041,7 +1064,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
      */
     public static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
                                                           StreamScanType scanType, boolean beforeImageOnly) {
-        LogicalPlan plan = scan;
         Slot opSlot = null;
         for (Slot slot : scan.getOutput()) {
             if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {
@@ -1052,26 +1074,22 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (scanType.equals(StreamScanType.APPEND_ONLY)) {
             Preconditions.checkArgument(opSlot != null, "opSlot is null");
             return new LogicalFilter<>(ImmutableSet.of(new EqualTo(opSlot,
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND))), plan);
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND))), scan);
         } else if (beforeImageOnly) {
             return new LogicalFilter<>(ImmutableSet.of(new InPredicate(opSlot, ImmutableList.of(
                     new BigIntLiteral(BinlogUtils.ROW_BINLOG_DELETE),
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE)))), plan);
+                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE)))), scan);
         }
-        return plan;
+        return scan;
     }
 
-    private LogicalPlan projectFromOriginSlots(LogicalPlan plan, List<Slot> wantedSlots) {
-        Map<String, Slot> childSlotByName = new HashMap<>(plan.getOutput().size());
-        for (Slot slot : plan.getOutput()) {
-            childSlotByName.put(slot.getName(), slot);
-        }
+    private LogicalPlan projectFromUnboundSlots(LogicalPlan plan, List<UnboundSlot> wantedSlots) {
         List<NamedExpression> project = new ArrayList<>(wantedSlots.size());
-        for (Slot wanted : wantedSlots) {
-            Slot match = childSlotByName.get(wanted.getName());
-            Preconditions.checkArgument(match != null,
-                    "column %s not found in child output", wanted.getName());
-            project.add(new Alias(match, wanted.getName()));
+        for (UnboundSlot wanted : wantedSlots) {
+            List<String> nameParts = wanted.getNameParts();
+            int nameIndex = nameParts.size() - 1;
+            project.add(new Alias(wanted, nameParts.get(nameIndex),
+                    nameParts.subList(0, nameIndex)));
         }
         return new LogicalProject<>(project, plan);
     }

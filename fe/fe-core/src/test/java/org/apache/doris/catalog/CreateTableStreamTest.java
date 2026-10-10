@@ -40,6 +40,7 @@ public class CreateTableStreamTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
+        Config.enable_feature_binlog = true;
     }
 
     @Test
@@ -117,6 +118,38 @@ public class CreateTableStreamTest extends TestWithFeService {
                         + "on table test_stream_type_validation.base_table\n"
                         + "properties('type' = 'invalid_type', 'show_initial_rows' = 'false'); "));
         dropDatabase("test_stream_type_validation");
+    }
+
+    @Test
+    public void testCreateStreamShowInitialRowsValidation() throws Exception {
+        createDatabase("test_stream_boolean_validation");
+        createTable("create table test_stream_boolean_validation.base_table (k1 int, k2 int) "
+                + "unique key(k1) distributed by hash(k1) buckets 1 "
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', "
+                + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_stream_boolean_validation");
+
+        for (String value : new String[] {"garbage", "yes", "1", "", " true "}) {
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                    "show_initial_rows must be `true` or `false`",
+                    () -> createTable("create stream test_stream_boolean_validation.invalid_stream "
+                            + "on table test_stream_boolean_validation.base_table "
+                            + "properties('show_initial_rows' = '" + value + "')"));
+            Assertions.assertFalse(db.getTable("invalid_stream").isPresent());
+        }
+
+        String[] validValues = {"true", "false", "TrUe", "FaLsE"};
+        for (int i = 0; i < validValues.length; i++) {
+            String value = validValues[i];
+            createTable("create stream test_stream_boolean_validation.stream_" + i
+                    + " on table test_stream_boolean_validation.base_table "
+                    + "properties('show_initial_rows' = '" + value + "')");
+            BaseTableStream stream = (BaseTableStream) db.getTableOrDdlException("stream_" + i);
+            Assertions.assertEquals("true".equalsIgnoreCase(value), stream.isShowInitialRows());
+        }
+        createTable("create stream test_stream_boolean_validation.default_stream "
+                + "on table test_stream_boolean_validation.base_table");
+        Assertions.assertFalse(((BaseTableStream) db.getTableOrDdlException("default_stream")).isShowInitialRows());
     }
 
     @Test

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -476,6 +477,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
             sequenceCol = request.getSequenceCol();
         }
         if (request.isSetSendBatchParallelism()) {
+            try {
+                SessionVariable.checkSendBatchParallelism(Integer.toString(request.getSendBatchParallelism()));
+            } catch (Exception e) {
+                throw new UserException(e.getMessage(), e);
+            }
             sendBatchParallelism = request.getSendBatchParallelism();
         }
         if (request.isSetMaxFilterRatio()) {

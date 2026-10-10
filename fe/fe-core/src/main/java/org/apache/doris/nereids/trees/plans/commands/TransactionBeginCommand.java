@@ -64,10 +64,6 @@ public class TransactionBeginCommand extends TransactionCommand {
     }
 
     private void handleTransactionBegin(ConnectContext ctx) {
-        if (ctx.getConnectType() == ConnectContext.ConnectType.MYSQL) {
-            // Every time set no send flag and clean all data in buffer
-            ctx.getMysqlChannel().reset();
-        }
         ctx.getState().setOk(0, 0, "");
 
         if (ctx.isTxnModel()) {

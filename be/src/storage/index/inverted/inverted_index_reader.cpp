@@ -58,31 +58,36 @@
 #include "storage/index/inverted/query/query_factory.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/faststring.h"
 
 namespace {
 
 // Sentinel values are sourced from the compute-layer `type_limit<CppType>` and
-// then projected onto the storage-layer POD via `PrimitiveTypeConvertor<PT>`.
+// then projected onto the storage-layer POD via `StorageLayout<FT>::to_storage`.
 // Routing through the compute layer keeps the +/- infinity constants
 // single-sourced (e.g. DecimalV2 max lives only in DecimalV2Value::get_max_decimal,
 // DATE bounds only in VecDateTimeValue::datetime_min/max_value), so types like
 // decimal12_t and uint24_t — which have no std::numeric_limits specialisation —
 // no longer need their own type_limit<> entries.
-template <doris::PrimitiveType PT>
+template <doris::FieldType FT>
 static void bkd_encode_min(const doris::KeyCoder* coder, std::string* out) {
-    using compute_t = typename doris::PrimitiveTypeTraits<PT>::CppType;
+    using compute_t =
+            typename doris::PrimitiveTypeTraits<doris::storage_field_type_to_primitive_type(
+                    FT)>::CppType;
     auto compute_v = doris::type_limit<compute_t>::min();
-    auto v = doris::PrimitiveTypeConvertor<PT>::to_storage_field_type(compute_v);
+    auto v = doris::StorageLayout<FT>::to_storage(compute_v);
     coder->full_encode_ascending(&v, out);
 }
 
-template <doris::PrimitiveType PT>
+template <doris::FieldType FT>
 static void bkd_encode_max(const doris::KeyCoder* coder, std::string* out) {
-    using compute_t = typename doris::PrimitiveTypeTraits<PT>::CppType;
+    using compute_t =
+            typename doris::PrimitiveTypeTraits<doris::storage_field_type_to_primitive_type(
+                    FT)>::CppType;
     auto compute_v = doris::type_limit<compute_t>::max();
-    auto v = doris::PrimitiveTypeConvertor<PT>::to_storage_field_type(compute_v);
+    auto v = doris::StorageLayout<FT>::to_storage(compute_v);
     coder->full_encode_ascending(&v, out);
 }
 
@@ -94,9 +99,9 @@ using doris::encode_bkd_field_ascending;
 
 static doris::Status encode_bkd_min_ascending(doris::FieldType ft, const doris::KeyCoder* coder,
                                               std::string* out) {
-#define CASE(FT, PT)                                          \
-    case doris::FieldType::FT:                                \
-        bkd_encode_min<doris::PrimitiveType::PT>(coder, out); \
+#define CASE(FT)                                          \
+    case doris::FieldType::FT:                            \
+        bkd_encode_min<doris::FieldType::FT>(coder, out); \
         return doris::Status::OK();
     switch (ft) {
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
@@ -109,9 +114,9 @@ static doris::Status encode_bkd_min_ascending(doris::FieldType ft, const doris::
 
 static doris::Status encode_bkd_max_ascending(doris::FieldType ft, const doris::KeyCoder* coder,
                                               std::string* out) {
-#define CASE(FT, PT)                                          \
-    case doris::FieldType::FT:                                \
-        bkd_encode_max<doris::PrimitiveType::PT>(coder, out); \
+#define CASE(FT)                                          \
+    case doris::FieldType::FT:                            \
+        bkd_encode_max<doris::FieldType::FT>(coder, out); \
         return doris::Status::OK();
     switch (ft) {
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
@@ -347,6 +352,10 @@ Status InvertedIndexReader::match_index_search(
         context->runtime_state->query_options().inverted_index_compatible_read) {
         reader->setCompatibleRead(true);
     }
+    // Fresh per-search reply: only the query about to run decides whether it
+    // consumes the candidate set (and thus produces an uncacheable partial
+    // result); a consumed flag left by an earlier search must not leak in.
+    context->candidate_rows_consumed = false;
     try {
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
         auto query = QueryFactory::create(query_type, index_searcher, context);
@@ -387,6 +396,12 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                   InvertedIndexQueryType query_type,
                                   std::shared_ptr<roaring::Roaring>& bit_map,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    // CLucene indexes do not persist the gram tokenizer contract needed to compile a pattern.
+    if (is_gram_query(query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} requires SNII storage format for column {}", query_type_to_string(query_type),
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
@@ -477,13 +492,22 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
             RETURN_IF_ERROR(match_index_search(context, query_type, query_info, *searcher_ptr,
                                                term_match_bitmap));
             term_match_bitmap->runOptimize();
-            cache->insert(cache_key, term_match_bitmap, &cache_handler);
+            // Only a bitmap whose query actually joined the candidate set is
+            // partial and must stay out of the cache; a non-consuming query
+            // (MATCH_ANY/ALL, term, regexp, single-term phrase) computed the
+            // full-segment result even while candidate_rows was published.
+            if (!context->candidate_rows_consumed) {
+                insert_query_cache(context, cache, cache_key, term_match_bitmap, &cache_handler);
+            }
             bit_map = term_match_bitmap;
         }
         return Status::OK();
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occurred, error msg: {}", e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error occurred, error msg: {}", e.what());
     }
 }
 
@@ -507,6 +531,11 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map,
                                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
+    if (is_gram_query(query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} requires SNII storage format for column {}", query_type_to_string(query_type),
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
@@ -540,6 +569,10 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
         query_info.field_name = column_name_ws;
         query_info.term_infos.emplace_back(search_str, 0);
 
+        // Fresh per-search reply (the range-query cases below never pass
+        // through match_index_search, so a stale consumed flag from an
+        // earlier fulltext search must be cleared here too).
+        context->candidate_rows_consumed = false;
         auto result = std::make_shared<roaring::Roaring>();
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
         InvertedIndexCacheHandle inverted_index_cache_handle;
@@ -598,9 +631,11 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                         "invalid query type when query untokenized inverted index");
             }
         }
-        // add to cache
+        // add to cache (unless a candidate-consuming query made it partial)
         result->runOptimize();
-        cache->insert(cache_key, result, &cache_handler);
+        if (!context->candidate_rows_consumed) {
+            insert_query_cache(context, cache, cache_key, result, &cache_handler);
+        }
 
         bit_map = result;
         return Status::OK();

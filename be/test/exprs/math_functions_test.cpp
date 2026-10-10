@@ -25,6 +25,46 @@ namespace doris {
 
 struct MathFunctionsTest : public ::testing::Test {};
 
+TEST_F(MathFunctionsTest, DecimalInBaseToDecimal) {
+    struct TestCase {
+        int64_t input;
+        int8_t base;
+        uint64_t expected;
+        TestCase(int64_t input_value, int8_t base_value, uint64_t expected_value)
+                : input(input_value), base(base_value), expected(expected_value) {}
+    };
+    const TestCase cases[] = {
+            {0, 16, 0},
+            {1111111111, 16, 73300775185ULL},
+            {10000000, 16, 268435456},
+            {80000000, 16, 2147483648ULL},
+            {100000000, 16, 4294967296ULL},
+            {8000000000000000, 16, 1ULL << 63},
+            {std::numeric_limits<int64_t>::min(), 10, 1ULL << 63},
+            {-1111111111, 16, 0ULL - 73300775185ULL},
+            {15, 4, 1},
+            {12345, 4, 27},
+            {5111, 4, 0},
+            // Invalid leading digits produce an empty prefix.
+            {999999999999999999, 9, 0},
+            {std::numeric_limits<int64_t>::max(), 10,
+             static_cast<uint64_t>(std::numeric_limits<int64_t>::max())},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.input);
+        int64_t result = 0;
+        ASSERT_TRUE(MathFunctions::decimal_in_base_to_decimal(test.input, test.base, &result));
+        EXPECT_EQ(test.expected, static_cast<uint64_t>(result));
+    }
+}
+
+TEST_F(MathFunctionsTest, DecimalInBaseToDecimalOverflow) {
+    int64_t result = 0;
+    EXPECT_FALSE(MathFunctions::decimal_in_base_to_decimal(10000000000000000, 16, &result));
+    EXPECT_FALSE(MathFunctions::decimal_in_base_to_decimal(-10000000000000000, 16, &result));
+    EXPECT_FALSE(MathFunctions::decimal_in_base_to_decimal(999999999999999999, 36, &result));
+}
+
 // Regular rounding test (truncate = false)
 TEST_F(MathFunctionsTest, DoubleRoundBasic) {
     // Positive number rounding

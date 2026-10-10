@@ -83,10 +83,4 @@ Status AnalyticSourceOperatorX::get_block_impl(RuntimeState* state, Block* outpu
     return Status::OK();
 }
 
-Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::prepare(state));
-    DCHECK(_child->operator_row_desc_after_projection().is_prefix_of(_row_descriptor));
-    return Status::OK();
-}
-
 } // namespace doris
