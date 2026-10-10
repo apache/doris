@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -104,7 +105,16 @@ public class CreateTableTest extends TestWithFeService {
         Mockito.doReturn(false).doCallRealMethod().when(racingDb).isTableExist("registration_race");
         InternalCatalog racingCatalog = Mockito.spy(catalog);
         Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertFalse(db.isWriteLockHeldByCurrentThread());
+            OlapTable loser = invocation.getArgument(1);
+            Assertions.assertTrue(Collections.disjoint(((OlapTable) table).getIndexIdList(true),
+                    loser.getIndexIdList(true)));
+            return invocation.callRealMethod();
+        }).when(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()), Mockito.any(OlapTable.class));
         Assertions.assertTrue(racingCatalog.createTable(analyzeCreateTable(sql)));
+        Mockito.verify(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()),
+                Mockito.argThat(loser -> loser.getId() != table.getId()));
         Assertions.assertSame(table, db.getTableOrDdlException("registration_race"));
         Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
 
@@ -127,7 +137,32 @@ public class CreateTableTest extends TestWithFeService {
         Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
 
         Assertions.assertThrows(DdlException.class, () -> racingCatalog.createTable(analyzeCreateTable(sql)));
+        Mockito.verify(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()),
+                Mockito.argThat(loser -> loser.getId() != table.getId()));
         Assertions.assertSame(table, db.getTableOrDdlException("registration_race_error"));
+        Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+    }
+
+    @Test
+    public void testCreateTableRegistrationRaceCleanupFailure() throws Exception {
+        String sql = "CREATE TABLE IF NOT EXISTS test.registration_race_cleanup (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')";
+        createTable(sql);
+        InternalCatalog catalog = Env.getCurrentInternalCatalog();
+        Database db = catalog.getDbOrDdlException("test");
+        Table table = db.getTableOrDdlException("registration_race_cleanup");
+        Set<Long> tabletIds = new HashSet<>(Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+        Database racingDb = Mockito.spy(db);
+        Mockito.doReturn(false).doCallRealMethod().when(racingDb).isTableExist("registration_race_cleanup");
+        InternalCatalog racingCatalog = Mockito.spy(catalog);
+        Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
+        Mockito.doThrow(new DdlException("failed to recycle losing indexes"))
+                .when(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()), Mockito.any(OlapTable.class));
+
+        DdlException error = Assertions.assertThrows(DdlException.class,
+                () -> racingCatalog.createTable(analyzeCreateTable(sql)));
+        Assertions.assertTrue(error.getMessage().contains("failed to recycle losing indexes"));
+        Assertions.assertSame(table, db.getTableOrDdlException("registration_race_cleanup"));
         Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
     }
 
