@@ -24,6 +24,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
@@ -103,6 +104,53 @@ public class ExternalFileTableValuedFunctionTest {
                 AnalysisException.class, () -> tvf.parseCommonProperties(properties));
 
         Assertions.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+    }
+
+    @Test
+    public void testGcpNativeCredentialForS3Tvf() throws AnalysisException {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "gs://tvf-bucket/path/file.parquet");
+            properties.put("format", "parquet");
+            properties.put("provider", "GCP");
+            properties.put("gs.endpoint", "https://storage.googleapis.com");
+            properties.put("gs.credential_provider_type", "COMPUTE_ENGINE");
+            properties.put("gs.impersonation_service_account",
+                    "target@my-project.iam.gserviceaccount.com");
+
+            S3TableValuedFunction tvf = new S3TableValuedFunction(properties);
+            Assertions.assertEquals("s3://tvf-bucket/path/file.parquet", tvf.getFilePath());
+            Assertions.assertEquals("us-east1", tvf.getBackendConnectProperties().get("AWS_REGION"));
+            Assertions.assertEquals("GCP", tvf.getBackendConnectProperties().get("provider"));
+            Assertions.assertEquals("COMPUTE_ENGINE", tvf.getBackendConnectProperties()
+                    .get("gs.credential_provider_type"));
+            Assertions.assertEquals("target@my-project.iam.gserviceaccount.com",
+                    tvf.getBackendConnectProperties().get("gs.impersonation_service_account"));
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testGcpNativeCredentialValidationHappensBeforeTvfAccess() {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put("uri", "gs://tvf-bucket/path/file.parquet");
+            properties.put("format", "parquet");
+            properties.put("provider", "GCP");
+            properties.put("gs.credential_provider_type", "DEFAULT");
+            properties.put("s3.session_token", "session-token");
+
+            IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> new S3TableValuedFunction(properties));
+            Assertions.assertTrue(exception.getMessage().contains("session token"));
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+        }
     }
 
     @Test

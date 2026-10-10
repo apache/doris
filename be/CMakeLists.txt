@@ -686,7 +686,7 @@ set(DORIS_LINK_LIBS
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
-find_package(absl)
+find_package(absl CONFIG REQUIRED PATHS ${absl_DIR} NO_DEFAULT_PATH)
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -716,6 +716,14 @@ add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
+        # Public dependencies of the statically linked google-cloud-cpp common library.
+        absl::base
+        absl::memory
+        absl::optional
+        absl::span
+        absl::str_format
+        absl::time
+        absl::variant
         absl::cord
         absl::cord_internal
         absl::cordz_functions

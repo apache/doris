@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.gcs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3ObjStorage;
 
@@ -188,4 +189,94 @@ class GcsFileSystemProviderTest {
     void name_isGcs() {
         Assertions.assertEquals("GCS", provider.name());
     }
+
+    @Test
+    void nativeOAuthRejectsAwsPresigningBeforeCredentialLoading() {
+        GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "s3.bucket", "bucket"));
+        GcsObjStorage storage = new GcsObjStorage(
+                org.apache.doris.filesystem.s3.S3FileSystemProperties.of(Map.of(
+                        "s3.endpoint", "storage.googleapis.com", "s3.region", "us-east1",
+                        "AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS")), props);
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> storage.getPresignedUrl("key"));
+    }
+
+    @Test
+    void supportsGuess_respectsExplicitS3AndRecognizesRegionalEndpoints() {
+        Map<String, String> props = new HashMap<>();
+        for (String endpoint : new String[] {"https://storage.googleapis.com:443/",
+                "https://storage.us-east1.rep.googleapis.com"}) {
+            props.put("s3.endpoint", endpoint);
+            Assertions.assertTrue(provider.supportsGuess(props));
+            props.put("provider", "S3");
+            Assertions.assertFalse(provider.supportsGuess(props));
+            props.remove("provider");
+        }
+    }
+
+    @Test
+    void normalizePropertiesUsesEffectiveProviderForPartialAlter() {
+        Map<String, String> stored = Map.of("provider", "GCP", "s3.endpoint", "old.endpoint");
+        Map<String, String> patch = Map.of("gs.endpoint", "storage.googleapis.com",
+                "gs.connection.maximum", "25", "gs.impersonation_service_account", "");
+        Map<String, String> normalized = provider.normalizeProperties(patch, stored);
+        Assertions.assertEquals(Map.of("s3.endpoint", "storage.googleapis.com", "s3.connection.maximum", "25",
+                "gs.impersonation_service_account", ""), normalized);
+        Assertions.assertEquals("old.endpoint", stored.get("s3.endpoint"));
+        Assertions.assertTrue(patch.containsKey("gs.endpoint"));
+        Assertions.assertTrue(provider.clearablePropertyKeys().contains("gs.impersonation_service_account"));
+        Assertions.assertTrue(provider.modifiableCredentialPropertyKeys().contains("gs.credential_provider_type"));
+        Assertions.assertFalse(provider.modifiableCredentialPropertyKeys().contains("s3.endpoint"));
+    }
+
+    @Test
+    void normalizePropertiesPreservesSelectionAndValidatesRawAliases() {
+        Map<String, String> inferred = Map.of("gs.endpoint", "storage.googleapis.com");
+        Assertions.assertEquals(Map.of("provider", "GCP", "s3.endpoint", "storage.googleapis.com"),
+                provider.normalizeProperties(inferred, inferred));
+        Map<String, String> s3 = Map.of("provider", "S3", "s3.endpoint", "storage.googleapis.com");
+        Assertions.assertEquals(s3, provider.normalizeProperties(s3, s3));
+        Assertions.assertTrue(provider.resolveAuthentication(s3).isEmpty());
+        Map<String, String> conflict = Map.of("gs.credential_provider_type", "DEFAULT",
+                "gs.access_key", "ak", "gs.secret_key", "sk");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.normalizeProperties(conflict, conflict));
+    }
+
+    @Test
+    void nativeAuthenticationSeparatesCreateDefaultsFromExplicitAlterFields() {
+        ObjectStorageAuthentication defaults = provider.resolveAuthentication(Map.of("provider", "GCP")).get();
+        Assertions.assertEquals("GCP", defaults.getProvider());
+        Assertions.assertTrue(defaults.isNative());
+        Assertions.assertFalse(defaults.isAnonymous());
+        Assertions.assertEquals(Map.of("credential_provider_type", "DEFAULT"), defaults.getCredential());
+        Assertions.assertTrue(defaults.getCredentialUpdates().isEmpty());
+
+        ObjectStorageAuthentication clear = provider.resolveAuthentication(
+                Map.of("gs.impersonation_service_account", "")).get();
+        Assertions.assertEquals(defaults.getCredential(), clear.getCredential());
+        Assertions.assertEquals(Map.of("impersonation_service_account", ""), clear.getCredentialUpdates());
+        Assertions.assertFalse(clear.getCredentialUpdates().containsKey("credential_provider_type"));
+
+        Map<String, String> properties = Map.of("gs.credential_provider_type", "COMPUTE_ENGINE",
+                "gs.impersonation_service_account", "reader@project.iam.gserviceaccount.com");
+        ObjectStorageAuthentication explicit = provider.resolveAuthentication(properties).get();
+        Assertions.assertEquals(explicit.getCredential(), explicit.getCredentialUpdates());
+        Assertions.assertEquals(properties, provider.credentialToProperties(explicit.getCredential()));
+    }
+
+    @Test
+    void hmacAndAnonymousDoNotPublishNativeWireCredentials() {
+        ObjectStorageAuthentication hmac = provider.resolveAuthentication(Map.of(
+                "provider", "GCP", "gs.access_key", "ak", "gs.secret_key", "sk")).get();
+        Assertions.assertFalse(hmac.isNative());
+        Assertions.assertFalse(hmac.isAnonymous());
+        Assertions.assertTrue(hmac.getCredentialUpdates().isEmpty());
+        ObjectStorageAuthentication anonymous = provider.resolveAuthentication(Map.of(
+                "provider", "GCP", "gs.credential_provider_type", "ANONYMOUS")).get();
+        Assertions.assertTrue(anonymous.isAnonymous());
+        Assertions.assertFalse(anonymous.isNative());
+        Assertions.assertTrue(anonymous.getCredentialUpdates().isEmpty());
+    }
+
 }

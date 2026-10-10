@@ -89,7 +89,7 @@ public class ConnectorPluginSurfaceTest {
         }
         // Major 12 adds the SUPPORTS_FIELD_ID_ACCESS_PATH and SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
         // capabilities: a plugin naming either constant cannot link against an older FE.
-        Assertions.assertEquals("12.0", version.getProperty("api.version"));
+        Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

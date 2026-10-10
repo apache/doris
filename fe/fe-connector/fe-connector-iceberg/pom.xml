@@ -41,6 +41,18 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- Share the serializable GCP FileIO factory with the BE metadata scanner. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-iceberg-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <!-- HadoopCatalog namespace operations bypass FileIO and load the native GCS filesystem. -->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <classifier>shaded</classifier>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>

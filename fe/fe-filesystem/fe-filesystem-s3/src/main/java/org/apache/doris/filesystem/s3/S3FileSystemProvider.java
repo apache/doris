@@ -110,11 +110,16 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
 
     @Override
     public boolean supportsExplicit(Map<String, String> properties) {
-        return Boolean.parseBoolean(properties.getOrDefault(FS_S3_SUPPORT, "false"));
+        return S3CompatSignals.hasExplicitS3Request(properties);
     }
 
     @Override
     public boolean supportsGuess(Map<String, String> properties) {
+        // GCS can use its default endpoint with only an S3-compatible region property. Yield
+        // before the region fallback so bindPrimary/bindAll select the GCS authentication path.
+        if (!S3CompatSignals.hasExplicitS3Request(properties) && S3CompatSignals.guessIsGcs(properties)) {
+            return false;
+        }
         // Port of fe-core S3Properties.guessIsMe on raw props.
         String endpoint = null;
         for (String name : GUESS_ENDPOINT_NAMES) {

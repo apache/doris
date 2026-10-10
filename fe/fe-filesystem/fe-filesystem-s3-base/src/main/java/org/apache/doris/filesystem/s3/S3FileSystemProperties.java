@@ -208,6 +208,10 @@ public final class S3FileSystemProperties
 
     @Override
     public void validate() {
+        if (org.apache.doris.filesystem.gcs.auth.GcsAuthResolver.hasNativeCredentialProperties(rawProperties)) {
+            org.apache.doris.filesystem.gcs.auth.GcsAuthResolver.resolve(rawProperties);
+            throw new IllegalArgumentException("Native GCP authentication cannot be used with S3 properties.");
+        }
         new ParamRules()
                 .requireTogether(new String[] {accessKey, secretKey},
                         "s3.access_key and s3.secret_key must be set together")

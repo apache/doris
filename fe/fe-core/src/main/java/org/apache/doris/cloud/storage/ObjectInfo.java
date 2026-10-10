@@ -38,6 +38,7 @@ public class ObjectInfo {
     // only used for aws
     private final String externalId;
     private final String token;
+    private final Cloud.GcpCredentialPB gcpCredential;
 
     // Used to get sts token
     public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk,
@@ -56,19 +57,26 @@ public class ObjectInfo {
         this(objectStoreInfoPB.getProvider(), objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(),
                 objectStoreInfoPB.getBucket(), objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
                 objectStoreInfoPB.getPrefix(), null, objectStoreInfoPB.getRoleArn(),
-                objectStoreInfoPB.getExternalId(), null);
+                objectStoreInfoPB.getExternalId(), null, nativeCredential(objectStoreInfoPB));
     }
 
     public ObjectInfo(Cloud.ObjectStoreInfoPB objectStoreInfoPB, String roleName, String arn,
             String externalId, String token) {
         this(objectStoreInfoPB.getProvider(), objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(),
                 objectStoreInfoPB.getBucket(), objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
-                objectStoreInfoPB.getPrefix(), roleName, arn, externalId, token);
+                objectStoreInfoPB.getPrefix(), roleName, arn, externalId, token, nativeCredential(objectStoreInfoPB));
     }
 
     public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk, String bucket,
             String endpoint, String region, String prefix, String roleName, String arn, String externalId,
             String token) {
+        this(provider, ak, sk, bucket, endpoint, region, prefix, roleName, arn, externalId, token, null);
+    }
+
+    private ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk, String bucket,
+            String endpoint, String region, String prefix, String roleName, String arn, String externalId,
+            String token, Cloud.GcpCredentialPB gcpCredential) {
+        this.gcpCredential = gcpCredential;
         this.provider = provider;
         this.ak = ak;
         this.sk = sk;
@@ -84,6 +92,15 @@ public class ObjectInfo {
 
     public Cloud.ObjectStoreInfoPB.Provider getProvider() {
         return provider;
+    }
+
+    private static Cloud.GcpCredentialPB nativeCredential(Cloud.ObjectStoreInfoPB info) {
+        return info.hasCredential() && info.getCredential().hasGcpCredential()
+                ? info.getCredential().getGcpCredential() : null;
+    }
+
+    public Cloud.GcpCredentialPB getGcpCredential() {
+        return gcpCredential;
     }
 
     public String getAk() {

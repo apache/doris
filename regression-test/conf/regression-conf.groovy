@@ -336,6 +336,28 @@ anymousS3Region="eu-west-3"
 anymousS3ExpectDataCount="8365"
 awsInstanceProfileRegion="us-east-1"
 
+// Object storage IAM regression tests run one provider per invocation: AWS or GCP.
+objectStorageIamProvider=""
+objectStorageIamEndpoint=""
+objectStorageIamRegion=""
+objectStorageIamBucket=""
+objectStorageIamPrefix="regression/object_storage_iam_p0"
+objectStorageIamDataPath="regression/tpch/sf0.01/customer.csv.gz"
+// AWS authentication.
+objectStorageIamAwsRoleArn=""
+objectStorageIamAwsExternalId=""
+// GCP authentication. Credential provider types are comma-separated DEFAULT and/or
+// COMPUTE_ENGINE. DEFAULT also tests omitted authentication properties; leaving both GCP
+// settings empty tests only omitted properties. A non-empty account adds COMPUTE_ENGINE
+// impersonation. The IAM data fixture must be private so anonymous reads can be rejected.
+objectStorageIamGcpCredentialProviderTypes=""
+objectStorageIamGcpImpersonationServiceAccount=""
+// Optional public GCS fixture for anonymous TVF reads: gzip CSV with a '|' separator.
+// Configure a gs:// URI and its positive row count to enable test_gcp_tvf_anonymous.
+// This public fixture must differ from the private objectStorageIamDataPath fixture.
+objectStorageIamGcpAnonymousUri=""
+objectStorageIamGcpAnonymousExpectedRows=""
+
 // hudi p0 external regression test config
 // To enable hudi test, you need first start hudi container.
 // See `docker/thirdparties/run-thirdparties-docker.sh -c hudi`

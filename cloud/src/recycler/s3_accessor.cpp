@@ -48,6 +48,8 @@
 #include "cpp/obj-client/azure_obj_storage_client.h"
 #endif
 #include "cpp/aws_logger.h"
+#include "cpp/obj-client/auth/obj_credential.h"
+#include "cpp/obj-client/auth/obj_s3_client_factory.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
@@ -301,6 +303,8 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
         }
     }
 
+    convert_obj_credential(obj_info, &s3_conf.credential);
+
     s3_conf.endpoint = obj_info.endpoint();
     s3_conf.region = obj_info.region();
     s3_conf.bucket = obj_info.bucket();
@@ -468,10 +472,16 @@ int S3Accessor::init() {
             LOG(WARNING) << "failed to create AWS credential provider: " << credentials.error;
             return -1;
         }
-        auto s3_client = std::make_shared<Aws::S3::S3Client>(
-                std::move(credentials.provider), std::move(aws_config),
-                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                conf_.use_virtual_addressing /* useVirtualAddressing */);
+        auto s3_client = doris::make_s3_client(
+                conf_.credential,
+                doris::S3ClientBuildContext {
+                        .fallback_provider = std::move(credentials.provider),
+                        .config = std::move(aws_config),
+                        .payload_signing_policy =
+                                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                        .use_virtual_addressing = conf_.use_virtual_addressing,
+                        .ca_cert_path = _ca_cert_file_path,
+                });
         auto client = std::make_shared<S3ObjStorageClient>(std::move(s3_client),
                                                            ObjStorageEndpointInfo {
                                                                    .endpoint = conf_.endpoint,

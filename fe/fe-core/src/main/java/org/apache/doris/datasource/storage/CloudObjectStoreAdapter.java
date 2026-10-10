@@ -21,12 +21,15 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.datasource.property.storage.auth.ObjCredentialFactory;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * fe-core-only cloud meta-service glue: builds {@link Cloud.ObjectStoreInfoPB} from the
@@ -60,6 +63,10 @@ public final class CloudObjectStoreAdapter {
 
     /** Direct move of legacy {@code S3Properties.getObjStoreInfoPB}. */
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
+        Optional<ObjectStorageAuthentication> authentication = StorageAdapter.resolveAuthentication(properties);
+        if (authentication.filter(ObjectStorageAuthentication::isAnonymous).isPresent()) {
+            throw new IllegalArgumentException("Anonymous GCS authentication is not supported for storage vaults.");
+        }
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         if (properties.containsKey(ENDPOINT)) {
             builder.setEndpoint(properties.get(ENDPOINT));
@@ -115,7 +122,18 @@ public final class CloudObjectStoreAdapter {
             }
         }
 
+        ObjCredentialFactory.fromAuthentication(authentication)
+                .ifPresent(credential -> credential.applyTo(builder));
         return builder;
+    }
+
+    /** ALTER carries only explicitly supplied credential fields, including empty values. */
+    public static void applyCredentialPatch(Cloud.ObjectStoreInfoPB.Builder builder, Map<String, String> properties) {
+        builder.clearCredential();
+        StorageAdapter.resolveAuthentication(properties)
+                .filter(auth -> !auth.getCredentialUpdates().isEmpty())
+                .ifPresent(auth -> ObjCredentialFactory.fromCredential(auth.getProvider(), auth.getCredentialUpdates())
+                        .applyTo(builder));
     }
 
     private static boolean hasCredentialsProviderType(Map<String, String> properties) {

@@ -429,4 +429,10 @@ class S3FileSystemPropertiesTest {
         Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
         Assertions.assertEquals("us-west-2", properties.getRegion());
     }
+
+    @Test
+    void rejectsNativeGcpCredentialsInsteadOfFallingBackToAws() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> S3FileSystemProperties.of(Map.of(
+                "provider", "S3", "s3.region", "us-east-1", "gs.credential_provider_type", "DEFAULT")));
+    }
 }

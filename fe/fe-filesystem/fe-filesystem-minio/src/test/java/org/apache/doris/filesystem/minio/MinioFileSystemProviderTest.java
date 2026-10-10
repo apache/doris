@@ -195,4 +195,16 @@ class MinioFileSystemProviderTest {
     void name_isMinio() {
         Assertions.assertEquals("MINIO", provider.name());
     }
+
+    @Test
+    void supportsGuess_doesNotClaimExplicitS3OrRegionalGcs() {
+        for (String endpoint : new String[] {"https://storage.googleapis.com:443/",
+                "https://storage.us-east1.rep.googleapis.com", "https://us-east1-storage.googleapis.com"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put("s3.endpoint", endpoint);
+            Assertions.assertFalse(provider.supportsGuess(props));
+            props.put("provider", "S3");
+            Assertions.assertFalse(provider.supportsGuess(props));
+        }
+    }
 }
