@@ -124,14 +124,14 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void uuidIdentityPartitionUsesBinaryBytesWithoutChangingPartitionText() {
+    public void uuidIdentityPartitionRetainsCanonicalText() {
         Schema schema = new Schema(Types.NestedField.optional(1, "key", Types.UUIDType.get()));
         PartitionSpec spec = PartitionSpec.builderFor(schema).identity("key").build();
         Table table = tableWith(schema, spec);
         PartitionData data = new PartitionData(spec.partitionType());
         UUID value = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
         data.set(0, value);
-        Assertions.assertEquals("0x00112233445566778899aabbccddeeff",
+        Assertions.assertEquals("00112233-4455-6677-8899-aabbccddeeff",
                 IcebergPartitionUtils.getIdentityPartitionInfoMap(data, spec, table, ZoneOffset.UTC).get("key"));
         Assertions.assertEquals(value.toString(),
                 IcebergPartitionUtils.serializePartitionValue(Types.UUIDType.get(), value, ZoneOffset.UTC));
@@ -442,7 +442,7 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void partitionDataObjectJsonPreservesUuidBytesRegardlessOfLegacyFlag() {
+    public void partitionDataObjectJsonPreservesUuidRegardlessOfLegacyFlag() {
         // UUID is a fixed 16-byte value under both legacy flag settings.
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -455,7 +455,7 @@ public class IcebergPartitionUtilsTest {
                 spec.fields().get(0).fieldId(), "p", Types.UUIDType.get());
 
         for (boolean flag : new boolean[] {false, true}) {
-            Assertions.assertEquals("{\"p\":\"0x0000000000000000000000000000002A\"}",
+            Assertions.assertEquals("{\"p\":\"00000000-0000-0000-0000-00000000002a\"}",
                     IcebergPartitionUtils.getPartitionDataObjectJson(
                             pd, spec, outputFields(out), flag, ZoneOffset.UTC));
         }

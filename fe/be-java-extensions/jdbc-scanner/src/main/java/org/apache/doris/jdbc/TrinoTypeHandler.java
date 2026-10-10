@@ -55,6 +55,11 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
             return value == null ? null : checkedUtcTimestamp(value.toInstant());
         }
         switch (type.getType()) {
+            case UUID: {
+                // Driver UUID objects and textual GUIDs share the canonical JDBC string form.
+                String value = rs.getString(columnIndex);
+                return value == null ? null : java.util.UUID.fromString(value);
+            }
             case BOOLEAN:
                 return rs.getObject(columnIndex, Boolean.class);
             case TINYINT:
@@ -130,6 +135,13 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
             return Collections.emptyList();
         }
         switch (type.getType()) {
+            case UUID: {
+                List<java.util.UUID> result = Lists.newArrayList();
+                for (Object element : array) {
+                    result.add(element == null ? null : java.util.UUID.fromString(element.toString()));
+                }
+                return result;
+            }
             case DATE:
             case DATEV2: {
                 List<LocalDate> result = Lists.newArrayList();
@@ -186,6 +198,18 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
     public void setTimestampTzNull(java.sql.PreparedStatement statement, int parameterIndex) throws SQLException {
         // These drivers reject TIMESTAMP_WITH_TIMEZONE in setNull; SQL NULL is coerced by the target column.
         statement.setNull(parameterIndex, Types.NULL);
+    }
+
+    @Override
+    public void setUuid(java.sql.PreparedStatement statement, int parameterIndex, java.util.UUID value)
+            throws SQLException {
+        // These drivers accept canonical text rather than a java.util.UUID object.
+        statement.setString(parameterIndex, value.toString());
+    }
+
+    @Override
+    public void setUuidNull(java.sql.PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, java.sql.Types.VARCHAR);
     }
 
 }

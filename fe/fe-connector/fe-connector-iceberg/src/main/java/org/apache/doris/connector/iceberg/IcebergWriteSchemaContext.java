@@ -190,6 +190,9 @@ final class IcebergWriteSchemaContext {
             case LIST:
                 fields = type.asListType().fields();
                 break;
+            case MAP:
+                fields = type.asMapType().fields();
+                break;
             case STRUCT:
                 fields = type.asStructType().fields();
                 break;
@@ -209,6 +212,9 @@ final class IcebergWriteSchemaContext {
         switch (type.typeId()) {
             case LIST:
                 return ConnectorType.arrayOf(children.get(0), type.asListType().isElementOptional());
+            case MAP:
+                // Both map sides may contain UUID leaves, including nested collections.
+                return ConnectorType.mapOf(children.get(0), children.get(1));
             default:
                 return ConnectorType.structOf(mapped.getFieldNames(), children);
         }
@@ -427,7 +433,7 @@ final class IcebergWriteSchemaContext {
             case STRING:
                 return quote((String) value);
             case UUID:
-                return binarySql(uuidBytes((UUID) value), enableMappingVarbinary);
+                return quote(value.toString());
             case FIXED:
             case BINARY:
                 return binarySql(byteBufferBytes((ByteBuffer) value), enableMappingVarbinary);
@@ -487,13 +493,6 @@ final class IcebergWriteSchemaContext {
 
     private static String quoteStructFieldName(String value) {
         return "'" + value.replace("'", "''") + "'";
-    }
-
-    private static byte[] uuidBytes(UUID value) {
-        return ByteBuffer.allocate(16)
-                .putLong(value.getMostSignificantBits())
-                .putLong(value.getLeastSignificantBits())
-                .array();
     }
 
     private static byte[] byteBufferBytes(ByteBuffer value) {

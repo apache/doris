@@ -74,6 +74,9 @@ public final class TrinoTypeMapping {
             return new ConnectorType("CHAR");
         } else if (type instanceof VarcharType) {
             return new ConnectorType("STRING");
+        } else if (type instanceof io.trino.spi.type.UuidType) {
+            // Preserve the logical type instead of exposing its physical 16-byte storage.
+            return ConnectorType.of("UUID");
         } else if (type instanceof VarbinaryType) {
             return new ConnectorType("VARBINARY");
         } else if (type instanceof DecimalType) {

@@ -44,13 +44,8 @@ suite("test_uuid_file_maps") {
             String path = "${outputDirectory.fileName}/${format}_*"
             sql "DROP TABLE IF EXISTS uuid_file_maps_reload"
             sql "CREATE TABLE uuid_file_maps_reload LIKE uuid_file_maps"
-            // Decode binary leaves before constructing native UUID maps, preserving NULL maps and arrays.
             sql """INSERT INTO uuid_file_maps_reload
-                   SELECT id,
-                       MAP_FROM_ARRAYS(ARRAY_MAP(k -> CAST(HEX(k) AS UUID), MAP_KEYS(m)),
-                           ARRAY_MAP(items -> ARRAY_MAP(item -> CAST(HEX(item) AS UUID), items), MAP_VALUES(m))),
-                       MAP_FROM_ARRAYS(MAP_KEYS(v), ARRAY_MAP(value -> CAST(HEX(value) AS UUID), MAP_VALUES(v)))
-                   FROM local('file_path'='${path}', 'format'='${format}',
+                   SELECT * FROM local('file_path'='${path}', 'format'='${format}',
                                        'backend_id'='${backend.BackendId}')"""
             qt_roundtrip "SELECT * FROM uuid_file_maps_reload ORDER BY id"
             qt_keys_values """SELECT id,MAP_KEYS(m),MAP_VALUES(m),v['u'],v['n'],v['zero']

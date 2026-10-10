@@ -170,4 +170,35 @@ class JdbcTimestampProjectionTest {
         Assertions.assertFalse(sql.contains("WHERE"), sql);
         Assertions.assertFalse(sql.contains("LIMIT"), sql);
     }
+
+    @Test
+    void mysqlDoubleMinusArithmeticRetainsTheExpression() {
+        for (JdbcDbType dialect : new JdbcDbType[] {JdbcDbType.MYSQL, JdbcDbType.OCEANBASE}) {
+            String body = "SELECT ts, balance--1 AS n FROM tbl";
+            String query = new JdbcQueryBuilder(dialect).wrapPassthroughQuery(body + ";",
+                    java.util.Collections.singletonList(new JdbcColumnHandle(
+                            "ts", "ts", ConnectorType.of("TIMESTAMPTZ", 6, 0))));
+            // MySQL requires whitespace after the second dash to start a line comment.
+            Assertions.assertTrue(query.endsWith("FROM (" + body + "\n) doris_jdbc_query"), query);
+        }
+    }
+
+    @Test
+    void mysqlNoBackslashEscapesDoesNotConsumeTheClosingQuote() {
+        java.util.List<org.apache.doris.connector.spi.handle.ConnectorColumnHandle> columns =
+                java.util.Collections.singletonList(new JdbcColumnHandle(
+                        "ts", "ts", ConnectorType.of("TIMESTAMPTZ", 6, 0)));
+        for (JdbcDbType dialect : new JdbcDbType[] {JdbcDbType.MYSQL, JdbcDbType.OCEANBASE}) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(dialect);
+            String body = "SELECT ts FROM tbl WHERE label='a\\'";
+            for (String suffix : new String[] {"", " -- trailing", " /* trailing */"}) {
+                String sql = builder.wrapPassthroughQuery(body + ";" + suffix, columns, true);
+                Assertions.assertTrue(sql.endsWith("FROM (" + body + suffix + "\n) doris_jdbc_query"), sql);
+            }
+            String escapedBody = "SELECT ts FROM tbl WHERE label='a\\';b'";
+            String escaped = builder.wrapPassthroughQuery(escapedBody + ";", columns, false);
+            Assertions.assertTrue(escaped.endsWith("FROM (" + escapedBody + "\n) doris_jdbc_query"), escaped);
+        }
+    }
+
 }

@@ -16,7 +16,7 @@
 // under the License.
 
 // Checklist: G09 G11 G13 H08.
-// File UUID bytes are VARBINARY; restore UUID leaves explicitly and preserve NULL structs.
+// UUID annotations survive nested file export and direct reload into native UUID columns.
 suite("test_uuid_export", "p0,external") {
 
     String localPath = context.config.otherConfigs.get("uuidLocalExportPath")
@@ -78,9 +78,6 @@ suite("test_uuid_export", "p0,external") {
     sql "DROP TABLE IF EXISTS uuid_file_export_reload"
     sql "CREATE TABLE uuid_file_export_reload LIKE uuid_file_export"
     sql """INSERT INTO uuid_file_export_reload
-           SELECT id, CAST(HEX(u) AS UUID),
-               ARRAY_MAP(value -> CAST(HEX(value) AS UUID), a),
-               IF(s IS NULL, NULL, NAMED_STRUCT('k', CAST(HEX(s.k) AS UUID)))
-           FROM ${exportTvf}("${exportKey}"="${exportInput}", "format"="parquet", ${sourceProperties})"""
+           SELECT * FROM ${exportTvf}("${exportKey}"="${exportInput}", "format"="parquet", ${sourceProperties})"""
     qt_export "SELECT * FROM uuid_file_export_reload ORDER BY id"
 }

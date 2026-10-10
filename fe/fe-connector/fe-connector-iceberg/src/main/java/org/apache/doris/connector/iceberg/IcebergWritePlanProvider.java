@@ -724,9 +724,20 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Branch-targeted INSERT (INSERT INTO tbl@branch): the branch is threaded from the generic insert
         // command context onto the write handle; beginWrite validates it against the table refs and points
         // the commit at the branch. Empty for a default-ref write.
-        return new IcebergWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
+        return new IcebergWriteContext(op, handle.isOverwrite(), staticPartitionSpec(handle),
                 handle.getBranchName(), readSnapshotId, readSnapshotResolved,
                 schemaContext, handle.getBoundWriteMetadataIdentity());
+    }
+
+    private static Map<String, String> staticPartitionSpec(ConnectorWriteHandle handle) {
+        Map<String, String> spec = handle.getStaticPartitionSpec();
+        if (handle.getStaticPartitionNullKeys().isEmpty()) {
+            return spec;
+        }
+        // The engine carries SQL NULL separately; both commit validation and BE must see the same null keys.
+        Map<String, String> normalized = new HashMap<>(spec);
+        normalized.replaceAll((key, value) -> handle.getStaticPartitionNullKeys().contains(key) ? null : value);
+        return normalized;
     }
 
     private TIcebergTableSink buildSink(Table table, IcebergTableHandle tableHandle,
@@ -780,7 +791,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Overwrite + static partition values (INSERT OVERWRITE ... PARTITION).
         tSink.setOverwrite(handle.isOverwrite());
-        Map<String, String> staticPartitionSpec = handle.getStaticPartitionSpec();
+        Map<String, String> staticPartitionSpec = staticPartitionSpec(handle);
         if (handle.isOverwrite() && staticPartitionSpec != null && !staticPartitionSpec.isEmpty()) {
             Map<String, String> values = new java.util.HashMap<>();
             java.util.Set<String> nullKeys = new java.util.HashSet<>();

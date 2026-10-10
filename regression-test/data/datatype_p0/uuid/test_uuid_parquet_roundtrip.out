@@ -10,8 +10,8 @@
 3	\N	\N	\N
 
 -- !inferred_types --
-a	array<varbinary(16)>	Yes	false	\N	NONE
+a	array<uuid>	Yes	false	\N	NONE
 id	int	Yes	false	\N	NONE
-s	struct<k:varbinary(16)>	Yes	false	\N	NONE
-u	varbinary(16)	Yes	false	\N	NONE
+s	struct<k:uuid>	Yes	false	\N	NONE
+u	uuid	Yes	false	\N	NONE
 

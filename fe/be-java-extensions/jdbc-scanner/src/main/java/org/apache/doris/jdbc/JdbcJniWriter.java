@@ -271,7 +271,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
                 break;
             case UUID:
-                preparedStatement.setObject(parameterIndex, column.getUuid(rowIdx));
+                typeHandler.setUuid(preparedStatement, parameterIndex, column.getUuid(rowIdx));
                 break;
             case BINARY:
             case VARBINARY:
@@ -330,7 +330,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setNull(parameterIndex, Types.VARCHAR);
                 break;
             case UUID:
-                preparedStatement.setNull(parameterIndex, Types.OTHER);
+                typeHandler.setUuidNull(preparedStatement, parameterIndex);
                 break;
             case BINARY:
             case VARBINARY:

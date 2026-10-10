@@ -622,4 +622,16 @@ class JdbcQueryBuilderTest {
         }
     }
 
+    @Test
+    void sqlServerUuidRangesUseDorisOrdering() {
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.SQLSERVER);
+        ConnectorType type = ConnectorType.of("UUID");
+        ConnectorColumnRef column = new ConnectorColumnRef("u", type);
+        ConnectorLiteral literal = new ConnectorLiteral(type, "80000000-0000-0000-0000-000000000000");
+        String sql = builder.buildQuery(DB, TABLE, columns("u"), Optional.of(
+                new ConnectorComparison(ConnectorComparison.Operator.GE, column, literal)), 1);
+        Assertions.assertFalse(sql.contains(" WHERE "), sql);
+        Assertions.assertFalse(sql.contains("TOP"), sql);
+    }
+
 }

@@ -359,4 +359,18 @@ class JdbcTimestampSemanticsTest {
         Assertions.assertEquals(expected, handler.getOutputConverter(type, "").convert(new Object[] {input})[0]);
     }
 
+    @Test
+    void uuidHandlersReturnNativeUuidAndPreserveNulls() throws Exception {
+        ResultSet rs = Mockito.mock(ResultSet.class);
+        String text = "00112233-4455-6677-8899-aabbccddeeff";
+        ColumnType type = ColumnType.parseType("u", "uuid");
+        for (DefaultTypeHandler handler : new DefaultTypeHandler[] {
+                new PostgreSQLTypeHandler(), new SQLServerTypeHandler(), new TrinoTypeHandler()}) {
+            Mockito.when(rs.getString(1)).thenReturn(text);
+            Assertions.assertEquals(java.util.UUID.fromString(text), handler.getColumnValue(rs, 1, type, null));
+            Mockito.when(rs.getString(1)).thenReturn(null);
+            Assertions.assertNull(handler.getColumnValue(rs, 1, type, null));
+        }
+    }
+
 }

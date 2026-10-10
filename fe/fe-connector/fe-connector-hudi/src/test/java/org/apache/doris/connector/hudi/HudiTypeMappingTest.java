@@ -217,4 +217,14 @@ public class HudiTypeMappingTest {
         Assertions.assertEquals(ConnectorType.of("UNSUPPORTED"),
                 HudiTypeMapping.fromAvroSchema(union));
     }
+
+    @Test
+    public void uuidLogicalTypeSurvivesNestedSchemas() {
+        Schema uuid = LogicalTypes.uuid().addToSchema(Schema.create(Schema.Type.STRING));
+        Assertions.assertEquals(ConnectorType.of("UUID"), HudiTypeMapping.fromAvroSchema(uuid));
+        Assertions.assertEquals(ConnectorType.arrayOf(ConnectorType.of("UUID")),
+                HudiTypeMapping.fromAvroSchema(Schema.createArray(uuid)));
+        Assertions.assertEquals("string", HudiTypeMapping.toHiveTypeString(uuid));
+    }
+
 }

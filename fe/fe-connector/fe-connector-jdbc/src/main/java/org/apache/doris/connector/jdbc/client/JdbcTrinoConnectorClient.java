@@ -74,6 +74,8 @@ public class JdbcTrinoConnectorClient extends JdbcConnectorClient {
                 return ConnectorType.of("DOUBLE");
             case "date":
                 return ConnectorType.of("DATEV2");
+            case "uuid":
+                return ConnectorType.of("UUID");
             case "json":
                 return ConnectorType.of("STRING");
             default:

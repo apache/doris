@@ -24,7 +24,7 @@ jsonb_val	text	Yes	true	\N
 point_val	text	Yes	true	\N	
 line_val	text	Yes	true	\N	
 circle_val	text	Yes	true	\N	
-uuid_val	text	Yes	true	\N	
+uuid_val	uuid	Yes	true	\N	
 
 -- !extreme_nulls --
 true

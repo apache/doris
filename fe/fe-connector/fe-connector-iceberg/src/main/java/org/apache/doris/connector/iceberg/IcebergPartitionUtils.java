@@ -182,10 +182,8 @@ final class IcebergPartitionUtils {
             }
             Object value = partitionData.get(i);
             try {
-                // UUID scan slots are VARBINARY; partition display/commit text must remain canonical UUIDs.
-                String encoded = partitionTypeId == TypeID.UUID && value != null
-                        ? "0x" + value.toString().replace("-", "")
-                        : serializePartitionValue(field.type(), value, zone);
+                // UUID scan slots consume canonical UUID text, not binary partition hex.
+                String encoded = serializePartitionValue(field.type(), value, zone);
                 partitionInfoMap.put(columnName, encoded);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
@@ -287,7 +285,7 @@ final class IcebergPartitionUtils {
             Object value = partitionData.get(i);
             Object jsonValue = null;
             if (value != null) {
-                if (type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED || type.typeId() == TypeID.UUID) {
+                if (type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED) {
                     // Typed hex keeps arbitrary partition bytes intact across the JSON boundary.
                     java.nio.ByteBuffer bytes =
                             org.apache.iceberg.types.Conversions.toByteBuffer(type, value).duplicate();

@@ -136,6 +136,8 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
                 scale = Math.min(scale, JDBC_DATETIME_SCALE);
                 return ConnectorType.of("DATETIMEV2", scale, -1);
             }
+            case "uniqueidentifier":
+                return ConnectorType.of("UUID");
             case "char":
             case "nchar":
             case "varchar":
@@ -143,7 +145,6 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
             case "text":
             case "ntext":
             case "time":
-            case "uniqueidentifier":
             case "timestamp":
                 return ConnectorType.of("STRING");
             case "binary":

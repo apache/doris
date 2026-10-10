@@ -136,6 +136,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return Type.FLOAT;
             case "float8":
                 return Type.DOUBLE;
+            case "uuid":
+                return Type.UUID;
             case "bpchar":
                 return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "timestamp": {
@@ -184,7 +186,6 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "macaddr":
             case "macaddr8":
             case "varbit":
-            case "uuid":
             case "xml":
             case "hstore":
             case "json":

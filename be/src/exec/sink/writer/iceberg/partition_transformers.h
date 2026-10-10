@@ -21,6 +21,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/value/uuid_value.h"
 #include "exec/common/stringop_substring.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
@@ -774,6 +775,8 @@ public:
     std::string name() const override {
         if constexpr (std::is_same_v<ColumnType, ColumnVarbinary>) {
             return "BinaryBucket";
+        } else if constexpr (std::is_same_v<ColumnType, ColumnUUID>) {
+            return "UuidBucket";
         }
         return "StringBucket";
     }
@@ -805,8 +808,15 @@ public:
         out_data.resize(row_count);
         for (size_t row = 0; row < row_count; ++row) {
             // Iceberg hashes raw bytes for both strings and binary, without text decoding.
-            const auto bytes = str_col->get_data_at(row);
-            uint32_t hash_value = HashUtil::murmur_hash3_32(bytes.data, bytes.size, 0);
+            uint32_t hash_value;
+            if constexpr (std::is_same_v<ColumnType, ColumnUUID>) {
+                // Iceberg hashes UUID network-order bytes, never the native integer layout.
+                const auto bytes = UUIDValue::to_big_endian(str_col->get_data()[row]);
+                hash_value = HashUtil::murmur_hash3_32(bytes.data(), bytes.size(), 0);
+            } else {
+                const auto bytes = str_col->get_data_at(row);
+                hash_value = HashUtil::murmur_hash3_32(bytes.data, bytes.size, 0);
+            }
             out_data[row] = (hash_value & INT32_MAX) % _bucket_num;
         }
 

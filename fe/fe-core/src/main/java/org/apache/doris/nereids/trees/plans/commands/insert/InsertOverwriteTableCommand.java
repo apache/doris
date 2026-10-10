@@ -48,10 +48,6 @@ import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -453,19 +449,6 @@ public class InsertOverwriteTableCommand extends Command
             throw new UserException("Current catalog does not support insert overwrite yet.");
         }
         runInsertCommand(copySink, insertCtx, ctx, executor);
-    }
-
-    static Map<String, String> encodeStaticPartitionSpec(Map<String, Expression> literals) {
-        Map<String, String> result = Maps.newHashMap();
-        for (Map.Entry<String, Expression> entry : literals.entrySet()) {
-            if (entry.getValue() instanceof Literal) {
-                // NULL is distinct from the text "null", and bytes must bypass character-set conversion.
-                Literal literal = (Literal) entry.getValue();
-                String value = literal instanceof NullLiteral ? null : literal.getStringValue();
-                result.put(entry.getKey(), literal instanceof VarBinaryLiteral ? "0x" + literal.toString() : value);
-            }
-        }
-        return result;
     }
 
     /**

@@ -44,12 +44,8 @@ suite("test_uuid_orc_roundtrip") {
         String path = "${outputDirectory.fileName}/orc_*"
         sql "DROP TABLE IF EXISTS uuid_file_reload_orc"
         sql "CREATE TABLE uuid_file_reload_orc LIKE uuid_file_orc"
-        // File UUID bytes are VARBINARY; restore UUID leaves explicitly and preserve NULL structs.
         sql """INSERT INTO uuid_file_reload_orc
-               SELECT id, CAST(HEX(u) AS UUID),
-                   ARRAY_MAP(value -> CAST(HEX(value) AS UUID), a),
-                   IF(s IS NULL, NULL, NAMED_STRUCT('k', CAST(HEX(s.k) AS UUID)))
-               FROM local("file_path"="${path}", "format"="orc",
+               SELECT * FROM local("file_path"="${path}", "format"="orc",
                                    "backend_id"="${backend.BackendId}")"""
         qt_roundtrip "SELECT * FROM uuid_file_reload_orc ORDER BY id"
         order_qt_inferred_types """DESC FUNCTION local(

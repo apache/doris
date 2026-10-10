@@ -486,7 +486,9 @@ public class IcebergPredicateConverter {
      * and float from double, both flattened to one Java type) is read from {@link ConnectorLiteral#getType()}.
      */
     private Object extractIcebergLiteral(Type icebergType, ConnectorLiteral literal) {
-        if (literal.isNull()) {
+        if (literal.isNull() || isUuid(icebergType)) {
+            // UUID bounds can use a different ordering from Iceberg's evaluator, pruning even equality matches.
+            // Keep value predicates as Doris residuals; null-count predicates remain safe to push.
             return null;
         }
         Object value = literal.getValue();

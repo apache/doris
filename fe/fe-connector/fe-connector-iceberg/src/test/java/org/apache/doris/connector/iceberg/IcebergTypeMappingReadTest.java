@@ -119,17 +119,15 @@ public class IcebergTypeMappingReadTest {
     @Test
     public void varbinaryFlagOffStillPreservesBytes() {
         // Legacy false flags cannot reinterpret arbitrary binary bytes as UTF-8.
-        Assertions.assertEquals("VARBINARY", mapOff(Types.UUIDType.get()).getTypeName());
+        Assertions.assertEquals("UUID", mapOff(Types.UUIDType.get()).getTypeName());
         Assertions.assertEquals("VARBINARY", mapOff(Types.BinaryType.get()).getTypeName());
         assertScalar(mapOff(Types.FixedType.ofLength(12)), "VARBINARY", 12, 0);
     }
 
     @Test
     public void varbinaryFlagOnMapsToVarbinaryWithLegacyLengths() {
-        // WHY: with the varbinary flag ON, UUID -> VARBINARY(16) and FIXED(n) -> VARBINARY(n); the
-        // lengths are load-bearing — legacy createVarbinaryType(16 / fixed.length()). MUTATION: wrong
-        // length, or staying STRING/CHAR under the flag -> red.
-        assertScalar(mapOn(Types.UUIDType.get()), "VARBINARY", 16, 0);
+        // UUID is a logical type, while unannotated fixed bytes retain their declared bound.
+        Assertions.assertEquals("UUID", mapOn(Types.UUIDType.get()).getTypeName());
         assertScalar(mapOn(Types.FixedType.ofLength(12)), "VARBINARY", 12, 0);
 
         // WHY: an Iceberg BINARY is UNBOUNDED, and legacy maps it to the max-length varbinary —

@@ -51,8 +51,15 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
     private final JdbcDbType dbType;
     private final JdbcCatalogProperties props;
     private final long catalogId;
+    private final java.util.function.BooleanSupplier noBackslashEscapes;
 
     public JdbcScanPlanProvider(JdbcDbType dbType, JdbcCatalogProperties props, long catalogId) {
+        this(dbType, props, catalogId, () -> false);
+    }
+
+    public JdbcScanPlanProvider(JdbcDbType dbType, JdbcCatalogProperties props, long catalogId,
+            java.util.function.BooleanSupplier noBackslashEscapes) {
+        this.noBackslashEscapes = noBackslashEscapes;
         this.dbType = dbType;
         this.props = props;
         this.catalogId = catalogId;
@@ -68,7 +75,7 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         if (handle instanceof PassthroughQueryTableHandle) {
             // Query passthrough from TVF — use the raw SQL directly
             querySql = new JdbcQueryBuilder(dbType).wrapPassthroughQuery(
-                    ((PassthroughQueryTableHandle) handle).getQuery(), columns);
+                    ((PassthroughQueryTableHandle) handle).getQuery(), columns, noBackslashEscapes.getAsBoolean());
         } else {
             JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
             String remoteDbName = jdbcHandle.getRemoteDbName();
@@ -134,7 +141,7 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         String querySql;
         if (handle instanceof PassthroughQueryTableHandle) {
             querySql = new JdbcQueryBuilder(dbType).wrapPassthroughQuery(
-                    ((PassthroughQueryTableHandle) handle).getQuery(), columns);
+                    ((PassthroughQueryTableHandle) handle).getQuery(), columns, noBackslashEscapes.getAsBoolean());
         } else {
             JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
             Map<String, String> sessionProps = session.getSessionProperties();

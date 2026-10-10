@@ -51,6 +51,11 @@ public class SQLServerTypeHandler extends DefaultTypeHandler {
             return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
         }
         switch (type.getType()) {
+            case UUID: {
+                // Driver UUID objects and textual GUIDs share the canonical JDBC string form.
+                String value = rs.getString(columnIndex);
+                return value == null ? null : java.util.UUID.fromString(value);
+            }
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
@@ -117,6 +122,18 @@ public class SQLServerTypeHandler extends DefaultTypeHandler {
         // setObject(Timestamp) drops the offset and serializes JVM-local fields as datetime2.
         // An ISO literal retains the UTC instant and precision even on pre-JDBC-4.2 drivers.
         statement.setString(parameterIndex, DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(value) + "+00:00");
+    }
+
+    @Override
+    public void setUuid(java.sql.PreparedStatement statement, int parameterIndex, java.util.UUID value)
+            throws SQLException {
+        // These drivers accept canonical text rather than a java.util.UUID object.
+        statement.setString(parameterIndex, value.toString());
+    }
+
+    @Override
+    public void setUuidNull(java.sql.PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, java.sql.Types.VARCHAR);
     }
 
 }

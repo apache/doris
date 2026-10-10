@@ -59,7 +59,9 @@ public final class HudiTypeMapping {
             case DOUBLE:
                 return ConnectorType.of("DOUBLE");
             case STRING:
-                return ConnectorType.of("STRING");
+                // Avro stores logical UUIDs as strings, but the connector must retain UUID semantics.
+                return logicalType instanceof LogicalTypes.Uuid
+                        ? ConnectorType.of("UUID") : ConnectorType.of("STRING");
             case FIXED:
             case BYTES:
                 return mapFixedOrBytesType(logicalType);

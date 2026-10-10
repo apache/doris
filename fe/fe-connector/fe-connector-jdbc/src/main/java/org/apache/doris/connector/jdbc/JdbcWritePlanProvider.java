@@ -139,6 +139,11 @@ public class JdbcWritePlanProvider implements ConnectorWritePlanProvider {
         return JdbcIdentifierQuoter.buildInsertSql(client.getDbType(),
                 jdbcHandle.getRemoteDbName(), jdbcHandle.getRemoteTableName(),
                 remoteColumnNames, columnNames, columns.stream().map(column -> {
+                    if ("UUID".equalsIgnoreCase(column.getType().getTypeName())
+                            && (client.getDbType() == JdbcDbType.TRINO || client.getDbType() == JdbcDbType.PRESTO)) {
+                        // A VARCHAR bind needs an explicit remote UUID conversion.
+                        return "CAST(? AS UUID)";
+                    }
                     if ("TIMESTAMPTZ".equalsIgnoreCase(column.getType().getTypeName())) {
                         // These drivers accept VARCHAR binds but cannot bind JDBC's zoned type code.
                         if (client.getDbType() == JdbcDbType.PRESTO) {

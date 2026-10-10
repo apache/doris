@@ -127,6 +127,8 @@ public class JdbcSQLServerClient extends JdbcClient {
                 }
                 return ScalarType.createDatetimeV2Type(scale);
             }
+            case "uniqueidentifier":
+                return Type.UUID;
             case "char":
             case "varchar":
             case "nchar":
@@ -134,7 +136,6 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "text":
             case "ntext":
             case "time":
-            case "uniqueidentifier":
             case "timestamp":
                 return ScalarType.createStringType();
             case "image":

@@ -23,33 +23,31 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Replace;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapFromEntries;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.UuidType;
-import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 /** Applies connector-declared textual input semantics before ordinary sink type coercion. */
 public final class ConnectorWriteValueConverter {
@@ -75,6 +73,30 @@ public final class ConnectorWriteValueConverter {
             return new ArrayMap(new Lambda(Collections.singletonList(item.getName()),
                     convert(item.toSlot(), elementSemantic, elementTarget), Collections.singletonList(item)));
         }
+        if (semanticType instanceof MapType) {
+            MapType semantics = (MapType) semanticType;
+            MapType target = (MapType) targetType;
+            if (input instanceof CreateMap) {
+                List<Expression> children = new ArrayList<>();
+                for (int i = 0; i < input.arity(); i++) {
+                    DataType semantic = i % 2 == 0 ? semantics.getKeyType() : semantics.getValueType();
+                    DataType targetChild = i % 2 == 0 ? target.getKeyType() : target.getValueType();
+                    Expression child = input.child(i);
+                    // A NULL-only map value has already been assigned TINYINT by generic function binding.
+                    children.add(child instanceof NullLiteral ? new NullLiteral(targetChild)
+                            : convert(child, semantic, targetChild));
+                }
+                return TypeCoercionUtils.processBoundFunction(new CreateMap(children.toArray(new Expression[0])));
+            }
+            if (input instanceof MapLiteral) {
+                // Preserve NULL leaves before collection binding assigns placeholder types.
+                return ((MapLiteral) input).checkedCastWithStrictChecking(targetType);
+            }
+            // Convert entries together so volatile map expressions are evaluated once and keys stay paired.
+            Expression entries = TypeCoercionUtils.processBoundFunction(new MapEntries(input));
+            return TypeCoercionUtils.processBoundFunction(new MapFromEntries(
+                    convert(entries, mapEntryArrayType(semantics), mapEntryArrayType(target))));
+        }
         if (semanticType instanceof StructType) {
             List<StructField> semanticFields = ((StructType) semanticType).getFields();
             List<StructField> targetFields = ((StructType) targetType).getFields();
@@ -92,17 +114,16 @@ public final class ConnectorWriteValueConverter {
                     new If(new IsNull(input), new NullLiteral(result.getDataType()), result)) : result;
         }
         if (input instanceof StringLikeLiteral) {
-            UUID uuid = new UuidLiteral(((StringLikeLiteral) input).getStringValue()).getValue();
-            return new VarBinaryLiteral((VarBinaryType) targetType, ByteBuffer.allocate(16)
-                    .putLong(uuid.getMostSignificantBits()).putLong(uuid.getLeastSignificantBits()).array());
+            return new UuidLiteral(((StringLikeLiteral) input).getStringValue());
         }
-        // Validate UUID text strictly before decoding canonical hex. A raw string-to-binary cast
-        // would write 36 text bytes, and a permissive UUID cast would silently turn bad input into NULL.
-        Expression uuidText = new Cast(new Cast(input, semanticType, false, true), StringType.INSTANCE);
-        Expression hex = TypeCoercionUtils.processBoundFunction(
-                new Replace(uuidText, new StringLiteral("-"), new StringLiteral("")));
-        Expression bytes = TypeCoercionUtils.processBoundFunction(new Unhex(hex));
-        return new Cast(bytes, targetType);
+        // Reject malformed UUID text on write instead of silently replacing it with NULL.
+        return new Cast(input, targetType, false, true);
+    }
+
+    private static ArrayType mapEntryArrayType(MapType type) {
+        return ArrayType.of(new StructType(java.util.Arrays.asList(
+                new StructField("key", type.getKeyType(), true, ""),
+                new StructField("value", type.getValueType(), true, ""))));
     }
 
     private static boolean needsConversion(DataType input, DataType semantic) {
@@ -111,6 +132,10 @@ public final class ConnectorWriteValueConverter {
         }
         if (semantic instanceof ArrayType && input instanceof ArrayType) {
             return needsConversion(((ArrayType) input).getItemType(), ((ArrayType) semantic).getItemType());
+        }
+        if (semantic instanceof MapType && input instanceof MapType) {
+            return needsConversion(((MapType) input).getKeyType(), ((MapType) semantic).getKeyType())
+                    || needsConversion(((MapType) input).getValueType(), ((MapType) semantic).getValueType());
         }
         if (semantic instanceof StructType && input instanceof StructType) {
             List<StructField> inputs = ((StructType) input).getFields();

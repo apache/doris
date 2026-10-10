@@ -49,6 +49,8 @@ public class JdbcTrinoClient extends JdbcClient {
                 return Type.BOOLEAN;
             case "date":
                 return ScalarType.createDateV2Type();
+            case "uuid":
+                return Type.UUID;
             case "json":
                 return ScalarType.createStringType();
             default:

@@ -164,9 +164,8 @@ public class TrinoTypeMappingTest {
     }
 
     @Test
-    public void testUnknownTypeThrows() {
-        // An unmapped Trino type must fail loudly rather than silently produce a wrong type.
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> TrinoTypeMapping.toConnectorType(UuidType.UUID));
+    public void testNativeUuidType() {
+        // A native UUID must not lose its logical type at the connector boundary.
+        Assertions.assertEquals("UUID", name(UuidType.UUID));
     }
 }

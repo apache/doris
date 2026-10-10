@@ -22,6 +22,7 @@ import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConver
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 
 import java.util.Collections;
 import java.util.HashMap;

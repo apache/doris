@@ -49,6 +49,11 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
         switch (type.getType()) {
+            case UUID: {
+                // Driver UUID objects and textual GUIDs share the canonical JDBC string form.
+                String value = rs.getString(columnIndex);
+                return value == null ? null : java.util.UUID.fromString(value);
+            }
             case BOOLEAN:
                 return rs.getObject(columnIndex, Boolean.class);
             case SMALLINT:

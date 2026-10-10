@@ -132,4 +132,17 @@ class JdbcTimestampBindTest {
         field.set(writer, statement);
         return writer;
     }
+
+    @Test
+    void uuidTextBindsPreserveTheCanonicalValueAndNullType() throws Exception {
+        java.util.UUID uuid = java.util.UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        for (JdbcTypeHandler handler : new JdbcTypeHandler[] {new SQLServerTypeHandler(), new TrinoTypeHandler()}) {
+            PreparedStatement statement = Mockito.mock(PreparedStatement.class);
+            handler.setUuid(statement, 1, uuid);
+            handler.setUuidNull(statement, 2);
+            Mockito.verify(statement).setString(1, uuid.toString());
+            Mockito.verify(statement).setNull(2, Types.VARCHAR);
+        }
+    }
+
 }

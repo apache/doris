@@ -47,6 +47,15 @@ public interface JdbcTypeHandler {
     default void initializeWriteConnection(Connection connection) throws SQLException {
     }
 
+    default void setUuid(PreparedStatement statement, int parameterIndex, java.util.UUID value)
+            throws SQLException {
+        statement.setObject(parameterIndex, value);
+    }
+
+    default void setUuidNull(PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, Types.OTHER);
+    }
+
     default void setTimestampTz(PreparedStatement statement, int parameterIndex, LocalDateTime value)
             throws SQLException {
         // JNI timestamps carry UTC fields; valueOf would reinterpret them in the JVM timezone.

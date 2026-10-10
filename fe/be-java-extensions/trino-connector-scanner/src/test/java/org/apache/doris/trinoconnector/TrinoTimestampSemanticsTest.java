@@ -91,4 +91,17 @@ class TrinoTimestampSemanticsTest {
         }
     }
 
+    @Test
+    void nativeUuidUsesTrinoByteOrderConversion() {
+        java.util.UUID expected = java.util.UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        io.trino.spi.type.UuidType type = io.trino.spi.type.UuidType.UUID;
+        BlockBuilder block = type.createBlockBuilder(null, 1);
+        type.writeSlice(block, io.trino.spi.type.UuidType.javaUuidToTrinoUuid(expected));
+        TrinoConnectorColumnValue value = new TrinoConnectorColumnValue();
+        value.setTrinoType(type);
+        value.setBlock(block.build());
+        value.setPosition(0);
+        Assertions.assertEquals(expected, value.getUuid());
+    }
+
 }

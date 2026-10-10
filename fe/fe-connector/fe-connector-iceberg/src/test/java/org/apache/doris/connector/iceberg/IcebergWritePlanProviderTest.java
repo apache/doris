@@ -88,6 +88,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Pins {@link IcebergWritePlanProvider#planWrite} for INSERT/OVERWRITE against legacy
@@ -319,7 +320,7 @@ public class IcebergWritePlanProviderTest {
         }
 
         Assertions.assertEquals(ConnectorType.of("UUID"), columns.get("uuid_value").getStringWriteType());
-        Assertions.assertEquals(ConnectorType.of("VARBINARY", 16, 0), columns.get("uuid_value").getType());
+        Assertions.assertEquals(ConnectorType.of("UUID"), columns.get("uuid_value").getType());
         Assertions.assertNull(columns.get("payload").getStringWriteType());
         Assertions.assertEquals(ConnectorType.of("UUID"),
                 columns.get("uuid_array").getStringWriteType().getChildren().get(0));
@@ -982,6 +983,18 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertTrue(sink.isOverwrite());
         Assertions.assertEquals(staticValues, sink.getStaticPartitionValues(),
                 "INSERT OVERWRITE ... PARTITION must pass the static partition values to BE");
+    }
+
+    @Test
+    public void planWriteStaticPartitionNullMarkerReachesSink() {
+        Table table = partitionedSortedTable(freshCatalog());
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                .overwrite(true).writeContext(Collections.singletonMap("id", "NULL"));
+        handle.staticPartitionNullKeys = Collections.singleton("id");
+        TIcebergTableSink sink = planSink(table, contextWithStorage(), handle);
+
+        Assertions.assertEquals(Collections.singleton("id"), sink.getStaticPartitionNullKeys());
+        Assertions.assertEquals("null", sink.getStaticPartitionValues().get("id"));
     }
 
     @Test
@@ -2081,6 +2094,13 @@ public class IcebergWritePlanProviderTest {
         @Override
         public boolean isWritesDataFiles() {
             return writesDataFiles;
+        }
+
+        private Set<String> staticPartitionNullKeys = Collections.emptySet();
+
+        @Override
+        public Set<String> getStaticPartitionNullKeys() {
+            return staticPartitionNullKeys;
         }
 
         WriteHandle writeContext(Map<String, String> v) {

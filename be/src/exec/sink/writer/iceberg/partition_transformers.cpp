@@ -115,6 +115,9 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                 return std::make_unique<StringBucketPartitionColumnTransform>(source_type,
                                                                               parsed_width);
             }
+            case TYPE_UUID:
+                return std::make_unique<ByteBucketPartitionColumnTransform<ColumnUUID>>(
+                        source_type, parsed_width);
             case TYPE_VARBINARY: {
                 return std::make_unique<BinaryBucketPartitionColumnTransform>(source_type,
                                                                               parsed_width);
@@ -268,6 +271,7 @@ std::string PartitionColumnTransform::get_partition_value(const DataTypePtr type
         case TYPE_DOUBLE: {
             return floating_point_partition_value_to_string(std::any_cast<Float64>(value));
         }
+        case TYPE_UUID:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_STRING: {

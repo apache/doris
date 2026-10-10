@@ -225,6 +225,11 @@ public final class JdbcQueryBuilder {
     }
 
     public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns) {
+        return wrapPassthroughQuery(query, columns, false);
+    }
+
+    public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns,
+            boolean noBackslashEscapes) {
         if (columns.stream().noneMatch(c -> c instanceof JdbcColumnHandle
                 && containsInstant(((JdbcColumnHandle) c).getType()))
                 || (dbType != JdbcDbType.CLICKHOUSE && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO
@@ -238,7 +243,7 @@ public final class JdbcQueryBuilder {
             String name = JdbcIdentifierQuoter.quoteRemoteIdentifier(dbType, jdbcColumn.getRemoteName());
             projections.add(timestampProjection(name, jdbcColumn.getType(), 0) + " AS " + name);
         }
-        String inner = stripTerminalDelimiter(query.trim());
+        String inner = stripTerminalDelimiter(query.trim(), noBackslashEscapes);
         // WITH SESSION belongs to the Trino statement, not to a derived-table query.
         int queryStart = dbType == JdbcDbType.TRINO ? trinoSessionQueryStart(inner) : 0;
         String prefix = inner.substring(0, queryStart);
@@ -247,13 +252,17 @@ public final class JdbcQueryBuilder {
                 + "\n) doris_jdbc_query";
     }
 
-    private String stripTerminalDelimiter(String sql) {
+    private String stripTerminalDelimiter(String sql, boolean noBackslashEscapes) {
+        boolean mysql = dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE;
         List<Integer> delimiters = new java.util.ArrayList<>();
         for (int i = 0; i < sql.length();) {
             char c = sql.charAt(i);
             if (Character.isWhitespace(c)) {
                 i++;
-            } else if (sql.startsWith("--", i) || (c == '#'
+            // MySQL's second dash needs a following whitespace/control character; --1 is arithmetic.
+            } else if ((sql.startsWith("--", i) && (!mysql || (i + 2 < sql.length()
+                    && (Character.isWhitespace(sql.charAt(i + 2)) || Character.isISOControl(sql.charAt(i + 2))))))
+                    || (c == '#'
                     && (dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE))) {
                 while (i < sql.length() && sql.charAt(i) != '\n' && sql.charAt(i) != '\r') {
                     i++;
@@ -275,7 +284,9 @@ public final class JdbcQueryBuilder {
             } else if (c == '\'' || c == '"' || c == '`') {
                 char quote = c;
                 for (i++; i < sql.length(); i++) {
-                    if (sql.charAt(i) == '\\' && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO) {
+                    // SQL mode belongs to the remote connection, not the Doris session.
+                    if (sql.charAt(i) == '\\' && !(mysql && noBackslashEscapes)
+                            && quote != '`' && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO) {
                         i++;
                     } else if (sql.charAt(i) == quote) {
                         if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
@@ -584,9 +595,9 @@ public final class JdbcQueryBuilder {
     }
 
     private String comparisonToSql(ConnectorComparison comp, Map<String, String> colMapping) {
-        // ClickHouse compares the low 64 bits first; Doris uses unsigned 128-bit order.
+        // ClickHouse and SQL Server UUID ordering differs from Doris unsigned 128-bit order.
         // Equality remains pushable, but remote range filtering would discard valid rows.
-        if (dbType == JdbcDbType.CLICKHOUSE
+        if ((dbType == JdbcDbType.CLICKHOUSE || dbType == JdbcDbType.SQLSERVER)
                 && (isUuidValue(comp.getLeft()) || isUuidValue(comp.getRight()))) {
             switch (comp.getOperator()) {
                 case LT:
@@ -690,7 +701,7 @@ public final class JdbcQueryBuilder {
 
     private String betweenToSql(ConnectorBetween between, Map<String, String> colMapping) {
         // BETWEEN also depends on UUID ordering (including its bounds).
-        if (dbType == JdbcDbType.CLICKHOUSE && (isUuidValue(between.getValue())
+        if ((dbType == JdbcDbType.CLICKHOUSE || dbType == JdbcDbType.SQLSERVER) && (isUuidValue(between.getValue())
                 || isUuidValue(between.getLower()) || isUuidValue(between.getUpper()))) {
             return null;
         }

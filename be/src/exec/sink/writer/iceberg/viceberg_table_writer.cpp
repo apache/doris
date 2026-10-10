@@ -942,6 +942,9 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     case TYPE_DOUBLE: {
         return *reinterpret_cast<const Float64*>(item);
     }
+    case TYPE_UUID:
+        // Identity partition paths and commit metadata use canonical UUID text.
+        return UUIDValue::to_string(assert_cast<const ColumnUUID&>(*col_ptr).get_data()[position]);
     case TYPE_VARBINARY:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
