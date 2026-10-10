@@ -75,6 +75,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
@@ -725,11 +726,28 @@ public class PaimonJniScanner extends JniScanner {
                 params.get(PAIMON_OPTION_PREFIX + DORIS_MANIFEST_PARALLELISM_CAP),
                 Runtime.getRuntime().availableProcessors(), systemSource,
                 params.get(PAIMON_OPTION_PREFIX + DORIS_SYSTEM_TABLE_TYPE));
-        validateSerializedReaderOptions(table);
+        table = applyDefaultReadBatchSize(table, batchSize);
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
         }
+    }
+
+    /**
+     * Validates the serialized reader options and gives every reader of the table that has no
+     * {@code read.batch-size} (from the table, the catalog or the relation) the Doris batch size
+     * instead of Paimon's default. A configured value wins: Doris' output block size and Paimon's
+     * reader batch are independent controls.
+     */
+    static Table applyDefaultReadBatchSize(Table table, int dorisBatchSize) {
+        validateSerializedReaderOptions(table);
+        Map<String, String> readOptions = Collections.singletonMap(
+                CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(dorisBatchSize));
+        // The serialized table may pin an older data snapshot while carrying the latest schema
+        // after a schema change. A normal copy would time travel to that snapshot's schema again
+        // and make renamed or newly added columns disappear.
+        return adjustReaders(table, reader -> reader.options().containsKey(CoreOptions.READ_BATCH_SIZE.key())
+                ? reader : reader.copyWithoutTimeTravel(readOptions));
     }
 
     static Table applyBackendManifestParallelism(
@@ -767,45 +785,11 @@ public class PaimonJniScanner extends JniScanner {
 
     private static Table applyManifestParallelismBound(
             Table table, int safeBound, boolean materializeAbsent) {
-        if (table instanceof FallbackReadFileStoreTable) {
-            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
-            FileStoreTable main = applyManifestParallelismBound(
-                    pair.wrapped(), safeBound, materializeAbsent);
-            FileStoreTable other = applyManifestParallelismBound(
-                    pair.other(), safeBound, materializeAbsent);
-            if (main == pair.wrapped() && other == pair.other()) {
-                return table;
-            }
-            // Each branch owns an independent planner setting; a smaller sibling is not an
-            // execution ceiling and must never throttle the other branch.
-            return new FallbackReadFileStoreTable(main, other, isWrappedFirst(pair));
-        }
+        return adjustReaders(table, reader -> boundManifestParallelism(reader, safeBound, materializeAbsent));
+    }
 
-        if (table instanceof DelegatedFileStoreTable) {
-            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
-            FileStoreTable normalized = applyManifestParallelismBound(
-                    wrapped, safeBound, materializeAbsent);
-            if (normalized == wrapped) {
-                return table;
-            }
-            // FE planning already enforced privilege delegates. Keeping one here would hide the
-            // fallback tree and force a single copied cap onto branches with independent values.
-            return normalized;
-        }
-
-        Optional<FileStoreTable> hiddenSource = hiddenSystemSource(table);
-        if (hiddenSource.isPresent()) {
-            FileStoreTable normalized = applyManifestParallelismBound(
-                    hiddenSource.get(), safeBound, materializeAbsent);
-            FileStoreTable planningSource = unwrapSystemPlanningSource(normalized);
-            return planningSource == hiddenSource.get()
-                    ? table : rebuildHiddenSystemTable(table, planningSource);
-        }
-
-        if (!(table instanceof FileStoreTable)) {
-            return table;
-        }
-
+    private static FileStoreTable boundManifestParallelism(
+            FileStoreTable table, int safeBound, boolean materializeAbsent) {
         String configured = table.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
         if (configured == null && !materializeAbsent) {
             return table;
@@ -817,7 +801,51 @@ public class PaimonJniScanner extends JniScanner {
         // bound instead of assuming that an empty option map is already safe on large hosts.
         Map<String, String> cap = Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeBound));
-        return ((FileStoreTable) table).copyWithoutTimeTravel(cap);
+        return table.copyWithoutTimeTravel(cap);
+    }
+
+    /**
+     * Applies {@code adjust} to every table that reads for {@code table}: each branch of a fallback
+     * pair on its own, the table behind a delegate, and the source a read-only system wrapper hides.
+     * The wrappers around a changed table are rebuilt; an unchanged table is returned as is.
+     */
+    private static Table adjustReaders(Table table, UnaryOperator<FileStoreTable> adjust) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            FileStoreTable main = adjustReaders(pair.wrapped(), adjust);
+            FileStoreTable other = adjustReaders(pair.other(), adjust);
+            if (main == pair.wrapped() && other == pair.other()) {
+                return table;
+            }
+            // Each branch owns an independent reader setting; a sibling's value is not an
+            // execution ceiling and must never be forced onto the other branch.
+            return new FallbackReadFileStoreTable(main, other, isWrappedFirst(pair));
+        }
+
+        if (table instanceof DelegatedFileStoreTable) {
+            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
+            FileStoreTable normalized = adjustReaders(wrapped, adjust);
+            if (normalized == wrapped) {
+                return table;
+            }
+            // FE planning already enforced privilege delegates. Keeping one here would hide the
+            // fallback tree and force a single copied value onto branches with independent values.
+            return normalized;
+        }
+
+        Optional<FileStoreTable> hiddenSource = hiddenSystemSource(table);
+        if (hiddenSource.isPresent()) {
+            FileStoreTable normalized = adjustReaders(hiddenSource.get(), adjust);
+            FileStoreTable planningSource = unwrapSystemPlanningSource(normalized);
+            return planningSource == hiddenSource.get()
+                    ? table : rebuildHiddenSystemTable(table, planningSource);
+        }
+
+        return table instanceof FileStoreTable ? adjust.apply((FileStoreTable) table) : table;
+    }
+
+    private static FileStoreTable adjustReaders(FileStoreTable table, UnaryOperator<FileStoreTable> adjust) {
+        return (FileStoreTable) adjustReaders((Table) table, adjust);
     }
 
     private static Table rebuildHiddenSystemTable(Table wrapper, FileStoreTable normalizedSource) {

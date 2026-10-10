@@ -58,10 +58,12 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -297,6 +299,108 @@ public class PaimonJniScannerTest {
         Assertions.assertTrue(failure.getCause() instanceof IllegalArgumentException);
         Assertions.assertTrue(failure.getCause().getMessage()
                 .contains(CoreOptions.READ_BATCH_SIZE.key()));
+    }
+
+    @Test
+    public void testUnconfiguredReaderTakesDorisBatchSize() throws Exception {
+        // Without read.batch-size anywhere, the JNI reader reads in Doris batches instead of Paimon's
+        // default of 1024 rows. MUTATION: dropping applyDefaultReadBatchSize from initTable -> red.
+        Map<String, String> params = createBaseParams();
+        params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                InstantiationUtil.serializeObject(serializableFileStoreTable(Collections.emptyMap()))));
+        PaimonJniScanner scanner = new PaimonJniScanner(2048, params);
+        Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+        initTable.setAccessible(true);
+
+        initTable.invoke(scanner);
+
+        Field tableField = PaimonJniScanner.class.getDeclaredField("table");
+        tableField.setAccessible(true);
+        Assertions.assertEquals("2048", ((Table) tableField.get(scanner)).options()
+                .get(CoreOptions.READ_BATCH_SIZE.key()));
+    }
+
+    @Test
+    public void testConfiguredPaimonReadBatchSizeIsNotOverwrittenByDorisBatchSize() {
+        // A table, catalog or relation value wins. MUTATION: setting the Doris batch size unconditionally -> red.
+        Table configuredTable = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.READ_BATCH_SIZE.key(), "4096"));
+
+        Assertions.assertSame(configuredTable,
+                PaimonJniScanner.applyDefaultReadBatchSize(configuredTable, 1024));
+        Assertions.assertEquals("4096", configuredTable.options().get(CoreOptions.READ_BATCH_SIZE.key()));
+    }
+
+    @Test
+    public void testFallbackBranchesTakeDorisBatchSizeIndependently() {
+        // Each branch reads with its own options: the configured branch keeps its value and only the other
+        // one gets the Doris batch size. MUTATION: copying the pair as a whole -> red.
+        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.READ_BATCH_SIZE.key(), "4096"));
+        FileStoreTable fallback = serializableFileStoreTable(Collections.emptyMap());
+
+        Table adjusted = PaimonJniScanner.applyDefaultReadBatchSize(
+                new FallbackReadFileStoreTable(main, fallback, true), 1024);
+
+        FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) adjusted;
+        Assertions.assertSame(main, pair.wrapped());
+        Assertions.assertEquals("1024", pair.other().options().get(CoreOptions.READ_BATCH_SIZE.key()));
+    }
+
+    @Test
+    public void testEverySystemTableTakesDorisBatchSizeOnItsSource() throws Exception {
+        // A read-only system wrapper hides the table it reads, so the Doris batch size goes to that source and
+        // the wrapper is rebuilt around it. This runs for every system table read without a configured value,
+        // so every system table of the bundled Paimon must survive the rebuild.
+        try (org.apache.paimon.catalog.Catalog catalog = new org.apache.paimon.catalog.FileSystemCatalog(
+                org.apache.paimon.fs.local.LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(temporaryFolder.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "pk_table");
+            catalog.createTable(id, org.apache.paimon.schema.Schema.newBuilder()
+                    .column("id", org.apache.paimon.types.DataTypes.INT().notNull())
+                    .column("value", org.apache.paimon.types.DataTypes.STRING())
+                    .primaryKey("id").option(CoreOptions.BUCKET.key(), "1")
+                    .build(), false);
+            FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+
+            List<String> checked = new ArrayList<>();
+            for (String name : SystemTableLoader.SYSTEM_TABLES) {
+                Table wrapper;
+                try {
+                    wrapper = SystemTableLoader.load(name, table);
+                } catch (IllegalArgumentException e) {
+                    // Paimon refuses some system tables for this table, e.g. the row-tracking ones.
+                    continue;
+                }
+                if (wrapper == null) {
+                    continue;
+                }
+                checked.add(name);
+                Table adjusted = PaimonJniScanner.applyDefaultReadBatchSize(wrapper, 1024);
+
+                Assertions.assertEquals(wrapper.getClass(), adjusted.getClass(), name);
+                Field source = hiddenSourceField(adjusted.getClass());
+                if (source != null) {
+                    Assertions.assertEquals("1024", ((FileStoreTable) source.get(adjusted)).options()
+                            .get(CoreOptions.READ_BATCH_SIZE.key()), name);
+                }
+            }
+            Assertions.assertTrue(checked.containsAll(Arrays.asList("ro", "audit_log", "binlog", "files")),
+                    String.valueOf(checked));
+        }
+    }
+
+    private static Field hiddenSourceField(Class<?> wrapperClass) {
+        for (Class<?> type = wrapperClass; type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (FileStoreTable.class.isAssignableFrom(field.getType())) {
+                    field.setAccessible(true);
+                    return field;
+                }
+            }
+        }
+        return null;
     }
 
     @Test
