@@ -27,7 +27,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
-import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -151,10 +150,10 @@ public class PartitionCompensator {
         // partition_sync_limit window left out, say -- is one the MV does not hold: a partition of the MV reads
         // a table through the partitions it does name, and the pass above works from the mapping, which has no
         // entry for this one. Adding that partition's rows to the union alone would not be enough, because the
-        // MV partitions this plan uses still hold the rows they hold and the answer would count them twice.
+        // MV partitions this plan uses still hold the rows they hold -- a partition the window has since left
+        // out can have been materialized in one of them by an earlier refresh, and is still counted there.
         // The partitions the plan uses are taken out and the query's partitions are read from the base table,
-        // so the answer is whole and counted once. A partition the MV's snapshots name for a partition this
-        // plan reads is left alone: the MV does hold its rows, and the validity pass above decides about them.
+        // so the answer is whole and counted once.
         boolean uncoveredFound = false;
         for (Entry<MTMVRelatedTableIf, Map<String, Set<String>>> mappingEntry
                 : mtmvRelatedTableIfMapMap.entrySet()) {
@@ -167,18 +166,7 @@ public class PartitionCompensator {
             for (Set<String> names : mappingEntry.getValue().values()) {
                 named.addAll(names);
             }
-            Set<String> uncovered = Sets.difference(queryUsed, named);
-            if (uncovered.isEmpty()) {
-                continue;
-            }
-            Set<String> recorded = Sets.newHashSet();
-            MTMVRefreshSnapshot refreshSnapshot = mtmv.getRefreshSnapshot();
-            if (refreshSnapshot != null) {
-                for (String mvPartitionName : rewrittenPlanUsePartitionNameSet) {
-                    recorded.addAll(refreshSnapshot.getPctSnapshots(mvPartitionName, new BaseTableInfo(pctTable)));
-                }
-            }
-            if (!Sets.difference(uncovered, recorded).isEmpty()) {
+            if (!Sets.difference(queryUsed, named).isEmpty()) {
                 uncoveredFound = true;
             }
         }
