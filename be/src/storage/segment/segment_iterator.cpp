@@ -3582,6 +3582,11 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
                                                   _opts.target_cast_type_for_variants, _opts)) {
             continue;
         }
+        // Read-time-substituted hidden columns carry only a placeholder in their page zone maps;
+        // skip page-level pruning for them (segment-level pruning excludes them the same way).
+        if (_segment->is_read_time_substituted_col(cid, *_schema)) {
+            continue;
+        }
         const auto* tablet_column = _schema->column(cid);
         std::shared_ptr<ColumnReader> reader;
         Status st =
