@@ -139,6 +139,10 @@ public:
         _function->deserialize_vec(places, column, arena, num_rows);
     }
 
+    bool needs_deserialize_and_merge_scratch() const override {
+        return _function->needs_deserialize_and_merge_scratch();
+    }
+
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
@@ -154,6 +158,12 @@ public:
     void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
                                BufferReadable& buf, Arena& arena) const override {
         _function->deserialize_and_merge(place, rhs, buf, arena);
+    }
+
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena& arena) const override {
+        DCHECK_LT(row, column.size());
+        _function->deserialize_from_column_row(place, column, row, arena);
     }
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
