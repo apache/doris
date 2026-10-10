@@ -18,6 +18,9 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -30,7 +33,14 @@ import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 
 import org.junit.jupiter.api.Assertions;
@@ -38,8 +48,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -67,9 +79,7 @@ public class PluginDrivenTableSinkBindingTest {
 
         PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
         ctx.setOverwrite(true);
-        Map<String, String> staticSpec = new HashMap<>();
-        staticSpec.put("pt", "20240101");
-        ctx.setStaticPartitionSpec(staticSpec);
+        ctx.setStaticPartitionSpecFromExpressions(Collections.singletonMap("pt", new StringLiteral("20240101")));
 
         sink.bindDataSink(Optional.of(ctx));
 
@@ -77,8 +87,90 @@ public class PluginDrivenTableSinkBindingTest {
         Assertions.assertNotNull(handle, "planWrite must be invoked with a bound write handle");
         Assertions.assertTrue(handle.isOverwrite(),
                 "INSERT OVERWRITE must propagate ctx.isOverwrite()=true to the connector write handle");
-        Assertions.assertEquals(staticSpec, handle.getStaticPartitionSpec(),
+        Assertions.assertEquals(Collections.singletonMap("pt", "20240101"), handle.getStaticPartitionSpec(),
                 "PARTITION(col=val) must propagate the static partition spec to the write handle");
+    }
+
+    @Test
+    public void staticPartitionValuesCastToTheirColumnTypesFlowToWriteHandle() throws AnalysisException {
+        // The rows carry each PARTITION literal cast to its column type; a connector that names the partition
+        // by value (Paimon's static overwrite) must get that value, not the literal as written. MUTATION:
+        // returning the spec as written from getCastStaticPartitionSpec -> red.
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
+        PluginDrivenTableSink sink = newPlanProviderSink(provider);
+        PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
+        Map<String, Expression> partition = new LinkedHashMap<>();
+        partition.put("P", BooleanLiteral.TRUE);
+        partition.put("dt", new IntegerLiteral(20240101));
+        partition.put("amount", new DecimalV3Literal(new BigDecimal("1.5")));
+        partition.put("region", new NullLiteral());
+        partition.put("p_bucket", new StringLiteral("x"));
+        ctx.setStaticPartitionSpecFromExpressions(partition);
+        ctx.setBoundTargetSchema(Arrays.asList(new Column("p", Type.INT), new Column("dt", Type.DATEV2),
+                new Column("amount", ScalarType.createDecimalV3Type(10, 2)), new Column("region", Type.STRING)));
+
+        sink.bindDataSink(Optional.of(ctx));
+
+        ConnectorWriteHandle handle = provider.capturedHandle;
+        Assertions.assertEquals("20240101", handle.getStaticPartitionSpec().get("dt"));
+        Map<String, String> expected = new LinkedHashMap<>();
+        expected.put("P", "1");
+        expected.put("dt", "2024-01-01");
+        expected.put("amount", "1.50");
+        // A key that names no column, such as an Iceberg partition field, keeps its literal; SQL NULL stays a null key.
+        expected.put("p_bucket", "x");
+        Assertions.assertEquals(expected, handle.getCastStaticPartitionSpec());
+        Assertions.assertEquals(Collections.singleton("region"), handle.getStaticPartitionNullKeys());
+    }
+
+    @Test
+    public void staticPartitionDateTimeValuesCastInTheSessionZone() throws AnalysisException {
+        // A DATETIMEV2 value stays local time in the session zone, and a TIMESTAMPTZ value becomes the instant
+        // in UTC with its offset; Paimon moves either one to the zone its overwrite parser uses.
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("Asia/Shanghai");
+        context.setThreadLocalInfo();
+        try {
+            RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
+            PluginDrivenTableSink sink = newPlanProviderSink(provider);
+            PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
+            Map<String, Expression> partition = new LinkedHashMap<>();
+            partition.put("ts", new StringLiteral("2024-01-15 08:30:45.123456"));
+            partition.put("tz", new StringLiteral("2024-01-15 08:30:45.123456"));
+            ctx.setStaticPartitionSpecFromExpressions(partition);
+            ctx.setBoundTargetSchema(Arrays.asList(new Column("ts", ScalarType.createDatetimeV2Type(6)),
+                    new Column("tz", ScalarType.createTimeStampTzType(6))));
+
+            sink.bindDataSink(Optional.of(ctx));
+
+            Map<String, String> expected = new LinkedHashMap<>();
+            expected.put("ts", "2024-01-15 08:30:45.123456");
+            expected.put("tz", "2024-01-15 00:30:45.123456+00:00");
+            Assertions.assertEquals(expected, provider.capturedHandle.getCastStaticPartitionSpec());
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void staticPartitionValueThatDoesNotFitItsTypeFailsOnlyWhenCast() throws AnalysisException {
+        // Only a connector that reads the cast values may fail on them; the others keep reading the literal.
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
+        PluginDrivenTableSink sink = newPlanProviderSink(provider);
+        PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
+        ctx.setStaticPartitionSpecFromExpressions(Collections.singletonMap("dt", new StringLiteral("2024-13-45")));
+        ctx.setBoundTargetSchema(Collections.singletonList(new Column("dt", Type.DATEV2)));
+
+        sink.bindDataSink(Optional.of(ctx));
+
+        ConnectorWriteHandle handle = provider.capturedHandle;
+        Assertions.assertEquals(Collections.singletonMap("dt", "2024-13-45"), handle.getStaticPartitionSpec());
+        Assertions.assertThrows(RuntimeException.class, handle::getCastStaticPartitionSpec);
     }
 
     @Test

@@ -23,9 +23,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Pins the {@link ConnectorWriteHandle#getWriteOperation()} default (P6.3-T03, deferred from T01).
@@ -39,7 +41,7 @@ import java.util.Optional;
 public class ConnectorWriteHandleTest {
 
     /** Minimal handle that overrides nothing write-op related, to read the SPI default. */
-    private static final class BareWriteHandle implements ConnectorWriteHandle {
+    private static class BareWriteHandle implements ConnectorWriteHandle {
         @Override
         public ConnectorTableHandle getTableHandle() {
             return null;
@@ -98,5 +100,27 @@ public class ConnectorWriteHandleTest {
         // appear branch-targeted.
         Assertions.assertEquals(Optional.empty(), new BareWriteHandle().getBranchName(),
                 "a write handle that declares no branch must default to Optional.empty()");
+    }
+
+    @Test
+    public void castStaticPartitionSpecDefaultsToTheSpecWithoutNullKeys() {
+        // A handle that does not cast hands its values on as written, and a SQL NULL value is a null key only.
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("pt", "20240101");
+        spec.put("region", "NULL");
+        ConnectorWriteHandle handle = new BareWriteHandle() {
+            @Override
+            public Map<String, String> getStaticPartitionSpec() {
+                return spec;
+            }
+
+            @Override
+            public Set<String> getStaticPartitionNullKeys() {
+                return Collections.singleton("region");
+            }
+        };
+
+        Assertions.assertEquals(Collections.singletonMap("pt", "20240101"), handle.getCastStaticPartitionSpec());
+        Assertions.assertEquals(2, spec.size(), "the default must not modify the spec");
     }
 }

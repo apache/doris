@@ -17,6 +17,10 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.FileSystemCatalog;
@@ -60,6 +64,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The table {@link PaimonScanPlanProvider#getScanNodeProperties} serializes to the BE must carry no
@@ -113,8 +118,8 @@ public class PaimonBackendBoundTableTest {
         FileStoreTable table = newTable(warehouse, catalogEnvironment(catalog), C1);
 
         PaimonWriteBinding binding = PaimonWriteBinding.create(
-                dataHandle(), table, Collections.emptyMap(), false,
-                Collections.emptyMap(), Collections.emptySet());
+                dataHandle(), table, Collections.emptyMap(),
+                writeHandle(Collections.emptyMap(), Collections.emptySet()), "UTC");
         FileStoreTable backendTable = deserializeTable(binding.getSerializedTable());
 
         Assertions.assertNotNull(binding.getTable().catalogEnvironment().catalogLoader());
@@ -135,9 +140,9 @@ public class PaimonBackendBoundTableTest {
         Map<String, String> requested = Collections.singletonMap("pt", "NULL");
 
         PaimonWriteBinding literal = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), false, requested, Collections.emptySet());
+                Collections.emptyMap(), writeHandle(requested, Collections.emptySet()), "UTC");
         PaimonWriteBinding sqlNull = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), false, requested, Collections.singleton("pt"));
+                Collections.emptyMap(), writeHandle(requested, Collections.singleton("pt")), "UTC");
 
         Assertions.assertEquals("NULL", literal.getStaticPartition().get("pt"));
         Assertions.assertEquals(table.coreOptions().partitionDefaultName(),
@@ -767,6 +772,36 @@ public class PaimonBackendBoundTableTest {
 
     private static PaimonTableHandle dataHandle() {
         return new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList());
+    }
+
+    /** An INSERT whose static partition values need no cast, so the handle's default cast spec applies. */
+    private static ConnectorWriteHandle writeHandle(Map<String, String> staticPartition, Set<String> nullKeys) {
+        return new ConnectorWriteHandle() {
+            @Override
+            public ConnectorTableHandle getTableHandle() {
+                return null;
+            }
+
+            @Override
+            public List<ConnectorColumn> getColumns() {
+                return Collections.emptyList();
+            }
+
+            @Override
+            public boolean isOverwrite() {
+                return false;
+            }
+
+            @Override
+            public Map<String, String> getStaticPartitionSpec() {
+                return staticPartition;
+            }
+
+            @Override
+            public Set<String> getStaticPartitionNullKeys() {
+                return nullKeys;
+            }
+        };
     }
 
     private static PaimonTableHandle sysHandle(String sysTableType, FileStoreTable base) {
