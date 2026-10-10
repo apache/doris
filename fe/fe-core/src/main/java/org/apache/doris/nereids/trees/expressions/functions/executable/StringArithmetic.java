@@ -860,28 +860,36 @@ public class StringArithmetic {
         if (chr.getValue().isEmpty()) {
             return chr;
         }
-        String[] parts = first.getValue().split(Pattern.quote(chr.getValue()), -1);
-        if (Math.abs(number.getValue()) >= parts.length) {
-            return first;
-        }
-        int leftIndex;
-        int rightIndex;
-        if (parts.length < number.getValue() || number.getValue() < (- parts.length) || number.getValue() == 0) {
+        String str = first.getValue();
+        String delimiter = chr.getValue();
+        int count = number.getValue();
+        if (count == 0) {
             return castStringLikeLiteral(first, "");
-        } else if (number.getValue() < 0) {
-            leftIndex = parts.length + number.getValue();
-            rightIndex = parts.length;
+        }
+        // Like BE (and MySQL), occurrences are matched without overlapping in the direction of
+        // the count: from the left for a positive count and from the right for a negative one.
+        // The two directions pick different occurrences when the delimiter overlaps itself,
+        // e.g. the last 'aa' in 'aaa' starts at index 1, so substring_index('aaa', 'aa', -1) is ''.
+        // If there are fewer occurrences than requested, the whole string is returned.
+        if (count > 0) {
+            int index = -delimiter.length();
+            for (int i = 0; i < count; i++) {
+                index = str.indexOf(delimiter, index + delimiter.length());
+                if (index < 0) {
+                    return first;
+                }
+            }
+            return castStringLikeLiteral(first, str.substring(0, index));
         } else {
-            leftIndex = 0;
-            rightIndex = number.getValue();
+            int index = str.length();
+            for (int i = count; i < 0; i++) {
+                index = str.lastIndexOf(delimiter, index - delimiter.length());
+                if (index < 0) {
+                    return first;
+                }
+            }
+            return castStringLikeLiteral(first, str.substring(index + delimiter.length()));
         }
-        StringBuilder sb = new StringBuilder();
-        for (int i = leftIndex; i < rightIndex - 1; i++) {
-            sb.append(parts[i]);
-            sb.append(chr.getValue());
-        }
-        sb.append(parts[rightIndex - 1]);
-        return castStringLikeLiteral(first, sb.toString());
     }
 
     /**
