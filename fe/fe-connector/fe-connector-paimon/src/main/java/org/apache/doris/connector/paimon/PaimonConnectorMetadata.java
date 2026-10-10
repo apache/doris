@@ -946,7 +946,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * overrides — PST and EST resolve via {@code SHORT_IDS}, so a 4-entry-only map would still
      * reject them (verified by JDK harness).
      */
-    static final Map<String, String> SESSION_TIME_ZONE_ALIASES;
+    private static final Map<String, String> SESSION_TIME_ZONE_ALIASES;
 
     static {
         Map<String, String> m = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);

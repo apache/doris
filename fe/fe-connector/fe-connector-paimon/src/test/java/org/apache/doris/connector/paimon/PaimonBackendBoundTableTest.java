@@ -119,7 +119,7 @@ public class PaimonBackendBoundTableTest {
 
         PaimonWriteBinding binding = PaimonWriteBinding.create(
                 dataHandle(), table, Collections.emptyMap(),
-                writeHandle(Collections.emptyMap(), Collections.emptySet()), "UTC");
+                writeHandle(Collections.emptyMap(), Collections.emptySet()));
         FileStoreTable backendTable = deserializeTable(binding.getSerializedTable());
 
         Assertions.assertNotNull(binding.getTable().catalogEnvironment().catalogLoader());
@@ -140,9 +140,9 @@ public class PaimonBackendBoundTableTest {
         Map<String, String> requested = Collections.singletonMap("pt", "NULL");
 
         PaimonWriteBinding literal = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), writeHandle(requested, Collections.emptySet()), "UTC");
+                Collections.emptyMap(), writeHandle(requested, Collections.emptySet()));
         PaimonWriteBinding sqlNull = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), writeHandle(requested, Collections.singleton("pt")), "UTC");
+                Collections.emptyMap(), writeHandle(requested, Collections.singleton("pt")));
 
         Assertions.assertEquals("NULL", literal.getStaticPartition().get("pt"));
         Assertions.assertEquals(table.coreOptions().partitionDefaultName(),
