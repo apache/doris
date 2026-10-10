@@ -101,7 +101,8 @@ struct ColumnReaderOptions {
     // When set, ColumnReader::create returns a ConstantColumnReader carrying this value instead
     // of reading on-disk data. Used for read-time-filled constant columns (e.g.
     // __DORIS_COMMIT_TSO_COL__) on a single-version segment, whose on-disk value is only a
-    // placeholder. The value is constant within a segment, so the resulting reader is cacheable.
+    // placeholder. The value depends on the current read options, so the resulting reader must not
+    // enter the UID-only column-reader cache.
     std::optional<Field> const_value = std::nullopt;
 };
 

@@ -34,6 +34,7 @@
 #include "common/status.h" // Status
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/field.h"
 #include "io/cache/file_cache_common.h" // io::UInt128Wrapper returned by value
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -215,6 +216,12 @@ public:
     // Returns false for range (compaction) segments whose on-disk value is real.
     bool is_tso_placeholder_col(int cid, const ReadSchema& schema,
                                 const StorageReadOptions& read_options) const;
+
+    // Return the logical value of a hidden column that is synthesized at read time for a
+    // single-version segment. Physical indexes contain only the stored placeholder and must not
+    // be used to prune against that logical value.
+    std::optional<Field> get_read_time_constant_value(int cid, const ReadSchema& schema,
+                                                      const StorageReadOptions& read_options) const;
 
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
