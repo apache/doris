@@ -33,6 +33,7 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -77,6 +78,50 @@ public class CreateTableTest extends TestWithFeService {
             Config.enable_non_aggregate_table_state_types = originalAllowStateTypes;
             connectContext.getState().setInternal(originalInternal);
             connectContext.getSessionVariable().enableAggState = originalEnableAggState;
+        }
+    }
+
+    @Test
+    public void testBitmapDistributionColumn() {
+        boolean originalAllowStateTypes = Config.enable_non_aggregate_table_state_types;
+        try {
+            Config.enable_non_aggregate_table_state_types = false;
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                    "bitmap type should not be used in distribution column[v].",
+                    () -> createTable("CREATE TABLE test.bitmap_distribution (k INT, v BITMAP) "
+                            + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(v) BUCKETS 1 "
+                            + "PROPERTIES('replication_num'='1')"));
+            ExceptionChecker.expectThrowsNoException(
+                    () -> createTable("CREATE TABLE test.bitmap_value (k INT, v BITMAP) "
+                            + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                            + "PROPERTIES('replication_num'='1')"));
+        } finally {
+            Config.enable_non_aggregate_table_state_types = originalAllowStateTypes;
+        }
+    }
+
+    @Test
+    public void testCompatibleStateDistributionColumns() {
+        boolean originalAllowStateTypes = Config.enable_non_aggregate_table_state_types;
+        try {
+            // The compatibility flag allows state value columns but must not bypass distribution restrictions.
+            Config.enable_non_aggregate_table_state_types = true;
+            for (String type : new String[] {"HLL", "QUANTILE_STATE"}) {
+                ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                        type.toLowerCase(Locale.ROOT)
+                                + " type should not be used in distribution column[v].",
+                        () -> createTable("CREATE TABLE test.state_distribution_" + type
+                                + " (k INT, v " + type + " NOT NULL) "
+                                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(v) BUCKETS 1 "
+                                + "PROPERTIES('replication_num'='1')"));
+                ExceptionChecker.expectThrowsNoException(
+                        () -> createTable("CREATE TABLE test.state_value_" + type
+                                + " (k INT, v " + type + " NOT NULL) "
+                                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                                + "PROPERTIES('replication_num'='1')"));
+            }
+        } finally {
+            Config.enable_non_aggregate_table_state_types = originalAllowStateTypes;
         }
     }
 
