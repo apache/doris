@@ -197,6 +197,100 @@ struct StY {
     }
 };
 
+struct StZName {
+    static constexpr auto NAME = "st_z";
+    static bool get(const GeoPoint& point, double* value) {
+        if (!point.has_z()) {
+            return false;
+        }
+        *value = point.z();
+        return true;
+    }
+};
+
+struct StMName {
+    static constexpr auto NAME = "st_m";
+    static bool get(const GeoPoint& point, double* value) {
+        if (!point.has_m()) {
+            return false;
+        }
+        *value = point.m();
+        return true;
+    }
+};
+
+template <typename FunctionName>
+struct StPointOrdinate {
+    static constexpr auto NAME = FunctionName::NAME;
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeFloat64;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto& input = block.get_by_position(arguments[0]).column;
+        const auto size = input->size();
+        auto res = ColumnFloat64::create();
+        res->reserve(size);
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+
+        GeoPoint point;
+        for (size_t row = 0; row < size; ++row) {
+            const auto point_value = input->get_data_at(row);
+            double value = 0;
+            if (!point.decode_from(point_value.data, point_value.size) ||
+                !FunctionName::get(point, &value)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(value);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StNDimensionsName {
+    static constexpr auto NAME = "st_ndims";
+    static int32_t get(const GeoShape& shape) { return shape.coordinate_dimension(); }
+};
+
+struct StZmFlagName {
+    static constexpr auto NAME = "st_zmflag";
+    static int32_t get(const GeoShape& shape) { return 2 * shape.has_z() + shape.has_m(); }
+};
+
+template <typename FunctionName>
+struct StCoordinateMetadata {
+    static constexpr auto NAME = FunctionName::NAME;
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeInt32;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto& input = block.get_by_position(arguments[0]).column;
+        const auto size = input->size();
+        auto res = ColumnInt32::create();
+        res->reserve(size);
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+
+        for (size_t row = 0; row < size; ++row) {
+            const auto shape_value = input->get_data_at(row);
+            auto shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
+            if (!shape) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(FunctionName::get(*shape));
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
 struct StDistanceSphere {
     static constexpr auto NAME = "st_distance_sphere";
     static const size_t NUM_ARGS = 4;
@@ -678,8 +772,19 @@ struct StGeoFromWkb {
     }
 };
 
-struct StAsBinary {
+struct StAsBinaryName {
     static constexpr auto NAME = "st_asbinary";
+    static std::string encode(GeoShape* shape) { return GeoShape::as_binary(shape); }
+};
+
+struct StAsEwkbName {
+    static constexpr auto NAME = "st_asewkb";
+    static std::string encode(GeoShape* shape) { return GeoShape::as_ewkb(shape); }
+};
+
+template <typename FunctionName>
+struct StAsBinary {
+    static constexpr auto NAME = FunctionName::NAME;
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
@@ -702,7 +807,7 @@ struct StAsBinary {
                 continue;
             }
 
-            std::string binary = GeoShape::as_binary(shape.get());
+            std::string binary = FunctionName::encode(shape.get());
             if (binary.empty()) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -1129,6 +1234,10 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAsText<StAsTextName>>>();
     factory.register_function<GeoFunction<StX>>();
     factory.register_function<GeoFunction<StY>>();
+    factory.register_function<GeoFunction<StPointOrdinate<StZName>>>();
+    factory.register_function<GeoFunction<StPointOrdinate<StMName>>>();
+    factory.register_function<GeoFunction<StCoordinateMetadata<StNDimensionsName>>>();
+    factory.register_function<GeoFunction<StCoordinateMetadata<StZmFlagName>>>();
     factory.register_function<GeoFunction<StDistanceSphere>>();
     factory.register_function<GeoFunction<StAngleSphere>>();
     factory.register_function<GeoFunction<StAngle>>();
@@ -1150,7 +1259,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAreaSquareKm>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeometryFromWKB>>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeomFromWKB>>>();
-    factory.register_function<GeoFunction<StAsBinary>>();
+    factory.register_function<GeoFunction<StAsBinary<StAsBinaryName>>>();
+    factory.register_function<GeoFunction<StAsBinary<StAsEwkbName>>>();
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();
     factory.register_function<GeoFunction<StIsClosed>>();
