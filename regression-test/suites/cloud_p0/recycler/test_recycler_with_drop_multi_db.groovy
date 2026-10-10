@@ -18,6 +18,8 @@ import groovy.json.JsonOutput
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_recycler_with_drop_multi_db") {
+    enableRecyclerCaseTimeout()
+
     // create table
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
@@ -142,4 +144,3 @@ suite("test_recycler_with_drop_multi_db") {
         assertTrue(success)
     }
 }
-

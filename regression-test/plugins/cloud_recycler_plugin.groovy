@@ -37,6 +37,48 @@ import org.apache.hadoop.fs.LocatedFileStatus
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.fs.RemoteIterator
 import org.apache.hadoop.security.UserGroupInformation
+import java.util.concurrent.atomic.AtomicBoolean
+
+// Keep the suite-wide guard below TeamCity's 24-hour limit while allowing check_meta's
+// intentional one-hour leak-check window and the existing 30-minute phase deadlines.
+Suite.metaClass.enableRecyclerCaseTimeout = { long timeoutMs = 2 * 60 * 60 * 1000L ->
+    Suite suite = delegate as Suite
+    if (timeoutMs <= 0) {
+        throw new IllegalArgumentException("Recycler case timeout must be positive: ${timeoutMs}")
+    }
+
+    Thread suiteThread = Thread.currentThread()
+    AtomicBoolean timedOut = new AtomicBoolean(false)
+    def watchdog = suite.extraThread("recycler-case-timeout-${suite.name}", true) {
+        try {
+            Thread.sleep(timeoutMs)
+            timedOut.set(true)
+            suite.getLogger().error(
+                    "Recycler case ${suite.name} timed out after ${timeoutMs / 1000}s; interrupting the suite thread")
+            suiteThread.interrupt()
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    suite.onSuccess { ignored ->
+        if (timedOut.get()) {
+            throw new IllegalStateException(
+                    "Recycler case ${suite.name} timed out after ${timeoutMs / 1000}s")
+        }
+    }
+    suite.onFail { ignored ->
+        if (timedOut.get()) {
+            throw new IllegalStateException(
+                    "Recycler case ${suite.name} timed out after ${timeoutMs / 1000}s")
+        }
+    }
+    suite.onFinish { ignored ->
+        watchdog.cancel(true)
+    }
+}
+
+logger.info("Added 'enableRecyclerCaseTimeout' function to Suite")
 
 Suite.metaClass.triggerRecycle = { String token, String instanceId /* param */ ->
     // which suite invoke current function?
