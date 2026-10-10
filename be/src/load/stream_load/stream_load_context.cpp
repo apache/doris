@@ -277,6 +277,18 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
         ss << ", LoadBytes: " << load_bytes.GetInt64();
     }
 
+    if (document.HasMember("BeginTxnTimeMs")) {
+        const rapidjson::Value& begin_txn_time_ms = document["BeginTxnTimeMs"];
+        stream_load_item.__set_begin_txn_time_ms(begin_txn_time_ms.GetInt64());
+        ss << ", BeginTxnTimeMs: " << begin_txn_time_ms.GetInt64();
+    }
+
+    if (document.HasMember("StreamLoadPutTimeMs")) {
+        const rapidjson::Value& stream_load_put_time_ms = document["StreamLoadPutTimeMs"];
+        stream_load_item.__set_stream_load_put_time_ms(stream_load_put_time_ms.GetInt64());
+        ss << ", StreamLoadPutTimeMs: " << stream_load_put_time_ms.GetInt64();
+    }
+
     if (document.HasMember("StartTime")) {
         const rapidjson::Value& start_time = document["StartTime"];
         stream_load_item.__set_start_time(start_time.GetInt64());

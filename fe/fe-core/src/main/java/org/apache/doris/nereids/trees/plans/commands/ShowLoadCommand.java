@@ -228,6 +228,12 @@ public class ShowLoadCommand extends ShowCommand {
                 isAccurateMatch, getStateV2(), db.getCatalog().getName()));
 
         // for stream load
+        // LEGACY compatibility path: SHOW STREAM LOAD reads Stream Load records from the FE-local
+        // cache in StreamLoadRecordMgr, which the master FE refreshes periodically from BE
+        // (fetch_stream_load_record_interval_second). It does not read BE RocksDB on demand.
+        // The recommended query direction is SELECT ... FROM information_schema.loads, which reads
+        // BE RocksDB directly and is not subject to this cache lag. This branch is retained only to
+        // keep SHOW STREAM LOAD working for existing users; do not add new behavior here.
         List<List<Comparable>> streamLoadRecords = new ArrayList<>();
         if (isStreamLoad) {
             streamLoadRecords = env.getStreamLoadRecordMgr()
