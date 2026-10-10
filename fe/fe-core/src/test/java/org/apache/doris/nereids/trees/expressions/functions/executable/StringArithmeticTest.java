@@ -178,4 +178,57 @@ class StringArithmeticTest {
                 new StringLiteral(url), new StringLiteral(parameter));
         Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
     }
+
+    @Test
+    void testSubstringIndexCountsOverlappingDelimiterFromTheRight() {
+        // A negative count matches the delimiter from the right: the last 'aa' in 'aaa' starts at 1.
+        assertSubstringIndex("aaa", "aa", -1, "");
+        assertSubstringIndex("aaa", "aa", -2, "aaa");
+        assertSubstringIndex("aaaa", "aa", -1, "");
+        assertSubstringIndex("aaaa", "aa", -2, "aa");
+        assertSubstringIndex("aaaa", "aa", -3, "aaaa");
+        assertSubstringIndex("aaaaa", "aa", -2, "aa");
+        assertSubstringIndex("baaab", "aa", -1, "b");
+        assertSubstringIndex("ababa", "aba", -1, "");
+        assertSubstringIndex("abababa", "aba", -1, "");
+        assertSubstringIndex("abababa", "aba", -2, "baba");
+        assertSubstringIndex("abababa", "aba", -3, "abababa");
+        // A positive count matches the delimiter from the left: the first 'aa' in 'aaa' starts at 0.
+        assertSubstringIndex("aaa", "aa", 1, "");
+        assertSubstringIndex("aaa", "aa", 2, "aaa");
+        assertSubstringIndex("baaab", "aa", 1, "b");
+        assertSubstringIndex("abababa", "aba", 1, "");
+        assertSubstringIndex("abababa", "aba", 2, "abab");
+        assertSubstringIndex("abababa", "aba", 3, "abababa");
+    }
+
+    @Test
+    void testSubstringIndex() {
+        assertSubstringIndex("a,b,c", ",", 1, "a");
+        assertSubstringIndex("a,b,c", ",", 2, "a,b");
+        assertSubstringIndex("a,b,c", ",", 3, "a,b,c");
+        assertSubstringIndex("a,b,c", ",", -1, "c");
+        assertSubstringIndex("a,b,c", ",", -2, "b,c");
+        assertSubstringIndex("a,b,c", ",", -3, "a,b,c");
+        assertSubstringIndex("a,b,c", ",", 0, "");
+        assertSubstringIndex("a,b,c", ",", Integer.MAX_VALUE, "a,b,c");
+        assertSubstringIndex("a,b,c", ",", Integer.MIN_VALUE, "a,b,c");
+        assertSubstringIndex(",a,", ",", 1, "");
+        assertSubstringIndex(",a,", ",", -1, "");
+        assertSubstringIndex(",a,", ",", 2, ",a");
+        assertSubstringIndex(",a,", ",", -2, "a,");
+        assertSubstringIndex(",a,", ",", 3, ",a,");
+        assertSubstringIndex(",a,", ",", -3, ",a,");
+        assertSubstringIndex("prefix__string2", "__", 2, "prefix__string2");
+        assertSubstringIndex("哈哈哈AAA", "A", -2, "A");
+        assertSubstringIndex("哈哈哈AAA", "A", 1, "哈哈哈");
+        assertSubstringIndex("a,b,c", "", 1, "");
+    }
+
+    private void assertSubstringIndex(String str, String delimiter, int count, String expected) {
+        Expression result = StringArithmetic.substringIndex(
+                new StringLiteral(str), new StringLiteral(delimiter), new IntegerLiteral(count));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue(),
+                "substring_index('" + str + "', '" + delimiter + "', " + count + ")");
+    }
 }
