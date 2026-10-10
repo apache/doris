@@ -105,7 +105,10 @@ suite("test_hdfs_parquet_group0", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
-            order_qt_test_11 """ select count(arr) from HDFS(
+            // Read both 1 GiB keys one row per batch to avoid a 4 GiB output buffer allocation.
+            // Disable aggregate pushdown to retain full decoding of the >2 GiB column chunk.
+            order_qt_test_11 """ select /*+ SET_VAR(batch_size=1, enable_push_down_no_group_agg=false) */
+                        count(arr) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """

@@ -41,7 +41,7 @@ public class PaimonScanMetricsTest {
         // the LAST_* gauges. A mutation that drops the harvest returns empty.
         PaimonMetricRegistry registry = new PaimonMetricRegistry();
         ScanMetrics metrics = new ScanMetrics(registry, "mydb.mytbl");
-        metrics.reportScan(new ScanStats(2_000_000L, 5L, 3L, 7L));
+        metrics.reportScan(new ScanStats(2_000_000L, -1L, 5L, 3L, 7L));
 
         Optional<ConnectorScanProfile> profile =
                 PaimonScanMetrics.harvest(registry, "mydb.mytbl", "Table Scan (mydb.mytbl)");

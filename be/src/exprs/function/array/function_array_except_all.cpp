@@ -29,6 +29,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
+#include "exprs/function/array/function_array_hash.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 
@@ -38,7 +39,7 @@ template <PrimitiveType PType>
 struct ArrayExceptAllCountMap {
     using ElementType = typename ColumnElementView<PType>::ElementType;
     using KeyType = typename NativeType<ElementType>::Type;
-    using Type = doris::flat_hash_map<KeyType, size_t>;
+    using Type = doris::flat_hash_map<KeyType, size_t, ArraySetHash<KeyType>>;
 };
 
 template <>

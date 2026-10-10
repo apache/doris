@@ -95,10 +95,13 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -795,7 +798,7 @@ public class PaimonScanPlanProviderTest {
                 }
             }
 
-            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
             FileStoreTable decorated = PrivilegedFileStoreTable.wrap(
                     pair, new AllGrantedPrivilegeChecker(), mainId);
             for (Table planningTable : Arrays.asList(pair, decorated)) {
@@ -906,6 +909,145 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void statementReuseKeepsScansWithDifferentPlanningInputsApart(@TempDir Path warehouse) throws Exception {
+        // The memo caches the final range list (split, routed and COUNT-collapsed), so every fact those ranges
+        // depend on must be in the reuse key. LIMIT and COUNT pushdown change the ranges themselves: sharing the
+        // plan would hand LIMIT 1's single split or the COUNT range to a scan that must read every row.
+        // MUTATION: dropping any fact from PaimonScanReuseKey (or the catalog id from the memo key) makes that
+        // scan return an earlier plan -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "reuse_key");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.INT())
+                    .partitionKeys("pt")
+                    .option("bucket", "1")
+                    .option("bucket-key", "id")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            commitRows(table, GenericRow.of(1, 1), GenericRow.of(2, 2));
+            long s1 = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+            commitRows(table, GenericRow.of(3, 1));
+            long s2 = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            ops.latestSnapshotId = OptionalLong.of(s2);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            TestStatementScope scope = new TestStatementScope();
+            ConnectorSession session = reuseSession(scope, 0L);
+            PaimonTableHandle latest = new PaimonTableHandle(
+                    "db", "reuse_key", Collections.emptyList(), Collections.emptyList());
+
+            List<ConnectorScanRange> plain = provider.planScan(session, scanOf(latest).build());
+            Assertions.assertTrue(plain.size() >= 2, "fixture must plan one split for each partition");
+            Assertions.assertSame(plain, provider.planScan(session, scanOf(latest).build()));
+            List<ConnectorScanRange> atS1 = provider.planScan(session, scanOf(pinnedTo(latest, s1)).build());
+            List<ConnectorScanRange> atS2 = provider.planScan(session, scanOf(pinnedTo(latest, s2)).build());
+            Map<String, String> sinceS1 = new LinkedHashMap<>();
+            sinceS1.put("incremental-between", s1 + "," + s2);
+            sinceS1.put("incremental-between-scan-mode", "delta");
+            Map<String, String> sinceS1Reordered = new LinkedHashMap<>();
+            sinceS1Reordered.put("incremental-between-scan-mode", "delta");
+            sinceS1Reordered.put("incremental-between", s1 + "," + s2);
+            List<ConnectorScanRange> delta = provider.planScan(session,
+                    scanOf(latest.withScanOptions(sinceS1)).build());
+            Assertions.assertSame(delta, provider.planScan(session,
+                    scanOf(latest.withScanOptions(sinceS1Reordered)).build()),
+                    "the same bounded incremental range given in another option order must reuse");
+            List<ConnectorScanRange> filtered = provider.planScan(session,
+                    scanOf(latest).filter(Optional.of(equalIdFilter(1))).build());
+            List<ConnectorScanRange> otherFilter = provider.planScan(session,
+                    scanOf(latest).filter(Optional.of(equalIdFilter(2))).build());
+            List<ConnectorScanRange> projected = provider.planScan(session, ConnectorScanRequest.builder(
+                    latest, Collections.singletonList(new PaimonColumnHandle("id", 0))).build());
+            List<ConnectorScanRange> limited = provider.planScan(session, scanOf(latest).limit(1).build());
+            Assertions.assertEquals(1, limited.size(), "LIMIT 1 stops split planning after one split");
+            List<ConnectorScanRange> count = provider.planScan(session, scanOf(latest).countPushdown(true).build());
+            Assertions.assertEquals(1, count.size(), "COUNT pushdown collapses the splits into one range");
+            Assertions.assertEquals("3", count.get(0).getProperties().get("paimon.row_count"));
+            List<ConnectorScanRange> onBranch = provider.planScan(session,
+                    scanOf(latest.withBranch("audit")).build());
+            List<ConnectorScanRange> otherCatalog = provider.planScan(reuseSession(scope, 1L),
+                    scanOf(latest).build());
+
+            List<List<ConnectorScanRange>> plans = Arrays.asList(plain, atS1, atS2, delta, filtered, otherFilter,
+                    projected, limited, count, onBranch, otherCatalog);
+            Set<List<ConnectorScanRange>> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
+            distinct.addAll(plans);
+            Assertions.assertEquals(plans.size(), distinct.size(),
+                    "scans with different inputs must not share a plan");
+        }
+    }
+
+    @Test
+    public void statementReuseNeverMemoizesSystemTables(@TempDir Path warehouse) throws Exception {
+        // System tables resolve their snapshot on the BE and are never reused. MUTATION: dropping the
+        // system-table bypass in planScan -> the statement scope gains the reuse memo -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "system_reuse");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+            commitRows(table, GenericRow.of(1));
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db", "system_reuse", "ro", false);
+            handle.setPaimonTable(new ReadOptimizedTable(table));
+            handle.setSysBaseTable(table);
+            handle.setSystemTableSource(table);
+            TestStatementScope scope = new TestStatementScope();
+            ConnectorSession session = reuseSession(scope, 0L);
+            ConnectorScanRequest request = scanOf(handle).build();
+
+            List<ConnectorScanRange> first = provider.planScan(session, request);
+            List<ConnectorScanRange> second = provider.planScan(session, request);
+
+            Assertions.assertFalse(first.isEmpty(), "one committed row must plan at least one split");
+            Assertions.assertNotSame(first, second);
+            Assertions.assertFalse(scope.contains(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE + ":0:q"),
+                    "a system table must not be planned through the statement reuse memo");
+        }
+    }
+
+    private static void commitRows(Table table, GenericRow... rows) throws Exception {
+        BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = writeBuilder.newWrite()) {
+            for (GenericRow row : rows) {
+                write.write(row);
+            }
+            List<CommitMessage> messages = write.prepareCommit();
+            try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                commit.commit(messages);
+            }
+        }
+    }
+
+    private static PaimonTableHandle pinnedTo(PaimonTableHandle handle, long snapshotId) {
+        return handle.withScanOptions(Collections.singletonMap(
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), Long.toString(snapshotId)));
+    }
+
+    private static ConnectorSession reuseSession(TestStatementScope scope, long catalogId) {
+        return sessionWithProps(Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                scope, catalogId);
+    }
+
+    private static ConnectorScanRequest.Builder scanOf(PaimonTableHandle handle) {
+        return ConnectorScanRequest.builder(handle, Collections.emptyList());
+    }
+
     private static ConnectorExpression equalIdFilter(long value) {
         return new ConnectorComparison(ConnectorComparison.Operator.EQ,
                 new ConnectorColumnRef("id", ConnectorType.of("INT")),
@@ -982,16 +1124,19 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
-    public void variantProjectionOverridesOnlyTheSessionForceForParquet() {
+    public void variantProjectionHonorsJniForcingAndUsesNativeOnlyForCompatibleFiles() {
         Optional<List<RawFile>> rawFiles = Optional.of(
                 Arrays.asList(parquetRawFile("/data/part-0.parquet")));
 
         Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
                         true, false, true, rawFiles),
                 "system-table forceJni preserves semantics that the raw-file reader cannot reproduce");
-        Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
+        Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
                         false, true, true, rawFiles),
-                "Variant has no JNI carrier, so only the user session force may be overridden");
+                "force_jni_scanner must route Variant projections through the JNI carrier");
+        Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, false, true, rawFiles),
+                "physical Variant fields in Parquet use the native schema override");
 
         Optional<List<RawFile>> orcFiles = Optional.of(Arrays.asList(
                 new RawFile("/data/part-0.orc", 0L, 100L, 100L, "orc", 0L, 0L)));
@@ -1796,13 +1941,18 @@ public class PaimonScanPlanProviderTest {
                 "precondition: nativeBinaryEncode really is the paimon::Split::Deserialize format");
     }
 
-    /** A non-DataSplit Split (the only abstract method is rowCount(); Split is Serializable). */
+    /** A non-DataSplit Split used to verify the Java serialization route. */
     private static final class NonDataSplitStub implements Split {
         private static final long serialVersionUID = 1L;
 
         @Override
         public long rowCount() {
             return 0;
+        }
+
+        @Override
+        public OptionalLong mergedRowCount() {
+            return OptionalLong.empty();
         }
     }
 
@@ -1825,13 +1975,13 @@ public class PaimonScanPlanProviderTest {
         // (post-merge / post-deletion-vector) row count, so a COUNT(*) over it can be served from
         // metadata instead of materializing rows.
         DataSplit dataSplit = buildRealDataSplit(warehouse);
-        Assertions.assertTrue(dataSplit.mergedRowCountAvailable(),
+        Assertions.assertTrue(dataSplit.mergedRowCount().isPresent(),
                 "precondition: a freshly written PK split has a precomputed merged row count");
-        Assertions.assertEquals(2L, dataSplit.mergedRowCount(), "two rows were written");
+        Assertions.assertEquals(2L, dataSplit.mergedRowCount().getAsLong(), "two rows were written");
 
         // WHY: the count branch must fire ONLY when BOTH the agg is COUNT (countPushdown) AND the SDK
         // precomputed the post-merge count — mirrors legacy `applyCountPushdown &&
-        // dataSplit.mergedRowCountAvailable()`. MUTATION: dropping `countPushdown &&` (or hard-coding
+        // dataSplit.mergedRowCount().isPresent()`. MUTATION: dropping `countPushdown &&` (or hard-coding
         // the helper to false) -> one of these two assertions flips -> red.
         Assertions.assertTrue(PaimonScanPlanProvider.isCountPushdownSplit(true, dataSplit),
                 "a count query over a split with a precomputed merged count must push the count down");
@@ -2728,6 +2878,11 @@ public class PaimonScanPlanProviderTest {
 
     private static ConnectorSession sessionWithProps(
             Map<String, String> sessionProps, ConnectorStatementScope statementScope) {
+        return sessionWithProps(sessionProps, statementScope, 0L);
+    }
+
+    private static ConnectorSession sessionWithProps(
+            Map<String, String> sessionProps, ConnectorStatementScope statementScope, long catalogId) {
         return new ConnectorSession() {
             @Override
             public ConnectorStatementScope getStatementScope() {
@@ -2756,7 +2911,7 @@ public class PaimonScanPlanProviderTest {
 
             @Override
             public long getCatalogId() {
-                return 0;
+                return catalogId;
             }
 
             @Override
@@ -2788,6 +2943,11 @@ public class PaimonScanPlanProviderTest {
         @SuppressWarnings("unchecked")
         public <T> T computeIfAbsent(String key, Supplier<T> loader) {
             return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
+
+        /** Whether something was memoized under {@code key}, e.g. the statement reuse map. */
+        boolean contains(String key) {
+            return cache.containsKey(key);
         }
     }
 

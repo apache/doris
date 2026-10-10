@@ -160,6 +160,25 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    void testEpochConversionWithTimeZoneAlias() throws Exception {
+        createTable("create table epoch_conversion_alias_prune ("
+                + "epoch_sec bigint not null) "
+                + "partition by range(epoch_sec) ("
+                + "partition p1 values[('1719792000'), ('1721001600')),"
+                + "partition p2 values[('1721001600'), ('1722470400'))"
+                + ") distributed by hash(epoch_sec) buckets 1 "
+                + "properties ('replication_num'='1')");
+
+        String previousTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("CST");
+            test("epoch_conversion_alias_prune", "from_second(epoch_sec) < '2024-07-10 00:00:00'", 1);
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(previousTimeZone);
+        }
+    }
+
+    @Test
     void testOlapScanPartitionPruneWithTablet() throws Exception {
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("single_not_null");

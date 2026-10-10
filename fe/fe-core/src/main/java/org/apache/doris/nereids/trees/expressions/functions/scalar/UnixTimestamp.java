@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -171,11 +172,7 @@ public class UnixTimestamp extends ScalarFunction
         }
         LocalDateTime lowerDateTime = toLocalDateTime(lower);
         LocalDateTime upperDateTime = toLocalDateTime(upper);
-        if (lowerDateTime == null || upperDateTime == null || upperDateTime.isBefore(lowerDateTime)) {
-            return false;
-        }
-        return !DateUtils.hasGapTransitionInLocalDateTimeRange(
-                timeZone, lowerDateTime, upperDateTime);
+        return MonotonicityUtils.isLocalToInstantMonotonic(timeZone, lowerDateTime, upperDateTime);
     }
 
     private LocalDateTime toLocalDateTime(Literal literal) {

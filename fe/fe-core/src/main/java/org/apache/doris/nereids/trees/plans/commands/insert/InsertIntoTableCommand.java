@@ -53,8 +53,6 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -90,14 +88,12 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.awaitility.Awaitility;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -630,15 +626,8 @@ public class InsertIntoTableCommand extends Command
                     UnboundConnectorTableSink<?> pluginSink =
                             (UnboundConnectorTableSink<?>) originLogicalQuery;
                     if (pluginSink.hasStaticPartition()) {
-                        Map<String, String> staticSpec = Maps.newHashMap();
-                        for (Map.Entry<String, Expression> e
-                                : pluginSink.getStaticPartitionKeyValues().entrySet()) {
-                            if (e.getValue() instanceof Literal) {
-                                staticSpec.put(e.getKey(),
-                                        ((Literal) e.getValue()).getStringValue());
-                            }
-                        }
-                        pluginCtx.setStaticPartitionSpec(staticSpec);
+                        pluginCtx.setStaticPartitionSpecFromExpressions(
+                                pluginSink.getStaticPartitionKeyValues());
                     }
                 }
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
@@ -756,6 +745,10 @@ public class InsertIntoTableCommand extends Command
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         // An empty Table Stream read still needs to commit its offset update atomically.
         if (!insertExecutor.requiresTransaction()) {
+            // Nothing is committed on this path, so a caller that asks whether the rows are durable is told
+            // they are not -- no row and no offset was written, which is what it needs before treating a
+            // cancellation or a later failure here as too late to take back.
+            // See InsertCommandContext#setCommitted.
             return;
         }
         if (insertExecutorListener != null) {

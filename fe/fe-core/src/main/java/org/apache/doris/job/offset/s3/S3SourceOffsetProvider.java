@@ -49,8 +49,18 @@ import java.util.stream.Collectors;
 
 @Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
-    S3Offset currentOffset;
-    String maxEndFile;
+    private final boolean onceMode;
+    private volatile S3Offset noMoreFilesAfterOffset;
+    volatile S3Offset currentOffset;
+    volatile String maxEndFile;
+
+    public S3SourceOffsetProvider() {
+        this.onceMode = false;
+    }
+
+    public S3SourceOffsetProvider(StreamingJobProperties jobProperties) {
+        this.onceMode = jobProperties.isS3OnceMode();
+    }
 
     @Override
     public String getSourceType() {
@@ -95,6 +105,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 offset.setEndFile(lastFile);
                 offset.setFileNum(rfiles.size());
                 maxEndFile = globListing.getMaxFile();
+                offset.setLastBatch(onceMode && lastFile.equals(globListing.getMaxFile()));
             } else {
                 throw new RuntimeException("No new files found in path: " + filePath);
             }
@@ -159,7 +170,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(properties);
         StorageAdapter storageAdapter = StorageAdapter.of(copiedProps);
-        String startFile = currentOffset == null ? null : currentOffset.endFile;
+        S3Offset offsetAtScan = currentOffset;
+        String startFile = offsetAtScan == null ? null : offsetAtScan.endFile;
         try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
             String uri = storageAdapter.validateAndGetUri(copiedProps);
             String filePath = storageAdapter.validateAndNormalizeUri(uri);
@@ -168,6 +180,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 throw new java.io.IOException("debug point: simulated S3 auth error");
             }
             GlobListing globListing = fileSystem.globListWithLimit(Location.of(filePath), startFile, 1, 1);
+            if (onceMode) {
+                noMoreFilesAfterOffset = globListing.getFiles().isEmpty() ? offsetAtScan : null;
+            }
             if (!globListing.getFiles().isEmpty() && StringUtils.isNotEmpty(globListing.getMaxFile())) {
                 maxEndFile = globListing.getMaxFile();
             }
@@ -176,6 +191,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
+        if (hasReachedEnd()) {
+            return false;
+        }
         if (currentOffset == null || currentOffset.endFile == null) {
             return true;
         }
@@ -184,6 +202,12 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public boolean hasReachedEnd() {
+        S3Offset offset = currentOffset;
+        return onceMode && offset != null && (offset.isLastBatch() || noMoreFilesAfterOffset == offset);
     }
 
     @Override
