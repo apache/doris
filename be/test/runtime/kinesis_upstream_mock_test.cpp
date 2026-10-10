@@ -15,19 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <memory>
-#include <string>
-#include <vector>
-
 #include <aws/core/Aws.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "io/fs/kinesis_consumer_pipe.h"
+#include "kinesis_fake_client.h"
 #include "load/routine_load/data_consumer.h"
 #include "load/routine_load/data_consumer_group.h"
 #include "load/routine_load/kinesis_conf.h"
-#include "kinesis_fake_client.h"
 #include "load/stream_load/stream_load_context.h"
 
 namespace doris {
@@ -71,9 +71,8 @@ TEST_F(KinesisUpstreamMockTest, ListShardsPaginationPreservesLineageAndClosedSta
     consumer->_init = true;
     consumer->_kinesis_conf = std::make_unique<KinesisConf>();
     auto fake = std::make_shared<KinesisFakeClient>();
-    fake->set_list_shards_pages({
-            {KinesisFakeClient::Shard {"P", "", "", false}},
-            {KinesisFakeClient::Shard {"C", "P", "", true}}});
+    fake->set_list_shards_pages({{KinesisFakeClient::Shard {"P", "", "", false}},
+                                 {KinesisFakeClient::Shard {"C", "P", "", true}}});
     consumer->_kinesis_client = fake;
 
     std::vector<PShardInfo> shards;
@@ -96,9 +95,8 @@ TEST_F(KinesisUpstreamMockTest, GetRecordsEofCarriesChildLineageToCommitAttachme
 
     auto fake = std::make_shared<KinesisFakeClient>();
     fake->set_initial_iterator("initial-P", "P");
-    fake->set_records_pages("P", {
-            KinesisFakeClient::RecordsPage {{"1"}, "next-P", 100, {}},
-            KinesisFakeClient::RecordsPage {{}, "", 0, {{"C", {"P"}}}}});
+    fake->set_records_pages("P", {KinesisFakeClient::RecordsPage {{"1"}, "next-P", 100, {}},
+                                  KinesisFakeClient::RecordsPage {{}, "", 0, {{"C", {"P"}}}}});
     consumer->_kinesis_client = fake;
 
     KinesisDataConsumerGroup group(1);
