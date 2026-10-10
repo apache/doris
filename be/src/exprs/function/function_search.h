@@ -17,7 +17,15 @@
 
 #pragma once
 
+// CLucene's conversion warnings must not depend on the unity include order.
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 #include <CLucene.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include <gen_cpp/Exprs_types.h>
 
 #include <map>
