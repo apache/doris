@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.profile.PlanningDiagnostics;
+import org.apache.doris.common.profile.PlanningDiagnostics.Phase;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.ExternalMetadataPreloadResult;
@@ -67,6 +69,11 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
             return ExternalMetadataPreloadResult.skipped(
                     statementContext.getExternalTablePreloadCandidateCount(), skipReason.get());
         }
+        return PlanningDiagnostics.phase(statementContext.getConnectContext(), Phase.PRELOAD_METADATA,
+                () -> preloadTables(statementContext, preloadStartTime));
+    }
+
+    private ExternalMetadataPreloadResult preloadTables(StatementContext statementContext, long preloadStartTime) {
         int preloadedTableCount = 0;
         for (ExternalTablePreloadInfo preloadInfo : statementContext.getExternalTablePreloadInfos()) {
             if (preloadExternalTable(statementContext, preloadInfo)) {
