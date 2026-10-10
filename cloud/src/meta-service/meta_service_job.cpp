@@ -146,11 +146,16 @@ static inline bool may_conflict_by_type(TabletCompactionJobPB::CompactionType a,
     return is_rowset_compaction_family(a) && is_rowset_compaction_family(b);
 }
 
+static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
+                                             const std::string& instance_id, int64_t table_id,
+                                             int64_t tablet_id, int64_t lock_id,
+                                             int64_t lock_initiator, std::string use_version);
+
 void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                           std::unique_ptr<Transaction>& txn, const StartTabletJobRequest* request,
                           StartTabletJobResponse* response, std::string& instance_id,
-                          bool& need_commit, bool is_versioned_read,
-                          ResourceManager* resource_mgr) {
+                          bool& need_commit, bool is_versioned_read, ResourceManager* resource_mgr,
+                          const std::string& use_version) {
     auto& compaction = request->job().compaction(0);
     if (!compaction.has_id() || compaction.id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -274,12 +279,12 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         }), compactions.end());
         // clang-format on
         // Check conflict job
-        if (std::ranges::any_of(compactions, [](const auto& c) {
-                return c.type() == TabletCompactionJobPB::STOP_TOKEN;
-            })) {
-            auto it = std::ranges::find_if(compactions, [](const auto& c) {
-                return c.type() == TabletCompactionJobPB::STOP_TOKEN;
-            });
+        auto is_stop_token = [](const auto& c) {
+            return c.type() == TabletCompactionJobPB::STOP_TOKEN;
+        };
+        if (compaction.type() != TabletCompactionJobPB::STOP_TOKEN &&
+            std::ranges::any_of(compactions, is_stop_token)) {
+            auto it = std::ranges::find_if(compactions, is_stop_token);
             msg = fmt::format(
                     "compactions are not allowed on tablet_id={} currently, blocked by schema "
                     "change job delete_bitmap_initiator={}",
@@ -293,6 +298,25 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             // compaction operations and canceling other types of compaction.
             compactions.Clear();
         } else if (compaction.type() == TabletCompactionJobPB::STOP_TOKEN) {
+            // A STOP_TOKEN outlives the schema change run that registered it when its BE dies
+            // before unregistering it: nothing renews or removes the token until its lease
+            // expires (lease_compaction_interval_seconds * 4). FE guarantees at most one schema
+            // change job per tablet and every run uses a fresh delete_bitmap_lock_initiator, so
+            // an incoming STOP_TOKEN always belongs to the live run. Replace the stale token and
+            // release the schema change delete bitmap lock its dead owner still holds; otherwise
+            // the re-sent ALTER task is rejected here and FE cancels the whole job.
+            for (const auto& c : compactions) {
+                if (!is_stop_token(c) || !c.has_delete_bitmap_lock_initiator() ||
+                    c.delete_bitmap_lock_initiator() == compaction.delete_bitmap_lock_initiator()) {
+                    continue;
+                }
+                INSTANCE_LOG(INFO)
+                        << "replace stale STOP_TOKEN, tablet_id=" << tablet_id
+                        << " new_job_id=" << compaction.id() << " stale_job=" << proto_to_json(c);
+                remove_delete_bitmap_update_lock(txn, instance_id, table_id, tablet_id,
+                                                 SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID,
+                                                 c.delete_bitmap_lock_initiator(), use_version);
+            }
             // fail all existing compactions
             compactions.Clear();
         } else if ((!compaction.has_check_input_versions_range() &&
@@ -604,8 +628,10 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     };
 
     if (!request->job().compaction().empty()) {
+        std::string use_version =
+                delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
         start_compaction_job(code, msg, ss, txn, request, response, instance_id, need_commit,
-                             is_versioned_read, resource_mgr_.get());
+                             is_versioned_read, resource_mgr_.get(), use_version);
         return;
     }
 
