@@ -30,12 +30,14 @@ suite("test_tvf_anonymous") {
    // sql """ ADMIN SET FRONTEND CONFIG ("aws_credentials_provider_version"="v1"); """
 
     def result = sql """
-        SELECT count(1) FROM S3 (                  
+        SELECT count(1) FROM S3 (
         "uri"="${uri}",
-         "format" = "csv",     
-          "s3.region" = "${region}",  
+         "format" = "csv",
+          "s3.region" = "${region}",
            "s3.credentials_provider_type"="ANONYMOUS",
-           "s3.endpoint" = "https://s3.${region}.amazonaws.com", 
+           "s3.endpoint" = "https://s3.${region}.amazonaws.com",
+           "s3.connection.timeout" = "30000",
+           "s3.connection.request.timeout" = "30000",
            "column_separator" = ","              );
         """
 
@@ -44,12 +46,14 @@ suite("test_tvf_anonymous") {
     sql """ ADMIN SET FRONTEND CONFIG ("aws_credentials_provider_version"="v2"); """
 
      result = sql """
-        SELECT count(1) FROM S3 (                  
+        SELECT count(1) FROM S3 (
         "uri"="${uri}",
-         "format" = "csv",     
-          "s3.region" = "${region}",  
+         "format" = "csv",
+          "s3.region" = "${region}",
            "s3.credentials_provider_type"="ANONYMOUS",
-           "s3.endpoint" = "https://s3.${region}.amazonaws.com", 
+           "s3.endpoint" = "https://s3.${region}.amazonaws.com",
+           "s3.connection.timeout" = "30000",
+           "s3.connection.request.timeout" = "30000",
            "column_separator" = ","              );
         """
 
@@ -57,12 +61,14 @@ suite("test_tvf_anonymous") {
     assertTrue(countValue == expectDataCount.toInteger())
 
     result = sql """
-        SELECT count(1) FROM S3 (                  
+        SELECT count(1) FROM S3 (
         "uri"="${uri}",
-         "format" = "csv",     
-          "s3.region" = "${region}",  
-           "s3.endpoint" = "https://s3.${region}.amazonaws.com", 
+         "format" = "csv",
+          "s3.region" = "${region}",
+           "s3.endpoint" = "https://s3.${region}.amazonaws.com",
            "s3.credentials_provider_type"="ANONYMOUS",
+           "s3.connection.timeout" = "30000",
+           "s3.connection.request.timeout" = "30000",
            "column_separator" = ","              );
         """
 
