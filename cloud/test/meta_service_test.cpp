@@ -9170,6 +9170,26 @@ TEST(MetaServiceTest, IndexRequest) {
     // Drop index should not init table version
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // Whole-table cleanup is persisted when the committed index first enters recycling.
+    reset_meta_service();
+    req.set_is_drop_table(true);
+    res.Clear();
+    meta_service->drop_index(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(index_pb.ParseFromString(val));
+    EXPECT_TRUE(index_pb.is_drop_table());
+    EXPECT_EQ(index_pb.state(), RecycleIndexPB::DROPPED);
+
+    // Retrying the whole-table drop preserves its durable cleanup obligation.
+    res.Clear();
+    meta_service->drop_index(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(index_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(index_pb.ParseFromString(val));
+    EXPECT_TRUE(index_pb.is_drop_table());
 }
 
 TEST(MetaServiceTest, PartitionRequest) {

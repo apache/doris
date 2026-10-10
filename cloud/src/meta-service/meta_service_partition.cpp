@@ -718,9 +718,9 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     bool is_versioned_write = is_version_write_enabled(instance_id);
     bool is_versioned_read = is_version_read_enabled(instance_id);
 
-    if (is_versioned_write && !request->has_db_id()) {
+    if ((is_versioned_write || request->is_drop_table()) && !request->has_db_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "missing db_id for versioned write, please upgrade your FE version";
+        msg = "missing db_id for table drop or versioned write, please upgrade your FE version";
         return;
     }
 
@@ -772,6 +772,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         pb.set_creation_time(::time(nullptr));
         pb.set_expiration(request->expiration());
         pb.set_state(RecycleIndexPB::DROPPED);
+        pb.set_is_drop_table(request->is_drop_table());
         if (is_table_stream) {
             pb.set_object_type(IndexObjectTypePB::TABLE_STREAM);
             pb.set_stream_db_id(request->stream_db_id());
@@ -784,6 +785,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     drop_index_log.set_db_id(request->db_id());
     drop_index_log.set_table_id(request->table_id());
     drop_index_log.set_expiration(request->expiration());
+    drop_index_log.set_is_drop_table(request->is_drop_table());
     if (is_table_stream) {
         drop_index_log.set_object_type(IndexObjectTypePB::TABLE_STREAM);
         drop_index_log.set_stream_db_id(request->stream_db_id());

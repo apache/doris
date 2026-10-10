@@ -629,6 +629,8 @@ message RecycleIndexPB {
     optional int64 db_id = 5;
     optional IndexObjectTypePB object_type = 6 [default = MATERIALIZED_INDEX];
     optional int64 stream_db_id = 7;
+    // Recycle table versions only when dropping the whole table, never a rollup.
+    optional bool is_drop_table = 8 [default = false];
 }
 
 message RecyclePartitionPB {
@@ -877,6 +879,8 @@ message DropIndexLogPB {
     map<string, int64> index_partition_to_data_size = 5;
     optional IndexObjectTypePB object_type = 6 [default = MATERIALIZED_INDEX];
     optional int64 stream_db_id = 7;
+    // Recycle table versions only when dropping the whole table, never a rollup.
+    optional bool is_drop_table = 8 [default = false];
 }
 
 message UpdateTabletLogPB {
@@ -1506,6 +1510,8 @@ message IndexRequest {
     optional int64 stream_db_id = 10;
     // Initialize partition version metadata with the empty TSO boundary.
     optional bool enable_tso = 11;
+    // Recycle table versions only when dropping the whole table, never a rollup.
+    optional bool is_drop_table = 12 [default = false];
 }
 
 message IndexResponse {

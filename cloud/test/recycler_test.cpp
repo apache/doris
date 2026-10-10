@@ -3706,6 +3706,72 @@ TEST(RecyclerTest, recycle_versions) {
     ASSERT_EQ(iter->size(), 0);
 }
 
+// A registration loser has no partition versions in legacy mode; an empty auto-partition
+// table also has no partition inverted keys in versioned mode. Neither version scanner sees it.
+static void test_recycle_dropped_table_versions(bool versioned) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    if (versioned) {
+        instance.set_multi_version_status(MULTI_VERSION_ENABLED);
+    }
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int64_t loser_id = 11000;
+    constexpr int64_t winner_id = 12000;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    for (auto table_id : {loser_id, winner_id}) {
+        txn->atomic_add(table_version_key({instance_id, db_id, table_id}), 1);
+        if (versioned) {
+            versioned_put(txn.get(), versioned::table_version_key({instance_id, table_id}), "");
+        }
+        RecycleIndexPB index;
+        index.set_db_id(db_id);
+        index.set_table_id(table_id);
+        index.set_state(RecycleIndexPB::DROPPED);
+        index.set_creation_time(0);
+        // The winner only drops a rollup. Its table version must survive even without tablets.
+        index.set_is_drop_table(table_id == loser_id);
+        txn->put(recycle_index_key({instance_id, table_id + 1}), index.SerializeAsString());
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(recycler.recycle_versions(), 0);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    ASSERT_EQ(txn->get(table_version_key({instance_id, db_id, loser_id}), &value),
+              TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(recycler.recycle_indexes(), 0);
+    ASSERT_EQ(recycler.recycle_indexes(), 0); // Retrying cleanup is harmless.
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(table_version_key({instance_id, db_id, loser_id}), &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    EXPECT_EQ(txn->get(table_version_key({instance_id, db_id, winner_id}), &value),
+              TxnErrorCode::TXN_OK);
+    if (versioned) {
+        for (auto table_id : {loser_id, winner_id}) {
+            const auto key = versioned::table_version_key({instance_id, table_id});
+            std::unique_ptr<RangeGetIterator> iter;
+            ASSERT_EQ(txn->get(encode_versioned_key(key, Versionstamp::min()),
+                               encode_versioned_key(key, Versionstamp::max()), &iter),
+                      TxnErrorCode::TXN_OK);
+            EXPECT_EQ(iter->size(), table_id == loser_id ? 0 : 1);
+        }
+    }
+}
+
+TEST(RecyclerTest, recycle_dropped_table_versions_without_partition_versions) {
+    test_recycle_dropped_table_versions(false);
+}
+
+TEST(RecyclerTest, recycle_dropped_empty_table_versions_without_partitions) {
+    test_recycle_dropped_table_versions(true);
+}
+
 TEST(RecyclerTest, recycle_restore_jobs) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();

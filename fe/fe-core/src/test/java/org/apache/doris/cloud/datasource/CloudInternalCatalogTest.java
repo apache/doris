@@ -79,15 +79,20 @@ public class CloudInternalCatalogTest {
 
     @Test
     public void testCreateTableConflictDropsOnlyLosingIndexes() throws Exception {
-        testCreateTableConflictCleanup(Cloud.MetaServiceCode.OK);
+        testCreateTableConflictCleanup(Cloud.MetaServiceCode.OK, true);
     }
 
     @Test
     public void testCreateTableConflictReportsCleanupFailure() throws Exception {
-        testCreateTableConflictCleanup(Cloud.MetaServiceCode.INVALID_ARGUMENT);
+        testCreateTableConflictCleanup(Cloud.MetaServiceCode.INVALID_ARGUMENT, true);
     }
 
-    private void testCreateTableConflictCleanup(Cloud.MetaServiceCode code) throws Exception {
+    @Test
+    public void testDropRollupPreservesTableVersion() throws Exception {
+        testCreateTableConflictCleanup(Cloud.MetaServiceCode.OK, false);
+    }
+
+    private void testCreateTableConflictCleanup(Cloud.MetaServiceCode code, boolean dropTable) throws Exception {
         OlapTable loser = Mockito.mock(OlapTable.class);
         List<Long> indexIds = Arrays.asList(31L, 32L);
         Mockito.when(loser.getId()).thenReturn(21L);
@@ -100,7 +105,11 @@ public class CloudInternalCatalogTest {
             mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             CloudInternalCatalog catalog = new CloudInternalCatalog();
             if (code == Cloud.MetaServiceCode.OK) {
-                catalog.onCreateTableConflict(11L, loser);
+                if (dropTable) {
+                    catalog.onCreateTableConflict(11L, loser);
+                } else {
+                    catalog.dropMaterializedIndex(11L, loser.getId(), indexIds, false);
+                }
             } else {
                 DdlException error = Assertions.assertThrows(DdlException.class,
                         () -> catalog.onCreateTableConflict(11L, loser));
@@ -111,6 +120,7 @@ public class CloudInternalCatalogTest {
             Assertions.assertEquals(11L, request.getValue().getDbId());
             Assertions.assertEquals(21L, request.getValue().getTableId());
             Assertions.assertEquals(indexIds, request.getValue().getIndexIdsList());
+            Assertions.assertEquals(dropTable, request.getValue().getIsDropTable());
         }
     }
 

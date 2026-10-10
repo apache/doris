@@ -652,7 +652,7 @@ TEST(RecycleOperationLogTest, RecycleDropIndexLog) {
     ASSERT_EQ(count_range(txn_kv.get()), 1) << "Should only have one recycle index record";
 }
 
-TEST(RecycleOperationLogTest, RecycleLegacyDropIndexLogAsMaterializedIndex) {
+static void test_recycle_drop_index_log(bool drop_table) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     txn_kv->update_commit_version(1000);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -678,6 +678,9 @@ TEST(RecycleOperationLogTest, RecycleLegacyDropIndexLogAsMaterializedIndex) {
         drop_index->set_table_id(table_id);
         drop_index->add_index_ids(index_id);
         drop_index->set_expiration(expiration);
+        if (drop_table) {
+            drop_index->set_is_drop_table(true);
+        }
         ASSERT_FALSE(drop_index->has_object_type());
         ASSERT_EQ(drop_index->object_type(), IndexObjectTypePB::MATERIALIZED_INDEX);
 
@@ -699,6 +702,15 @@ TEST(RecycleOperationLogTest, RecycleLegacyDropIndexLogAsMaterializedIndex) {
     EXPECT_EQ(recycle_index.table_id(), table_id);
     EXPECT_EQ(recycle_index.object_type(), IndexObjectTypePB::MATERIALIZED_INDEX);
     EXPECT_FALSE(recycle_index.has_stream_db_id());
+    EXPECT_EQ(recycle_index.is_drop_table(), drop_table);
+}
+
+TEST(RecycleOperationLogTest, RecycleLegacyDropIndexLogAsMaterializedIndex) {
+    test_recycle_drop_index_log(false);
+}
+
+TEST(RecycleOperationLogTest, RecycleDropTableIndexLog) {
+    test_recycle_drop_index_log(true);
 }
 
 TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
