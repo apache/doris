@@ -65,7 +65,10 @@ public abstract class NumericLiteral extends Literal implements ComparableLitera
                     || other instanceof DecimalLiteral || other instanceof DecimalV3Literal) {
                 return this.getBigDecimalValue().compareTo(((NumericLiteral) other).getBigDecimalValue());
             }
-            return Double.compare(this.getDouble(), ((Literal) other).getDouble());
+            double left = this.getDouble();
+            double right = ((Literal) other).getDouble();
+            // SQL treats signed zeros as equal, while Double.compare distinguishes them.
+            return left == right ? 0 : Double.compare(left, right);
         }
         if (other instanceof NullLiteral) {
             return 1;
