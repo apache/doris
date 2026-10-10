@@ -196,7 +196,7 @@ public abstract class JdbcClient {
         dataSource = null;
     }
 
-    public boolean isNoBackslashEscapes() {
+    public Set<String> getSessionSqlMode() {
         // Read the catalog session so URL sessionVariables and server SQL mode are both honored.
         try (Connection connection = getConnection();
                 java.sql.Statement statement = connection.createStatement();
@@ -205,7 +205,8 @@ public abstract class JdbcClient {
                 throw new JdbcClientException("MySQL did not return its session SQL mode");
             }
             return java.util.Arrays.stream(result.getString(1).split(","))
-                    .anyMatch(mode -> mode.trim().equalsIgnoreCase("NO_BACKSLASH_ESCAPES"));
+                    .map(mode -> mode.trim().toUpperCase(java.util.Locale.ROOT))
+                    .collect(java.util.stream.Collectors.toSet());
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to read MySQL session SQL mode", e);
         }

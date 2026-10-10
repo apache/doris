@@ -70,7 +70,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private boolean isTableValuedFunction = false;
     private String query = "";
     private boolean projectsTimestamps;
-    private Boolean noBackslashEscapes;
+    private java.util.Set<String> mysqlSqlMode;
 
     private JdbcTable tbl;
     private long catalogId;
@@ -220,21 +220,22 @@ public class JdbcScanNode extends ExternalScanNode {
             return query;
         }
         boolean mysql = jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE;
-        if (mysql && noBackslashEscapes == null) {
+        if (mysql && mysqlSqlMode == null) {
             // Resolve only for wrapped MySQL queries and reuse the result for EXPLAIN and scan serialization.
             org.apache.doris.datasource.jdbc.JdbcExternalCatalog catalog =
                     (org.apache.doris.datasource.jdbc.JdbcExternalCatalog) org.apache.doris.catalog.Env
                             .getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-            noBackslashEscapes = catalog.getJdbcClient().isNoBackslashEscapes();
+            mysqlSqlMode = catalog.getJdbcClient().getSessionSqlMode();
         }
-        String source = stripTerminalDelimiter(query.trim(), mysql && noBackslashEscapes);
+        String source = stripTerminalDelimiter(query.trim(),
+                mysql && mysqlSqlMode.contains("NO_BACKSLASH_ESCAPES"), mysql && mysqlSqlMode.contains("ANSI_QUOTES"));
         // WITH SESSION must stay outside the derived table; terminate trailing line comments with a newline.
         int start = jdbcType == TOdbcTableType.TRINO ? trinoSessionQueryStart(source) : 0;
         return source.substring(0, start) + "SELECT " + Joiner.on(", ").join(columns)
                 + " FROM (" + source.substring(start) + "\n) doris_jdbc_source";
     }
 
-    private String stripTerminalDelimiter(String sql, boolean noBackslashEscapes) {
+    private String stripTerminalDelimiter(String sql, boolean noBackslashEscapes, boolean ansiQuotes) {
         boolean mysql = jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE;
         List<Integer> delimiters = new java.util.ArrayList<>();
         for (int i = 0; i < sql.length();) {
@@ -250,25 +251,15 @@ public class JdbcScanNode extends ExternalScanNode {
                     i++;
                 }
             } else if (sql.startsWith("/*", i)) {
-                int depth = 1;
-                i += 2;
-                while (i < sql.length() && depth > 0) {
-                    if (sql.startsWith("/*", i)) {
-                        depth++;
-                        i += 2;
-                    } else if (sql.startsWith("*/", i)) {
-                        depth--;
-                        i += 2;
-                    } else {
-                        i++;
-                    }
-                }
+                i = skipBlockComment(sql, i, jdbcType == TOdbcTableType.CLICKHOUSE);
             } else if (c == '\'' || c == '"' || c == '`') {
                 char quote = c;
                 for (i++; i < sql.length(); i++) {
-                    // SQL mode belongs to the remote connection, not the Doris session.
+                    // ANSI_QUOTES makes double quotes identifiers, where backslashes never escape the closing quote.
+                    // Both quoting modes belong to the remote session.
                     if (sql.charAt(i) == '\\' && !(mysql && noBackslashEscapes)
-                            && quote != '`' && jdbcType != TOdbcTableType.TRINO && jdbcType != TOdbcTableType.PRESTO) {
+                            && !(mysql && ansiQuotes && quote == '"') && quote != '`'
+                            && jdbcType != TOdbcTableType.TRINO && jdbcType != TOdbcTableType.PRESTO) {
                         i++;
                     } else if (sql.charAt(i) == quote) {
                         if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
@@ -301,6 +292,24 @@ public class JdbcScanNode extends ExternalScanNode {
         return result.toString();
     }
 
+    private static int skipBlockComment(String sql, int start, boolean nested) {
+        // Trino, Presto and MySQL end at the first closing marker; ClickHouse permits nested comments.
+        int depth = 1;
+        int i = start + 2;
+        while (i < sql.length() && depth > 0) {
+            if (nested && sql.startsWith("/*", i)) {
+                depth++;
+                i += 2;
+            } else if (sql.startsWith("*/", i)) {
+                depth--;
+                i += 2;
+            } else {
+                i++;
+            }
+        }
+        return i;
+    }
+
     private static int trinoSessionQueryStart(String sql) {
         int depth = 0;
         int prefixWords = 0;
@@ -322,19 +331,7 @@ public class JdbcScanNode extends ExternalScanNode {
                 int newline = sql.indexOf('\n', i + 2);
                 i = newline < 0 ? sql.length() : newline + 1;
             } else if (sql.startsWith("/*", i)) {
-                int comments = 1;
-                i += 2;
-                while (i < sql.length() && comments > 0) {
-                    if (sql.startsWith("/*", i)) {
-                        comments++;
-                        i += 2;
-                    } else if (sql.startsWith("*/", i)) {
-                        comments--;
-                        i += 2;
-                    } else {
-                        i++;
-                    }
-                }
+                i = skipBlockComment(sql, i, false);
             } else if (c == '(') {
                 depth++;
                 i++;

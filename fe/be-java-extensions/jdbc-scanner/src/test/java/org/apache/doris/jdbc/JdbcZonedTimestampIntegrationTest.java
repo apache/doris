@@ -18,6 +18,7 @@
 package org.apache.doris.jdbc;
 
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.thrift.TOdbcTableType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,9 @@ class JdbcZonedTimestampIntegrationTest {
         // Both dialects must disambiguate the fold before the driver reconstructs the instant.
         withDriver(dialect, driver, connection -> {
             TrinoJdbcExecutor executor = Mockito.mock(TrinoJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+            // Presto must exercise its untyped timestamp read and VARCHAR bind paths.
+            executor.config = new JdbcDataSourceConfig().setTableType(
+                    "presto".equals(dialect) ? TOdbcTableType.PRESTO : TOdbcTableType.TRINO);
             String values = "ARRAY[first_value, second_value, old_value, NULL]";
             String query = "WITH sample AS (SELECT "
                     + "at_timezone(TIMESTAMP '2023-11-05 08:30:00.123456 UTC', 'America/Los_Angeles') first_value, "
@@ -293,12 +297,28 @@ class JdbcZonedTimestampIntegrationTest {
                 if (sessionSql != null) {
                     ddl.execute(sessionSql);
                 }
+                if (dialect == OracleJdbcExecutor.class) {
+                    // A conflicting NLS format proves that both TZ column kinds use the explicit format mask.
+                    ddl.execute("ALTER SESSION SET NLS_TIMESTAMP_TZ_FORMAT = 'DD-MON-RR HH.MI.SSXFF AM TZR'");
+                }
                 ddl.execute("CREATE TABLE " + table + " (id INT, " + String.join(", ", definitions) + ")" + suffix);
                 try {
                     BaseJdbcExecutor executor = Mockito.mock(dialect, Mockito.CALLS_REAL_METHODS);
+                    executor.config = new JdbcDataSourceConfig().setTableType(
+                            TOdbcTableType.valueOf(prefix.toUpperCase(java.util.Locale.ROOT)));
                     String[] values = {"2020-01-02T04:01:00.111333Z", "1969-12-31T23:59:59.999999Z",
                         "2023-11-05T08:30:00.123456Z", "2023-11-05T09:30:00.123456Z", "2020-01-02T00:00:00Z", null};
-                    String parameters = String.join(", ", java.util.Collections.nCopies(types.length + 1, "?"));
+                    // Mirror JdbcTable's explicit conversion: these drivers bind instants as VARCHAR.
+                    String timestampParameter = "?";
+                    if (dialect == OracleJdbcExecutor.class) {
+                        timestampParameter = "TO_TIMESTAMP_TZ(?, 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM')";
+                    } else if ("presto".equals(prefix)) {
+                        timestampParameter = "io.prestosql.jdbc.PrestoDriver".equals(driver)
+                                ? "CAST(? AS TIMESTAMP(6) WITH TIME ZONE)"
+                                : "CAST(? AS TIMESTAMP WITH TIME ZONE)";
+                    }
+                    String parameters = "?, " + String.join(", ",
+                            java.util.Collections.nCopies(types.length, timestampParameter));
                     try (java.sql.PreparedStatement insert = connection.prepareStatement(
                             "INSERT INTO " + table + " VALUES (" + parameters + ")")) {
                         executor.preparedStatement = insert;
@@ -330,6 +350,10 @@ class JdbcZonedTimestampIntegrationTest {
                                     long micros = rows.getLong(col);
                                     actual = rows.wasNull() ? null : Instant.ofEpochSecond(Math.floorDiv(micros, 1_000_000),
                                             Math.floorMod(micros, 1_000_000) * 1000);
+                                } else if ("presto".equals(prefix)) {
+                                    // PrestoDB does not implement typed getObject for zoned timestamps.
+                                    java.sql.Timestamp value = rows.getTimestamp(col);
+                                    actual = value == null ? null : value.toInstant();
                                 } else if (dialect == TrinoJdbcExecutor.class) {
                                     java.time.ZonedDateTime value = rows.getObject(col, java.time.ZonedDateTime.class);
                                     actual = value == null ? null : value.toInstant();
