@@ -19,6 +19,7 @@
 
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_timestamp_ns.h" // IWYU pragma: keep
@@ -214,22 +215,38 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
             /// get_nullable_column_info() already scanned the NULL map of the source, so the mask is
             /// handed to the cast only when it really contains a NULL. An all zero mask is the common
             /// case, and passing it would add a load and a branch to every row of the cast kernels.
-            const NullMap::value_type* arg_null_map = nullptr;
+            const NullMap::value_type* arg_null_map = null_map;
+            NullMap merged_null_map;
             if (source_info.has_null) {
                 arg_null_map = block.get_by_position(arguments[0])
                                        .get_nullable_null_map_column()
                                        ->get_data()
                                        .data();
+                if (null_map || source_info.is_const) {
+                    merged_null_map.resize(input_rows_count);
+                    for (size_t row = 0; row < input_rows_count; ++row) {
+                        merged_null_map[row] = arg_null_map[source_info.is_const ? 0 : row] ||
+                                               (null_map && null_map[row]);
+                    }
+                    arg_null_map = merged_null_map.data();
+                }
             }
             RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable)(
                     context, block, {nested_source_index}, nested_result_index, input_rows_count,
                     arg_null_map));
 
-            NullableColumnInfos nullable_column_infos(block.columns());
-            nullable_column_infos[arguments[0]] = std::move(source_info);
-            block.get_by_position(result).column =
-                    wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
-                                     arguments, nullable_column_infos, input_rows_count);
+            if (source_info.is_const && source_info.only_null) {
+                // wrap_in_nullable skips constant argument masks: preserve the SQL NULL
+                // after the nested wrapper has checked whether this conversion is supported.
+                block.get_by_position(result).column =
+                        to_type->create_column_const_with_default_value(input_rows_count);
+            } else {
+                NullableColumnInfos nullable_column_infos(block.columns());
+                nullable_column_infos[arguments[0]] = source_info;
+                block.get_by_position(result).column =
+                        wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
+                                         arguments, nullable_column_infos, input_rows_count);
+            }
 
             block.erase(nested_source_index);
             block.erase(nested_result_index);
@@ -249,6 +266,17 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     auto from_type = get_serialized_type(origin_from_type);
     if (from_type->equals(*to_type)) {
         return create_identity_wrapper(from_type);
+    }
+
+    if (from_type->get_primitive_type() == TYPE_FILE ||
+        to_type->get_primitive_type() == TYPE_FILE) {
+        return create_file_wrapper(from_type, to_type);
+    }
+    if ((contains_file_type(from_type) || contains_file_type(to_type)) &&
+        (from_type->get_primitive_type() == TYPE_VARIANT ||
+         to_type->get_primitive_type() == TYPE_VARIANT ||
+         is_string_type(from_type->get_primitive_type()))) {
+        return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
     }
 
     const auto* from_variant_v2 =

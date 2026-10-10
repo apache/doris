@@ -24,18 +24,18 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9330/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9330/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
+feSourceThriftAddress = "127.0.0.1:9220"
+feTargetThriftAddress = "127.0.0.1:9220"
 syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:8330"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -135,7 +135,6 @@ doris_port=9030
 mariadb_10_port=3326
 db2_11_port=50000
 oceanbase_port=2881
-oceanbase_cdc_port=2883
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
@@ -267,7 +266,7 @@ polaris_minio_port=20001
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.
 // <=0 means no limit.
-max_failure_num=0
+max_failure_num=1
 
 // used for exporting test
 s3ExportBucketName = ""
@@ -315,7 +314,7 @@ hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 
-// The path of the cert configuration file for the testing framework
+// The path of the cert configuration file for the testing framework 
 // is consistent with the path of the cert file for the cluster
 enableTLS=false
 tlsVerifyMode="strict"
@@ -345,7 +344,7 @@ hudiHmsPort=19083
 hudiMinioPort=19100
 hudiMinioAccessKey="minio"
 hudiMinioSecretKey="minio123"
+
 icebergDlfRestCatalog="'type' = 'iceberg', 'warehouse' = 'new_dlf_iceberg_catalog', 'iceberg.catalog.type' = 'rest', 'iceberg.rest.uri' = 'http://cn-beijing-vpc.dlf.aliyuncs.com/iceberg', 'iceberg.rest.sigv4-enabled' = 'true', 'iceberg.rest.signing-name' = 'DlfNext', 'iceberg.rest.access-key-id' = 'ak', 'iceberg.rest.secret-access-key' = 'sk', 'iceberg.rest.signing-region' = 'cn-beijing', 'iceberg.rest.vended-credentials-enabled' = 'true', 'io-impl' = 'org.apache.iceberg.rest.DlfFileIO', 'fs.oss.support' = 'true'"
 
-// For python UDF test, set the runtime version of python, default: 3.8.10
-// pythonUdfRuntimeVersion = ""
+pythonUdfRuntimeVersion = "3.12.11"

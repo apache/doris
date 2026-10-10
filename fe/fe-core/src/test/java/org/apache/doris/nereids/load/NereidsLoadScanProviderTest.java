@@ -18,16 +18,27 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.fileformat.ArrowFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -113,6 +124,95 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
+    public void testDirectFileImportsUseTypedSlots() throws Exception {
+        OlapTable table = mockFileTable();
+        for (FileFormatProperties format : fileFormats()) {
+            for (List<NereidsImportColumnDesc> columns : ImmutableList.of(
+                    ImmutableList.<NereidsImportColumnDesc>of(),
+                    ImmutableList.of(new NereidsImportColumnDesc("F"), new NereidsImportColumnDesc("a"),
+                            new NereidsImportColumnDesc("s"), new NereidsImportColumnDesc("m"),
+                            new NereidsImportColumnDesc("id"), new NereidsImportColumnDesc("ints")))) {
+                if (format instanceof CsvFileFormatProperties || format instanceof ParquetFileFormatProperties) {
+                    UserException exception = Assertions.assertThrows(UserException.class,
+                            () -> createLoadContext(table, columns, format));
+                    Assertions.assertTrue(exception.getMessage().contains("load does not support FILE"));
+                    continue;
+                }
+                NereidsParamCreateContext context = createLoadContext(table, columns, format);
+                for (SlotReference slot : context.scanSlots) {
+                    Column target = table.getColumn(slot.getName());
+                    Type expected = target.getType().typeContainsFile()
+                            ? target.getType() : Type.VARCHAR;
+                    Assertions.assertEquals(DataType.fromCatalogType(expected), slot.getDataType(),
+                            format.getFileFormatType() + ":" + slot.getName());
+                    Assertions.assertTrue(slot.nullable());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testMappedAndTemporaryFileInputsRemainStrings() throws Exception {
+        OlapTable table = mockFileTable();
+        for (FileFormatProperties format : fileFormats()) {
+            NereidsParamCreateContext context = createLoadContext(table, ImmutableList.of(
+                    new NereidsImportColumnDesc("f"), new NereidsImportColumnDesc("raw_a"),
+                    new NereidsImportColumnDesc("f", new UnboundSlot("f")),
+                    new NereidsImportColumnDesc("a", new UnboundSlot("raw_a"))), format);
+            assertSlot(context, "f", PrimitiveType.VARCHAR);
+            assertSlot(context, "raw_a", PrimitiveType.VARCHAR);
+            Assertions.assertEquals(2, context.scanSlots.size());
+        }
+    }
+
+    @Test
+    public void testFileColumnsFromPathRemainStrings() throws Exception {
+        OlapTable table = mockFileTable();
+        for (FileFormatProperties format : fileFormats()) {
+            NereidsParamCreateContext context = createLoadContext(table, ImmutableList.of(
+                    new NereidsImportColumnDesc("id"), new NereidsImportColumnDesc("f"),
+                    new NereidsImportColumnDesc("a")), format, ImmutableList.of("F", "a"),
+                    TUniqueKeyUpdateMode.UPSERT);
+            assertSlot(context, "f", PrimitiveType.VARCHAR);
+            assertSlot(context, "a", PrimitiveType.VARCHAR);
+        }
+    }
+
+    @Test
+    public void testFlexibleFileSlotsPreserveColumnMetadata() throws Exception {
+        OlapTable table = mockFileTable();
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        table.getColumn("f").setUniqueId(7);
+        table.getColumn("id").setUniqueId(8);
+        table.getColumn("id").setIsKey(true);
+        table.getColumn("id").setIsAutoInc(true);
+        NereidsParamCreateContext context = createLoadContext(table, ImmutableList.of(
+                new NereidsImportColumnDesc("f"), new NereidsImportColumnDesc("id")),
+                new JsonFileFormatProperties(), null, TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
+        SlotReference file = context.scanSlots.get(0);
+        Assertions.assertEquals(Type.FILE, file.getOriginalColumn().orElseThrow().getType());
+        Assertions.assertEquals(7, file.getOriginalColumn().orElseThrow().getUniqueId());
+        Column key = context.scanSlots.get(1).getOriginalColumn().orElseThrow();
+        Assertions.assertEquals(PrimitiveType.VARCHAR, key.getDataType());
+        Assertions.assertEquals(8, key.getUniqueId());
+        Assertions.assertTrue(key.isKey());
+        Assertions.assertTrue(key.isAutoInc());
+    }
+
+    private List<FileFormatProperties> fileFormats() {
+        return ImmutableList.of(new CsvFileFormatProperties("csv"), new JsonFileFormatProperties(),
+                new ParquetFileFormatProperties(), new OrcFileFormatProperties());
+    }
+
+    private OlapTable mockFileTable() {
+        return mockTable(ImmutableList.of(new Column("f", Type.FILE, false),
+                new Column("a", new ArrayType(Type.FILE), true),
+                new Column("s", new StructType(new StructField("payload", Type.FILE)), true),
+                new Column("m", new MapType(Type.STRING, new ArrayType(Type.FILE)), true),
+                new Column("id", Type.INT, true), new Column("ints", new ArrayType(Type.INT), true)));
+    }
+
+    @Test
     public void testTimestampNsSequenceDefaultWithPrecisionMayBeOmitted() {
         OlapTable table = mockTable();
         Column sequenceColumn = new Column("time", org.apache.doris.catalog.Type.TIMESTAMP_NS,
@@ -160,8 +260,14 @@ public class NereidsLoadScanProviderTest {
     private NereidsParamCreateContext createLoadContext(OlapTable table, List<NereidsImportColumnDesc> columnExprList,
             FileFormatProperties fileFormatProperties)
             throws UserException {
+        return createLoadContext(table, columnExprList, fileFormatProperties, null, TUniqueKeyUpdateMode.UPSERT);
+    }
+
+    private NereidsParamCreateContext createLoadContext(OlapTable table, List<NereidsImportColumnDesc> columnExprList,
+            FileFormatProperties fileFormatProperties, List<String> pathColumns, TUniqueKeyUpdateMode updateMode)
+            throws UserException {
         NereidsBrokerFileGroup fileGroup = new NereidsBrokerFileGroup(1L, false, null,
-                Lists.newArrayList("dummy"), null, null, null, columnExprList, null, null, null, null,
+                Lists.newArrayList("dummy"), null, null, pathColumns, columnExprList, null, null, null, null,
                 LoadTask.MergeType.APPEND, null, -1L, false, false, fileFormatProperties);
         TBrokerFileStatus fileStatus = new TBrokerFileStatus();
         fileStatus.setPath("");
@@ -169,15 +275,18 @@ public class NereidsLoadScanProviderTest {
         fileStatus.setSize(-1);
         NereidsFileGroupInfo fileGroupInfo = new NereidsFileGroupInfo(new TUniqueId(1, 2), 3L, table,
                 BrokerDesc.createForStreamLoad(), fileGroup, fileStatus, false, TFileType.FILE_STREAM, null,
-                TUniqueKeyUpdateMode.UPSERT, null);
+                updateMode, null);
         return new NereidsLoadScanProvider(fileGroupInfo, Collections.emptySet()).createLoadContext();
     }
 
     private OlapTable mockTable() {
-        List<Column> schema = Arrays.asList(
+        return mockTable(Arrays.asList(
                 new Column("time", PrimitiveType.DATETIME, true),
                 new Column("securityid", PrimitiveType.INT, true),
-                new Column("EV", PrimitiveType.DOUBLE, true));
+                new Column("EV", PrimitiveType.DOUBLE, true)));
+    }
+
+    private OlapTable mockTable(List<Column> schema) {
         Map<String, Column> nameToColumn = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (Column column : schema) {
             nameToColumn.put(column.getName(), column);

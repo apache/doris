@@ -16,6 +16,7 @@
 // under the License.
 
 #include "core/assert_cast.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
@@ -144,8 +145,20 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
         auto data_type_to = remove_nullable(block.get_by_position(result).type);
         auto serde_to = data_type_to->get_serde();
 
-        const auto& col_from_json =
-                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        auto source = block.get_by_position(arguments[0]).column;
+        if (null_map && contains_file_type(data_type_to)) {
+            // Ancestor NULLs hide their entire FILE-containing payload from validation.
+            auto visible = ColumnString::create();
+            for (size_t row = 0; row < input_rows_count; ++row) {
+                if (null_map[row]) {
+                    visible->insert_default();
+                } else {
+                    visible->insert_from(*source, row);
+                }
+            }
+            source = std::move(visible);
+        }
+        const auto& col_from_json = assert_cast<const ColumnString&>(*source);
 
         auto column_to = make_nullable(data_type_to)->create_column();
         auto& column_to_nullable = assert_cast<ColumnNullable&>(*column_to);

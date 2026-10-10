@@ -19,11 +19,15 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.backup.CatalogMocker;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.NameSpaceContext;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -42,6 +46,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -78,6 +83,32 @@ public class AnalyzeTableCommandTest {
         }
         if (ctxMockedStatic != null) {
             ctxMockedStatic.close();
+        }
+    }
+
+    @Test
+    void testFileFundamentalsAllowedAndHistogramUnavailable() {
+        Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.eq(PrivPredicate.SELECT))).thenReturn(true);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Column file = new Column("f", Type.FILE);
+        Mockito.when(table.getSchemaAllIndexes(false)).thenReturn(Collections.singleton(file));
+        Mockito.when(table.getVisibleColumn("f")).thenReturn(file);
+        for (boolean explicitColumn : new boolean[] {false, true}) {
+            for (boolean histogram : new boolean[] {false, true}) {
+                Map<String, String> properties = defaultAnalyzeProperties();
+                properties.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE,
+                        histogram ? "HISTOGRAM" : "FUNDAMENTALS");
+                AnalyzeTableCommand command = new AnalyzeTableCommand(new TableNameInfo(internalCtl, "db", "t"),
+                        null, explicitColumn ? ImmutableList.of("f") : null, new AnalyzeProperties(properties));
+                Deencapsulation.setField(command, "table", table);
+                if (histogram) {
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class, command::check);
+                    Assertions.assertTrue(error.getMessage().contains("FILE histogram"));
+                } else {
+                    Assertions.assertDoesNotThrow(command::check);
+                }
+            }
         }
     }
 

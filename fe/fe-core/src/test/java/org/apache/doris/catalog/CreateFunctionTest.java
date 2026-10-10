@@ -213,6 +213,58 @@ public class CreateFunctionTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreatePythonFunctionsRejectFileTypes() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database py_file_type_db;");
+        ctx.setDatabase("py_file_type_db");
+        String properties = " properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                + "'runtime_version'='3.10.2');";
+        for (String kind : ImmutableList.of("function", "aggregate function", "tables function")) {
+            for (String fileType : ImmutableList.of("file", "array<file>", "map<string,file>",
+                    "struct<f:file>", "array<struct<f:file>>")) {
+                String returnType = kind.equals("tables function") ? "array<int>" : "int";
+                assertCreateFunctionAnalysisException(ctx,
+                        "create " + kind + " py_file_type_db.reject_arg(" + fileType + ") returns "
+                                + returnType + properties,
+                        "PYTHON_UDF does not support argument 1");
+                String outputType = kind.equals("tables function") ? "array<" + fileType + ">" : fileType;
+                assertCreateFunctionAnalysisException(ctx,
+                        "create " + kind + " py_file_type_db.reject_return(int) returns "
+                                + outputType + properties,
+                        "PYTHON_UDF does not support return");
+            }
+        }
+        for (String fileType : ImmutableList.of("file", "array<file>", "map<string,file>", "struct<f:file>")) {
+            assertCreateFunctionAnalysisException(ctx,
+                    "create aggregate function py_file_type_db.reject_state(int) returns int intermediate "
+                            + fileType + properties,
+                    "PYTHON_UDF does not support intermediate");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("py_file_type_db");
+        Assertions.assertTrue(db.getFunctions().isEmpty());
+    }
+
+    @Test
+    public void testCreatePythonFunctionsStillAcceptOrdinaryTypes() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database py_normal_type_db;");
+        ctx.setDatabase("py_normal_type_db");
+        int index = 0;
+        for (String kind : ImmutableList.of("function", "aggregate function", "tables function")) {
+            for (String type : ImmutableList.of("int", "string", "array<int>", "map<string,int>",
+                    "struct<v:int,s:string>")) {
+                String outputType = kind.equals("tables function") ? "array<" + type + ">" : type;
+                String name = "ordinary_" + index++;
+                createFunction("create " + kind + " py_normal_type_db." + name + "(" + type + ") returns "
+                        + outputType + " properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                        + "'runtime_version'='3.10.2');", ctx);
+                Assertions.assertNotNull(findFunction(
+                        Env.getCurrentInternalCatalog().getDbNullable("py_normal_type_db"), name));
+            }
+        }
+    }
+
+    @Test
     public void testCreateFunctionRejectsBuiltinAggStateCombinatorNames() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         createDatabase(ctx, "create database reserved_function_db;");

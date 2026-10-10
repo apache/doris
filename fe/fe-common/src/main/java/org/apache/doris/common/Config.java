@@ -2020,8 +2020,10 @@ public class Config extends ConfigBase {
     // Older backends do not recognize PAIMON_TABLE_SINK and cannot execute Paimon writes.
     public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION = 16;
 
+    public static final int FILE_MIN_BE_EXEC_VERSION = 17;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = PAIMON_WRITE_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = FILE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

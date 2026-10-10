@@ -250,6 +250,9 @@ void Field::create(Field&& field) {
     case PrimitiveType::TYPE_STRUCT:
         create_concrete<TYPE_STRUCT>(std::move(field.template get<TYPE_STRUCT>()));
         return;
+    case PrimitiveType::TYPE_FILE:
+        create_concrete<TYPE_FILE>(std::move(field.template get<TYPE_FILE>()));
+        return;
     case PrimitiveType::TYPE_MAP:
         create_concrete<TYPE_MAP>(std::move(field.template get<TYPE_MAP>()));
         return;
@@ -387,6 +390,9 @@ void Field::create(const Field& field) {
     case PrimitiveType::TYPE_STRUCT:
         create_concrete<TYPE_STRUCT>(field.template get<TYPE_STRUCT>());
         return;
+    case PrimitiveType::TYPE_FILE:
+        create_concrete<TYPE_FILE>(field.template get<TYPE_FILE>());
+        return;
     case PrimitiveType::TYPE_MAP:
         create_concrete<TYPE_MAP>(field.template get<TYPE_MAP>());
         return;
@@ -450,6 +456,9 @@ void Field::destroy() {
         break;
     case PrimitiveType::TYPE_STRUCT:
         destroy<TYPE_STRUCT>();
+        break;
+    case PrimitiveType::TYPE_FILE:
+        destroy<TYPE_FILE>();
         break;
     case PrimitiveType::TYPE_MAP:
         destroy<TYPE_MAP>();
@@ -553,6 +562,9 @@ void Field::assign(Field&& field) {
         return;
     case PrimitiveType::TYPE_STRUCT:
         assign_concrete<TYPE_STRUCT>(std::move(field.template get<TYPE_STRUCT>()));
+        return;
+    case PrimitiveType::TYPE_FILE:
+        assign_concrete<TYPE_FILE>(std::move(field.template get<TYPE_FILE>()));
         return;
     case PrimitiveType::TYPE_MAP:
         assign_concrete<TYPE_MAP>(std::move(field.template get<TYPE_MAP>()));
@@ -668,6 +680,9 @@ void Field::assign(const Field& field) {
         return;
     case PrimitiveType::TYPE_STRUCT:
         assign_concrete<TYPE_STRUCT>(field.template get<TYPE_STRUCT>());
+        return;
+    case PrimitiveType::TYPE_FILE:
+        assign_concrete<TYPE_FILE>(field.template get<TYPE_FILE>());
         return;
     case PrimitiveType::TYPE_MAP:
         assign_concrete<TYPE_MAP>(field.template get<TYPE_MAP>());
@@ -789,6 +804,7 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
     }
 
     switch (type) {
+    case PrimitiveType::TYPE_FILE:
     case PrimitiveType::TYPE_BITMAP:
     case PrimitiveType::TYPE_HLL:
     case PrimitiveType::TYPE_QUANTILE_STATE:
@@ -1145,6 +1161,10 @@ std::string Field::to_debug_string(int scale) const {
             typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType && rhs);                           \
     template void Field::FUNC_NAME<TYPE_STRUCT>(                                                  \
             const typename PrimitiveTypeTraits<TYPE_STRUCT>::CppType& rhs);                       \
+    template void Field::FUNC_NAME<TYPE_FILE>(typename PrimitiveTypeTraits<TYPE_FILE>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_FILE>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_FILE>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_MAP>(typename PrimitiveTypeTraits<TYPE_MAP>::CppType &&   \
                                              rhs);                                                \
     template void Field::FUNC_NAME<TYPE_MAP>(                                                     \
@@ -1207,6 +1227,7 @@ DECLARE_FUNCTION(TYPE_FLOAT)
 DECLARE_FUNCTION(TYPE_DOUBLE)
 DECLARE_FUNCTION(TYPE_JSONB)
 DECLARE_FUNCTION(TYPE_STRUCT)
+DECLARE_FUNCTION(TYPE_FILE)
 DECLARE_FUNCTION(TYPE_MAP)
 DECLARE_FUNCTION(TYPE_BITMAP)
 DECLARE_FUNCTION(TYPE_TIMEV2)

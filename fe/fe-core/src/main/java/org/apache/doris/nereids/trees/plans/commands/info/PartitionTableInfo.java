@@ -120,6 +120,9 @@ public class PartitionTableInfo {
 
     private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx,
                                          boolean isEnableMergeOnWrite, boolean isExternal) {
+        if (column.getType().toCatalogDataType().typeContainsFile()) {
+            throw new AnalysisException("FILE cannot be used in partition column[" + column.getName() + "]");
+        }
         if (!column.isKey()) { // value column
             if (!column.getAggType().equals(AggregateType.NONE)) { // agg column
                 throw new AnalysisException("The partition column could not be aggregated column");

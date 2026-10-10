@@ -101,6 +101,7 @@ public class FunctionToThriftConverter {
         if (fn.getDictFunction() != null) {
             tfn.setDictFunction(fn.getDictFunction());
         }
+        tfn.setFileResource(fn.getFileResource());
         return tfn;
     }
 

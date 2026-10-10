@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
@@ -129,6 +130,20 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
                     && processComplexType(((MapType) signatureType).getValueType(),
                     ((MapType) realType).getValueType(), processor);
         } else if (signatureType instanceof StructType && realType instanceof StructType) {
+            if (signatureType.typeContainsFile() || realType.typeContainsFile()) {
+                List<StructField> signatureFields = ((StructType) signatureType).getFields();
+                List<StructField> realFields = ((StructType) realType).getFields();
+                if (signatureFields.size() != realFields.size()) {
+                    return false;
+                }
+                for (int i = 0; i < signatureFields.size(); i++) {
+                    if (!processComplexType(signatureFields.get(i).getDataType(),
+                            realFields.get(i).getDataType(), processor)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
             // TODO: do not support struct type now
             // throw new AnalysisException("do not support struct type now");
             return true;

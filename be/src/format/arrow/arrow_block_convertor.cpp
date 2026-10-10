@@ -46,6 +46,7 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
@@ -380,11 +381,13 @@ Status DorisArrowBlockConvertor::convert_from_arrow(
     columns.reserve(num_fields);
     for (int idx = 0; idx < num_fields; ++idx) {
         auto doris_type = types[idx];
+        RETURN_IF_ERROR(validate_arrow_file_metadata(doris_type, *batch->schema()->field(idx)));
         auto doris_column = doris_type->create_column();
         auto arrow_column = batch->column(idx);
         DCHECK_EQ(arrow_column->length(), num_rows);
         RETURN_IF_ERROR(doris_type->get_serde()->read_column_from_arrow(
                 *doris_column, &*arrow_column, 0, num_rows, _timezone));
+        RETURN_IF_ERROR(validate_file_column(*doris_column, doris_type));
         columns.emplace_back(std::move(doris_column), std::move(doris_type), std::to_string(idx));
     }
     block->swap(columns);

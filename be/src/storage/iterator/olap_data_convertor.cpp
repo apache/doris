@@ -30,15 +30,18 @@
 #include "core/column/column_array.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_file.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
@@ -48,6 +51,7 @@
 #include "core/value/quantile_state.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "storage/file_column_schema.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/jsonb_document.h"
@@ -101,6 +105,11 @@ OlapBlockDataConvertor::create_struct_convertor(const TabletColumn& column) {
         sub_convertors.emplace_back(create_olap_column_data_convertor(sub_column));
     }
     return std::make_unique<OlapColumnDataConvertorStruct>(sub_convertors);
+}
+
+OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
+OlapBlockDataConvertor::create_file_convertor(const TabletColumn& column) {
+    return std::make_unique<OlapColumnDataConvertorFile>(column);
 }
 
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
@@ -234,6 +243,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_STRUCT: {
         return create_struct_convertor(column);
     }
+    case FieldType::OLAP_FIELD_TYPE_FILE: {
+        return create_file_convertor(column);
+    }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
         return create_array_convertor(column);
     }
@@ -308,6 +320,7 @@ std::pair<Status, IOlapColumnDataAccessor*> OlapBlockDataConvertor::convert_colu
         size_t cid) {
     assert(cid < _convertors.size());
     auto convert_func = [&]() -> Status {
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_convertors[cid]->validate_source_file_values());
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_convertors[cid]->convert_to_olap());
         return Status::OK();
     };
@@ -316,6 +329,12 @@ std::pair<Status, IOlapColumnDataAccessor*> OlapBlockDataConvertor::convert_colu
 }
 
 // class OlapBlockDataConvertor::OlapColumnDataConvertorBase
+Status OlapBlockDataConvertor::OlapColumnDataConvertorBase::validate_source_file_values() const {
+    // Validate at the top-level write boundary, before descending through containers:
+    // ancestor NULLs can hide default FILE payloads with a NULL uri.
+    return validate_file_column(*_typed_column.column, _typed_column.type, _row_pos, _num_rows);
+}
+
 void OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
     DCHECK(row_pos + num_rows <= typed_column.column->size())
@@ -895,6 +914,39 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorStruct::convert_to_olap() 
         data_cursor++;
         null_map_cursor++;
     }
+    return Status::OK();
+}
+
+OlapBlockDataConvertor::OlapColumnDataConvertorFile::OlapColumnDataConvertorFile(
+        const TabletColumn& column) {
+    DORIS_CHECK(column.get_subtype_count() == FILE_STORAGE_CHILD_TYPES.size());
+    for (size_t i = 0; i < 5; ++i) {
+        _sub_convertors.push_back(create_olap_column_data_convertor(column.get_sub_column(i)));
+    }
+    _results.resize(12);
+}
+
+Status OlapBlockDataConvertor::OlapColumnDataConvertorFile::convert_to_olap() {
+    const auto& file = assert_cast<const ColumnFile&>(
+            _typed_column.column->is_nullable()
+                    ? assert_cast<const ColumnNullable&>(*_typed_column.column).get_nested_column()
+                    : *_typed_column.column);
+    const auto& type = assert_cast<const DataTypeFile&>(*remove_nullable(_typed_column.type));
+    for (size_t i = 0; i < 5; ++i) {
+        ColumnWithTypeAndName child {file.get_column(i).get_ptr(), type.get_element(i), ""};
+        _sub_convertors[i]->set_source_column(child, _row_pos, _num_rows);
+        RETURN_IF_ERROR(_sub_convertors[i]->convert_to_olap());
+        _results[i] = _sub_convertors[i]->get_data();
+        _results[6 + i] = _sub_convertors[i]->get_nullmap();
+    }
+    const auto& nullable = assert_cast<const ColumnNullable&>(file.get_column(5));
+    const auto& bytes = assert_cast<const ColumnVarbinary&>(nullable.get_nested_column());
+    _inline_slices.resize(_num_rows);
+    for (size_t i = 0; i < _num_rows; ++i) {
+        _inline_slices[i] = bytes.get_data_at(_row_pos + i);
+    }
+    _results[5] = _inline_slices.data();
+    _results[11] = nullable.get_null_map_data().data() + _row_pos;
     return Status::OK();
 }
 

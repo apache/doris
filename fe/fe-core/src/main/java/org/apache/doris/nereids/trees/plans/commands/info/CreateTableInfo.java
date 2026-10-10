@@ -603,15 +603,9 @@ public class CreateTableInfo {
                         && !isEffectiveRowBinlogEnabled()
                         && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
                     // exclude columns whose data type can not be order key, see {@link ColumnDefinition#validate}
-                    List<ColumnDefinition> orderKeysCandidates = columns.stream().filter(c -> {
-                        DataType type = c.getType();
-                        return !(type.isFloatLikeType() || type.isStringType() || type.isArrayType()
-                                || type.isBitmapType() || type.isHllType() || type.isQuantileStateType()
-                                || type.isJsonType()
-                                || type.isVariantType()
-                                || type.isMapType()
-                                || type.isStructType());
-                    }).collect(Collectors.toList());
+                    List<ColumnDefinition> orderKeysCandidates = columns.stream()
+                            .filter(c -> ColumnDefinition.isEligibleKeyType(c.getType()))
+                            .collect(Collectors.toList());
                     if (orderKeysCandidates.size() > 0) {
                         sortOrderFields = new ArrayList<>();
                         Random random = new Random();

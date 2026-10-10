@@ -24,6 +24,7 @@ import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -111,6 +112,7 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -599,6 +601,24 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
         Preconditions.checkNotNull(backupMeta);
+
+        // Reject unsupported FILE schemas before changing local table states or replica IDs.
+        // Replay is deliberately separate: already persisted metadata must remain readable.
+        Set<String> restoredNames = new HashSet<>(jobInfo.backupOlapTableObjects.keySet());
+        jobInfo.newBackupObjects.views.forEach(view -> restoredNames.add(view.name));
+        for (String tableName : restoredNames) {
+            Table remoteTable = backupMeta.getTable(tableName);
+            Preconditions.checkNotNull(remoteTable);
+            try {
+                for (Column column : remoteTable.getFullSchema()) {
+                    org.apache.doris.catalog.FileType.checkExecutionVersion(column.getType());
+                }
+            } catch (IllegalStateException e) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                        "Cannot restore table " + tableName + ": " + e.getMessage());
+                return;
+            }
+        }
 
         // Check the olap table state.
         //

@@ -23,12 +23,16 @@
 #include <optional>
 
 #include "common/object_pool.h"
+#include "core/data_type/data_type_file.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/QueryCache_types.h"
 #include "storage/rowset/beta_rowset.h"
 #include "testutil/desc_tbl_builder.h"
+#include "testutil/mock/mock_fn_call.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/mock/mock_slot_ref.h"
 
 namespace doris {
 
@@ -259,6 +263,34 @@ TEST_F(OlapScanOperatorTsoPruningTest, EmptyBootstrapDoesNotStartMinDeltaScanner
     EXPECT_EQ(_local_state->_rowsets_pruned_by_tso_counter->value(), 1);
     EXPECT_EQ(_local_state->_segments_pruned_by_tso_counter->value(), 2);
     EXPECT_EQ(_local_state->_tablets_pruned_by_tso_counter->value(), 1);
+}
+
+TEST_F(OlapScanOperatorBinlogPushDownTest, FileNullPredicateHonorsMergeScanRestriction) {
+    const auto type = make_nullable(std::make_shared<DataTypeFile>());
+    _value_slot->_type = type;
+    _parent->_slot_id_to_slot_desc[_value_slot->id()] = _value_slot;
+    for (auto mode :
+         {TBinlogScanType::MIN_DELTA, TBinlogScanType::DETAIL, TBinlogScanType::APPEND_ONLY}) {
+        _local_state->_scan_ranges[0]->__set_binlog_scan_type(mode);
+        _local_state->_slot_id_to_predicates.clear();
+        auto reference = std::make_shared<MockSlotRef>(1, type);
+        reference->_slot_id = _value_slot->id();
+        auto expression = MockFnCall::create("is_null_pred");
+        expression->_node_type = TExprNodeType::FUNCTION_CALL;
+        expression->add_child(reference);
+        auto context = VExprContext::create_shared(expression);
+        context->_prepared = true;
+        context->_opened = true;
+        VExprSPtr remaining;
+        ASSERT_TRUE(_local_state->_normalize_predicate(context.get(), expression, remaining).ok());
+        EXPECT_EQ(expression, remaining);
+        if (mode == TBinlogScanType::APPEND_ONLY) {
+            ASSERT_EQ(1, _local_state->_slot_id_to_predicates[_value_slot->id()].size());
+            EXPECT_EQ(1, _local_state->_slot_id_to_predicates[_value_slot->id()][0]->column_id());
+        } else {
+            EXPECT_TRUE(_local_state->_slot_id_to_predicates.empty());
+        }
+    }
 }
 
 } // namespace doris

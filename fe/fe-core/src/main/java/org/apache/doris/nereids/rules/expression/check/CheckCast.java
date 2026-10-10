@@ -38,6 +38,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IPv4Type;
@@ -368,6 +369,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         return ImmutableList.of(
                 matchesType(Cast.class).thenApply(ctx -> {
                     Cast cast = ctx.expr;
+                    cast.checkLegalityBeforeTypeCoercion();
                     DataType originalType = cast.child().getDataType();
                     DataType targetType = cast.getDataType();
                     if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
@@ -395,6 +397,19 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        if (targetType.isAggStateType() && targetType.typeContainsFile()) {
+            return false;
+        }
+        if (originalType.isFileType() || targetType.isFileType()) {
+            return checkFileCast(originalType, targetType);
+        }
+        if ((originalType.typeContainsFile() || targetType.typeContainsFile())
+                && !originalType.isNullType() && !originalType.equals(targetType)
+                && !((originalType.isArrayType() && targetType.isArrayType())
+                        || (originalType.isMapType() && targetType.isMapType())
+                        || (originalType.isStructType() && targetType.isStructType()))) {
+            return false;
+        }
         if (originalType instanceof ConnectorComputeVariantType && targetType.isVariantType()) {
             // The connector marker and ordinary Variant share the V2 runtime carrier. Allow the
             // marker to cross the sink boundary without relaxing casts between stored Variant layouts.
@@ -450,6 +465,10 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType(),
                     isStrictMode);
         } else if (originalType instanceof MapType && targetType instanceof MapType) {
+            if (((MapType) originalType).getKeyType().typeContainsFile()
+                    || ((MapType) targetType).getKeyType().typeContainsFile()) {
+                return false;
+            }
             return check(((MapType) originalType).getKeyType(), ((MapType) targetType).getKeyType(), isStrictMode)
                     && check(((MapType) originalType).getValueType(), ((MapType) targetType).getValueType(),
                     isStrictMode);
@@ -482,6 +501,37 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else {
             return true;
         }
+    }
+
+    private static boolean checkFileCast(DataType source, DataType target) {
+        if (source.isNullType() || source.equals(target)) {
+            return true;
+        }
+        DataType publicType = source.isFileType() ? target : source;
+        if (publicType.isJsonType() || publicType.isVariantType()) {
+            return true;
+        }
+        if (!(publicType instanceof StructType)) {
+            return false;
+        }
+        List<StructField> fields = ((StructType) publicType).getFields();
+        StructType canonical = FileType.INSTANCE.publicStructType();
+        if (fields.size() != canonical.getFields().size()) {
+            return false;
+        }
+        Set<String> names = Sets.newHashSet();
+        for (StructField field : fields) {
+            StructField expected = canonical.getField(field.getName());
+            DataType fieldType = field.getDataType();
+            if (expected == null || !names.add(field.getName())
+                    || (source.isFileType() && !field.isNullable())
+                    || !(fieldType.equals(expected.getDataType())
+                            || (fieldType.isStringLikeType() && expected.getDataType().isStringLikeType())
+                            || (!source.isFileType() && fieldType.isNullType()))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Whether the source AggState only allows an exact target type. */

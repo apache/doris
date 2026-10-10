@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -89,9 +90,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.SessionVariable;
@@ -109,6 +112,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -156,7 +161,30 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     @Override
+    public ColumnStatistic visitIsNull(IsNull isNull, Statistics context) {
+        if (!isNull.child().getDataType().isFileType()) {
+            return visit(isNull, context);
+        }
+        ColumnStatistic child = estimate(isNull.child(), context);
+        double rowCount = context.getRowCount();
+        boolean canBeTrue = rowCount > 0 && (child.isUnKnown || child.numNulls > 0);
+        boolean canBeFalse = rowCount > 0 && (child.isUnKnown || child.numNulls < rowCount);
+        return new ColumnStatisticBuilder(rowCount)
+                .setNdv((canBeTrue ? 1 : 0) + (canBeFalse ? 1 : 0))
+                .setNumNulls(0)
+                .setMinValue(canBeTrue && !canBeFalse ? 1 : 0)
+                .setMaxValue(canBeTrue ? 1 : 0)
+                .setAvgSizeByte(isNull.getDataType().width())
+                .setDataSize(rowCount * isNull.getDataType().width())
+                .build();
+    }
+
+    @Override
     public ColumnStatistic visitCaseWhen(CaseWhen caseWhen, Statistics context) {
+        if (caseWhen.getDataType().isFileType()) {
+            return estimateFileConditional(caseWhen.getWhenClauses(),
+                    caseWhen.getDefaultValue().orElse(NullLiteral.INSTANCE), context);
+        }
         double ndv = caseWhen.getWhenClauses().size();
         double width = 1;
         if (caseWhen.getDefaultValue().isPresent()) {
@@ -183,6 +211,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitIf(If ifClause, Statistics context) {
+        if (ifClause.getDataType().isFileType()) {
+            return estimateFileConditional(Collections.singletonList(
+                    new WhenClause(ifClause.getCondition(), ifClause.child(1))), ifClause.child(2), context);
+        }
         double ndv = 2;
         double width = 1;
         ColumnStatistic colStatsThen = ExpressionEstimation.estimate(ifClause.child(1), context);
@@ -200,6 +232,57 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 .setAvgSizeByte(width)
                 .setNumNulls(0)
                 .build();
+    }
+
+    private ColumnStatistic estimateFileConditional(List<WhenClause> whenClauses,
+            Expression defaultValue, Statistics context) {
+        double rowCount = context.getRowCount();
+        if (rowCount == 0) {
+            return new ColumnStatisticBuilder(0).setNdvUnavailable(true).build();
+        }
+        List<WhenClause> branches = new ArrayList<>(whenClauses);
+        branches.add(new WhenClause(BooleanLiteral.TRUE, defaultValue));
+        double remaining = 1;
+        double nulls = 0;
+        double averageSize = 0;
+        boolean unknown = false;
+        for (WhenClause branch : branches) {
+            double weight = remaining * fileBranchSelectivity(branch.getOperand(), context);
+            remaining -= weight;
+            if (weight > 0) {
+                Expression result = branch.getResult();
+                if (result.isNullLiteral()) {
+                    nulls += weight * rowCount;
+                } else {
+                    ColumnStatistic stats = estimate(result, context);
+                    double branchNulls = Math.min(rowCount, stats.numNulls);
+                    nulls += weight * branchNulls;
+                    // FILE averages include NULL rows; never subtract NULLs again when computing bytes.
+                    if (stats.isUnKnown || branchNulls < rowCount) {
+                        averageSize += weight * stats.avgSizeByte;
+                    }
+                    unknown |= stats.isUnKnown;
+                }
+            }
+            if (remaining == 0) {
+                break;
+            }
+        }
+        return new ColumnStatisticBuilder(rowCount).setNdvUnavailable(true).setIsUnknown(unknown)
+                .setNumNulls(nulls).setAvgSizeByte(averageSize).setDataSize(rowCount * averageSize).build();
+    }
+
+    private double fileBranchSelectivity(Expression condition, Statistics context) {
+        if (condition.equals(BooleanLiteral.TRUE)) {
+            return 1;
+        }
+        if (condition.equals(BooleanLiteral.FALSE) || condition.isNullLiteral()) {
+            return 0;
+        }
+        // As in other selectivity estimates, assume independence between the condition and payload.
+        // The complement includes FALSE and NULL, both of which proceed to the next branch.
+        double trueRows = new FilterEstimation().estimate(condition, context).getRowCount();
+        return Math.max(0, Math.min(1, trueRows / context.getRowCount()));
     }
 
     @Override
@@ -277,6 +360,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitLiteral(Literal literal, Statistics context) {
+        if (literal.getDataType().isFileType() && literal.isNullLiteral()) {
+            return new ColumnStatisticBuilder(context.getRowCount()).setNdvUnavailable(true)
+                    .setNumNulls(context.getRowCount()).build();
+        }
         if (ColumnStatistic.UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
             return ColumnStatistic.UNKNOWN;
         }

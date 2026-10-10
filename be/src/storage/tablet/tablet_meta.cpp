@@ -345,6 +345,18 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
+        if (tcolumn.column_type.type == TPrimitiveType::FILE && i == 5) {
+            const auto& logical_child = tcolumn.children_column[i];
+            if (logical_child.column_type.type != TPrimitiveType::VARBINARY) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "FILE inline must have logical type VARBINARY");
+            }
+            auto storage_child = logical_child;
+            storage_child.column_type.type = TPrimitiveType::STRING;
+            storage_child.column_type.len = 0;
+            init_column_from_tcolumn(storage_child.col_unique_id, storage_child, children_column);
+            continue;
+        }
         init_column_from_tcolumn(tcolumn.children_column[i].col_unique_id,
                                  tcolumn.children_column[i], children_column);
     }

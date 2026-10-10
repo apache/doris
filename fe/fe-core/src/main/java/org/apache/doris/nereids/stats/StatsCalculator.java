@@ -600,8 +600,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         selectedPartitionsRowCount);
                 colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
                 //scale null_num
-                double scale = tableRowCount == 0 ? 1 : selectedPartitionsRowCount / tableRowCount;
-                colStatsBuilder.setNumNulls(colStatsBuilder.getNumNulls() * scale);
+                colStatsBuilder.setNumNulls(scaleNullsAfterPartitionPruning(cache,
+                        selectedPartitionsRowCount, tableRowCount));
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
@@ -1174,6 +1174,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new FilterEstimation().estimate(filter.getPredicate(), inputStats);
     }
 
+    // FILE partition statistics already describe the selected partitions. Scaling them by
+    // the full-table ratio again would undercount NULLs. A table-statistics fallback carries
+    // its own count, so the same denominator also handles that case.
+    private static double scaleNullsAfterPartitionPruning(ColumnStatistic cache,
+            double selectedRows, double tableRows) {
+        double sourceRows = cache.ndvUnavailable ? cache.count : tableRows;
+        return cache.numNulls * (sourceRows == 0 ? 1 : selectedRows / sourceRows);
+    }
+
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
         if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
@@ -1461,7 +1470,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics computeOneRowRelation(List<NamedExpression> projects) {
         Map<Expression, ColumnStatistic> columnStatsMap = projects.stream()
                 .map(project -> {
-                    ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).build();
+                    ColumnStatistic statistic;
+                    if (project.getDataType().isFileType()) {
+                        statistic = new ColumnStatisticBuilder(ExpressionEstimation.estimate(project,
+                                new Statistics(1, new HashMap<>())))
+                                .setNdvUnavailable(true).setNdv(0).build();
+                    } else {
+                        statistic = new ColumnStatisticBuilder().setNdv(1).build();
+                    }
                     // TODO: compute the literal size
                     return Pair.of(project.toSlot(), statistic);
                 })
@@ -1509,12 +1525,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             Slot headSlot = head.get(i);
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(
                     headStats.findColumnStatistics(headSlot));
+            double mergedRowCount = headStats.getRowCount();
             for (int j = 1; j < childOutputs.size(); j++) {
                 Slot slot = childOutputs.get(j).get(i);
                 ColumnStatistic rightStatistic = childStats.get(j).findColumnStatistics(slot);
                 double rightRowCount = childStats.get(j).getRowCount();
                 colStatsBuilder = unionColumn(colStatsBuilder,
-                        headStats.getRowCount(), rightStatistic, rightRowCount, headSlot.getDataType());
+                        headSlot.getDataType().isFileType() ? mergedRowCount : headStats.getRowCount(),
+                        rightStatistic, rightRowCount, headSlot.getDataType());
+                mergedRowCount += rightRowCount;
             }
 
             //update hot values
@@ -1583,12 +1602,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             Slot headSlot = head.get(i);
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(
                     headStats.findColumnStatistics(headSlot));
+            double mergedRowCount = headStats.getRowCount();
             for (int j = 1; j < childOutputs.size(); j++) {
                 Slot slot = childOutputs.get(j).get(i);
                 ColumnStatistic rightStatistic = childStats.get(j).findColumnStatistics(slot);
                 double rightRowCount = childStats.get(j).getRowCount();
                 colStatsBuilder = unionColumn(colStatsBuilder,
-                        headStats.getRowCount(), rightStatistic, rightRowCount, headSlot.getDataType());
+                        headSlot.getDataType().isFileType() ? mergedRowCount : headStats.getRowCount(),
+                        rightStatistic, rightRowCount, headSlot.getDataType());
+                mergedRowCount += rightRowCount;
             }
 
             //update hot values
@@ -1771,6 +1793,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatisticBuilder unionColumn(ColumnStatisticBuilder leftStatsBuilder,
             double leftRowCount, ColumnStatistic rightStats,
             double rightRowCount, DataType dataType) {
+        if (dataType.isFileType()) {
+            double rowCount = leftRowCount + rightRowCount;
+            // Collected FILE averages include NULL rows and contain only the six fields' payload bytes.
+            // Use the input row counts: derived columns may still retain their original count/dataSize.
+            double dataSize = leftRowCount * leftStatsBuilder.getAvgSizeByte()
+                    + rightRowCount * rightStats.avgSizeByte;
+            return new ColumnStatisticBuilder(rowCount).setNdvUnavailable(true)
+                    .setIsUnknown(leftStatsBuilder.isUnknown() || rightStats.isUnKnown())
+                    .setNumNulls(leftStatsBuilder.getNumNulls() + rightStats.numNulls)
+                    .setDataSize(dataSize).setAvgSizeByte(rowCount == 0 ? 0 : dataSize / rowCount);
+        }
         if (leftStatsBuilder.isUnknown() || rightStats.isUnKnown()) {
             return leftStatsBuilder;
         }

@@ -62,6 +62,7 @@ public abstract class ComparisonPredicate extends BinaryOperator {
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        Expression.checkFileComparison(this);
         for (Expression c : children) {
             if (c.getDataType().isComplexType() && !c.getDataType().isArrayType()) {
                 throw new AnalysisException("comparison predicate could not contains complex type: " + this.toSql());

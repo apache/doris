@@ -34,6 +34,7 @@ struct ResultFileOptions {
     TFileFormatType::type file_format;
     std::string column_separator;
     std::string line_delimiter;
+    std::vector<std::string> json_column_names;
     size_t max_file_size_bytes = 1 * 1024 * 1024 * 1024; // 1GB
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
@@ -52,7 +53,7 @@ struct ResultFileOptions {
     bool is_refactor_before_flag = false;
     std::string orc_schema;
     TFileCompressType::type orc_compression_type;
-    // currently only for csv
+    // Shared by CSV and JSON text writers.
     // TODO: we should merge parquet_commpression_type/orc_compression_type/compression_type
     TFileCompressType::type compression_type = TFileCompressType::PLAIN;
 
@@ -70,6 +71,9 @@ struct ResultFileOptions {
         file_format = t_opt.file_format;
         column_separator = t_opt.__isset.column_separator ? t_opt.column_separator : "\t";
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
+        if (t_opt.__isset.json_column_names) {
+            json_column_names = t_opt.json_column_names;
+        }
         max_file_size_bytes =
                 t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
         // Deprecated compatibility path. New FE should already have cleared this flag.

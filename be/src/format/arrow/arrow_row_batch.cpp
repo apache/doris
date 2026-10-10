@@ -40,6 +40,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
@@ -143,36 +144,43 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         *result = arrow::boolean();
         break;
     case TYPE_ARRAY: {
-        const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
-        std::shared_ptr<arrow::DataType> item_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
-                                              datetime_naive));
-        *result = std::make_shared<arrow::ListType>(item_type);
+        const auto& array = assert_cast<const DataTypeArray&>(*remove_nullable(type));
+        std::shared_ptr<arrow::Field> item;
+        RETURN_IF_ERROR(convert_to_arrow_field("item", array.get_nested_type(), &item, timezone,
+                                               datetime_naive));
+        *result = arrow::list(item->WithNullable(true));
         break;
     }
     case TYPE_MAP: {
-        const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
-        std::shared_ptr<arrow::DataType> key_type;
-        std::shared_ptr<arrow::DataType> val_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone,
-                                              datetime_naive));
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
-                                              datetime_naive));
-        *result = std::make_shared<arrow::MapType>(key_type, val_type);
+        const auto& map = assert_cast<const DataTypeMap&>(*remove_nullable(type));
+        std::shared_ptr<arrow::Field> key;
+        std::shared_ptr<arrow::Field> item;
+        RETURN_IF_ERROR(
+                convert_to_arrow_field("key", map.get_key_type(), &key, timezone, datetime_naive));
+        RETURN_IF_ERROR(convert_to_arrow_field("value", map.get_value_type(), &item, timezone,
+                                               datetime_naive));
+        *result = std::make_shared<arrow::MapType>(key->WithNullable(false),
+                                                   item->WithNullable(true));
         break;
     }
+    case TYPE_FILE:
     case TYPE_STRUCT: {
-        const auto* type_struct = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
+        const auto nested_type = remove_nullable(type);
+        const bool is_file = nested_type->get_primitive_type() == TYPE_FILE;
+        const auto& elements =
+                is_file ? assert_cast<const DataTypeFile&>(*nested_type).get_elements()
+                        : assert_cast<const DataTypeStruct&>(*nested_type).get_elements();
+        const auto& names =
+                is_file ? assert_cast<const DataTypeFile&>(*nested_type).get_element_names()
+                        : assert_cast<const DataTypeStruct&>(*nested_type).get_element_names();
         std::vector<std::shared_ptr<arrow::Field>> fields;
-        for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
-            std::shared_ptr<arrow::DataType> field_type;
-            RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
-                                                  timezone, datetime_naive));
-            fields.push_back(
-                    std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
-                                                   type_struct->get_element(i)->is_nullable()));
+        for (size_t i = 0; i < elements.size(); ++i) {
+            std::shared_ptr<arrow::Field> child;
+            RETURN_IF_ERROR(convert_to_arrow_field(names[i], elements[i], &child, timezone,
+                                                   datetime_naive));
+            fields.push_back(std::move(child));
         }
-        *result = std::make_shared<arrow::StructType>(fields);
+        *result = arrow::struct_(fields);
         break;
     }
     case TYPE_VARIANT: {
@@ -200,7 +208,11 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
         bool is_nullable, PrimitiveType primitive_type) {
-    if (primitive_type == PrimitiveType::TYPE_IPV4) {
+    if (primitive_type == TYPE_FILE) {
+        auto metadata =
+                arrow::KeyValueMetadata::Make({"doris_type", "doris_file_version"}, {"FILE", "1"});
+        return arrow::field(field_name, arrow_type, is_nullable, metadata);
+    } else if (primitive_type == PrimitiveType::TYPE_IPV4) {
         auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV4"});
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
     } else if (primitive_type == PrimitiveType::TYPE_IPV6) {
@@ -215,6 +227,69 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
     } else {
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable);
     }
+}
+
+Status convert_to_arrow_field(const std::string& name, const DataTypePtr& type,
+                              std::shared_ptr<arrow::Field>* result, const std::string& timezone,
+                              bool datetime_naive) {
+    std::shared_ptr<arrow::DataType> arrow_type;
+    RETURN_IF_ERROR(convert_to_arrow_type(type, &arrow_type, timezone, datetime_naive));
+    // Existing nested scalar representations are unchanged; FILE alone requires a new marker.
+    *result = create_arrow_field_with_metadata(
+            name, arrow_type, type->is_nullable(),
+            remove_nullable(type)->get_primitive_type() == TYPE_FILE ? TYPE_FILE : INVALID_TYPE);
+    return Status::OK();
+}
+
+Status validate_arrow_file_metadata(const DataTypePtr& origin, const arrow::Field& field) {
+    if (!contains_file_type(origin)) {
+        return Status::OK();
+    }
+    const auto type = remove_nullable(origin);
+    const auto primitive = type->get_primitive_type();
+    if (primitive == TYPE_FILE) {
+        const auto& meta = field.metadata();
+        if (!meta || !meta->Contains("doris_type") || !meta->Contains("doris_file_version") ||
+            meta->Get("doris_type").ValueOrDie() != "FILE" ||
+            meta->Get("doris_file_version").ValueOrDie() != "1") {
+            return Status::InvalidArgument(
+                    "FILE requires Arrow Field metadata doris_type=FILE, doris_file_version=1");
+        }
+        std::shared_ptr<arrow::DataType> expected;
+        RETURN_IF_ERROR(convert_to_arrow_type(type, &expected, "UTC"));
+        if (!expected->Equals(field.type(), true)) {
+            return Status::InvalidArgument("Invalid Arrow FILE child schema");
+        }
+    } else if (primitive == TYPE_ARRAY) {
+        if (field.type()->id() != arrow::Type::LIST) {
+            return Status::InvalidArgument("Expected Arrow list for ARRAY");
+        }
+        const auto& array = assert_cast<const DataTypeArray&>(*type);
+        const auto& arrow_array = static_cast<const arrow::ListType&>(*field.type());
+        RETURN_IF_ERROR(
+                validate_arrow_file_metadata(array.get_nested_type(), *arrow_array.value_field()));
+    } else if (primitive == TYPE_MAP) {
+        if (field.type()->id() != arrow::Type::MAP) {
+            return Status::InvalidArgument("Expected Arrow map for MAP");
+        }
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        const auto& arrow_map = static_cast<const arrow::MapType&>(*field.type());
+        RETURN_IF_ERROR(
+                validate_arrow_file_metadata(map.get_value_type(), *arrow_map.item_field()));
+    } else if (primitive == TYPE_STRUCT) {
+        if (field.type()->id() != arrow::Type::STRUCT) {
+            return Status::InvalidArgument("Expected Arrow struct for STRUCT");
+        }
+        const auto& structure = assert_cast<const DataTypeStruct&>(*type);
+        if (field.type()->num_fields() != structure.get_elements().size()) {
+            return Status::InvalidArgument("Invalid Arrow STRUCT child count");
+        }
+        for (int i = 0; i < field.type()->num_fields(); ++i) {
+            RETURN_IF_ERROR(validate_arrow_file_metadata(structure.get_element(i),
+                                                         *field.type()->field(i)));
+        }
+    }
+    return Status::OK();
 }
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,

@@ -71,6 +71,9 @@ public class ColumnStatistic {
     public final double count;
     @SerializedName("ndv")
     public final double ndv;
+    // Numeric ndv is only meaningful when this flag is false. Counts and sizes remain usable.
+    @SerializedName("ndvUnavailable")
+    public final boolean ndvUnavailable;
     @SerializedName("numNulls")
     public final double numNulls;
     @SerializedName("dataSize")
@@ -112,6 +115,15 @@ public class ColumnStatistic {
             double numNulls, double dataSize, double minValue, double maxValue,
             LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
             String updatedTime, Map<Literal, Float> hotValues) {
+        this(count, ndv, original, avgSizeByte, numNulls, dataSize, minValue, maxValue,
+                minExpr, maxExpr, isUnKnown, updatedTime, hotValues, false);
+    }
+
+    public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
+            double numNulls, double dataSize, double minValue, double maxValue,
+            LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
+            String updatedTime, Map<Literal, Float> hotValues, boolean ndvUnavailable) {
+        this.ndvUnavailable = ndvUnavailable;
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -152,7 +164,7 @@ public class ColumnStatistic {
         double count = Double.parseDouble(row.get(7));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
-        columnStatisticBuilder.setNdv(ndv);
+        columnStatisticBuilder.setNdv(ndv).setNdvUnavailable(statsData.ndvUnavailable);
         String nullCount = row.getWithDefault(9, "0");
         columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
         columnStatisticBuilder.setDataSize(Double
@@ -280,14 +292,16 @@ public class ColumnStatistic {
     @Override
     public String toString() {
         return isUnKnown ? "unknown(" + count + ")"
-                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, "
+                : String.format("ndv=%s, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, "
                                 + "avgSizeByte=%f, hotValues=(%s)",
-                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte, getStringHotValues());
+                ndvUnavailable ? "N/A" : String.format("%.4f", ndv), minValue, minExpr, maxValue, maxExpr,
+                count, numNulls, avgSizeByte, getStringHotValues());
     }
 
     public JSONObject toJson() {
         JSONObject statistic = new JSONObject();
         statistic.put("Ndv", ndv);
+        statistic.put("NdvUnavailable", ndvUnavailable);
         if (Double.isInfinite(minValue)) {
             statistic.put("MinValueType", "Infinite");
         } else if (Double.isNaN(minValue)) {
@@ -308,10 +322,14 @@ public class ColumnStatistic {
         statistic.put("AvgSizeByte", avgSizeByte);
         statistic.put("NumNulls", numNulls);
         statistic.put("DataSize", dataSize);
-        statistic.put("MinExprValue", minExpr.getStringValue());
-        statistic.put("MinExprType", minExpr.getType());
-        statistic.put("MaxExprValue", maxExpr.getStringValue());
-        statistic.put("MaxExprType", maxExpr.getType());
+        if (minExpr != null) {
+            statistic.put("MinExprValue", minExpr.getStringValue());
+            statistic.put("MinExprType", minExpr.getType());
+        }
+        if (maxExpr != null) {
+            statistic.put("MaxExprValue", maxExpr.getStringValue());
+            statistic.put("MaxExprType", maxExpr.getType());
+        }
         statistic.put("IsUnKnown", isUnKnown);
         statistic.put("Original", original);
         statistic.put("LastUpdatedTime", updatedTime);
@@ -367,13 +385,14 @@ public class ColumnStatistic {
             stat.getDouble("DataSize"),
             minValue,
             maxValue,
-            LiteralExprUtils.createLiteral(stat.getString("MinExprValue"),
+            !stat.has("MinExprValue") ? null : LiteralExprUtils.createLiteral(stat.getString("MinExprValue"),
                 GsonUtils.GSON.fromJson(stat.getString("MinExprType"), Type.class)),
-            LiteralExprUtils.createLiteral(stat.getString("MaxExprValue"),
+            !stat.has("MaxExprValue") ? null : LiteralExprUtils.createLiteral(stat.getString("MaxExprValue"),
                 GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
             stat.getBoolean("IsUnKnown"),
             lastUpdatedTime,
-            null
+            null,
+            stat.optBoolean("NdvUnavailable", false)
         );
     }
 

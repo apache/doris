@@ -29,8 +29,18 @@
 #include "core/column/columns_common.h"
 #include "core/data_type/primitive_type.h"
 #include "exec/sort/sort_block.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
+void ColumnVarbinary::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                               const uint8_t* __restrict null_data) const {
+    for (size_t i = start; i < end; ++i) {
+        if (!null_data || null_data[i] == 0) {
+            const auto& value = _data[i];
+            hash = HashUtil::xxHash64WithSeed(value.data(), value.size(), hash);
+        }
+    }
+}
 
 void ColumnVarbinary::insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
                                                          size_t num) {

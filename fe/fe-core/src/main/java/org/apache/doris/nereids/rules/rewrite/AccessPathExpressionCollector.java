@@ -70,6 +70,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
@@ -91,15 +92,23 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     private boolean bottomPredicate;
     private boolean skipMetaPath;
     private Multimap<Integer, CollectAccessPathResult> slotToAccessPaths;
+    private final Set<ExprId> fileProjectionSlots;
     private Stack<Map<ExprId, Expression>> exprIdToLambdaArguments = new Stack<>();
 
     public AccessPathExpressionCollector(
             StatementContext statementContext, Multimap<Integer, CollectAccessPathResult> slotToAccessPaths,
             boolean bottomPredicate, boolean skipMetaPath) {
+        this(statementContext, slotToAccessPaths, bottomPredicate, skipMetaPath, ImmutableSet.of());
+    }
+
+    public AccessPathExpressionCollector(
+            StatementContext statementContext, Multimap<Integer, CollectAccessPathResult> slotToAccessPaths,
+            boolean bottomPredicate, boolean skipMetaPath, Set<ExprId> fileProjectionSlots) {
         this.statementContext = statementContext;
         this.slotToAccessPaths = slotToAccessPaths;
         this.bottomPredicate = bottomPredicate;
         this.skipMetaPath = skipMetaPath;
+        this.fileProjectionSlots = fileProjectionSlots;
     }
 
     public void collect(Expression expression) {
@@ -153,12 +162,15 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         if (dataType instanceof NestedColumnPrunable) {
             // A META path ending in NULL directly on the slot means "read the slot's null map".
             // Check the physical column's nullability (via getOriginalColumn), NOT the slot's
-            // nullability which may be synthetic (e.g. from outer join). If the physical column
-            // has no null map or is unknown, suppress this path.
+            // nullability which may be synthetic (e.g. from outer join). Derived FILE aliases
+            // are resolved by the plan collector through their defining expression; defer
+            // this check for those slots until that expression reaches a physical column.
             // (Field-level null paths like [s, field, NULL] were already validated upstream.)
             if (context.type == ColumnAccessPathType.META
                     && isUnderIsNull(context.accessPathBuilder.accessPath)
-                    && !hasPhysicalNullMap(slotReference)) {
+                    && !hasPhysicalNullMap(slotReference)
+                    && !(slotReference.getOriginalColumn().isEmpty()
+                            && fileProjectionSlots.contains(slotReference.getExprId()))) {
                 return null;
             }
             context.accessPathBuilder.addPrefix(slotReference.getName().toLowerCase(Locale.ROOT));
@@ -390,6 +402,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);
+        } else if (first.getDataType().isFileType()) {
+            // Analysis restricts FILE selectors to constant public field names. Physical FILE
+            // children stay in their canonical positions even when only one path is requested.
+            context.accessPathBuilder.addPrefix(
+                    ((Literal) arguments.get(1)).getStringValue().toLowerCase(Locale.ROOT));
+            return continueCollectAccessPath(first, context);
         } else if (first.getDataType().isStructType()) {
             // struct field access (formerly struct_element): collect the selected field as the path
             Expression fieldName = arguments.get(1);
@@ -1001,6 +1019,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     // backend will throw exception because it can not only access the values without the cast keys,
     // so we should check whether the map type is changed, if not changed, we can prune the type.
     private static boolean mapTypeIsChanged(DataType originType, DataType castType, boolean inMap) {
+        // FILE <-> STRUCT is a value conversion, not a rename of an identical physical tree.
+        // Validation of such casts needs the complete source, including the required URI.
+        if (originType.isFileType() || castType.isFileType()) {
+            return !originType.equals(castType);
+        }
         if (originType.isMapType()) {
             MapType originMapType = (MapType) originType;
             MapType castMapType = (MapType) castType;

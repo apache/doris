@@ -30,6 +30,10 @@
 #include "common/status.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_file.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 
 namespace doris {
@@ -495,6 +499,81 @@ TEST_F(PythonUDFMetaTest, SerializeArrowSchema) {
     auto decoded_schema_result = arrow::ipc::ReadSchema(&reader, &dictionary_memo);
     ASSERT_TRUE(decoded_schema_result.ok()) << decoded_schema_result.status().ToString();
     EXPECT_TRUE((*decoded_schema_result)->Equals(*schema));
+}
+
+TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaRejectsFileTypes) {
+    const auto file = std::make_shared<DataTypeFile>();
+    const auto nullable_file = make_nullable(file);
+    const auto array = std::make_shared<DataTypeArray>(nullable_file);
+    const auto structure =
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_file}, Strings {"f"});
+    const auto map = std::make_shared<DataTypeMap>(nullable_string_, nullable_file);
+    const DataTypes types {file,
+                           nullable_file,
+                           array,
+                           make_nullable(array),
+                           structure,
+                           make_nullable(structure),
+                           map,
+                           make_nullable(map),
+                           std::make_shared<DataTypeMap>(nullable_file, nullable_string_),
+                           std::make_shared<DataTypeArray>(map)};
+    for (const auto& type : types) {
+        SCOPED_TRACE(type->get_name());
+        std::shared_ptr<arrow::Schema> schema;
+        const auto status = PythonUDFMeta::convert_types_to_schema(
+                {nullable_int32_, type}, TimezoneUtils::default_time_zone, &schema);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("FILE"), std::string::npos);
+        EXPECT_EQ(schema, nullptr);
+    }
+}
+
+TEST_F(PythonUDFMetaTest, SerializeToJsonRejectsFileArgumentsAndReturnsForAllClients) {
+    const auto file = make_nullable(std::make_shared<DataTypeFile>());
+    const DataTypes types {file, std::make_shared<DataTypeArray>(file)};
+    for (const auto client_type :
+         {PythonClientType::UDF, PythonClientType::UDAF, PythonClientType::UDTF}) {
+        SCOPED_TRACE(static_cast<int>(client_type));
+        for (const auto& type : types) {
+            SCOPED_TRACE(type->get_name());
+            for (bool file_argument : {true, false}) {
+                SCOPED_TRACE(file_argument);
+                PythonUDFMeta meta;
+                meta.name = "test_udf";
+                meta.symbol = "func";
+                meta.runtime_version = "3.9.16";
+                meta.client_type = client_type;
+                meta.type = PythonUDFLoadType::INLINE;
+                meta.input_types = {file_argument ? type : nullable_int32_};
+                meta.return_type = file_argument ? nullable_int32_ : type;
+                ASSERT_TRUE(meta.check().ok());
+                std::string json;
+                const auto status = meta.serialize_to_json(&json);
+                EXPECT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("FILE"), std::string::npos);
+            }
+        }
+    }
+}
+
+TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaAllowsFileShapedStruct) {
+    // A regular STRUCT with FILE's physical fields remains an ordinary Python value.
+    const DataTypeFile file;
+    const auto structure = make_nullable(
+            std::make_shared<DataTypeStruct>(file.get_elements(), file.get_element_names()));
+    const DataTypes types {structure, std::make_shared<DataTypeArray>(structure),
+                           std::make_shared<DataTypeMap>(nullable_string_, structure)};
+    std::shared_ptr<arrow::Schema> schema;
+    const auto status = PythonUDFMeta::convert_types_to_schema(
+            types, TimezoneUtils::default_time_zone, &schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(schema->num_fields(), 3);
+    EXPECT_EQ(schema->field(0)->type()->id(), arrow::Type::STRUCT);
+    EXPECT_EQ(schema->field(0)->type()->num_fields(), 6);
+    EXPECT_EQ(schema->field(0)->type()->field(5)->type()->id(), arrow::Type::BINARY);
+    EXPECT_EQ(schema->field(1)->type()->id(), arrow::Type::LIST);
+    EXPECT_EQ(schema->field(2)->type()->id(), arrow::Type::MAP);
 }
 
 } // namespace doris

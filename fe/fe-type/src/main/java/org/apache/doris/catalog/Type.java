@@ -126,6 +126,7 @@ public abstract class Type {
     public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
+    public static final FileType FILE = FileType.create();
     // In the past, variant metadata used the ScalarType type.
     // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
     public static final VariantType VARIANT = new VariantType();
@@ -225,6 +226,7 @@ public abstract class Type {
         arraySubTypes.add(ARRAY);
         arraySubTypes.add(MAP);
         arraySubTypes.add(STRUCT);
+        arraySubTypes.add(FILE);
 
         mapSubTypes = Lists.newArrayList();
         mapSubTypes.add(BOOLEAN);
@@ -253,6 +255,7 @@ public abstract class Type {
         mapSubTypes.add(ARRAY);
         mapSubTypes.add(MAP);
         mapSubTypes.add(STRUCT);
+        mapSubTypes.add(FILE);
 
         structSubTypes = Lists.newArrayList();
         structSubTypes.add(BOOLEAN);
@@ -281,6 +284,7 @@ public abstract class Type {
         structSubTypes.add(ARRAY);
         structSubTypes.add(MAP);
         structSubTypes.add(STRUCT);
+        structSubTypes.add(FILE);
 
         // Before adding a type here, the BE side must implement these three serde
         // adapters for the type so values falling to the variant sparse path can
@@ -468,6 +472,24 @@ public abstract class Type {
                     || PrimitiveType.typeWithPrecision.contains(((MapType) this).getValueType().getPrimitiveType());
         } else if (isArrayType()) {
             return PrimitiveType.typeWithPrecision.contains(((ArrayType) this).getItemType().getPrimitiveType());
+        }
+        return false;
+    }
+
+    /** Whether this type or a nested complex type contains FILE. */
+    public boolean typeContainsFile() {
+        if (isFileType()) {
+            return true;
+        } else if (isStructType()) {
+            return ((StructType) this).getFields().stream()
+                    .anyMatch(field -> field.getType().typeContainsFile());
+        } else if (isMapType()) {
+            MapType mapType = (MapType) this;
+            return mapType.getKeyType().typeContainsFile() || mapType.getValueType().typeContainsFile();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().typeContainsFile();
+        } else if (isAggStateType()) {
+            return ((AggStateType) this).getSubTypes().stream().anyMatch(Type::typeContainsFile);
         }
         return false;
     }
@@ -744,7 +766,7 @@ public abstract class Type {
     }
 
     public boolean isComplexType() {
-        return isStructType() || isMapType() || isArrayType();
+        return isStructType() || isMapType() || isArrayType() || isFileType();
     }
 
     public boolean isMapType() {
@@ -757,6 +779,10 @@ public abstract class Type {
 
     public boolean isAggStateType() {
         return this instanceof AggStateType;
+    }
+
+    public boolean isFileType() {
+        return this instanceof FileType;
     }
 
     public boolean isStructType() {
@@ -884,7 +910,7 @@ public abstract class Type {
             }
             return mapType.getValueType().exceedsMaxNestingDepth(d + 1);
         } else {
-            Preconditions.checkState(isScalarType() || isAggStateType());
+            Preconditions.checkState(isScalarType() || isAggStateType() || isFileType());
         }
         return false;
     }
@@ -953,6 +979,8 @@ public abstract class Type {
                 return new MapType();
             case STRUCT:
                 return new StructType();
+            case FILE:
+                return FILE;
             case BITMAP:
                 return Type.BITMAP;
             case QUANTILE_STATE:
@@ -1013,6 +1041,10 @@ public abstract class Type {
                 } else if (scalarType.getType() == TPrimitiveType.VARCHAR) {
                     Preconditions.checkState(scalarType.isSetLen());
                     type = ScalarType.createVarcharType(scalarType.getLen());
+                } else if (scalarType.getType() == TPrimitiveType.FILE) {
+                    throw new IllegalArgumentException("FILE must use a FILE type node with six children");
+                } else if (scalarType.getType() == TPrimitiveType.VARBINARY) {
+                    type = ScalarType.createVarbinaryType(scalarType.isSetLen() ? scalarType.getLen() : -1);
                 } else if (scalarType.getType() == TPrimitiveType.HLL) {
                     type = ScalarType.createHllType();
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
@@ -1058,6 +1090,23 @@ public abstract class Type {
                 Pair<Type, Integer> valueType = fromThrift(col, keyType.getRight());
                 type = new MapType(keyType.getLeft(), valueType.getLeft());
                 tmpNodeIdx = valueType.getRight();
+                break;
+            }
+            case FILE: {
+                Preconditions.checkArgument(node.getStructFieldsSize() == FileType.FIELD_COUNT
+                                && !node.isSetContainsNulls(),
+                        "FILE requires six named nullable children");
+                List<StructField> fields = new ArrayList<>();
+                ++tmpNodeIdx;
+                for (int i = 0; i < FileType.FIELD_COUNT; i++) {
+                    TStructField field = node.getStructFields().get(i);
+                    Preconditions.checkArgument(field.isSetContainsNull() && field.isContainsNull(),
+                            "FILE children must be nullable");
+                    Pair<Type, Integer> child = fromThrift(col, tmpNodeIdx);
+                    fields.add(new StructField(field.getName(), child.getLeft(), null, true));
+                    tmpNodeIdx = child.getRight();
+                }
+                type = new FileType(fields);
                 break;
             }
             case STRUCT: {

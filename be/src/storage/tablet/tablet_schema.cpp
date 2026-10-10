@@ -45,6 +45,7 @@
 #include "exec/common/hex.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
+#include "storage/file_column_schema.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
@@ -134,6 +135,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_HLL;
     } else if (0 == upper_type_str.compare("STRUCT")) {
         type = FieldType::OLAP_FIELD_TYPE_STRUCT;
+    } else if (0 == upper_type_str.compare("FILE")) {
+        type = FieldType::OLAP_FIELD_TYPE_FILE;
     } else if (0 == upper_type_str.compare("LIST")) {
         type = FieldType::OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("MAP")) {
@@ -291,6 +294,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_STRUCT:
         return "STRUCT";
+    case FieldType::OLAP_FIELD_TYPE_FILE:
+        return "FILE";
 
     case FieldType::OLAP_FIELD_TYPE_ARRAY:
         return "ARRAY";
@@ -391,6 +396,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::JSONB:
         return string_length + sizeof(OLAP_JSONB_MAX_LENGTH);
     case TPrimitiveType::STRUCT:
+    case TPrimitiveType::FILE:
         // Note that(xy): this is the length of struct type itself,
         // the length of its subtypes are not included.
         return OLAP_STRUCT_MAX_LENGTH;
@@ -536,6 +542,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         child_column.init_from_pb(column.children_columns(i));
         add_sub_column(child_column);
     }
+    if (_type == FieldType::OLAP_FIELD_TYPE_FILE) {
+        auto status = check_valid();
+        if (!status.ok()) {
+            throw Exception(status);
+        }
+    }
     if (column.has_column_path_info()) {
         _column_path = std::make_shared<PathInData>();
         _column_path->from_protobuf(column.column_path_info());
@@ -574,6 +586,31 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
+}
+
+Status TabletColumn::check_valid() const {
+    if (type() == FieldType::OLAP_FIELD_TYPE_FILE) {
+        if (_sub_columns.size() != FILE_STORAGE_CHILD_TYPES.size()) {
+            return Status::InvalidArgument("FILE requires six storage children");
+        }
+        for (size_t i = 0; i < FILE_STORAGE_CHILD_TYPES.size(); ++i) {
+            const auto& child = *_sub_columns[i];
+            if (child.name() != FILE_STORAGE_CHILD_NAMES[i] ||
+                child.type() != FILE_STORAGE_CHILD_TYPES[i] || !child.is_nullable() ||
+                child.get_subtype_count() != 0) {
+                return Status::InvalidArgument("Invalid FILE storage child {}",
+                                               FILE_STORAGE_CHILD_NAMES[i]);
+            }
+        }
+    }
+    if (type() == FieldType::OLAP_FIELD_TYPE_ARRAY || type() == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+        type() == FieldType::OLAP_FIELD_TYPE_MAP || type() == FieldType::OLAP_FIELD_TYPE_FILE) {
+        if (is_bf_column()) {
+            return Status::NotSupported("Do not support bloom filter index, type={}",
+                                        get_string_by_field_type(type()));
+        }
+    }
+    return Status::OK();
 }
 
 void TabletColumn::to_schema_pb(ColumnPB* column) const {

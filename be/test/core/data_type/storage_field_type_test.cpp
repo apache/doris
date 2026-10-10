@@ -73,6 +73,7 @@ constexpr std::array supported_mappings {
         TypePair {PrimitiveType::TYPE_UINT64, FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT},
         TypePair {PrimitiveType::TYPE_TIMESTAMPTZ, FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ},
         TypePair {PrimitiveType::TYPE_TIMESTAMP_NS, FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS},
+        TypePair {PrimitiveType::TYPE_FILE, FieldType::OLAP_FIELD_TYPE_FILE},
 };
 
 TEST(StorageFieldTypeTest, SupportedMappingsRoundTrip) {
@@ -159,6 +160,8 @@ TEST(StorageFieldTypeTest, PersistedFieldTypeValuesStayStable) {
             FieldType::OLAP_FIELD_TYPE_IPV6,
             FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ,
             FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS,
+            FieldType::OLAP_FIELD_TYPE_UUID,
+            FieldType::OLAP_FIELD_TYPE_FILE,
     };
 
     for (size_t i = 0; i < persisted_types.size(); ++i) {

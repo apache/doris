@@ -33,6 +33,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
@@ -437,6 +438,12 @@ Status ParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
+            // Load later replaces block types with the physical schema and applies SQL CAST.
+            // Reject FILE slots here before an ordinary STRUCT can be implicitly cast to FILE.
+            if (desc.slot_desc != nullptr && contains_file_type(desc.slot_desc->type())) {
+                return Status::NotSupported("Parquet input does not support type {}",
+                                            desc.slot_desc->type()->get_name());
+            }
             ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::SYNTHESIZED &&
                    desc.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {

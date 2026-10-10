@@ -135,6 +135,9 @@ public:
     static Status create_struct_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
                                        io::FileWriter* file_writer,
                                        std::unique_ptr<ColumnWriter>* writer);
+    static Status create_file_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                     io::FileWriter* file_writer,
+                                     std::unique_ptr<ColumnWriter>* writer);
     static Status create_array_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
                                       io::FileWriter* file_writer,
                                       std::unique_ptr<ColumnWriter>* writer);
@@ -415,6 +418,73 @@ public:
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("struct not support bloom filter index");
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_next_rowid() const override { return _sub_column_writers[0]->get_next_rowid(); }
+
+    uint64_t get_raw_data_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_raw_data_bytes);
+    }
+
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_uncompressed_data_pages_bytes);
+    }
+
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
+    }
+
+private:
+    template <typename Func>
+    uint64_t _get_total_data_pages_bytes(Func func) const {
+        uint64_t size = is_nullable() ? std::invoke(func, _null_writer.get()) : 0;
+        for (const auto& writer : _sub_column_writers) {
+            size += std::invoke(func, writer.get());
+        }
+        return size;
+    }
+
+private:
+    size_t _num_sub_column_writers;
+    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::vector<std::unique_ptr<ColumnWriter>> _sub_column_writers;
+    ColumnWriterOptions _opts;
+};
+
+class FileColumnWriter final : public ColumnWriter {
+public:
+    explicit FileColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
+                              ScalarColumnWriter* null_writer,
+                              std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers);
+    ~FileColumnWriter() override = default;
+
+    Status init() override;
+
+    Status append_nullable(const uint8_t* null_map, const uint8_t** data, size_t num_rows) override;
+    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    uint64_t estimate_buffer_size() override;
+
+    Status finish() override;
+    Status write_data() override;
+    Status write_ordinal_index() override;
+    Status append_nulls(size_t num_rows) override;
+
+    Status finish_current_page() override;
+
+    Status write_zone_map() override {
+        if (_opts.need_zone_map) {
+            return Status::NotSupported("FILE does not support zone map");
+        }
+        return Status::OK();
+    }
+
+    Status write_inverted_index() override;
+    Status write_bloom_filter_index() override {
+        if (_opts.need_bloom_filter) {
+            return Status::NotSupported("FILE does not support bloom filter index");
         }
         return Status::OK();
     }

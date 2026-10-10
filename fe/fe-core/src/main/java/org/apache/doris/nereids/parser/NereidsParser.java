@@ -26,6 +26,7 @@ import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.NonReservedContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -332,8 +333,15 @@ public class NereidsParser {
         return (NON_RESERVED_KEYWORDS.contains(upperCase) || !LITERAL_TOKENS.containsKey(upperCase));
     }
 
+    /** Parse one complete type specification, rejecting trailing tokens. */
     public DataType parseDataType(String dataType) {
-        return parse(dataType, DorisParser::dataType);
+        return parse(dataType, parser -> {
+            ParserRuleContext type = parser.dataType();
+            if (parser.getCurrentToken().getType() != org.antlr.v4.runtime.Token.EOF) {
+                throw new ParseException("Unexpected trailing tokens after data type", type);
+            }
+            return type;
+        });
     }
 
     public Map<String, String> parseProperties(String properties) {

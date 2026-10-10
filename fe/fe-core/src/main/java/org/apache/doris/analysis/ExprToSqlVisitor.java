@@ -148,6 +148,16 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
     }
 
     @Override
+    public String visitFileLiteral(FileLiteral expr, ToSqlParams context) {
+        List<String> fields = new ArrayList<>();
+        for (int i = 0; i < expr.getChildren().size(); i++) {
+            fields.add("'" + org.apache.doris.catalog.Type.FILE.getFields().get(i).getName() + "'");
+            fields.add(expr.getChild(i).accept(this, context));
+        }
+        return "CAST(named_struct(" + StringUtils.join(fields, ", ") + ") AS FILE)";
+    }
+
+    @Override
     public String visitStructLiteral(StructLiteral expr, ToSqlParams context) {
         List<String> list = new ArrayList<>(expr.getChildren().size());
         expr.getChildren().forEach(v -> list.add(v.accept(this, context)));

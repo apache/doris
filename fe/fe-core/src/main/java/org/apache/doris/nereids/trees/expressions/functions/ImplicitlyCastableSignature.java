@@ -45,11 +45,17 @@ public interface ImplicitlyCastableSignature extends ComputeSignature {
     /** isImplicitlyCastable */
     static boolean isPrimitiveImplicitlyCastable(DataType signatureType, DataType realType) {
         if (signatureType instanceof AnyDataType
-                || signatureType instanceof FollowToAnyDataType
-                || signatureType.isAssignableFrom(realType)) {
+                || signatureType instanceof FollowToAnyDataType) {
             return true;
         }
         if (realType instanceof NullType) {
+            return true;
+        }
+        if (signatureType.typeContainsFile() || realType.typeContainsFile()) {
+            // Overload selection is implicit assignment even for ExplicitlyCastableSignature functions.
+            return TypeCoercionUtils.implicitCast(realType, signatureType).isPresent();
+        }
+        if (signatureType.isAssignableFrom(realType)) {
             return true;
         }
         if (signatureType instanceof ComplexDataType && !(realType instanceof ComplexDataType)) {

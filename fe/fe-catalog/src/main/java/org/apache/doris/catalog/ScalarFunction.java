@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TDictFunction;
+import org.apache.doris.thrift.TFileResourceSnapshot;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -42,6 +43,9 @@ public class ScalarFunction extends Function {
     private String closeFnSymbol;
 
     TDictFunction dictFunction = null;
+
+    // Execution-only metadata; credentials must not be persisted with catalog functions.
+    private transient TFileResourceSnapshot fileResource;
 
     // Only used for serialization
     protected ScalarFunction() {
@@ -167,6 +171,7 @@ public class ScalarFunction extends Function {
         symbolName = other.symbolName;
         prepareFnSymbol = other.prepareFnSymbol;
         closeFnSymbol = other.closeFnSymbol;
+        fileResource = other.getFileResource();
     }
 
     @Override
@@ -204,6 +209,14 @@ public class ScalarFunction extends Function {
 
     public void setDictFunction(TDictFunction dictFunction) {
         this.dictFunction = dictFunction;
+    }
+
+    public TFileResourceSnapshot getFileResource() {
+        return fileResource == null ? null : fileResource.deepCopy();
+    }
+
+    public void setFileResource(TFileResourceSnapshot fileResource) {
+        this.fileResource = fileResource.deepCopy();
     }
 
 }

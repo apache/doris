@@ -31,6 +31,7 @@
 
 #include "common/status.h"
 #include "core/pod_array.h"
+#include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/hdfs_file_reader.h"
@@ -181,6 +182,34 @@ Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) cons
     }
     *file_size = file_info->mSize;
     hdfsFreeFileInfo(file_info, 1);
+    return Status::OK();
+}
+
+Status HdfsFileSystem::stat_impl(const Path& path, FileStat* metadata,
+                                 FileStatContext* context) const {
+    if (context->is_cancelled && context->is_cancelled()) {
+        return Status::Cancelled("File stat cancelled");
+    }
+    CHECK_HDFS_HANDLER(_fs_handler);
+    const Path real_path = convert_path(path, _fs_name);
+    SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_get_path_info_latency);
+    hdfsFileInfo* file_info = SYNC_POINT_HOOK_RETURN_VALUE(
+            hdfsGetPathInfo(_fs_handler->hdfs_fs, real_path.c_str()),
+            "HdfsFileSystem::stat::hdfsGetPathInfo", real_path.string());
+    // Stock libhdfs does not provide an interruptible metadata request. Discard its
+    // result if the query was cancelled while the call was in progress.
+    if (context->is_cancelled && context->is_cancelled()) {
+        if (file_info) {
+            hdfsFreeFileInfo(file_info, 1);
+        }
+        return Status::Cancelled("File stat cancelled");
+    }
+    if (file_info == nullptr) {
+        return Status::IOError("failed to stat path {}: {}", path.native(), hdfs_error());
+    }
+    FileStat result {.size = file_info->mSize};
+    hdfsFreeFileInfo(file_info, 1);
+    *metadata = std::move(result);
     return Status::OK();
 }
 

@@ -21,8 +21,10 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.IdGenerator;
@@ -370,7 +372,7 @@ public class NereidsLoadScanProvider {
             } else {
                 Column slotColumn;
                 TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
-                // Use real column type for arrow format, other formats read as varchar first
+                // Arrow and direct FILE imports use their complete destination types.
                 if (fileFormatType == TFileFormatType.FORMAT_ARROW) {
                     if (tblColumn == null) {
                         throw new AnalysisException("Unknown column " + realColName + " in table " + tbl.getName()
@@ -378,6 +380,22 @@ public class NereidsLoadScanProvider {
                     }
                     slotColumn = new Column(realColName, tblColumn.getType(), true);
                 } else {
+                    boolean directFile = tblColumn != null && tblColumn.getType().typeContainsFile()
+                            && !context.exprMap.containsKey(realColName)
+                            && (fileGroup.getColumnNamesFromPath() == null
+                                    || fileGroup.getColumnNamesFromPath().stream()
+                                            .noneMatch(realColName::equalsIgnoreCase))
+                            && (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN
+                                    || fileFormatType == TFileFormatType.FORMAT_JSON
+                                    || fileFormatType == TFileFormatType.FORMAT_PARQUET
+                                    || fileFormatType == TFileFormatType.FORMAT_ORC);
+                    if (directFile && (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN
+                            || fileFormatType == TFileFormatType.FORMAT_PARQUET)) {
+                        throw new AnalysisException(fileFormatType + " load does not support FILE");
+                    }
+                    // Mapped inputs and path columns remain strings and follow ordinary SQL
+                    // conversion rules; a string value is not a six-field FILE format input.
+                    Type sourceType = directFile ? tblColumn.getType() : ScalarType.createVarcharType();
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
                             && hasSkipBitmapColumn) {
                         // we store the unique ids of missing columns in skip bitmap column in flexible partial update
@@ -388,8 +406,7 @@ public class NereidsLoadScanProvider {
                             // converting them to their real type
                             slotColumn = new Column(realColName, PrimitiveType.BITMAP, true);
                         } else {
-                            // columns default be varchar type
-                            slotColumn = new Column(realColName, PrimitiveType.VARCHAR, true);
+                            slotColumn = new Column(realColName, sourceType, true);
                         }
                         // In flexible partial update, every row can update different columns, we should check
                         // key columns intergrity for every row in XXXReader on BE rather than checking it on FE
@@ -399,7 +416,7 @@ public class NereidsLoadScanProvider {
                         slotColumn.setIsAutoInc(tblColumn.isAutoInc());
                         slotColumn.setUniqueId(colUniqueId);
                     } else {
-                        slotColumn = new Column(realColName, PrimitiveType.VARCHAR, true);
+                        slotColumn = new Column(realColName, sourceType, true);
                     }
                 }
                 context.scanSlots.add(

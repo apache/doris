@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -81,7 +82,7 @@ public class StatisticsRepository {
             + " AND `idx_id` = '${indexId}' AND `part_name` IN (${partName}) AND `col_id` = '${columnId}'";
 
     private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_name, idx_id, count, "
-            + "hll_cardinality(ndv) as ndv, null_count, min, max, data_size_in_bytes, update_time FROM "
+            + "${partitionNdv} as ndv, null_count, min, max, data_size_in_bytes, update_time FROM "
             + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
             + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
             + " AND `part_name` in (${partitionInfo}) AND `col_id` in (${columnInfo})";
@@ -167,6 +168,16 @@ public class StatisticsRepository {
             sj.add("'" + StatisticsUtil.escapeSQL(colName) + "'");
         }
         params.put("columnInfo", sj.toString());
+        StringJoiner fileColumns = new StringJoiner(",");
+        for (String colName : columnNames) {
+            Column column = table instanceof OlapTable
+                    ? ((OlapTable) table).getVisibleColumn(colName) : table.getColumn(colName);
+            if (column.getType().isFileType()) {
+                fileColumns.add("'" + StatisticsUtil.escapeSQL(colName) + "'");
+            }
+        }
+        params.put("partitionNdv", fileColumns.length() == 0 ? "hll_cardinality(ndv)"
+                : "IF(col_id IN (" + fileColumns + "), NULL, hll_cardinality(ndv))");
         sj = new StringJoiner(",");
         for (String part : partitionNames) {
             sj.add("'" + StatisticsUtil.escapeSQL(part) + "'");
@@ -340,6 +351,12 @@ public class StatisticsRepository {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(Double.parseDouble(rowCount));
         String colName = alterColumnStatsCommand.getColumnName();
         Column column = objects.table.getColumn(colName);
+        if (column.getType().isFileType()) {
+            if (ndv != null || min != null || max != null || hotValues != null) {
+                throw new AnalysisException("FILE NDV, MIN, MAX and hot values are unavailable");
+            }
+            builder.setNdvUnavailable(true);
+        }
         if (ndv != null) {
             double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);
@@ -384,12 +401,13 @@ public class StatisticsRepository {
         params.put("tblId", String.valueOf(objects.table.getId()));
         params.put("colId", String.valueOf(colName));
         params.put("count", String.valueOf(columnStatistic.count));
-        params.put("ndv", String.valueOf(columnStatistic.ndv));
+        params.put("ndv", columnStatistic.ndvUnavailable ? "NULL" : String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
         params.put("min", min == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(min) + "'");
         params.put("max", max == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(max) + "'");
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
-        params.put("hotValues", "'" + StatisticsUtil.escapeSQL(hotValues) + "'");
+        params.put("hotValues", columnStatistic.ndvUnavailable ? "NULL"
+                : "'" + StatisticsUtil.escapeSQL(hotValues) + "'");
 
         if (partitionIds.isEmpty()) {
             // update table granularity statistics

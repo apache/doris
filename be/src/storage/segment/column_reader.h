@@ -156,6 +156,9 @@ public:
     static Status create_struct(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                 uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                                 std::shared_ptr<ColumnReader>* reader);
+    static Status create_file(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                              uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                              std::shared_ptr<ColumnReader>* reader);
     static Status create_agg_state(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                    uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                                    std::shared_ptr<ColumnReader>* reader);
@@ -172,6 +175,7 @@ public:
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_file_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_map_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
 
@@ -855,6 +859,71 @@ public:
 
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
+    ColumnIteratorUPtr _null_iterator;
+    std::vector<ColumnIteratorUPtr> _sub_column_iterators;
+};
+
+class FileValueColumnIterator final : public ColumnIterator {
+public:
+    explicit FileValueColumnIterator(std::shared_ptr<ColumnReader> reader,
+                                     ColumnIteratorUPtr null_iterator,
+                                     std::vector<ColumnIteratorUPtr>&& sub_column_iterators);
+
+    ~FileValueColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override;
+
+    Status seek_to_ordinal(ordinal_t ord) override;
+
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+
+    void set_lazy_output_requirement() override;
+
+    // Selection never changes the canonical six-child FILE shape.
+    void remove_pruned_sub_iterators() override {}
+
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
+
+    void set_read_phase(ReadPhase mode) override;
+
+    bool need_to_read() const override {
+        switch (_read_phase) {
+        case ReadPhase::NORMAL:
+            return _read_requirement != ReadRequirement::SKIP;
+        case ReadPhase::PREDICATE:
+            return _read_requirement == ReadRequirement::PREDICATE;
+        case ReadPhase::LAZY:
+            // In lazy mode, read this FILE only when at least one nested branch still
+            // has non-predicate data to materialize.
+            return has_lazy_read_target();
+        default:
+            return false;
+        }
+    }
+
+    void finalize_lazy_phase(MutableColumnPtr& dst) override;
+    void set_read_requirement(ReadRequirement requirement) override;
+    bool has_lazy_read_target() const override;
+
+private:
+    ordinal_t _current_ordinal = 0;
+    std::shared_ptr<ColumnReader> _file_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
     std::vector<ColumnIteratorUPtr> _sub_column_iterators;
 };

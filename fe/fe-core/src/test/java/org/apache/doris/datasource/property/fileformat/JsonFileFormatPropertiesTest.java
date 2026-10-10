@@ -18,11 +18,14 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -197,5 +200,48 @@ public class JsonFileFormatPropertiesTest {
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
         Assertions.assertEquals("", jsonFileFormatProperties.getJsonPaths());
+    }
+
+    @Test
+    public void testWriterDefaultCompressionDoesNotChangeReaderDefault() {
+        jsonFileFormatProperties.analyzeFileFormatProperties(new HashMap<>(), true);
+        Assertions.assertEquals(TFileCompressType.UNKNOWN, jsonFileFormatProperties.getCompressionType());
+        jsonFileFormatProperties.checkSupportedCompressionType(false);
+        Assertions.assertEquals(TFileCompressType.UNKNOWN, jsonFileFormatProperties.getCompressionType());
+
+        jsonFileFormatProperties.checkSupportedCompressionType(true);
+        TResultFileSinkOptions options = new TResultFileSinkOptions();
+        jsonFileFormatProperties.fullTResultFileSinkOptions(options);
+        Assertions.assertEquals(TFileCompressType.PLAIN, options.getCompressionType());
+        Assertions.assertEquals("\n", options.getLineDelimiter());
+    }
+
+    @Test
+    public void testWriterForwardsSupportedTextCompression() {
+        for (TFileCompressType codec : Arrays.asList(TFileCompressType.PLAIN, TFileCompressType.GZ,
+                TFileCompressType.BZ2, TFileCompressType.SNAPPYBLOCK,
+                TFileCompressType.LZ4BLOCK, TFileCompressType.ZSTD)) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put(FileFormatProperties.PROP_COMPRESS_TYPE, codec.name());
+            jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
+            jsonFileFormatProperties.checkSupportedCompressionType(true);
+            TResultFileSinkOptions options = new TResultFileSinkOptions();
+            jsonFileFormatProperties.fullTResultFileSinkOptions(options);
+            Assertions.assertEquals(codec, options.getCompressionType());
+        }
+    }
+
+    @Test
+    public void testWriterRejectsReadOnlyCompression() {
+        for (String codec : Arrays.asList("LZ4FRAME", "LZO", "DEFLATE")) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put(FileFormatProperties.PROP_COMPRESS_TYPE, codec);
+            jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
+            jsonFileFormatProperties.checkSupportedCompressionType(false);
+            Assertions.assertEquals(TFileCompressType.valueOf(codec), jsonFileFormatProperties.getCompressionType());
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> jsonFileFormatProperties.checkSupportedCompressionType(true));
+            Assertions.assertTrue(exception.getMessage().contains("is invalid for writing"));
+        }
     }
 }

@@ -21,6 +21,10 @@
 #include <memory>
 
 #include "core/block/block.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "exec/operator/cache_sink_operator.h"
 #include "exec/operator/cache_source_operator.h"
 #include "exec/operator/repeat_operator.h"
@@ -188,6 +192,170 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache1) {
     // in contrast to test_no_hit_cache2 where the over-limit entry is
     // dropped and the count stays 0.
     EXPECT_FALSE(source_local_state->_need_insert_cache);
+}
+
+TEST_F(QueryCacheOperatorTest, FilePayloadMissCommitAndRepeatedHit) {
+    const auto file_type = make_nullable(std::make_shared<DataTypeFile>());
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(file_type));
+    const auto payload_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {array_type}, Strings {"files"}));
+    const auto id_type = std::make_shared<DataTypeInt64>();
+    const std::vector<std::string> inline_bytes {
+            std::string("\0\xff\x80", 3) + std::string(4096, 'a'),
+            std::string("\xff\0z", 3) + std::string(4096, 'b')};
+
+    auto make_block = [&](size_t batch) {
+        File file {Field::create_field<TYPE_STRING>("urn:query-cache:nested"),
+                   Field::create_field<TYPE_BIGINT>(7),
+                   Field::create_field<TYPE_BIGINT>(4099),
+                   Field::create_field<TYPE_STRING>("application/octet-stream"),
+                   Field::create_field<TYPE_STRING>("ETAG:nested-cache"),
+                   Field::create_field<TYPE_VARBINARY>(StringView(inline_bytes[batch]))};
+        Array files {Field::create_field<TYPE_FILE>(file), Field()};
+        file[5] = Field::create_field<TYPE_VARBINARY>(StringView());
+        files.push_back(Field::create_field<TYPE_FILE>(file));
+        file[5] = Field();
+        files.push_back(Field::create_field<TYPE_FILE>(file));
+        auto payload = payload_type->create_column();
+        payload->insert_default(); // NULL struct ancestor.
+        payload->insert(Field::create_field<TYPE_STRUCT>(Struct {Field()})); // NULL array ancestor.
+        payload->insert(Field::create_field<TYPE_STRUCT>(
+                Struct {Field::create_field<TYPE_ARRAY>(Array {})}));
+        payload->insert(Field::create_field<TYPE_STRUCT>(
+                Struct {Field::create_field<TYPE_ARRAY>(std::move(files))}));
+        auto ids = id_type->create_column();
+        for (int64_t row = 0; row < 4; ++row) {
+            ids->insert(Field::create_field<TYPE_BIGINT>(static_cast<int64_t>(batch) * 10 + row));
+        }
+        Block block;
+        block.insert({std::move(ids), id_type, "id"});
+        block.insert({std::move(payload), payload_type, "payload"});
+        return block;
+    };
+    auto expect_block = [&](const Block& block, size_t batch, bool reordered) {
+        ASSERT_EQ(block.rows(), 4);
+        ASSERT_EQ(block.columns(), 2);
+        const auto& ids = block.get_by_position(reordered ? 1 : 0);
+        const auto& payload = block.get_by_position(reordered ? 0 : 1);
+        ASSERT_TRUE(ids.type->equals(*id_type));
+        ASSERT_TRUE(payload.type->equals(*payload_type));
+        ASSERT_TRUE(validate_file_column(*payload.column, payload.type).ok());
+        for (int64_t row = 0; row < 4; ++row) {
+            EXPECT_EQ((*ids.column)[row].get<TYPE_BIGINT>(),
+                      static_cast<int64_t>(batch) * 10 + row);
+        }
+        ASSERT_TRUE(payload.column->is_null_at(0));
+        for (size_t row = 1; row < 4; ++row) {
+            ASSERT_FALSE(payload.column->is_null_at(row));
+        }
+        const auto null_array = (*payload.column)[1];
+        EXPECT_TRUE(null_array.get<TYPE_STRUCT>()[0].is_null());
+        const auto empty_array = (*payload.column)[2];
+        EXPECT_TRUE(empty_array.get<TYPE_STRUCT>()[0].get<TYPE_ARRAY>().empty());
+        const auto populated = (*payload.column)[3];
+        const auto& files = populated.get<TYPE_STRUCT>()[0].get<TYPE_ARRAY>();
+        ASSERT_EQ(files.size(), 4);
+        EXPECT_TRUE(files[1].is_null());
+        for (size_t item : {0, 2, 3}) {
+            ASSERT_EQ(files[item].get_type(), TYPE_FILE);
+            const auto& fields = files[item].get<TYPE_FILE>();
+            ASSERT_EQ(fields.size(), 6);
+            EXPECT_EQ(fields[0].get<TYPE_STRING>(), "urn:query-cache:nested");
+            EXPECT_EQ(fields[1].get<TYPE_BIGINT>(), 7);
+            EXPECT_EQ(fields[2].get<TYPE_BIGINT>(), 4099);
+            EXPECT_EQ(fields[3].get<TYPE_STRING>(), "application/octet-stream");
+            EXPECT_EQ(fields[4].get<TYPE_STRING>(), "ETAG:nested-cache");
+            if (item == 3) {
+                EXPECT_TRUE(fields[5].is_null());
+            } else {
+                ASSERT_FALSE(fields[5].is_null());
+                EXPECT_EQ(fields[5].get<TYPE_VARBINARY>().to_string_ref().to_string(),
+                          item == 0 ? inline_bytes[batch] : std::string());
+            }
+        }
+    };
+
+    auto start_query = [&](bool reordered) {
+        // Release the old query's handles/local state; keep only the global cache.
+        state.reset();
+        source.reset();
+        sink.reset();
+        state = std::make_shared<MockRuntimeState>();
+        state->_batch_size = 10;
+        sink = std::make_unique<CacheSinkOperatorX>();
+        auto row_desc = std::make_unique<MockRowDescriptor>(
+                reordered ? DataTypes {payload_type, id_type} : DataTypes {id_type, payload_type},
+                &pool);
+        auto& slots = static_cast<MockTupleDescriptor*>(row_desc->tuple_desc_map.front())->Slots;
+        slots[0]->_id = 100;
+        slots[1]->_id = 101;
+        TQueryCacheParam cache_param;
+        cache_param.node_id = 0;
+        cache_param.digest = "file-payload-query";
+        cache_param.output_slot_mapping[100] = reordered ? 11 : 10;
+        cache_param.output_slot_mapping[101] = reordered ? 10 : 11;
+        cache_param.tablet_to_range.insert({42, "test"});
+        cache_param.force_refresh_query_cache = false;
+        cache_param.entry_max_bytes = 1024 * 1024;
+        cache_param.entry_max_rows = 1000;
+        source = std::make_unique<CacheSourceOperatorX>(
+                &pool, 0, 0, cache_param,
+                std::make_shared<QueryCacheRuntime>(cache_param, query_cache));
+        // Keep the output schema on subsequent pulls, as the pipeline driver does.
+        source->_row_descriptor = *row_desc;
+        child_op->set_mock_row_desc(std::move(row_desc));
+        ASSERT_TRUE(source->set_child(child_op));
+        create_local_state();
+    };
+
+    ASSERT_NO_FATAL_FAILURE(start_query(false));
+    ASSERT_EQ(source_local_state->_cache_decision->mode, QueryCacheInstanceDecision::Mode::MISS);
+    ASSERT_TRUE(source_local_state->_need_insert_cache);
+    for (size_t batch = 0; batch < inline_bytes.size(); ++batch) {
+        auto input = make_block(batch);
+        const auto st = sink->sink(state.get(), &input, batch == 1);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+    Block output;
+    for (size_t batch = 0; batch < inline_bytes.size(); ++batch) {
+        bool eos = false;
+        const auto st = source->get_block(state.get(), &output, &eos);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_EQ(eos, batch == 1);
+        ASSERT_NO_FATAL_FAILURE(expect_block(output, batch, false));
+        output.clear_column_data(2);
+    }
+    ASSERT_EQ(query_cache->get_element_count(), 1);
+    EXPECT_FALSE(source_local_state->_need_insert_cache);
+
+    for (int query = 0; query < 2; ++query) {
+        SCOPED_TRACE(query);
+        ASSERT_NO_FATAL_FAILURE(start_query(true));
+        ASSERT_EQ(source_local_state->_cache_decision->mode, QueryCacheInstanceDecision::Mode::HIT);
+        const auto* hit = source_local_state->custom_profile()->get_info_string("HitCache");
+        ASSERT_NE(hit, nullptr);
+        EXPECT_EQ(*hit, "1");
+        EXPECT_EQ(source_local_state->_hit_cache_column_orders, (std::vector<int> {1, 0}));
+        ASSERT_FALSE(source_local_state->_need_insert_cache);
+        // A hit skips the scan: only eos arrives from the sink, never replacement rows.
+        Block empty;
+        ASSERT_TRUE(sink->sink(state.get(), &empty, true).ok());
+        output.clear();
+        for (size_t batch = 0; batch < inline_bytes.size(); ++batch) {
+            bool eos = false;
+            const auto st = source->get_block(state.get(), &output, &eos);
+            ASSERT_TRUE(st.ok()) << st;
+            EXPECT_FALSE(eos);
+            ASSERT_NO_FATAL_FAILURE(expect_block(output, batch, true));
+            // Reusing/clearing a returned block must not mutate the next cache hit.
+            output.clear_column_data(2);
+        }
+        bool eos = false;
+        ASSERT_TRUE(source->get_block(state.get(), &output, &eos).ok());
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(output.rows(), 0);
+        EXPECT_EQ(query_cache->get_element_count(), 1);
+    }
 }
 
 TEST_F(QueryCacheOperatorTest, test_no_hit_cache2) {

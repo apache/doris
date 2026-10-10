@@ -54,12 +54,17 @@ std::unique_ptr<FunctionContext> FunctionContext::clone() {
     auto new_context = create_context(_state, _return_type, _arg_types);
     new_context->_constant_cols = _constant_cols;
     new_context->_fragment_local_fn_state = _fragment_local_fn_state;
+    new_context->_file_resource = _file_resource;
     new_context->_check_overflow_for_decimal = _check_overflow_for_decimal;
     new_context->_enable_strict_mode = _enable_strict_mode;
     new_context->_is_auto_partition_boundary_context = _is_auto_partition_boundary_context;
     new_context->_string_as_jsonb_string = _string_as_jsonb_string;
     new_context->_jsonb_string_as_string = _jsonb_string_as_string;
     return new_context;
+}
+
+void FunctionContext::set_file_resource(const TFileResourceSnapshot& resource) {
+    _file_resource = std::make_shared<const TFileResourceSnapshot>(resource);
 }
 
 void FunctionContext::set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr) {

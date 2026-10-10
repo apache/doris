@@ -26,6 +26,7 @@
 #include <sstream>
 
 #include "common/status.h"
+#include "core/data_type/data_type_file.h"
 #include "format/arrow/arrow_utils.h"
 #include "util/string_util.h"
 
@@ -35,6 +36,10 @@ Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std:
                                               std::shared_ptr<arrow::Schema>* schema) {
     arrow::SchemaBuilder builder;
     for (size_t i = 0; i < types.size(); ++i) {
+        // Reject stale FILE signatures before Arrow erases FILE's distinction from STRUCT.
+        if (contains_file_type(types[i])) {
+            return Status::InvalidArgument("FILE is not supported in Python UDF/UDAF/UDTF");
+        }
         std::shared_ptr<arrow::DataType> arrow_type;
         RETURN_IF_ERROR(convert_to_arrow_type(types[i], &arrow_type, timezone));
         std::shared_ptr<arrow::Field> field = std::make_shared<arrow::Field>(

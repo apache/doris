@@ -2297,6 +2297,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 if (_column_states[cid].has_common_expr &&
                     !_column_states[cid].has_runtime_common_expr && _enable_prune_nested_column &&
                     (field_type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+                     field_type == FieldType::OLAP_FIELD_TYPE_FILE ||
                      field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
                      field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
                     DCHECK(_column_iterators[cid]);

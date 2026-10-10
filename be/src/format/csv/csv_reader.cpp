@@ -40,6 +40,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "exec/scan/scanner.h"
 #include "format/file_reader/new_plain_binary_line_reader.h"
@@ -611,6 +612,12 @@ Status CsvReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
 }
 
 Status CsvReader::_init_options() {
+    for (const auto* slot : _file_slot_descs) {
+        if (contains_file_type(slot->get_data_type_ptr())) {
+            return Status::NotSupported("CSV input does not support FILE");
+        }
+    }
+
     // get column_separator and line_delimiter
     _value_separator = _params.file_attributes.text_params.column_separator;
     _value_separator_length = _value_separator.size();

@@ -37,6 +37,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_file.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -44,6 +45,7 @@
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
@@ -54,6 +56,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/orc/orc_file_type.h"
 #include "format/orc/vorc_reader.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
@@ -224,6 +227,16 @@ Status VOrcTransformer::open() {
             return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
                                          e.what());
         }
+        for (size_t i = 0; i < _output_vexpr_ctxs.size(); ++i) {
+            const auto& data_type = _output_vexpr_ctxs[i]->root()->data_type();
+            if (contains_file_type(data_type)) {
+                if (_schema->getKind() != orc::STRUCT ||
+                    _schema->getSubtypeCount() != _output_vexpr_ctxs.size()) {
+                    return Status::InvalidArgument("ORC output schema does not match FILE columns");
+                }
+                RETURN_IF_ERROR(annotate_orc_file_types(data_type, *_schema->getSubtype(i)));
+            }
+        }
     } else {
         _schema = orc::createStructType();
         const std::vector<iceberg::NestedField>* nested_fields = nullptr;
@@ -386,6 +399,10 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
                                     ? &nested_field->field_type()->as_struct_type()->fields()[j]
                                     : nullptr));
         }
+        break;
+    }
+    case TYPE_FILE: {
+        type = create_orc_file_type();
         break;
     }
     case TYPE_ARRAY: {
@@ -944,6 +961,17 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
                                           orc::ColumnVectorBatch* orc_col_batch) {
     auto real_type = remove_nullable(type);
     switch (type->get_primitive_type()) {
+    case TYPE_FILE: {
+        auto& file_batch = assert_cast<orc::StructVectorBatch&>(*orc_col_batch);
+        const auto& file_column = assert_cast<const ColumnFile&>(
+                is_column_nullable(column)
+                        ? assert_cast<const ColumnNullable&>(column).get_nested_column()
+                        : column);
+        for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
+            file_batch.fields[i]->resize(file_column.get_column(i).size());
+        }
+        break;
+    }
     case TYPE_STRUCT: {
         auto* struct_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
         const auto& struct_col =

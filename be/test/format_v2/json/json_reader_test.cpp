@@ -33,6 +33,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -141,8 +142,11 @@ std::unique_ptr<io::FileDescription> file_description(const std::string& path) {
 std::filesystem::path write_json_file(const std::string& name, const std::string& content) {
     static const doris::test::ScopedTempDirectory test_dir("doris_format_v2_json_reader");
     const auto file_path = test_dir.path() / name;
-    std::ofstream out(file_path);
+    std::ofstream out;
+    out.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+    out.open(file_path);
     out << content;
+    out.close();
     return file_path;
 }
 
@@ -228,6 +232,29 @@ ReadResult read_once(const std::string& file_name, const std::string& content,
     return result;
 }
 
+ReadResult read_legacy_once(const std::string& file_name, const std::string& content,
+                            const std::vector<SlotDescriptor*>& slots, bool is_load) {
+    const auto file_path = write_json_file(file_name, content);
+    auto params = json_scan_params();
+    auto range = file_range(file_path);
+    RuntimeProfile profile("legacy_json_file_reader_test");
+    MockRuntimeState state;
+    ScannerCounter counter;
+    bool scanner_eof = false;
+    auto reader = NewJsonReader::create_unique(&state, &profile, &counter, params, range, slots,
+                                               &scanner_eof, 1024, nullptr);
+    ReadResult result;
+    for (const auto* slot : slots) {
+        const auto type = slot->get_data_type_ptr();
+        result.block.insert({type->create_column(), type, slot->col_name()});
+    }
+    result.status = reader->init_reader({}, is_load);
+    if (result.status.ok()) {
+        result.status = reader->_do_get_next_block(&result.block, &result.rows, &result.eof);
+    }
+    return result;
+}
+
 std::string nullable_string_at(const IColumn& column, size_t row) {
     const auto& nullable = assert_cast<const ColumnNullable&>(column);
     const auto& nested = assert_cast<const ColumnString&>(nullable.get_nested_column());
@@ -299,6 +326,53 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
     status = context->open(state);
     EXPECT_TRUE(status.ok()) << status;
     return context;
+}
+
+void expect_decoded_string_and_map(const ReadResult& result, const std::string& expected) {
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    ASSERT_EQ(result.block.rows(), 1);
+    const auto row = (*result.block.get_by_position(0).column)[0];
+    const auto& fields = row.get<TYPE_STRUCT>();
+    EXPECT_EQ(fields[0].get<TYPE_STRING>(), expected);
+    const auto& entries = fields[1].get<TYPE_MAP>();
+    ASSERT_EQ(entries[0].get<TYPE_ARRAY>().size(), 1);
+    EXPECT_EQ(entries[0].get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), expected);
+    EXPECT_EQ(entries[1].get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), expected);
+}
+
+void expect_file_metadata_and_inline(const Field& field) {
+    ASSERT_EQ(field.get_type(), TYPE_FILE);
+    const auto& file = field.get<TYPE_FILE>();
+    ASSERT_EQ(file.size(), 6);
+    EXPECT_EQ(file[0].get<TYPE_STRING>(), "s3://bucket/raw%2Fkey?versionId=1");
+    EXPECT_EQ(file[1].get<TYPE_BIGINT>(), 4294967297LL);
+    EXPECT_EQ(file[2].get<TYPE_BIGINT>(), 4294967298LL);
+    EXPECT_EQ(file[3].get<TYPE_STRING>(), "application/octet-stream");
+    EXPECT_EQ(file[4].get<TYPE_STRING>(), "ETAG:opaque-2");
+    EXPECT_EQ(file[5].get<TYPE_VARBINARY>().to_string_ref().to_string(), std::string("\0\xff"
+                                                                                     "A",
+                                                                                     3));
+}
+
+void expect_file_with_string_siblings(const ReadResult& result, const std::string& expected_text) {
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    ASSERT_EQ(result.block.rows(), 2);
+    const auto row = (*result.block.get_by_position(0).column)[0];
+    const auto& fields = row.get<TYPE_STRUCT>();
+    EXPECT_EQ(fields[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().to_string_ref().to_string(),
+              std::string("\0\xff"
+                          "A",
+                          3));
+    EXPECT_EQ(fields[1].get<TYPE_STRING>(), expected_text);
+    const auto& files = fields[2].get<TYPE_ARRAY>();
+    ASSERT_EQ(files.size(), 2);
+    EXPECT_EQ(files[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(), 0);
+    EXPECT_TRUE(files[1].is_null());
+    const auto& lookup = fields[3].get<TYPE_MAP>();
+    ASSERT_EQ(lookup[0].get<TYPE_ARRAY>().size(), 1);
+    EXPECT_EQ(lookup[0].get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), "line\nkey");
+    EXPECT_TRUE(lookup[1].get<TYPE_ARRAY>()[0].get<TYPE_FILE>()[5].is_null());
+    EXPECT_TRUE(result.block.get_by_position(0).column->is_null_at(1));
 }
 
 } // namespace
@@ -667,6 +741,122 @@ TEST(JsonReaderTest, SynthesizesComplexFileSchemaFromSlotTypes) {
     EXPECT_EQ(schema[3].children[1].children[0].name, "element");
     EXPECT_EQ(remove_nullable(schema[3].children[1].children[0].type)->get_primitive_type(),
               TYPE_INT);
+}
+
+TEST(JsonReaderTest, ReadsFileValuesAndNestedInlineBytes) {
+    ObjectPool pool;
+    const auto file_type = make_nullable(std::make_shared<DataTypeFile>());
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(file_type));
+    const auto map_type = make_nullable(
+            std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), file_type));
+    const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {file_type, array_type, map_type}, Strings {"f", "a", "m"}));
+    const std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, file_type, "f"),
+                                              make_test_slot(&pool, 1, 1, struct_type, "s")};
+    const std::string value = R"({"uri":"s3://bucket/raw%2Fkey?versionId=1","offset":4294967297,)"
+                              R"("size":4294967298,"content_type":"application/octet-stream",)"
+                              R"("checksum":"ETAG:opaque-2","inline":"AP9B"})";
+    const auto result = read_once("file_values.jsonl",
+                                  R"({"f":)" + value + R"(,"s":{"f":)" + value + R"(,"a":[)" +
+                                          value + R"(,null],"m":{"asset":)" + value + "}}}\n" +
+                                          R"({"f":null,"s":null})" + "\n",
+                                  json_scan_params(), slots, {0, 1});
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    ASSERT_EQ(result.rows, 2);
+    EXPECT_TRUE(result.block.get_by_position(0).type->equals(*file_type));
+    expect_file_metadata_and_inline((*result.block.get_by_position(0).column)[0]);
+    const auto nested = (*result.block.get_by_position(1).column)[0];
+    const auto& fields = nested.get<TYPE_STRUCT>();
+    expect_file_metadata_and_inline(fields[0]);
+    const auto& array = fields[1].get<TYPE_ARRAY>();
+    ASSERT_EQ(array.size(), 2);
+    expect_file_metadata_and_inline(array[0]);
+    EXPECT_TRUE(array[1].is_null());
+    const auto& map = fields[2].get<TYPE_MAP>();
+    ASSERT_EQ(map[0].get<TYPE_ARRAY>().size(), 1);
+    EXPECT_EQ(map[0].get<TYPE_ARRAY>()[0].get<TYPE_STRING>(), "asset");
+    expect_file_metadata_and_inline(map[1].get<TYPE_ARRAY>()[0]);
+    EXPECT_TRUE(result.block.get_by_position(0).column->is_null_at(1));
+    EXPECT_TRUE(result.block.get_by_position(1).column->is_null_at(1));
+}
+
+TEST(JsonReaderTest, FileLoadPreservesJsonStringEscapesInSiblingValues) {
+    ObjectPool pool;
+    const auto file = make_nullable(std::make_shared<DataTypeFile>());
+    const auto string = make_nullable(std::make_shared<DataTypeString>());
+    const auto array = make_nullable(std::make_shared<DataTypeArray>(file));
+    const auto map = make_nullable(std::make_shared<DataTypeMap>(string, file));
+    const auto structure = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {file, string, array, map}, Strings {"f", "text", "files", "lookup"}));
+    const std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, structure, "s")};
+    const std::string content = R"({"s":{"f":{"uri":"s3://bucket/raw%2Fkey","inline":"AP9B"},)"
+                                R"("text":"line\r\n\t\u0000\u4e2d\ud83d\ude00\\tail",)"
+                                R"("files":[{"uri":"s3://bucket/empty","inline":""},null],)"
+                                R"("lookup":{"line\nkey":{"uri":"s3://bucket/external"}}}})"
+                                "\n{\"s\":null}\n";
+    const std::string expected_text = std::string("line\r\n\t\0", 8) + "中😀\\tail";
+    for (int mode = 0; mode < 3; ++mode) {
+        SCOPED_TRACE(mode);
+        const auto result = mode == 0 ? read_once("file_string_escapes.jsonl", content,
+                                                  json_scan_params(), slots, {0})
+                                      : read_legacy_once("file_string_escapes_legacy.jsonl",
+                                                         content, slots, mode == 1);
+        expect_file_with_string_siblings(result, expected_text);
+    }
+}
+
+TEST(JsonReaderTest, DecodedStringsAndMapKeysRetainLiteralQuotes) {
+    const std::vector<std::pair<std::string, std::string>> values {
+            {R"("\"abc\"")", "\"abc\""},
+            {R"("'abc'")", "'abc'"},
+            {R"("\"\"")", "\"\""},
+            {R"("single\"")", "single\""},
+            {R"("")", ""},
+            {R"("a\\b\u0000c")", std::string("a\\b\0c", 5)}};
+    for (bool with_file : {false, true}) {
+        ObjectPool pool;
+        const auto string = make_nullable(std::make_shared<DataTypeString>());
+        const auto map = make_nullable(std::make_shared<DataTypeMap>(string, string));
+        DataTypes children {string, map};
+        Strings names {"text", "lookup"};
+        if (with_file) {
+            children.push_back(make_nullable(std::make_shared<DataTypeFile>()));
+            names.emplace_back("f");
+        }
+        const auto structure = make_nullable(std::make_shared<DataTypeStruct>(children, names));
+        const std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, structure, "s")};
+        for (const auto& [token, expected] : values) {
+            const std::string content = R"({"s":{"text":)" + token + R"(,"lookup":{)" + token +
+                                        ":" + token + "}" +
+                                        (with_file ? R"(,"f":{"uri":"urn:file"})" : "") + "}}\n";
+            for (const int mode : {0, 1, 2}) {
+                if (!with_file && mode == 1) {
+                    continue; // Legacy non-FILE Load remains raw text.
+                }
+                SCOPED_TRACE("with_file=" + std::to_string(with_file) +
+                             " mode=" + std::to_string(mode) + " token=" + token);
+                const auto result = mode == 0 ? read_once("decoded_quotes.jsonl", content,
+                                                          json_scan_params(), slots, {0})
+                                              : read_legacy_once("decoded_quotes_legacy.jsonl",
+                                                                 content, slots, mode == 1);
+                expect_decoded_string_and_map(result, expected);
+            }
+        }
+    }
+}
+
+TEST(JsonReaderTest, FileMustBeJsonObjectRatherThanStringContainingJson) {
+    ObjectPool pool;
+    const auto file = make_nullable(std::make_shared<DataTypeFile>());
+    const std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, file, "f")};
+    const std::string content = R"({"f":"{\"uri\":\"s3://bucket/a\"}"})"
+                                "\n";
+    const auto v2 = read_once("file_string_object.jsonl", content, json_scan_params(), slots, {0});
+    EXPECT_FALSE(v2.status.ok());
+    EXPECT_NE(v2.status.to_string().find("FILE requires a JSON object"), std::string::npos);
+    const auto legacy = read_legacy_once("file_string_object_legacy.jsonl", content, slots, false);
+    EXPECT_FALSE(legacy.status.ok());
+    EXPECT_NE(legacy.status.to_string().find("FILE requires a JSON object"), std::string::npos);
 }
 
 TEST(JsonReaderTest, RejectsInvalidFileScanRequestsBeforeOpeningFile) {

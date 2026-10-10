@@ -21,7 +21,9 @@
 #include <glog/logging.h>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -80,6 +82,18 @@ struct FileInfo {
     bool is_file;
 };
 
+struct FileStat {
+    int64_t size = 0;
+    std::optional<std::string> content_type {};
+    // Provider ETag as an opaque ETAG:digest, when available.
+    std::optional<std::string> checksum {};
+};
+
+// Query-owned cancellation, checked before and after the stock metadata operation.
+struct FileStatContext {
+    std::function<bool()> is_cancelled {};
+};
+
 // `FileSystem` providing an interface to access FS metadata. Each `RemoteFileSystem` instance
 // (except temporary Remote FS) corresponds to a `StorageResource` configured in FE.
 class FileSystem {
@@ -100,6 +114,8 @@ public:
     Status batch_delete(const std::vector<Path>& files);
     Status exists(const Path& path, bool* res) const;
     Status file_size(const Path& file, int64_t* file_size) const;
+    // Uses the same backend path handling as other operations. On error, metadata is unchanged.
+    Status stat(const Path& path, FileStat* metadata, FileStatContext* context = nullptr) const;
     Status list(const Path& dir, bool only_file, std::vector<FileInfo>* files, bool* exists);
     Status rename(const Path& orig_name, const Path& new_name);
 
@@ -146,6 +162,8 @@ protected:
     /// return OK and get size of given file, save in "file_size".
     /// return ERR otherwise
     virtual Status file_size_impl(const Path& file, int64_t* file_size) const = 0;
+
+    virtual Status stat_impl(const Path& path, FileStat* metadata, FileStatContext* context) const;
 
     /// return OK and list all objects in "dir", save in "files"
     /// return ERR otherwise

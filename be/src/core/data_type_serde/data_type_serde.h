@@ -163,6 +163,10 @@ public:
          */
         bool converted_from_string = false;
 
+        // FILE-containing format cells carry JSON strings, including escaped controls and
+        // Unicode. Enable only for raw JSON, never for strings already decoded by a JSON reader.
+        bool strict_json_strings = false;
+
         char quote_char = '"';
 
         char escape_char = 0;

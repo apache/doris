@@ -34,6 +34,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/data_type/data_type_file.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_row_batch.h"
@@ -254,6 +255,14 @@ arrow::Status VParquetWriter::_open_file_writer() {
 }
 
 Status VParquetWriter::open() {
+    for (const auto& context : _output_vexpr_ctxs) {
+        const auto& type = context->root()->data_type();
+        if (contains_file_type(type)) {
+            return Status::NotSupported("Parquet output does not support type {}",
+                                        type->get_name());
+        }
+    }
+
     _timezone = _state->timezone();
     _timezone_obj = _state->timezone_obj();
     if (_parquet_options.enable_int96_timestamps && _parquet_options.int96_timezone.has_value()) {

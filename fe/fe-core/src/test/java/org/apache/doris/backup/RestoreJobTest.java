@@ -21,9 +21,12 @@ import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -32,9 +35,13 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
@@ -273,6 +280,43 @@ public class RestoreJobTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testFileVersionRejectedBeforeRestoreChangesMetadata() {
+        int previousVersion = Config.be_exec_version;
+        List<Column> schema = expectedRestoreTbl.getFullSchema();
+        long originalId = expectedRestoreTbl.getId();
+        db.registerTable(expectedRestoreTbl);
+        // Use the local-snapshot path so this preflight test never downloads repository files.
+        Deencapsulation.setField(job, "repoId", Repository.KEEP_ON_LOCAL_REPO_ID);
+        Deencapsulation.setField(job, "backupMeta", backupMeta);
+        try {
+            Config.be_exec_version = Config.FILE_MIN_BE_EXEC_VERSION - 1;
+            for (Type type : List.of(Type.FILE, new ArrayType(Type.FILE),
+                    new StructType(new StructField("payload", Type.FILE)),
+                    new MapType(Type.STRING, Type.FILE))) {
+                List<Column> fileSchema = Lists.newArrayList(schema);
+                fileSchema.add(new Column("file_value", type, true));
+                expectedRestoreTbl.setNewFullSchema(fileSchema);
+
+                Deencapsulation.invoke(job, "checkAndPrepareMeta");
+
+                Assertions.assertFalse(job.getStatus().ok());
+                Assertions.assertTrue(job.getStatus().getErrMsg().contains("FILE requires execution version"));
+                Assertions.assertEquals(RestoreJob.RestoreJobState.PENDING, job.getState());
+                Assertions.assertSame(expectedRestoreTbl, db.getTableNullable(originalId));
+                Assertions.assertEquals(originalId, expectedRestoreTbl.getId());
+                Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, expectedRestoreTbl.getState());
+                Assertions.assertFalse(expectedRestoreTbl.isInAtomicRestore());
+                for (Partition partition : expectedRestoreTbl.getPartitions()) {
+                    Assertions.assertEquals(Partition.PartitionState.NORMAL, partition.getState());
+                }
+            }
+        } finally {
+            Config.be_exec_version = previousVersion;
+            expectedRestoreTbl.setNewFullSchema(schema);
+        }
     }
 
     @Test

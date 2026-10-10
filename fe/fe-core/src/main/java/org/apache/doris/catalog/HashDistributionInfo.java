@@ -56,6 +56,9 @@ public class HashDistributionInfo extends DistributionInfo {
     }
 
     public static void checkDistributionColumnType(String columnName, Type type) throws DdlException {
+        if (type.typeContainsFile()) {
+            throw new DdlException("FILE cannot be used in distribution column[" + columnName + "]");
+        }
         if (type.isArrayType()) {
             throw new DdlException("Array Type should not be used in distribution column[" + columnName + "].");
         }

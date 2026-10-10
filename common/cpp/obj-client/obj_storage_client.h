@@ -53,6 +53,10 @@ struct ObjStoragePath {
     std::string bucket {}; // blob container in azure
     std::string key {};    // blob name in azure
     std::string prefix {}; // for list and recursive delete
+
+    // Empty means recursive listing; S3 uses "/" for direct children.
+    // Keep a default initializer so existing aggregate callers can omit the new field.
+    std::string delimiter {}; // NOLINT(readability-redundant-member-init)
 };
 
 struct ObjStorageEndpointInfo {
@@ -66,6 +70,7 @@ struct ObjectMeta {
     std::string key {};
     int64_t size {0};
     int64_t mtime_s {0};
+    std::optional<int64_t> modification_time_ms = std::nullopt;
 };
 
 struct ObjStorageCompletedPart {
@@ -131,6 +136,8 @@ struct ObjStorageUploadResult {
 struct ObjStorageHeadResult {
     ObjStorageResponse resp = ObjStorageResponse::OK();
     long long file_size {0};
+    std::optional<std::string> content_type {};
+    std::optional<std::string> etag {};
 };
 
 struct ObjStorageListResult {
@@ -233,7 +240,6 @@ public:
     virtual ObjStorageResponse abort_multipart_upload(const ObjStoragePath& path,
                                                       const std::string& upload_id) = 0;
 
-protected:
     // Fetch at most one page. One call corresponds to exactly one provider request.
     virtual ObjStorageListPageResult list_objects_page(const ObjStoragePath& opts,
                                                        std::string_view continuation_token) = 0;

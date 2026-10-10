@@ -323,6 +323,8 @@ public class MysqlSerializer {
                 }
                 return precision;
             }
+            case FILE:
+                return org.apache.doris.catalog.FileType.JSON_DISPLAY_LENGTH;
             case VARBINARY: {
                 return type.getLength();
             }

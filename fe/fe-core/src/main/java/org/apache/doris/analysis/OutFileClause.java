@@ -34,6 +34,8 @@ import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
@@ -120,6 +122,8 @@ public class OutFileClause {
     public static final String PROP_WITH_BOM = "with_bom";
 
     private static final String SCHEMA = "schema";
+    private static final String FILE_ORC_TYPE = "struct<uri:string,offset:bigint,size:bigint,"
+            + "content_type:string,checksum:string,inline:binary>";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
@@ -141,6 +145,8 @@ public class OutFileClause {
 
     private List<Pair<String, String>> orcSchemas = new ArrayList<>();
 
+    private List<String> jsonColumnNames = new ArrayList<>();
+
     private boolean isAnalyzed = false;
 
     private FileFormatProperties fileFormatProperties;
@@ -161,6 +167,7 @@ public class OutFileClause {
         this.fileFormatProperties = other.fileFormatProperties;
         this.properties = other.properties == null ? null : Maps.newHashMap(other.properties);
         this.isAnalyzed = other.isAnalyzed;
+        this.jsonColumnNames = new ArrayList<>(other.jsonColumnNames);
     }
 
     public String getColumnSeparator() {
@@ -219,7 +226,53 @@ public class OutFileClause {
                 analyzeForParquetFormat(resultExprs, colLabels);
             } else if (isOrcFormat()) {
                 analyzeForOrcFormat(resultExprs, colLabels);
+            } else if (isJsonFormat()) {
+                analyzeForJsonFormat(resultExprs, colLabels);
+            } else {
+                for (Expr expr : resultExprs) {
+                    if (expr.getType().typeContainsFile()) {
+                        throw new AnalysisException("CSV OUTFILE does not support FILE");
+                    }
+                }
             }
+        }
+    }
+
+    private void analyzeForJsonFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
+        List<org.apache.doris.nereids.types.StructField> fields = new ArrayList<>();
+        for (int i = 0; i < resultExprs.size(); i++) {
+            Expr expr = resultExprs.get(i);
+            checkJsonType(expr.getType());
+            fields.add(new org.apache.doris.nereids.types.StructField(colLabels.get(i),
+                    DataType.fromCatalogType(expr.getType()), expr.isNullable(), ""));
+        }
+        // A row is a JSON object with the same field identity as a STRUCT: ROOT lowercase
+        // names and no case-insensitive duplicates. Keep the validated projection order.
+        org.apache.doris.nereids.types.StructType rowType = new org.apache.doris.nereids.types.StructType(fields);
+        for (org.apache.doris.nereids.types.StructField field : rowType.getFields()) {
+            jsonColumnNames.add(field.getName());
+        }
+    }
+
+    private void checkJsonType(Type type) throws AnalysisException {
+        switch (type.getPrimitiveType()) {
+            case ARRAY:
+                checkJsonType(((ArrayType) type).getItemType());
+                break;
+            case MAP:
+                checkJsonType(((MapType) type).getKeyType());
+                checkJsonType(((MapType) type).getValueType());
+                break;
+            case STRUCT:
+                for (StructField field : ((StructType) type).getFields()) {
+                    checkJsonType(field.getType());
+                }
+                break;
+            case VARBINARY:
+                throw new AnalysisException("JSON OUTFILE does not support type " + type.toSql());
+            default:
+                // FILE is atomic here: its JSON representation encodes inline bytes as Base64.
+                break;
         }
     }
 
@@ -297,6 +350,10 @@ public class OutFileClause {
                 } else {
                     throw new AnalysisException("currently ORC outfile do not support WildcardDecimal!");
                 }
+                break;
+            case FILE:
+                // BE restores the FILE marker on this node using the independent FILE result type.
+                orcType = FILE_ORC_TYPE;
                 break;
             case STRUCT: {
                 StructType structType = (StructType) dorisType;
@@ -421,6 +478,9 @@ public class OutFileClause {
                 case UUID:
                     checkOrcType(schema.second, "binary", true, resultType.getPrimitiveType().toString());
                     break;
+                case FILE:
+                    checkOrcType(schema.second, FILE_ORC_TYPE, true, "FILE");
+                    break;
                 case STRUCT:
                     checkOrcType(schema.second, "struct", false, resultType.getPrimitiveType().toString());
                     break;
@@ -453,6 +513,11 @@ public class OutFileClause {
     }
 
     private void analyzeForParquetFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
+        for (Expr expr : resultExprs) {
+            if (expr.getType().typeContainsFile()) {
+                throw new AnalysisException("Parquet OUTFILE does not support FILE");
+            }
+        }
         if (this.parquetSchemas.isEmpty()) {
             genParquetColumnName(resultExprs, colLabels);
         }
@@ -506,20 +571,24 @@ public class OutFileClause {
     }
 
     private void analyzeProperties() throws UserException {
-        if (properties == null || properties.isEmpty()) {
+        if ((properties == null || properties.isEmpty()) && !isJsonFormat()) {
             return;
         }
         // Copy the properties, because we will remove the key from properties.
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        copiedProps.putAll(properties);
+        if (properties != null) {
+            copiedProps.putAll(properties);
+        }
 
         analyzeBrokerDesc(copiedProps);
 
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
-        // check if compression type for csv is supported
+        // Check the existing text-writer compression codecs for CSV and JSON.
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
             CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
             csvFileFormatProperties.checkSupportedCompressionType(true);
+        } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
+            ((JsonFileFormatProperties) fileFormatProperties).checkSupportedCompressionType(true);
         }
 
         if (copiedProps.containsKey(PROP_MAX_FILE_SIZE)) {
@@ -715,6 +784,10 @@ public class OutFileClause {
         return fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC;
     }
 
+    private boolean isJsonFormat() {
+        return fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON;
+    }
+
     public String getFilePath() {
         return filePath;
     }
@@ -772,6 +845,9 @@ public class OutFileClause {
         }
         if (isOrcFormat()) {
             sinkOptions.setOrcSchema(serializeOrcSchema());
+        }
+        if (isJsonFormat()) {
+            sinkOptions.setJsonColumnNames(jsonColumnNames);
         }
         return sinkOptions;
     }

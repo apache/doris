@@ -22,6 +22,7 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "format/file_reader/new_plain_binary_line_reader.h"
@@ -74,6 +75,12 @@ CsvReader::CsvReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
 CsvReader::~CsvReader() = default;
 
 Status CsvReader::_init_format_state() {
+    for (const auto* slot : _source_file_slot_descs) {
+        if (contains_file_type(slot->get_data_type_ptr())) {
+            return Status::NotSupported("CSV input does not support FILE");
+        }
+    }
+
     _file_format_type = _scan_params->format_type;
     _file_compress_type =
             _range_compress_type != TFileCompressType::UNKNOWN

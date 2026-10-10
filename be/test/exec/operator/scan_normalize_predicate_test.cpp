@@ -23,6 +23,7 @@
 #include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
@@ -66,6 +67,69 @@ TEST_F(ScanNormalizePredicate, test1) {
                                                 conjunct_expr_root->root(), new_root);
     EXPECT_TRUE(st) << st.msg();
     std::cout << new_root->debug_string() << std::endl;
+}
+
+TEST_F(ScanNormalizePredicate, FileParentNullPredicatesDoNotRequireScalarValueRanges) {
+    for (bool nullable : {false, true}) {
+        const auto file_type = nullable ? make_nullable(std::make_shared<DataTypeFile>())
+                                        : DataTypePtr(std::make_shared<DataTypeFile>());
+        op->_row_descriptor = MockRowDescriptor {{file_type}, &pool};
+        op->_output_tuple_desc = op->_row_descriptor.tuple_descriptors()[0];
+        auto* slot = op->_output_tuple_desc->slots()[0];
+        slot->_id = 0;
+        slot->_col_name = "f";
+        op->_slot_id_to_slot_desc[0] = slot;
+        for (const std::string name : {"is_null_pred", "is_not_null_pred"}) {
+            auto local = std::make_shared<MockScanLocalState>(state.get(), op.get());
+            local->_init_slot_value_range(local->_slot_id_to_value_range, slot, file_type);
+            ASSERT_TRUE(local->_slot_id_to_value_range.empty());
+            auto reference = std::make_shared<MockSlotRef>(0, file_type);
+            reference->_slot_id = 0;
+            auto expression = MockFnCall::create(name);
+            expression->_node_type = TExprNodeType::FUNCTION_CALL;
+            expression->add_child(reference);
+            auto context = VExprContext::create_shared(expression);
+            context->_prepared = true;
+            context->_opened = true;
+            VExprSPtr remaining;
+            ASSERT_TRUE(local->_normalize_predicate(context.get(), expression, remaining).ok());
+            ASSERT_EQ(1, local->_slot_id_to_predicates[0].size());
+            const auto& predicate = local->_slot_id_to_predicates[0][0];
+            EXPECT_EQ(TYPE_FILE, predicate->primitive_type());
+            EXPECT_EQ(0, predicate->column_id());
+            EXPECT_EQ(name == "is_null_pred" ? PredicateType::IS_NULL : PredicateType::IS_NOT_NULL,
+                      predicate->type());
+            EXPECT_TRUE(local->_slot_id_to_value_range.empty());
+        }
+    }
+}
+
+TEST_F(ScanNormalizePredicate, FileValuesAndVirtualFileNullsAreNotBoundAsScalarPredicates) {
+    const auto file_type = make_nullable(std::make_shared<DataTypeFile>());
+    op->_row_descriptor = MockRowDescriptor {{file_type}, &pool};
+    op->_output_tuple_desc = op->_row_descriptor.tuple_descriptors()[0];
+    auto* slot = op->_output_tuple_desc->slots()[0];
+    slot->_id = 0;
+    op->_slot_id_to_slot_desc[0] = slot;
+    for (const std::string name : {"eq", "lt", "is_null_pred"}) {
+        slot->virtual_column_expr = name == "is_null_pred" ? std::make_shared<TExpr>() : nullptr;
+        auto local = std::make_shared<MockScanLocalState>(state.get(), op.get());
+        auto reference = std::make_shared<MockSlotRef>(0, file_type);
+        reference->_slot_id = 0;
+        auto expression = MockFnCall::create(name);
+        expression->_node_type =
+                name == "is_null_pred" ? TExprNodeType::FUNCTION_CALL : TExprNodeType::BINARY_PRED;
+        expression->add_child(reference);
+        if (name != "is_null_pred") expression->add_child(reference);
+        auto context = VExprContext::create_shared(expression);
+        context->_prepared = true;
+        context->_opened = true;
+        VExprSPtr remaining;
+        ASSERT_TRUE(local->_normalize_predicate(context.get(), expression, remaining).ok());
+        EXPECT_EQ(expression, remaining);
+        EXPECT_TRUE(local->_slot_id_to_predicates.empty());
+        EXPECT_TRUE(local->_slot_id_to_value_range.empty());
+    }
 }
 
 TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts1) {

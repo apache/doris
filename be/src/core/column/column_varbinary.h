@@ -79,6 +79,13 @@ public:
 
     StringRef get_data_at(size_t n) const override { return _data[n].to_string_ref(); }
 
+    bool structure_equals(const IColumn& rhs) const override {
+        return typeid(rhs) == typeid(ColumnVarbinary);
+    }
+
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+
     char* alloc(size_t length) { return _arena.alloc(length); }
 
     void insert(const Field& x) override {

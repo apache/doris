@@ -683,6 +683,7 @@ struct TExternalScanRange {
 
 enum TDataGenFunctionName {
     NUMBERS = 0,
+    LIST_FILE = 1,
 }
 
 // Every table valued function should have a scan range definition to save its
@@ -693,8 +694,15 @@ struct TTVFNumbersScanRange {
   3: optional i64 constValue
 }
 
+struct TTVFListFileScanRange {
+  1: Types.TFileResourceSnapshot resource
+  2: string uri
+  3: bool recursive
+}
+
 struct TDataGenScanRange {
   1: optional TTVFNumbersScanRange numbers_params
+  2: optional TTVFListFileScanRange list_file_params
 }
 
 

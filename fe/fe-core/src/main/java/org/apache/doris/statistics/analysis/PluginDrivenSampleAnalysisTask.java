@@ -86,7 +86,10 @@ public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
         }
         // Single distribution column is not fit for DUJ1 estimator, use linear estimator.
         Set<String> distributionColumns = tbl.getDistributionColumnNames();
-        if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
+        if (isFileColumn()) {
+            sb.append(FILE_ANALYZE_TEMPLATE);
+            params.put("rowCount", "ROUND(COUNT(1) * ${scaleFactor})");
+        } else if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
             bucketFlag = true;
             sb.append(LINEAR_ANALYZE_TEMPLATE);
             params.put("ndvFunction", "ROUND(NDV(${colName}) * ${scaleFactor})");

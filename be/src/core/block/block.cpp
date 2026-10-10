@@ -44,6 +44,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "runtime/descriptors.h"
@@ -189,6 +190,7 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
         // Here will try to allocate large memory, should return error if failed.
         RETURN_IF_CATCH_EXCEPTION(
                 buf = type->deserialize(buf, &data_column, pblock.be_exec_version()));
+        RETURN_IF_ERROR(validate_file_column(*data_column, type));
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
 

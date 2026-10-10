@@ -138,7 +138,10 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 // 16: start from master
 //   a. support Paimon table writes.
 
-const int BeExecVersionManager::max_be_exec_version = SUPPORT_PAIMON_WRITE_VERSION;
+// 17: support independent FILE descriptors, six-child PBlock values and native FILE
+//     aggregate states.
+
+const int BeExecVersionManager::max_be_exec_version = SUPPORT_FILE_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;

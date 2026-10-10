@@ -57,6 +57,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "exprs/vfile_literal.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/vinfo_func.h"
 #include "exprs/virtual_slot_ref.h"
@@ -520,6 +521,10 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::MAP_LITERAL: {
             expr = VMapLiteral::create_shared(expr_node);
+            break;
+        }
+        case TExprNodeType::FILE_LITERAL: {
+            expr = VFileLiteral::create_shared(expr_node);
             break;
         }
         case TExprNodeType::STRUCT_LITERAL: {

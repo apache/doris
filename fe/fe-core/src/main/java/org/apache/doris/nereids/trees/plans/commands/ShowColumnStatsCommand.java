@@ -275,7 +275,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             row.add(p.first.second);
             row.add(Util.getTempTableDisplayName(p.first.first));
             row.add(String.valueOf(p.second.count));
-            row.add(String.valueOf(p.second.ndv));
+            row.add(p.second.ndvUnavailable ? "N/A" : String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));
             row.add(String.valueOf(p.second.dataSize));
             row.add(String.valueOf(p.second.avgSizeByte));
@@ -308,10 +308,10 @@ public class ShowColumnStatsCommand extends ShowCommand {
             String indexName = indexId == -1 ? tableIf.getName() : ((OlapTable) tableIf).getIndexNameById(indexId);
             row.add(indexName); // index_name.
             row.add(r.get(3)); // count
-            row.add(r.get(4)); // ndv
+            row.add(r.get(4) == null ? "N/A" : r.get(4)); // ndv
             row.add(r.get(5)); // num_null
-            row.add(r.get(6)); // min
-            row.add(r.get(7)); // max
+            row.add(r.get(6) == null ? "N/A" : r.get(6)); // min
+            row.add(r.get(7) == null ? "N/A" : r.get(7)); // max
             row.add(r.get(8)); // data_size
             row.add(r.get(9)); // updated_time
             String updateRows = "N/A";
@@ -353,7 +353,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             String indexName = indexId == -1 ? tableIf.getName() : ((OlapTable) tableIf).getIndexNameById(indexId);
             row.add(indexName); // index_name.
             row.add(String.valueOf(value.count)); // count
-            row.add(String.valueOf(value.ndv.estimateCardinality())); // ndv
+            row.add(value.ndvUnavailable ? "N/A" : String.valueOf(value.ndv.estimateCardinality())); // ndv
             row.add(String.valueOf(value.numNulls)); // num_null
             row.add(String.valueOf(value.minExpr == null ? "N/A"
                     : value.minExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))); // min

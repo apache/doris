@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -82,7 +83,9 @@ import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTypeNodeType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -401,6 +404,25 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
      */
     private Pair<Type, Integer> getColumnType(List<PTypeNode> typeNodes, int start) {
         PTypeNode typeNode = typeNodes.get(start);
+        if (typeNode.getType() == TTypeNodeType.FILE.getValue()) {
+            Preconditions.checkArgument(!typeNode.hasScalarType()
+                            && typeNode.getStructFieldsCount() == FileType.FIELD_COUNT,
+                    "FILE requires six named nullable children");
+            ArrayList<StructField> fields = new ArrayList<>();
+            int parsedNodes = 1;
+            for (PStructField field : typeNode.getStructFieldsList()) {
+                Pair<Type, Integer> child = getColumnType(typeNodes, start + parsedNodes);
+                Type childType = child.key();
+                // BE represents unbounded VARBINARY with -1; FE uses its maximum length.
+                if (childType.isVarbinaryType()
+                        && typeNodes.get(start + parsedNodes).getScalarType().getLen() == -1) {
+                    childType = ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH);
+                }
+                fields.add(new StructField(field.getName(), childType, null, field.getContainsNull()));
+                parsedNodes += child.value();
+            }
+            return Pair.of(new FileType(fields), parsedNodes);
+        }
         PScalarType columnType = typeNode.getScalarType();
         TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(columnType.getType());
         Type type;
