@@ -302,3 +302,8 @@ Iceberg V3 schema
 - 已从旧 PR 提取 BE 空间物理类型的最小变更集：`ColumnSpatial`、`DataTypeSpatial`、DataTypeFactory 分派和 BE 单测；保留 master 当前 `VARBINARY` SerDe，未接受旧提交对该文件的覆盖。
 - `./build.sh --be` 已进入 worktree 子模块准备，但在 `clucene` 外部下载阶段因依赖传输阻塞而中止，尚未获得 BE 编译结论；该状态不能视为通过。
 - 构建过程中 datasketches 子模块的两个二进制 fixture 被工具改写，未纳入提交；后续需在依赖恢复后清理/确认子模块工作树。
+
+## 当前决策点
+
+- 阶段 4（WKB/Arrow/Parquet 读写与空间函数）和阶段 5（回归、兼容性、PR 收敛）尚未完成；在 BE 依赖可构建前不继续扩展 writer/reader 代码，避免形成无法验证的半成品。
+- 交付前必须补充：GEOMETRY/GEOGRAPHY 的 CRS/algorithm 端到端传递、嵌套类型边界、WKB/EWKB/SRID 校验、Arrow/Parquet 双向测试、NULL/无效输入语义，以及 master 上的回归测试与 PR 说明。
