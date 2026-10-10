@@ -384,7 +384,13 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             }
             if (rs_meta->compaction_level() == 1 &&
                 (now - rs_meta->creation_time()) <= level2_compaction_timeout) {
-                continue;
+                // This level-1 rowset has not aged past the level-2 timeout yet. The loop must not skip
+                // over it: the output version is built from the first and last selected rowset, so
+                // selecting a later, eligible rowset past this gap would commit an output spanning a
+                // rowset that was never merged and leave two active rowsets with overlapping ranges.
+                // candidate_rowsets is already version-continuous, so stopping here keeps only the
+                // contiguous prefix selected so far.
+                break;
             }
             level1_rowsets.push_back(rowset);
             continuous_size += rs_meta->total_disk_size();
