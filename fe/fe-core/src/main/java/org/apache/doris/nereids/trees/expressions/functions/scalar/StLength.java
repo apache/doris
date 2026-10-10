@@ -69,6 +69,12 @@ public class StLength extends ScalarFunction
     }
 
     @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        FunctionSignature signature = SpatialFunctionSignature.unary(child(0), DoubleType.INSTANCE);
+        return signature != null ? signature : ExplicitlyCastableSignature.super.searchSignature(signatures);
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitStLength(this, context);
     }

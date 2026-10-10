@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
@@ -637,16 +638,25 @@ struct StGeoFromText {
 struct StGeometryFromWKB {
     static constexpr auto NAME = "st_geometryfromwkb";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOMETRY;
 };
 
 struct StGeomFromWKB {
     static constexpr auto NAME = "st_geomfromwkb";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOMETRY;
+};
+
+struct StGeogFromWKB {
+    static constexpr auto NAME = "st_geogfromwkb";
+    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOGRAPHY;
 };
 
 template <typename Impl>
 struct StGeoFromWkb {
     static constexpr auto NAME = Impl::NAME;
+    static constexpr PrimitiveType OUTPUT_TYPE = Impl::OUTPUT_TYPE;
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
@@ -655,7 +665,8 @@ struct StGeoFromWkb {
         auto& geo = block.get_by_position(arguments[0]).column;
 
         const auto size = geo->size();
-        auto res = ColumnString::create();
+
+        auto res = ColumnSpatial::create(Impl::OUTPUT_TYPE);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
         GeoParseStatus status;
@@ -675,6 +686,26 @@ struct StGeoFromWkb {
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
+    }
+};
+
+
+template <typename Impl>
+class SpatialWkbConstructorFunction : public IFunction {
+public:
+    static constexpr auto name = Impl::NAME;
+    static FunctionPtr create() { return std::make_shared<SpatialWkbConstructorFunction<Impl>>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return Impl::NUM_ARGS; }
+    bool is_variadic() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes&) const override {
+        return make_nullable(std::make_shared<DataTypeSpatial>(Impl::OUTPUT_TYPE));
+    }
+
+    Status execute_impl(FunctionContext*, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t) const override {
+        return Impl::execute(block, arguments, result);
     }
 };
 
@@ -1148,8 +1179,10 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StGeoFromText<StPolyFromText>>>();
     factory.register_function<GeoFunction<StAreaSquareMeters>>();
     factory.register_function<GeoFunction<StAreaSquareKm>>();
-    factory.register_function<GeoFunction<StGeoFromWkb<StGeometryFromWKB>>>();
-    factory.register_function<GeoFunction<StGeoFromWkb<StGeomFromWKB>>>();
+
+    factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeometryFromWKB>>>();
+    factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeomFromWKB>>>();
+    factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeogFromWKB>>>();
     factory.register_function<GeoFunction<StAsBinary>>();
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();
