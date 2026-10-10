@@ -451,13 +451,13 @@ class PaimonMetaCacheCatalogTest {
         LocalFileIO fileIO = LocalFileIO.create();
         FileStoreTable main = createFileStoreTable(fileIO, warehouse.resolve("main"), "main_payload");
         FileStoreTable fallback = createFileStoreTable(fileIO, warehouse.resolve("fallback"), "fallback_payload");
-        FileStoreTable decorated = new FallbackReadFileStoreTable(main, fallback);
+        FileStoreTable decorated = new FallbackReadFileStoreTable(main, fallback, true);
         long mainWeight = PaimonCacheSizeEstimator.estimateTable(
                 TABLE, main, PaimonMetaCacheCatalog.TABLE_ENTRY_OVERHEAD_BYTES).getBytes();
         long decoratedWeight = PaimonCacheSizeEstimator.estimateTable(
                 TABLE, decorated, PaimonMetaCacheCatalog.TABLE_ENTRY_OVERHEAD_BYTES).getBytes();
         long sharedBranchWeight = PaimonCacheSizeEstimator.estimateTable(
-                TABLE, new FallbackReadFileStoreTable(main, main),
+                TABLE, new FallbackReadFileStoreTable(main, main, true),
                 PaimonMetaCacheCatalog.TABLE_ENTRY_OVERHEAD_BYTES).getBytes();
 
         Assertions.assertTrue(decoratedWeight > mainWeight);
@@ -469,7 +469,7 @@ class PaimonMetaCacheCatalogTest {
                 "an authorization snapshot must never be admitted to the raw metadata cache");
 
         RecordingCatalog recording = new RecordingCatalog();
-        recording.tableSupplier = () -> new FallbackReadFileStoreTable(main, fallback);
+        recording.tableSupplier = () -> new FallbackReadFileStoreTable(main, fallback, true);
         MetaCacheBudgetManager budgetManager = new MetaCacheBudgetManager(
                 OptionalLong.of(mainWeight));
         try (CatalogMetaCache owner = new CatalogMetaCache(

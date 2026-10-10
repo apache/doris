@@ -149,12 +149,15 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     /**
-     * Whether {@link #stop()} has released something the BE would need again if the same plan were
-     * dispatched once more, so that a retry of the query has to plan again rather than reuse this
-     * node's scan ranges (StmtExecutor.handleQueryWithRetry re-dispatches the plan of a failed
-     * attempt whose coordinator was cancelled, and cancel() stops the scan nodes). A remote Doris
-     * scan's ranges are the endpoints of the query its Flight SQL session ran on the other frontend,
-     * gone with the session; a batch split source has the same property but is left as it is here.
+     * Whether this node's scan ranges cannot be read again by the same plan, so that a query whose
+     * attempt failed must not be retried by dispatching that plan once more
+     * (StmtExecutor.handleQueryWithRetry re-dispatches the plan of a failed attempt whose coordinator
+     * was cancelled, and cancel() stops the scan nodes). Either {@link #stop()} released what the
+     * ranges point at -- a remote Doris scan's ranges are the endpoints of the query its Flight SQL
+     * session ran on the other frontend, gone with the session -- or reading them consumed it -- a
+     * connector range that can be read only once (ConnectorScanRange#isSingleUse), such as an ADBC
+     * partition, the failed attempt may have drained. A batch split source has the same property but
+     * is left as it is here.
      */
     public boolean cannotBeRedispatched() {
         return false;

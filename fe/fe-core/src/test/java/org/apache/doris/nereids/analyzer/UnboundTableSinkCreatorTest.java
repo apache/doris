@@ -24,10 +24,12 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 
@@ -81,6 +83,28 @@ public class UnboundTableSinkCreatorTest {
         LogicalSink<? extends Plan> sink = createSinkFor(EnumSet.of(WriteOperation.INSERT));
         Assertions.assertTrue(sink instanceof UnboundConnectorTableSink,
                 "a write-capable connector must still get the generic plugin sink");
+    }
+
+    @Test
+    public void temporaryPartitionIsRejectedForPluginDrivenExternalTable() {
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.<Object>when(catalogMgr.getCatalog("cat")).thenReturn(catalog);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            LogicalOneRowRelation query = new LogicalOneRowRelation(new RelationId(1),
+                    ImmutableList.of(new Alias(Literal.of(1))));
+
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> UnboundTableSinkCreator.createUnboundTableSink(
+                            NAME_PARTS, ImmutableList.of(), ImmutableList.of(), true,
+                            ImmutableList.of("p1"), false, null, DMLCommandType.INSERT, query));
+            Assertions.assertEquals(
+                    "TEMPORARY PARTITION is only supported for internal OLAP tables",
+                    exception.getMessage());
+        }
     }
 
     private LogicalSink<? extends Plan> createSinkFor(Set<WriteOperation> declaredOps) throws UserException {

@@ -65,6 +65,14 @@ public class IvmAggMeta {
         return aggTargets;
     }
 
+    /**
+     * Returns a copy with the given aggregate targets, used by normalize to rebind targets to the
+     * state columns it materialized for them after the aggregate output slots were resolved.
+     */
+    public IvmAggMeta withAggTargets(List<IvmAggTarget> newAggTargets) {
+        return new IvmAggMeta(scalarAgg, groupKeySlots, groupCountSlot, newAggTargets);
+    }
+
     @Override
     public String toString() {
         return "IvmAggMeta{scalarAgg=" + scalarAgg

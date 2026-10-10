@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
 
@@ -34,5 +35,10 @@ public class ShortCircuitIf extends If implements RequiresShortCircuitEvaluation
     public ShortCircuitIf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
         return new ShortCircuitIf(children.get(0), children.get(1), children.get(2));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitShortCircuitIf(this, context);
     }
 }
