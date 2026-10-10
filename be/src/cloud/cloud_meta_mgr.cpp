@@ -1893,8 +1893,7 @@ Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_complet
                      });
 }
 
-Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode,
-                                            std::string* default_vault_id) {
+Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1909,9 +1908,6 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
     }
 
     *is_vault_mode = resp.enable_storage_vault();
-    if (default_vault_id != nullptr) {
-        *default_vault_id = resp.default_storage_vault_id();
-    }
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
         vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),

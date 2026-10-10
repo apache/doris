@@ -61,6 +61,7 @@
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/workload_management/io_context.h"
 #include "runtime/workload_management/resource_context.h"
+#include "storage/storage_policy.h"
 #include "service/backend_options.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_query_context.h"
@@ -716,7 +717,51 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1LL << 40)); // unlimited by default
 }
 
-TEST_F(SpillFileS3Test, DefaultVaultRotationKeepsExistingFilesAndPendingDeletesPinned) {
+// Without spill_s3_storage_vault_id an instance without storage vaults spills to its latest
+// file system and an instance with storage vaults to the S3 vault with the smallest ID, so
+// that adding a vault does not move spill. A configured ID always wins.
+TEST_F(SpillFileS3Test, SelectVaultFileSystem) {
+    auto make_fs = [](const std::string& id) {
+        S3Conf conf;
+        conf.bucket = kBucket;
+        conf.prefix = "vault_" + id;
+        conf.client_conf.ak = "ak";
+        conf.client_conf.sk = "sk";
+        conf.client_conf.endpoint = "http://spill-mock-endpoint";
+        conf.client_conf.region = "region";
+        conf.client_conf.bucket = kBucket;
+        auto fs = io::S3FileSystem::create(conf, id);
+        EXPECT_TRUE(fs.has_value()) << fs.error();
+        return io::RemoteFileSystemSPtr(fs.value());
+    };
+    const std::vector<int64_t> ids {10, 9, 100};
+    std::map<int64_t, io::RemoteFileSystemSPtr> vaults;
+    for (int64_t id : ids) {
+        vaults[id] = make_fs(std::to_string(id));
+        put_storage_resource(id, StorageResource {vaults[id]}, 1);
+    }
+    Defer remove_vaults {[&]() {
+        for (int64_t id : ids) {
+            delete_storage_resource(id);
+        }
+    }};
+    auto latest = make_fs("latest");
+
+    // Storage vault mode: smallest numeric ID, not the lexicographically smallest one ("10").
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", nullptr), vaults[9]);
+    // Adding a vault with a larger ID keeps the selection.
+    put_storage_resource(int64_t {11}, StorageResource {make_fs("11")}, 1);
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", nullptr), vaults[9]);
+    delete_storage_resource(11);
+    // An instance without storage vaults has a latest file system.
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", latest), latest);
+    // A configured ID wins over both, and an unknown one selects nothing.
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("100", latest), vaults[100]);
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("100", nullptr), vaults[100]);
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("404", latest), nullptr);
+}
+
+TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
     _create_manager(true, "");
     std::mt19937 rng(123);
     const auto first_block = _random_string_block(rng, 16, 100);
