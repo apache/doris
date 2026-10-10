@@ -621,6 +621,7 @@ public class InsertIntoTableCommand extends Command
                 // commit at the branch (iceberg validates it in beginWrite). The guard above already
                 // rejected @branch for connectors without supportsWriteBranch().
                 branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+                pluginCtx.setBoundTargetSchema(((PhysicalConnectorTableSink<?>) physicalSink).getBoundTargetSchema());
                 if (pluginCtx.getStaticPartitionSpec().isEmpty()
                         && originLogicalQuery instanceof UnboundConnectorTableSink) {
                     UnboundConnectorTableSink<?> pluginSink =

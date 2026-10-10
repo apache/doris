@@ -118,6 +118,7 @@ org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBeExecVersion():in
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundTargetColumns():java.util.List
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundWriteMetadataIdentity():java.lang.String
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBranchName():java.util.Optional
+org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getCastStaticPartitionSpec():java.util.Map
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getColumns():java.util.List
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getSortInfo():org.apache.doris.thrift.TSortInfo
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getStaticPartitionNullKeys():java.util.Set
