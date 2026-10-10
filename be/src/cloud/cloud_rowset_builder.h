@@ -74,6 +74,8 @@ public:
 
     Status wait_calc_delete_bitmap() override;
 
+    Status cancel(const Status& st) override;
+
     void update_tablet_stats() override;
 
     Status commit_rowset(const std::string& job_id, int64_t table_id) override;

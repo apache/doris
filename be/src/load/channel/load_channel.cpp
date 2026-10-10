@@ -30,6 +30,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/storage_engine.h"
 #include "util/debug_points.h"
 
@@ -41,6 +42,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
                          std::string sender_ip, int64_t backend_id, bool enable_profile,
                          int64_t wg_id)
         : _load_id(load_id),
+          _delete_bitmap_cancellation(std::make_shared<DeleteBitmapCancellation>()),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(std::move(sender_ip)),
@@ -139,6 +141,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                 channel = std::make_shared<TabletsChannel>(engine.to_local(), key, _load_id,
                                                            _is_high_priority, _self_profile);
             }
+            channel->set_delete_bitmap_cancellation(_delete_bitmap_cancellation);
             {
                 std::lock_guard<std::mutex> lt(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -307,6 +310,9 @@ bool LoadChannel::is_finished() {
 Status LoadChannel::cancel() {
     _cancelled.store(true);
     std::lock_guard<std::mutex> l(_lock);
+    // Keep the existing channel locking and cancellation traversal. Stop bitmap
+    // work first so close waiters can finish before we cancel their writers.
+    _delete_bitmap_cancellation->cancel(Status::Cancelled("load channel cancelled"));
     for (auto& it : _tablets_channels) {
         static_cast<void>(it.second->cancel());
     }

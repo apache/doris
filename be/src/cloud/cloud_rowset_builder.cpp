@@ -23,6 +23,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
@@ -53,6 +54,8 @@ CloudGroupRowsetBuilder::CloudGroupRowsetBuilder(CloudStorageEngine& engine,
 CloudRowsetBuilder::~CloudRowsetBuilder() {
     // Clear file cache immediately when load fails
     if (_is_init && _rowset != nullptr && _rowset->rowset_meta()->rowset_state() == PREPARED) {
+        TEST_SYNC_POINT_CALLBACK("CloudRowsetBuilder::~CloudRowsetBuilder:before_clear_cache",
+                                 this);
         _rowset->clear_cache();
     }
 }
@@ -89,6 +92,7 @@ Status CloudRowsetBuilder::init() {
     context.txn_id = _req.txn_id;
     context.txn_expiration = _req.txn_expiration;
     context.load_id = _req.load_id;
+    context.delete_bitmap_cancellation = _req.delete_bitmap_cancellation;
     context.db_id = _req.table_schema_param->db_id();
     context.table_id = _req.table_schema_param->table_id();
     context.rowset_state = PREPARED;
@@ -117,7 +121,8 @@ Status CloudRowsetBuilder::init() {
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _rowset_id = context.rowset_id;
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.delete_bitmap_cancellation);
 
     if (!_skip_writing_rowset_metadata) {
         RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), "",
@@ -170,6 +175,12 @@ Status CloudGroupRowsetBuilder::submit_calc_delete_bitmap_task() {
 
 Status CloudGroupRowsetBuilder::wait_calc_delete_bitmap() {
     return _data_builder->wait_calc_delete_bitmap();
+}
+
+Status CloudGroupRowsetBuilder::cancel(const Status& st) {
+    RETURN_IF_ERROR(_data_builder->cancel(st));
+    RETURN_IF_ERROR(_row_binlog_builder->cancel(st));
+    return BaseRowsetBuilder::cancel(st);
 }
 
 void CloudGroupRowsetBuilder::update_tablet_stats() {

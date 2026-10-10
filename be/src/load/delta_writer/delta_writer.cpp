@@ -31,12 +31,14 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/resource_context.h"
+#include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
@@ -93,12 +95,17 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
 }
 
 BaseDeltaWriter::~BaseDeltaWriter() {
+    // Drain producers and both bitmap phases before derived builders reclaim rowsets.
+    if (_rowset_builder != nullptr) {
+        auto st = _req.delete_bitmap_cancellation ? _req.delete_bitmap_cancellation->status()
+                                                  : Status::OK();
+        WARN_IF_ERROR(BaseDeltaWriter::cancel_with_status(
+                              st.ok() ? Status::Cancelled("delta writer destroyed") : st),
+                      "failed to cancel work while destroying delta writer");
+    }
     if (!_is_init) {
         return;
     }
-
-    // cancel and wait all memtables in flush queue to be finished
-    static_cast<void>(_memtable_writer->cancel());
 
     if (_rowset_builder->tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
@@ -145,6 +152,8 @@ Status BaseDeltaWriter::init() {
         wg_sptr = doris::thread_context()->resource_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("BaseDeltaWriter::init:before_memtable_init", Status::OK(),
+                                      this);
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
             _rowset_builder->get_partial_update_info(), wg_sptr,
@@ -254,6 +263,9 @@ Status BaseDeltaWriter::cancel_with_status(const Status& st) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
+    // Flush tasks can submit delete bitmap work, so stop them before cancelling
+    // the rowset builder and its rowset writer.
+    RETURN_IF_ERROR(_rowset_builder->cancel(st));
     _is_cancelled = true;
     return Status::OK();
 }
