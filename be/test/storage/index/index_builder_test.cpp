@@ -725,8 +725,7 @@ protected:
                 rowset->rowset_id(), rowset->tablet_schema(), io::FileReaderOptions {}, &segment);
         ASSERT_TRUE(st.ok()) << st;
         OlapReaderStatistics stats;
-        StorageReadOptions options;
-        options.stats = &stats;
+        StorageReadOptions options(stats);
         options.version = rowset->version();
         options.commit_tso = rowset->rowset_meta()->commit_tso();
         options.io_ctx.reader_type = ReaderType::READER_QUERY;
