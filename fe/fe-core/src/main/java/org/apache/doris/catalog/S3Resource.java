@@ -234,8 +234,9 @@ public class S3Resource extends Resource {
         // Normalize the patch independently so its aliases win over persisted canonical values.
         S3ResourceCompat.convertToStdProperties(properties);
         Map<String, String> normalizedUpdates = StorageAdapter.normalizeProperties(properties, selectionProperties);
+        // Interpret persisted aliases using their original provider before applying a provider change.
         Map<String, String> effectiveProperties =
-                StorageAdapter.normalizeProperties(this.properties, selectionProperties);
+                StorageAdapter.normalizeProperties(this.properties, this.properties);
         S3ResourceCompat.convertToStdProperties(effectiveProperties);
         for (Map.Entry<String, String> update : normalizedUpdates.entrySet()) {
             // Empty updates are ignored, except when clearing a session token or impersonation account.

@@ -544,15 +544,15 @@ public final class StorageAdapter {
             // AWS_EXTERNAL_ID pass through unconditionally when set (the SPI already emits them).
             aligned.put("AWS_CREDENTIALS_PROVIDER_TYPE", s3CredentialsMode.getMode());
         } else {
-            // Align fe-core, ledger 2.4-5: non-S3 dialects never emit role keys, and emit
-            // AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS exactly when both AK and SK are blank.
+            // Non-S3 dialects never emit role keys. Preserve an explicit credential mode
+            // supplied by the filesystem plugin when no static or native credentials are present.
             aligned.remove("AWS_ROLE_ARN");
             aligned.remove("AWS_EXTERNAL_ID");
             if (s3.hasStaticCredentials()
                     || resolveAuthentication(aligned).map(ObjectStorageAuthentication::isNative).orElse(false)) {
                 aligned.remove("AWS_CREDENTIALS_PROVIDER_TYPE");
             } else {
-                aligned.put("AWS_CREDENTIALS_PROVIDER_TYPE", AwsCredentialsProviderMode.ANONYMOUS.name());
+                aligned.putIfAbsent("AWS_CREDENTIALS_PROVIDER_TYPE", AwsCredentialsProviderMode.ANONYMOUS.name());
             }
         }
         return aligned;

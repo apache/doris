@@ -66,6 +66,7 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
         String selected = context.get("provider");
         if (selected == null || selected.isBlank()) {
             if (!GcsAuthResolver.guessIsGcs(context)) {
+                normalized.keySet().removeAll(RESOURCE_ALIASES.keySet());
                 return normalized;
             }
             selected = "GCP";
@@ -78,6 +79,9 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
                     normalized.put(key, value);
                 }
             });
+        } else {
+            // Inactive aliases must not become effective after a later provider-only ALTER.
+            normalized.keySet().removeAll(RESOURCE_ALIASES.keySet());
         }
         return normalized;
     }

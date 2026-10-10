@@ -73,7 +73,8 @@ TEST_F(GcsSignedUrlProviderTest, DefaultSignsErrorLogWithResolvedIdentity) {
     GcsV4SignedUrlProviderOptions options {.endpoint = "storage.googleapis.com",
                                            .bucket = "bucket",
                                            .key = "load-errors/error.log",
-                                           .expiration_secs = 300};
+                                           .expiration_secs = 300,
+                                           .ca_cert_file_path = ""};
     std::string url;
     auto status = generate_gcs_v4_signed_url(options, credential, tokens, &url);
     ASSERT_TRUE(status.ok()) << status;

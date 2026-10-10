@@ -106,6 +106,25 @@ public class GcsAuthResolverTest {
     }
 
     @Test
+    public void testLegacyGcpDefaultChainDoesNotAcquireAdc() {
+        for (String key : new String[] {"s3.credentials_provider_type", "AWS_CREDENTIALS_PROVIDER_TYPE"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put("provider", "GCP");
+            props.put(key, " default ");
+            GcsAuth auth = GcsAuthResolver.resolve(props).orElseThrow();
+            Assertions.assertEquals(GcsAuth.Mode.HMAC, auth.getMode());
+            Assertions.assertFalse(auth.getNativeCredential().isPresent());
+            Assertions.assertFalse(auth.isAnonymous());
+            // Native selectors still conflict with an explicitly selected AWS credential chain.
+            props.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "DEFAULT");
+            Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(props));
+            props.remove(GcpCredential.CREDENTIAL_PROVIDER_TYPE);
+            props.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "target@test.iam.gserviceaccount.com");
+            Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(props));
+        }
+    }
+
+    @Test
     public void testOtherProvidersAndConflictingNativeProperties() {
         for (String provider : new String[] {"S3", "AZURE", "OSS"}) {
             Map<String, String> props = new HashMap<>();

@@ -44,7 +44,7 @@ public final class GcsAuthResolver {
                 || "true".equalsIgnoreCase(getPropertyIgnoreCase(properties, "fs.gcs.support"));
         boolean hasAccessKey = hasNonBlankProperty(properties, ACCESS_KEYS);
         boolean hasSecretKey = hasNonBlankProperty(properties, SECRET_KEYS);
-        boolean hasLegacyAnonymous = hasLegacyAnonymousProvider(properties);
+        boolean hasLegacyAnonymous = hasLegacyProvider(properties, "ANONYMOUS");
         String provider = getPropertyIgnoreCase(properties, "provider");
         if (isNotBlank(provider) && !"GCP".equalsIgnoreCase(provider) && !"GCS".equalsIgnoreCase(provider)) {
             if (hasNativeProperties) {
@@ -73,7 +73,8 @@ public final class GcsAuthResolver {
                     : type == GcpCredentialProviderType.COMPUTE_ENGINE ? GcsAuth.Mode.COMPUTE_ENGINE : GcsAuth.Mode.ADC;
         } else if (hasLegacyAnonymous) {
             mode = GcsAuth.Mode.ANONYMOUS;
-        } else if (hasAccessKey || hasSecretKey) {
+        } else if (hasAccessKey || hasSecretKey || hasLegacyProvider(properties, "DEFAULT")) {
+            // Explicit legacy DEFAULT uses ambient HMAC credentials through the AWS default chain.
             mode = GcsAuth.Mode.HMAC;
         } else {
             mode = GcsAuth.Mode.ADC;
@@ -138,9 +139,9 @@ public final class GcsAuthResolver {
         return value == null ? null : value.trim();
     }
 
-    private static boolean hasLegacyAnonymousProvider(Map<String, String> properties) {
+    private static boolean hasLegacyProvider(Map<String, String> properties, String providerType) {
         for (String name : AWS_PROVIDERS) {
-            if ("ANONYMOUS".equalsIgnoreCase(trim(getPropertyIgnoreCase(properties, name)))) {
+            if (providerType.equalsIgnoreCase(trim(getPropertyIgnoreCase(properties, name)))) {
                 return true;
             }
         }

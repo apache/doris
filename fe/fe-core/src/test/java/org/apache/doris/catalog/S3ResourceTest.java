@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.task.PushStoragePolicyTask;
 import org.apache.doris.thrift.TGcpCredential;
 import org.apache.doris.thrift.TS3StorageParam;
 
@@ -55,6 +56,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -636,6 +638,92 @@ public class S3ResourceTest {
     }
 
     @Test
+    public void testInactiveGsAliasesCannotReappearAfterProviderAlter() throws Exception {
+        for (boolean replayLegacyAliases : new boolean[] {false, true}) {
+            S3Resource resource = new S3Resource("s3_resource");
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.put("provider", "S3");
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            Map<String, String> aliases = ImmutableMap.of("gs.endpoint", "https://ignored.example.com",
+                    "gs.access_key", "ignored-access", "gs.secret_key", "ignored-secret");
+            if (replayLegacyAliases) {
+                // Simulate the dormant aliases persisted by an older FE.
+                Map<String, String> stored = resource.getCopiedProperties();
+                stored.putAll(aliases);
+                Field field = S3Resource.class.getDeclaredField("properties");
+                field.setAccessible(true);
+                field.set(resource, stored);
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                try (DataOutputStream output = new DataOutputStream(bytes)) {
+                    resource.write(output);
+                }
+                try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                    resource = (S3Resource) Resource.read(input);
+                }
+            } else {
+                resource.modifyProperties(aliases);
+                Assertions.assertFalse(resource.getCopiedProperties().keySet().stream()
+                        .anyMatch(key -> key.startsWith("gs.")));
+            }
+            resource.modifyProperties(ImmutableMap.of("provider", "GCP"));
+            TS3StorageParam thrift = S3ThriftAdapter.getS3TStorageParam(resource.getCopiedProperties());
+            Assertions.assertEquals(s3Endpoint, thrift.getEndpoint());
+            Assertions.assertEquals(s3AccessKey, thrift.getAk());
+            Assertions.assertEquals(s3SecretKey, thrift.getSk());
+            Assertions.assertFalse(resource.getCopiedProperties().keySet().stream()
+                    .anyMatch(key -> key.startsWith("gs.")));
+        }
+    }
+
+    @Test
+    public void testLegacyGcpDefaultChainSurvivesReplayAndPolicyPush() throws Exception {
+        for (String key : new String[] {"s3.credentials_provider_type", "AWS_CREDENTIALS_PROVIDER_TYPE"}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.remove("AWS_ACCESS_KEY");
+            properties.remove("AWS_SECRET_KEY");
+            properties.put("provider", "GCP");
+            properties.put(key, "DEFAULT");
+            S3Resource resource = new S3Resource("gcp_default_chain");
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            resource.modifyProperties(ImmutableMap.of(S3ResourceCompat.CONNECTION_TIMEOUT_MS, "2000"));
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (DataOutputStream output = new DataOutputStream(bytes)) {
+                resource.write(output);
+            }
+            S3Resource restored;
+            try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                restored = (S3Resource) Resource.read(input);
+            }
+            Assertions.assertEquals(resource.getCopiedProperties(), restored.getCopiedProperties());
+            Assertions.assertEquals("DEFAULT", StorageAdapter.of(restored.getCopiedProperties())
+                    .getBackendConfigProperties().get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+            PushStoragePolicyTask task = new PushStoragePolicyTask(1L, List.of(), List.of(restored), List.of());
+            TS3StorageParam thrift = task.toThrift().getResource().get(0).getS3StorageParam();
+            Assertions.assertFalse(thrift.isSetCredential());
+            Assertions.assertFalse(thrift.isSetCredProviderType());
+            Assertions.assertEquals(2000, thrift.getConnTimeoutMs());
+        }
+    }
+
+    @Test
+    public void testPolicyPushReleasesResourceLockOnInvalidAuthentication() throws Exception {
+        S3Resource resource = new S3Resource("invalid_gcp_resource");
+        Map<String, String> properties = new HashMap<>(s3Properties);
+        properties.put("provider", "GCP");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        Map<String, String> invalid = resource.getCopiedProperties();
+        invalid.put("gs.credential_provider_type", "DEFAULT");
+        Field field = S3Resource.class.getDeclaredField("properties");
+        field.setAccessible(true);
+        field.set(resource, invalid);
+        S3Resource tracked = Mockito.spy(resource);
+        PushStoragePolicyTask task = new PushStoragePolicyTask(1L, List.of(), List.of(tracked), List.of());
+        Assertions.assertThrows(IllegalArgumentException.class, task::toThrift);
+        Mockito.verify(tracked).readLock();
+        Mockito.verify(tracked).readUnlock();
+    }
+
+    @Test
     public void testGsAliasesMatchConnectorAndResourceProtocols() throws Exception {
         for (String provider : new String[] {"GCP", "gcp"}) {
             Map<String, String> properties = new HashMap<>(s3Properties);
@@ -731,6 +819,8 @@ public class S3ResourceTest {
             Assertions.assertEquals(s3SecretKey, thrift.getSk());
             Assertions.assertEquals(Integer.parseInt(s3ConnTimeoutMs), thrift.getConnTimeoutMs());
             Assertions.assertFalse(thrift.isUsePathStyle());
+            Assertions.assertFalse(resource.getCopiedProperties().keySet().stream()
+                    .anyMatch(key -> key.startsWith("gs.")));
         }
     }
 
