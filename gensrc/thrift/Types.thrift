@@ -104,7 +104,9 @@ enum TPrimitiveType {
   VARBINARY = 43, // represent varbinary type
   TIMESTAMPTZ = 44, // timestamp with time zone
   TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
-  UUID = 46
+  UUID = 46,
+  GEOMETRY = 47,
+  GEOGRAPHY = 48
 }
 
 enum TTypeNodeType {
