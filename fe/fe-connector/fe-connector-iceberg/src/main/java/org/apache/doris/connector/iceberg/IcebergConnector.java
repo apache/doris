@@ -203,6 +203,9 @@ public class IcebergConnector implements Connector {
     // per-user resolveTable). If you ADD a cross-query cache here or in IcebergConnectorMetadata, it MUST be
     // null under session=user and covered by IcebergConnectorCacheTest (which asserts exactly that at runtime).
     private final IcebergLatestSnapshotCache latestSnapshotCache; // null under session=user
+    // The enable / ttl-second / capacity of the table entry, shared by the latest-snapshot, format and comment
+    // caches (see the constructor). Also turns off the FE schema cache (schemaCacheTtlSecondOverride).
+    private final CacheSpec tableFactsCacheSpec;
     private final IcebergCatalogResourceTracker catalogResourceTracker = new IcebergCatalogResourceTracker();
     // PERF-01: cross-query cache of the RAW iceberg Table (restores the legacy IcebergExternalMetaCache table
     // cache that the SPI cutover dropped). null when the catalog's credentials are query-dependent
@@ -264,6 +267,14 @@ public class IcebergConnector implements Connector {
                 this::pluginAuthenticator);
         this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "iceberg", this.properties);
         this.manifestCache = new IcebergManifestCache(metaCache, this.properties);
+        // The latest-snapshot, format and comment caches have no meta.cache.iceberg.<entry> keys of their own; they
+        // take the table entry's enable / ttl-second / capacity (the legacy IcebergExternalMetaCache served the
+        // latest snapshot from its table entry), so table.enable=false or capacity=0 turns them off with the table
+        // cache, as ttl-second<=0 already did. The table's max-weight bounds only the table cache; the catalog and
+        // FE-global limits still bound these caches.
+        CacheSpec tableSpec = cacheSpec("table");
+        this.tableFactsCacheSpec = CacheSpec.of(
+                tableSpec.isEnable(), tableSpec.getTtlSecond(), tableSpec.getCapacity());
         // Authorization-sensitive projection (snapshotId/schemaId). Under iceberg.rest.session=user the value is
         // per-user AUTHORIZED metadata that a "can-list-cannot-load" principal must not see. beginQuerySnapshot
         // reads this cache WITHOUT a preceding per-user loadTable, so a shared (table-keyed, no user dimension)
@@ -273,8 +284,7 @@ public class IcebergConnector implements Connector {
         // tableCache/commentCache discipline: session=user => no LIVE cross-query metadata cache.
         this.latestSnapshotCache = isUserSessionEnabled()
                 ? null
-                : new IcebergLatestSnapshotCache(
-                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                : new IcebergLatestSnapshotCache(metaCache, tableFactsCacheSpec);
         // PERF-01 cross-query RAW-table cache. Disabled (null) when the catalog's credentials are
         // query-dependent, because a cached raw Table carries its FileIO's credentials:
         //   - iceberg.rest.session=user: per-user delegated FileIO -> sharing across users leaks credentials.
@@ -282,12 +292,12 @@ public class IcebergConnector implements Connector {
         //     iceberg keeps it fresh by reloading the table each query, so a 24h-TTL hit would hand BE an
         //     expired token (403 mid-scan). Both gates are independent; either one disables this layer.
         // The query-scoped fat handle stays on in all cases (its token is fresh within the one query). Same
-        // TTL/capacity as the snapshot cache (the single meta.cache.iceberg.table.ttl-second knob).
+        // enable/TTL/capacity as the snapshot cache, plus the table entry's own max-weight.
         this.tableCache = (isUserSessionEnabled()
                 || IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties))
                 ? null
                 : new IcebergTableCache(
-                        metaCache, cacheSpec("table"),
+                        metaCache, tableSpec,
                         this::cachedTableCleanup, catalogResourceTracker);
         // PERF-02: partition-view cache. Authorization-sensitive projection: a shared (table+snapshot-keyed, no
         // user dimension) hit would disclose one user's partition list. Its readers are all downstream of a
@@ -303,17 +313,15 @@ public class IcebergConnector implements Connector {
         // under session=user, kept otherwise); readers already tolerate a null cache (resolveFileFormatName).
         this.formatCache = isUserSessionEnabled()
                 ? null
-                : new IcebergFormatCache(
-                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+                : new IcebergFormatCache(metaCache, tableFactsCacheSpec);
         // PERF-05: table-comment cache, built ONLY for a REST vended-credentials catalog that is NOT session=user.
         // Plain catalogs (tableCache on) already serve the comment path from tableCache; session=user is excluded
         // because a shared comment cache would bypass the per-user loadTable authorization (a metadata disclosure).
         // Comment is pure metadata (no credential) so no gate on the VALUE -- the flavor gate is an authorization
-        // decision, not a credential-leak one. Same TTL/capacity (ttl<=0 still disables internally).
+        // decision, not a credential-leak one. Same spec as the snapshot cache (a disabled one still reads live).
         this.commentCache = (IcebergScanPlanProvider.restVendedCredentialsEnabled(this.properties)
                 && !isUserSessionEnabled())
-                ? new IcebergCommentCache(
-                        metaCache, resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY)
+                ? new IcebergCommentCache(metaCache, tableFactsCacheSpec)
                 : null;
         // PERF-06: derived partition-view cache A (generic ConnectorMetadataCache). Same
         // authorization-sensitive treatment as partitionCache -- disabled (null) under iceberg.rest.session=user so
@@ -733,10 +741,15 @@ public class IcebergConnector implements Connector {
      * {@code schema.cache.ttl-second}), so a no-cache catalog ({@code ttl-second=0}) serves FRESH schema after
      * external DDL (mirrors {@code PaimonConnector.schemaCacheTtlSecondOverride}). Absent -> no override (engine
      * default TTL). Do NOT reuse {@link #resolveTableCacheTtlSecond}, which substitutes the 24h default for a
-     * blank value and would defeat the engine default.
+     * blank value and would defeat the engine default. A table entry turned off by {@code enable=false} or
+     * {@code capacity=0} is a no-cache catalog too: its latest snapshot is read live, so the schema it names must
+     * not come from the name-keyed schema cache either.
      */
     @Override
     public OptionalLong schemaCacheTtlSecondOverride() {
+        if (!tableFactsCacheSpec.isEnable() || tableFactsCacheSpec.getCapacity() == 0) {
+            return OptionalLong.of(0L);
+        }
         String raw = properties.get(TABLE_CACHE_TTL_SECOND);
         if (raw == null || raw.trim().isEmpty()) {
             return OptionalLong.empty();

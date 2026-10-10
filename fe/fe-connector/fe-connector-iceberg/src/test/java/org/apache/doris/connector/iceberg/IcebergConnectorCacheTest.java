@@ -330,6 +330,58 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
+    public void disabledTableEntryReadsSnapshotFormatAndCommentLive() throws Exception {
+        // table.enable=false and capacity=0 turn the table entry off, like ttl-second<=0. The latest-snapshot, format
+        // and comment caches take the table entry's keys, so they read live too, and the latest schema bypasses the
+        // name-keyed schema cache. MUTATION: building them from ttl-second alone -> the first pin stays cached -> red.
+        for (String[] off : new String[][] {
+                {IcebergConnector.TABLE_CACHE_ENABLE, "false"}, {IcebergConnector.TABLE_CACHE_CAPACITY, "0"}}) {
+            try (IcebergConnector connector =
+                    new IcebergConnector(props(off[0], off[1]), new RecordingConnectorContext())) {
+                IcebergLatestSnapshotCache snapshots = connector.latestSnapshotCacheForTest();
+                TableIdentifier id = TableIdentifier.of("db1", "t1");
+                AtomicInteger loads = new AtomicInteger();
+                Supplier<IcebergLatestSnapshotCache.CachedSnapshot> loader =
+                        () -> new IcebergLatestSnapshotCache.CachedSnapshot(loads.incrementAndGet(), 0L);
+                Assertions.assertEquals(1L, snapshots.getOrLoad(id, loader).snapshotId);
+                Assertions.assertEquals(2L, snapshots.getOrLoad(id, loader).snapshotId, off[0]);
+                Assertions.assertEquals(0, snapshots.size());
+                Assertions.assertFalse(connector.tableCacheForTest().isEnabled(), off[0]);
+                Assertions.assertFalse(connector.formatCacheForTest().isEnabled(), off[0]);
+                Assertions.assertEquals(OptionalLong.of(0L), connector.schemaCacheTtlSecondOverride(), off[0]);
+            }
+            Map<String, String> vended = restProps(true, false);
+            vended.put(off[0], off[1]);
+            try (IcebergConnector connector = new IcebergConnector(vended, new RecordingConnectorContext())) {
+                Assertions.assertFalse(connector.latestSnapshotCacheForTest().isEnabled(), off[0]);
+                Assertions.assertFalse(connector.commentCacheForTest().isEnabled(), off[0]);
+            }
+        }
+    }
+
+    @Test
+    public void tableEntryKeysExceptMaxWeightSizeSnapshotFormatAndCommentCaches() throws Exception {
+        // The table entry's ttl-second and capacity also size these caches. Its max-weight bounds the table cache
+        // only; the catalog and FE-global limits still bound them. MUTATION: the fixed default capacity -> red;
+        // handing them the whole table spec, max-weight included -> red.
+        Map<String, String> properties = restProps(true, false);
+        properties.put(IcebergConnector.TABLE_CACHE_TTL_SECOND, "600");
+        properties.put(IcebergConnector.TABLE_CACHE_CAPACITY, "7");
+        properties.put("meta.cache.iceberg.table.max-weight", "1MB");
+        try (IcebergConnector connector = new IcebergConnector(properties, new RecordingConnectorContext())) {
+            List.of(connector.latestSnapshotCacheForTest().cacheSpecForTest(),
+                    connector.formatCacheForTest().cacheSpecForTest(),
+                    connector.commentCacheForTest().cacheSpecForTest()).forEach(spec -> {
+                        Assertions.assertTrue(spec.isCacheEnabled());
+                        Assertions.assertEquals(600L, spec.getTtlSecond());
+                        Assertions.assertEquals(7L, spec.getCapacity());
+                        Assertions.assertFalse(spec.isWeightBounded());
+                    });
+            Assertions.assertEquals(OptionalLong.of(600L), connector.schemaCacheTtlSecondOverride());
+        }
+    }
+
+    @Test
     public void crossQueryTableCacheDisabledForVendedCredentials() {
         // REST vended-credentials: the cached raw table's FileIO carries a server-vended token that expires
         // within the query (iceberg keeps it fresh by reloading the table each query). A 24h-TTL cross-query hit
