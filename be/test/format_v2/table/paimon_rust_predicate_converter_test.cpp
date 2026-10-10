@@ -156,6 +156,10 @@ VExprSPtr int_literal(int32_t value) {
                                    Field::create_field<TYPE_INT>(value));
 }
 
+VExprSPtr null_int_literal() {
+    return VLiteral::create_shared(make_nullable(std::make_shared<DataTypeInt32>()), Field());
+}
+
 // A STRING column type.
 const DataTypePtr& string_type() {
     static const auto type = make_nullable(std::make_shared<DataTypeString>());
@@ -330,11 +334,19 @@ protected:
 TEST_F(PaimonRustPredicateConverterTest, EqForNullColumnToColumnIsNotPushed) {
     // The P1 case: `a <=> b` must stay in the residual. Pushing `a IS NULL`
     // would keep only the (NULL, NULL) row and drop (1, 1) forever.
-    // (The literal forms `a <=> NULL` / `a <=> 1` are not covered: FE's
-    // NullSafeEqualToEqual rewrite turns them into IS NULL / plain equality
-    // before they ever reach a BE converter, so EQ_FOR_NULL arriving here is
-    // always column-to-column.)
     EXPECT_EQ(push(TExprOpcode::EQ_FOR_NULL, slot_ref("a"), slot_ref("b")).get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, EqForNullLiteralIsPushed) {
+    // The FE normally rewrites this to equality, but disabling that rewrite
+    // must not change the Rust predicate to IS NULL.
+    EXPECT_NE(push(TExprOpcode::EQ_FOR_NULL, slot_ref("a"), int_literal(1)).get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, EqForNullNullLiteralStaysResidual) {
+    // Literal conversion deliberately does not manufacture a datum for NULL.
+    // Keeping the expression residual is conservative and preserves null-safe semantics.
+    EXPECT_EQ(push(TExprOpcode::EQ_FOR_NULL, slot_ref("a"), null_int_literal()).get(), nullptr);
 }
 
 TEST_F(PaimonRustPredicateConverterTest, EqLiteralIsPushed) {
