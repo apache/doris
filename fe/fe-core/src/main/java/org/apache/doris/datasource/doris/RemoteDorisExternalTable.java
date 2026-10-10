@@ -38,15 +38,15 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 
 public class RemoteDorisExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalTable.class);
     private volatile List<Partition> partitions = Lists.newArrayList();
     private volatile List<Partition> tempPartitions = Lists.newArrayList();
     private volatile long tableId = -1;
-    private volatile boolean isSyncOlapTable = false;
-    private volatile RemoteOlapTable remoteOlapTable = null;
-    private volatile Exception lastException = null;
+    private transient RefreshTask latestRefreshTask;
 
     public RemoteDorisExternalTable(long id, String name, String remoteName,
             RemoteDorisExternalCatalog catalog, ExternalDatabase db) {
@@ -62,62 +62,90 @@ public class RemoteDorisExternalTable extends ExternalTable {
     }
 
     private RemoteOlapTable getDorisOlapTable() {
-        if (!isSyncOlapTable) {
-            synchronized (this) {
-                if (!isSyncOlapTable) {
-                    try {
-                        isSyncOlapTable = true;
-                        remoteOlapTable = null;
-                        lastException = null; // clear previous exception
-
-                        List<Partition> cachedPartitions = Lists.newArrayList(partitions);
-                        List<Partition> cachedTempPartitions = Lists.newArrayList(tempPartitions);
-                        RemoteOlapTable olapTable = ((RemoteDorisExternalCatalog) catalog).getFeServiceClient()
-                                .getOlapTable(dbName, remoteName, tableId, cachedPartitions, cachedTempPartitions);
-                        olapTable.setCatalog((RemoteDorisExternalCatalog) catalog);
-                        olapTable.setDatabase((RemoteDorisExternalDatabase) db);
-
-                        // Remove redundant nested synchronized block
-                        tableId = olapTable.getId();
-                        partitions = Lists.newArrayList(olapTable.getPartitions());
-                        tempPartitions = Lists.newArrayList(olapTable.getTempPartitions().getPartitions());
-
-                        olapTable.setId(id); // change id in case of possible conflicts
-                        olapTable.invalidateBackendsIfNeed();
-                        remoteOlapTable = olapTable;
-                    } catch (Exception e) {
-                        // Save exception for waiting threads
-                        lastException = e;
-                        LOG.warn("Failed to get remote doris olap table: {}.{}", dbName, remoteName, e);
-                        throw e; // Re-throw the exception
-                    } finally {
-                        isSyncOlapTable = false;
-                        this.notifyAll();
-                    }
-                    return remoteOlapTable;
-                }
+        RefreshTask refreshTask;
+        synchronized (this) {
+            if (latestRefreshTask == null || latestRefreshTask.isStarted()) {
+                FutureTask<RemoteOlapTable> predecessor =
+                        latestRefreshTask == null ? null : latestRefreshTask.task;
+                latestRefreshTask = new RefreshTask(predecessor);
             }
+            refreshTask = latestRefreshTask;
         }
 
-        synchronized (this) {
-            while (isSyncOlapTable) {
-                try {
-                    this.wait();
-                } catch (InterruptedException e) {
-                    throw new AnalysisException("interrupted while getting doris olap table", e);
-                }
-            }
+        refreshTask.run();
+        return getRefreshResult(refreshTask.task);
+    }
 
-            // If there is a saved exception, throw it with more details
-            if (remoteOlapTable == null) {
-                if (lastException != null) {
-                    throw new AnalysisException(
-                            "failed to get remote doris olap table: " + Util.getRootCauseMessage(lastException),
-                            lastException);
-                }
-                throw new AnalysisException("failed to get remote doris olap table");
+    private class RefreshTask {
+        private final FutureTask<RemoteOlapTable> task;
+        private volatile FutureTask<RemoteOlapTable> predecessor;
+        private volatile boolean started;
+
+        private RefreshTask(FutureTask<RemoteOlapTable> predecessor) {
+            this.predecessor = predecessor;
+            this.task = new FutureTask<>(RemoteDorisExternalTable.this::loadDorisOlapTable);
+        }
+
+        private boolean isStarted() {
+            return started;
+        }
+
+        private void run() {
+            FutureTask<RemoteOlapTable> previousTask = predecessor;
+            if (previousTask != null) {
+                waitForRefreshCompletion(previousTask);
+                predecessor = null;
             }
-            return remoteOlapTable;
+            started = true;
+            task.run();
+        }
+    }
+
+    private RemoteOlapTable loadDorisOlapTable() {
+        try {
+            List<Partition> cachedPartitions = Lists.newArrayList(partitions);
+            List<Partition> cachedTempPartitions = Lists.newArrayList(tempPartitions);
+            RemoteOlapTable olapTable = ((RemoteDorisExternalCatalog) catalog).getFeServiceClient()
+                    .getOlapTable(dbName, remoteName, tableId, cachedPartitions, cachedTempPartitions);
+            olapTable.setCatalog((RemoteDorisExternalCatalog) catalog);
+            olapTable.setDatabase((RemoteDorisExternalDatabase) db);
+
+            tableId = olapTable.getId();
+            partitions = Lists.newArrayList(olapTable.getPartitions());
+            tempPartitions = Lists.newArrayList(olapTable.getTempPartitions().getPartitions());
+
+            olapTable.setId(id); // change id in case of possible conflicts
+            olapTable.invalidateBackendsIfNeed();
+            return olapTable;
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to get remote doris olap table: {}.{}", dbName, remoteName, e);
+            throw e;
+        }
+    }
+
+    private RemoteOlapTable getRefreshResult(FutureTask<RemoteOlapTable> refreshTask) {
+        try {
+            // The underlying Thrift RPC has its own timeout; this only waits for the shared refresh result.
+            return refreshTask.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AnalysisException("interrupted while getting doris olap table", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            throw new AnalysisException(
+                    "failed to get remote doris olap table: " + Util.getRootCauseMessage(cause),
+                    cause);
+        }
+    }
+
+    private void waitForRefreshCompletion(FutureTask<RemoteOlapTable> refreshTask) {
+        try {
+            refreshTask.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AnalysisException("interrupted while getting doris olap table", e);
+        } catch (ExecutionException e) {
+            // A later generation can retry after an ordinary refresh failure.
         }
     }
 
