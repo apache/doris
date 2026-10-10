@@ -36,6 +36,10 @@ import java.util.List;
  * by {@link NestedProjection} is rebuilt here as paimon's own types and handed to the reader — the rows
  * that come back are already narrow. Paimon's field ids, descriptions and nullability are carried
  * through unchanged: a read type that dropped them would stop matching the files it is meant to prune.
+ *
+ * <p>The one exception is an element row the merge engine reads by position
+ * ({@link PaimonNestedUpdateColumns}): narrowing that would corrupt merge-on-read, so its whole element
+ * row is kept even though the query asked for less.
  */
 final class PaimonReadTypeProjection {
 
@@ -48,6 +52,17 @@ final class PaimonReadTypeProjection {
      *         top-level {@code withProjection}
      */
     static DataType project(DataType tableType, ColumnType requiredType) {
+        return project(tableType, requiredType, false);
+    }
+
+    /**
+     * @param mustReadFullRow true when the merge engine reads this column's element row by position and
+     *         a narrowed element row would corrupt merge-on-read; the whole source type is then kept.
+     */
+    static DataType project(DataType tableType, ColumnType requiredType, boolean mustReadFullRow) {
+        if (mustReadFullRow) {
+            return tableType;
+        }
         NestedProjection<DataType> shape =
                 NestedProjection.of(requiredType, tableType, PaimonNestedTypeSource.INSTANCE);
         return shape.isIdentity() ? tableType : rebuild(shape);
