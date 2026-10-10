@@ -1228,6 +1228,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 16;
 
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Maximum snapshot parallelism per FROM TO task; values below 1 are treated as 1")
+    public static int streaming_cdc_max_snapshot_parallelism = 16;
+
     /**
      * the max timeout of get kafka meta.
      */
