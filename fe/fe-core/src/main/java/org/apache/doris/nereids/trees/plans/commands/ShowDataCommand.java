@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -28,7 +29,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -48,6 +48,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ComparisonChain;
@@ -97,10 +98,10 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("ChangelogSize", ScalarType.createVarchar(20)))
                     .build();
 
-    // Row of the entire-warehouse listing that carries the query spill currently held in object
-    // storage (cloud mode, spill_storage_type=s3). Spill is not attributable to a database; it gets
-    // its own row and is included in the total. A user database name has to start with a letter,
-    // so this name cannot collide with one.
+    // Row of the all-database and entire-warehouse listings that carries the query spill currently
+    // held in object storage (cloud mode, spill_storage_type=s3). Spill is not attributable to a
+    // database; it gets its own row and is included in the total. A user database name has to
+    // start with a letter, so this name cannot collide with one.
     private static final String REMOTE_SPILL_ROW_NAME = "__remote_spill__";
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
@@ -594,12 +595,17 @@ public class ShowDataCommand extends ShowCommand {
     }
 
     /**
-     * Bytes of query spill currently held in object storage, summed over the alive BEs as
-     * periodically polled by RemoteSpillStatsPoller on every FE. This is a billing input, so a
-     * missing or stale value is reported instead of being shown as zero.
+     * Bytes of query spill currently held in object storage, summed over the alive BEs from their
+     * latest disk reports. Only the master FE keeps these values, so the command is forwarded to it.
      */
     private long getRemoteSpillSize() throws AnalysisException {
-        return ((CloudEnv) Env.getCurrentEnv()).getRemoteSpillStatsPoller().getRemoteSpillBytes();
+        long total = 0;
+        for (Backend backend : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values()) {
+            if (backend.isAlive()) {
+                total += backend.getRemoteSpillBytes();
+            }
+        }
+        return total;
     }
 
     // |DBName|DataSize|RecycleSize|ChangelogSize|
@@ -757,6 +763,14 @@ public class ShowDataCommand extends ShowCommand {
             totalRows.add(dbInfo);
         }
 
+        // Query spill held in object storage is not attributable to a database: its own row.
+        if (Config.isCloudMode()) {
+            long remoteSpillSize = getRemoteSpillSize();
+            totalRows.add(Arrays.asList("NULL", REMOTE_SPILL_ROW_NAME, String.valueOf(remoteSpillSize),
+                    "0", "0", "0", "0"));
+            totalSize += remoteSpillSize;
+        }
+
         // calc total size
         List<String> dbInfo = new ArrayList<>();
         dbInfo.add("Total");
@@ -778,5 +792,11 @@ public class ShowDataCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowDataCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // The remote spill size reported by the BEs is only kept by the master FE.
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
