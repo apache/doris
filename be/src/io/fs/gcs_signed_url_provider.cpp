@@ -85,9 +85,7 @@ std::string percent_encode(std::string_view value) {
 
 Status call_iam_sign_blob(std::string_view access_token, std::string_view service_account,
                           std::string_view string_to_sign, int64_t request_timeout_ms,
-                          std::string* signature) {
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("GcsV4Signer::sign_blob", Status::OK(), access_token,
-                                      service_account, string_to_sign, signature);
+                          const std::string& ca_cert_file_path, std::string* signature) {
     std::string encoded_payload;
     base64_encode(std::string(string_to_sign), &encoded_payload);
     std::string request_body = fmt::format(R"({{"payload":"{}"}})", encoded_payload);
@@ -98,10 +96,15 @@ Status call_iam_sign_blob(std::string_view access_token, std::string_view servic
     // Keep the response body for non-2xx replies so IAM permission and
     // service-account errors are actionable to operators.
     RETURN_IF_ERROR(client.init(endpoint, false, HttpClient::AuthTokenMode::NONE));
+    if (!ca_cert_file_path.empty()) {
+        RETURN_IF_ERROR(client.set_ca_cert_file(ca_cert_file_path));
+    }
     client.set_authorization("Bearer " + std::string(access_token));
     client.set_content_type("application/json");
     client.set_timeout_ms(request_timeout_ms > 0 ? request_timeout_ms : 10000);
 
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("GcsV4Signer::sign_blob", Status::OK(), access_token,
+                                      service_account, string_to_sign, signature);
     std::string response;
     RETURN_IF_ERROR(client.execute_post_request(request_body, &response));
 
@@ -170,7 +173,8 @@ Status generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,
                 std::chrono::system_clock::now(), [&](std::string_view string_to_sign) {
                     std::string signature;
                     auto status = call_iam_sign_blob(*token, signer_email, string_to_sign,
-                                                     options.request_timeout_ms, &signature);
+                                                     options.request_timeout_ms,
+                                                     options.ca_cert_file_path, &signature);
                     if (!status.ok()) {
                         return GcsSignBlobResult {.error = status.to_string()};
                     }

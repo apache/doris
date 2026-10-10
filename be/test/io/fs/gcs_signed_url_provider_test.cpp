@@ -47,6 +47,7 @@ class GcsSignedUrlProviderTest : public testing::Test {
 protected:
     void TearDown() override {
         SyncPoint::get_instance()->clear_call_back("GcsV4Signer::sign_blob");
+        SyncPoint::get_instance()->clear_call_back("HttpClient::set_ca_cert_file");
         SyncPoint::get_instance()->disable_processing();
     }
 };
@@ -78,6 +79,34 @@ TEST_F(GcsSignedUrlProviderTest, DefaultSignsErrorLogWithResolvedIdentity) {
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_TRUE(called);
     EXPECT_NE(url.find("vm%40my-project.iam.gserviceaccount.com"), std::string::npos);
+    EXPECT_NE(url.find("X-Goog-Signature="), std::string::npos);
+}
+
+TEST_F(GcsSignedUrlProviderTest, SignBlobUsesConfiguredCaBundle) {
+    auto tokens = std::make_shared<GcpTokenProvider>(
+            std::make_shared<SelectedAccountCredentials>("vm@my-project.iam.gserviceaccount.com"));
+    GcsV4SignedUrlProviderOptions options {.endpoint = "storage.googleapis.com",
+                                           .bucket = "bucket",
+                                           .key = "load-errors/error.log",
+                                           .expiration_secs = 300,
+                                           .ca_cert_file_path = "/custom/certs/proxy-ca.pem"};
+    bool called = false;
+    SyncPoint::get_instance()->set_call_back(
+            "HttpClient::set_ca_cert_file", [&](std::vector<std::any>&& args) {
+                called = true;
+                EXPECT_EQ(*try_any_cast<const std::string*>(args[0]), options.ca_cert_file_path);
+            });
+    SyncPoint::get_instance()->set_call_back(
+            "GcsV4Signer::sign_blob", [&](std::vector<std::any>&& args) {
+                // Exercise HTTP client setup but avoid sending a live IAM request.
+                *try_any_cast<std::string*>(args[3]) = "test-signature";
+                try_any_cast_ret<Status>(args)->second = true;
+            });
+    SyncPoint::get_instance()->enable_processing();
+    std::string url;
+    auto status = generate_gcs_v4_signed_url(options, GcpCredentialConfig {}, tokens, &url);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(called);
     EXPECT_NE(url.find("X-Goog-Signature="), std::string::npos);
 }
 

@@ -458,7 +458,7 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
 
     S3ObjStorageClient::SignedUrlGenerator signed_url_generator;
     if (const auto* credential = std::get_if<GcpCredentialConfig>(&s3_conf.credential)) {
-        signed_url_generator = [conf = s3_conf, credential = *credential,
+        signed_url_generator = [conf = s3_conf, credential = *credential, ca_cert_file_path,
                                 token_provider = std::move(gcs_signing_token_provider)](
                                        const ObjStoragePath& path, int64_t expiration_secs) {
             std::string signed_url;
@@ -467,7 +467,8 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
                                                     .bucket = path.bucket,
                                                     .key = path.key,
                                                     .expiration_secs = expiration_secs,
-                                                    .request_timeout_ms = conf.request_timeout_ms},
+                                                    .request_timeout_ms = conf.request_timeout_ms,
+                                                    .ca_cert_file_path = ca_cert_file_path},
                                                    credential, token_provider, &signed_url);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to generate GCS V4 signed URL: " << status;

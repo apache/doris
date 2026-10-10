@@ -86,7 +86,9 @@ public:
         curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
 
-    // Currently, only fake SSL configurations are supported
+    // Override the trusted CA bundle after init(), which resets curl options.
+    Status set_ca_cert_file(const std::string& path);
+
     void use_untrusted_ssl() {
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);

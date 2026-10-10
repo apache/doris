@@ -445,7 +445,10 @@ public final class IcebergCatalogFactory {
                 opts.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());
                 putIfNotBlank(opts, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
                         credential.getImpersonationServiceAccount());
-                opts.put(CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.aws.s3.S3FileIO");
+                // Keep explicit FileIO choices. By default, S3 aliases use the GCP client factory,
+                // while gs/HDFS paths use HadoopFileIO with the native fs.gs.* configuration
+                // (the plugin does not bundle iceberg-gcp's GCSFileIO).
+                opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.io.ResolvingFileIO");
                 opts.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
             });
         }));

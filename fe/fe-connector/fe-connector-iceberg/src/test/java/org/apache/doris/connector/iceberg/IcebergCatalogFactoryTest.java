@@ -28,9 +28,17 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RawLocalFileSystem;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.aws.s3.S3InputFile;
+import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.hadoop.HadoopInputFile;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.SeekableInputStream;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -41,6 +49,8 @@ import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1062,7 +1072,7 @@ public class IcebergCatalogFactoryTest {
                 properties.put("iceberg.jdbc.uri", "jdbc:postgresql://localhost/iceberg");
                 Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
                         IcebergCatalogProperties.of(properties), Optional.of(storage));
-                Assertions.assertEquals("org.apache.iceberg.aws.s3.S3FileIO", options.get("io-impl"));
+                Assertions.assertEquals("org.apache.iceberg.io.ResolvingFileIO", options.get("io-impl"));
                 Assertions.assertEquals(GcpS3FileIOAwsClientFactory.class.getName(),
                         options.get(S3FileIOProperties.CLIENT_FACTORY));
                 Assertions.assertEquals(source, options.get("gs.credential_provider_type"));
@@ -1072,6 +1082,60 @@ public class IcebergCatalogFactoryTest {
             }
             Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
                     storage.toHadoopConfigurationMap().get("fs.gs.impl"));
+        }
+    }
+
+    @Test
+    void nativeGcpCatalogPreservesExplicitFileIo(@TempDir java.nio.file.Path temp) throws Exception {
+        Map<String, String> raw = new HashMap<>(Map.of("provider", "GCP",
+                "warehouse", "gs://bucket/warehouse", "iceberg.catalog.type", "rest",
+                "uri", "http://localhost:8181", "gs.credential_provider_type", "COMPUTE_ENGINE",
+                "io-impl", HadoopFileIO.class.getName()));
+        GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+        Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(raw), Optional.of(storage));
+        Assertions.assertEquals(HadoopFileIO.class.getName(), options.get("io-impl"));
+        Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                storage.toHadoopConfigurationMap());
+        java.nio.file.Path metadata = temp.resolve("metadata.json");
+        Files.writeString(metadata, "metadata", StandardCharsets.UTF_8);
+        try (FileIO io = CatalogUtil.loadFileIO(options.get("io-impl"), options, conf);
+                SeekableInputStream in = io.newInputFile(metadata.toUri().toString()).newStream()) {
+            Assertions.assertEquals("metadata", new String(in.readAllBytes(), StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
+    void nativeGcpRestCatalogRoutesMixedLocationsByScheme() throws Exception {
+        Map<String, String> raw = Map.of("provider", "GCP", "warehouse", "gs://bucket/warehouse",
+                "iceberg.catalog.type", "rest", "uri", "http://localhost:8181",
+                "gs.credential_provider_type", "COMPUTE_ENGINE",
+                "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com");
+        GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+        Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(raw), Optional.of(storage));
+        Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                storage.toHadoopConfigurationMap());
+        // Replace the Hadoop transports only, so the real FileIO dispatch runs without cloud/HDFS services.
+        for (String scheme : List.of("gs", "hdfs")) {
+            conf.set("fs." + scheme + ".impl", RawLocalFileSystem.class.getName());
+            conf.setBoolean("fs." + scheme + ".impl.disable.cache", true);
+        }
+        try (FileIO io = CatalogUtil.loadFileIO(options.get("io-impl"), options, conf)) {
+            for (String location : List.of("gs://bucket/metadata.json", "hdfs://namenode/metadata.json")) {
+                InputFile input = io.newInputFile(location, 10);
+                Assertions.assertInstanceOf(HadoopInputFile.class, input, location);
+                HadoopInputFile hadoopInput = (HadoopInputFile) input;
+                try (FileSystem fs = hadoopInput.getFileSystem()) {
+                    Assertions.assertInstanceOf(RawLocalFileSystem.class, fs);
+                    Assertions.assertEquals("COMPUTE_ENGINE", fs.getConf().get("fs.gs.auth.type"));
+                    Assertions.assertEquals("target@test.iam.gserviceaccount.com",
+                            fs.getConf().get("fs.gs.auth.impersonation.service.account"));
+                }
+            }
+            for (String scheme : List.of("s3", "s3a")) {
+                Assertions.assertInstanceOf(S3InputFile.class, io.newInputFile(scheme + "://bucket/metadata.json", 10));
+            }
         }
     }
 

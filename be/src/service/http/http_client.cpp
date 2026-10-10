@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
@@ -364,6 +365,15 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error,
         set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
 #endif
     }
+    return Status::OK();
+}
+
+Status HttpClient::set_ca_cert_file(const std::string& path) {
+    auto code = curl_easy_setopt(_curl, CURLOPT_CAINFO, path.c_str());
+    if (code != CURLE_OK) {
+        return Status::InternalError("failed to set CA certificate file: {}", _to_errmsg(code));
+    }
+    TEST_SYNC_POINT_CALLBACK("HttpClient::set_ca_cert_file", &path);
     return Status::OK();
 }
 

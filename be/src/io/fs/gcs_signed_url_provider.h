@@ -36,6 +36,7 @@ struct GcsV4SignedUrlProviderOptions {
     std::string key;
     int64_t expiration_secs = 0;
     int64_t request_timeout_ms = 10000;
+    std::string ca_cert_file_path;
 };
 
 // Resolve the identity selected by ADC or explicit impersonation, without falling back
