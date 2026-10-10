@@ -8,8 +8,8 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalLimit[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[t(t1)]
 ------------PhysicalLimit[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------PhysicalOlapScan[t]
+----------------PhysicalOlapScan[t(t2)]
 

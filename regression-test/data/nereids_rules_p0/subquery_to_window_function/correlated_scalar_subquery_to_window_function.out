@@ -18,7 +18,7 @@ PhysicalResultSink
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
-------------------PhysicalOlapScan[fact] apply RFs: RF0
+------------------PhysicalOlapScan[fact(f)] apply RFs: RF0
 ------------------PhysicalProject
 --------------------filter((dim_unique.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[dim_unique]
@@ -31,14 +31,14 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN colocated] hashCondition=((f2.k = d.k)) otherCondition=(((cast(v as BIGINT) * 2) > SUM(f2.v))) build RFs:RF1 k->[k,k]
 ------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
---------------PhysicalOlapScan[fact] apply RFs: RF0 RF1
+--------------PhysicalOlapScan[fact(f)] apply RFs: RF0 RF1
 --------------PhysicalProject
-----------------PhysicalOlapScan[dim] apply RFs: RF1
+----------------PhysicalOlapScan[dim(d)] apply RFs: RF1
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[fact]
+--------------------PhysicalOlapScan[fact(f2)]
 
 -- !shared_filter_above_window --
 30	5	3	8
@@ -53,7 +53,7 @@ PhysicalResultSink
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
-------------------PhysicalOlapScan[fact] apply RFs: RF0
+------------------PhysicalOlapScan[fact(f)] apply RFs: RF0
 ------------------PhysicalProject
 --------------------filter((dim_unique.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[dim_unique]
@@ -71,7 +71,7 @@ PhysicalResultSink
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
-------------------PhysicalOlapScan[fact] apply RFs: RF0
+------------------PhysicalOlapScan[fact(f)] apply RFs: RF0
 ------------------PhysicalProject
 --------------------filter((dim_unique.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[dim_unique]
@@ -91,7 +91,7 @@ PhysicalResultSink
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->[k]
 ------------------filter((f.v < 10))
---------------------PhysicalOlapScan[fact] apply RFs: RF0
+--------------------PhysicalOlapScan[fact(f)] apply RFs: RF0
 ------------------PhysicalProject
 --------------------filter((dim_unique.__DORIS_DELETE_SIGN__ = 0))
 ----------------------PhysicalOlapScan[dim_unique]

@@ -36,5 +36,5 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer] apply RFs: RF5
 ------------PhysicalProject
---------------PhysicalOlapScan[customer_address]
+--------------PhysicalOlapScan[customer_address(current_addr)]
 

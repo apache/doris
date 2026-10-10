@@ -27,8 +27,8 @@ PhysicalResultSink
 ------------------NestedLoopJoin[INNER_JOIN]OR[AND[(n1.n_name = 'FRANCE'),(n2.n_name = 'GERMANY')],AND[(n1.n_name = 'GERMANY'),(n2.n_name = 'FRANCE')]]
 --------------------PhysicalProject
 ----------------------filter(n_name IN ('FRANCE', 'GERMANY'))
-------------------------PhysicalOlapScan[nation]
+------------------------PhysicalOlapScan[nation(n1)]
 --------------------PhysicalProject
 ----------------------filter(n_name IN ('FRANCE', 'GERMANY'))
-------------------------PhysicalOlapScan[nation]
+------------------------PhysicalOlapScan[nation(n2)]
 
