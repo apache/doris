@@ -136,7 +136,7 @@ public final class S3ResourceCompat {
     }
 
     public static void convertToStdProperties(Map<String, String> properties) {
-        org.apache.doris.filesystem.auth.GcsAuthResolver.resolve(properties);
+        StorageAdapter.resolveAuthentication(properties);
         if (properties.containsKey(Env.ENDPOINT)) {
             properties.putIfAbsent(ENDPOINT, properties.get(Env.ENDPOINT));
         }

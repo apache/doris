@@ -22,6 +22,7 @@ import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.property.storage.auth.GcpCredentialAdapter;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.StsCredentials;
@@ -79,10 +80,7 @@ public class ObjectInfoAdapter {
                 Map<String, String> gcpProperties = buildS3CompatibleProps(obj);
                 gcpProperties.put("provider", "GCP");
                 if (obj.getGcpCredential() != null) {
-                    gcpProperties.put("gs.credential_provider_type",
-                            obj.getGcpCredential().getCredentialProviderType().name());
-                    putIfNotBlank(gcpProperties, "gs.impersonation_service_account",
-                            obj.getGcpCredential().getImpersonationServiceAccount());
+                    gcpProperties.putAll(GcpCredentialAdapter.toProperties(obj.getGcpCredential()));
                 }
                 return StorageAdapter.ofProvider("GCS", gcpProperties);
             case COS:

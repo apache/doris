@@ -25,7 +25,6 @@ import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.datasource.storage.S3ThriftAdapter;
 import org.apache.doris.datasource.storage.StorageAdapter;
-import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -748,12 +747,12 @@ public class S3ResourceTest {
                     S3Resource resource = createGcpResourceWithImpersonation(providerType);
                     resource.modifyProperties(ImmutableMap.of(S3ResourceCompat.CONNECTION_TIMEOUT_MS, "2000"));
                     Assertions.assertEquals("reader@project.iam.gserviceaccount.com",
-                            resource.getProperty(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                            resource.getProperty("gs.impersonation_service_account"));
                     AtomicBoolean pinged = new AtomicBoolean();
                     resourceMock.when(() -> S3Resource.pingS3(Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
                             .thenAnswer(invocation -> {
                                 Map<String, String> pingProperties = invocation.getArgument(2);
-                                Assertions.assertEquals("", pingProperties.get(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                                Assertions.assertEquals("", pingProperties.get("gs.impersonation_service_account"));
                                 TGcpCredential credential = S3ThriftAdapter.getS3TStorageParam(pingProperties)
                                         .getCredential().getGcpCredential();
                                 Assertions.assertEquals(providerType, credential.getCredentialProviderType().name());
@@ -762,11 +761,11 @@ public class S3ResourceTest {
                                 return null;
                             });
                     long previousVersion = resource.getVersion();
-                    resource.modifyProperties(ImmutableMap.of(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "",
+                    resource.modifyProperties(ImmutableMap.of("gs.impersonation_service_account", "",
                             S3ResourceCompat.VALIDITY_CHECK, "true"));
                     Assertions.assertTrue(pinged.get());
                     Assertions.assertEquals(previousVersion + 1, resource.getVersion());
-                    Assertions.assertEquals("", resource.getProperty(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                    Assertions.assertEquals("", resource.getProperty("gs.impersonation_service_account"));
 
                     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                     try (DataOutputStream output = new DataOutputStream(bytes)) {
@@ -797,7 +796,7 @@ public class S3ResourceTest {
             resourceMock.when(() -> S3Resource.pingS3(Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
                     .thenAnswer(invocation -> {
                         Map<String, String> pingProperties = invocation.getArgument(2);
-                        Assertions.assertEquals("", pingProperties.get(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                        Assertions.assertEquals("", pingProperties.get("gs.impersonation_service_account"));
                         throw new DdlException("source credential cannot access bucket");
                     });
             for (String providerType : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
@@ -805,7 +804,7 @@ public class S3ResourceTest {
                 Map<String, String> previousProperties = resource.getCopiedProperties();
                 long previousVersion = resource.getVersion();
                 Assertions.assertThrows(DdlException.class, () -> resource.modifyProperties(
-                        ImmutableMap.of(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "",
+                        ImmutableMap.of("gs.impersonation_service_account", "",
                                 S3ResourceCompat.VALIDITY_CHECK, "true")));
                 Assertions.assertEquals(previousProperties, resource.getCopiedProperties());
                 Assertions.assertEquals(previousVersion, resource.getVersion());
@@ -821,8 +820,8 @@ public class S3ResourceTest {
         properties.put(S3ResourceCompat.BUCKET, "bucket");
         properties.put(S3ResourceCompat.ROOT_PATH, "prefix");
         properties.put(S3ResourceCompat.VALIDITY_CHECK, "false");
-        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, providerType);
-        properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "reader@project.iam.gserviceaccount.com");
+        properties.put("gs.credential_provider_type", providerType);
+        properties.put("gs.impersonation_service_account", "reader@project.iam.gserviceaccount.com");
         S3Resource resource = new S3Resource("gcp_resource");
         resource.setProperties(ImmutableMap.copyOf(properties));
         return resource;
@@ -835,7 +834,7 @@ public class S3ResourceTest {
         properties.put("gs.endpoint", "https://storage.googleapis.com");
         properties.put(S3ResourceCompat.BUCKET, "bucket");
         properties.put(S3ResourceCompat.VALIDITY_CHECK, "false");
-        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "DEFAULT");
+        properties.put("gs.credential_provider_type", "DEFAULT");
         for (String key : new String[] {"gs.access_key", "gs.secret_key", "gs.session_token",
                 S3ResourceCompat.ACCESS_KEY, S3ResourceCompat.SECRET_KEY, S3ResourceCompat.SESSION_TOKEN}) {
             S3Resource resource = new S3Resource("gcp_resource");
@@ -849,18 +848,18 @@ public class S3ResourceTest {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> resource.modifyProperties(ImmutableMap.of(key, "conflicting-credential")));
             Assertions.assertEquals(before, resource.getCopiedProperties());
-            Assertions.assertEquals("DEFAULT", resource.getProperty(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+            Assertions.assertEquals("DEFAULT", resource.getProperty("gs.credential_provider_type"));
         }
         S3Resource resource = new S3Resource("gcp_resource");
-        properties.remove(GcpCredential.CREDENTIAL_PROVIDER_TYPE);
+        properties.remove("gs.credential_provider_type");
         properties.put("gs.access_key", "access");
         properties.put("gs.secret_key", "secret");
         resource.setProperties(ImmutableMap.copyOf(properties));
         Assertions.assertThrows(IllegalArgumentException.class, () -> resource.modifyProperties(
-                ImmutableMap.of(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "DEFAULT")));
+                ImmutableMap.of("gs.credential_provider_type", "DEFAULT")));
         // Empty AK/SK updates are ignored by Resource ALTER and cannot clear stored credentials.
         Assertions.assertThrows(IllegalArgumentException.class, () -> resource.modifyProperties(
-                ImmutableMap.of(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "DEFAULT",
+                ImmutableMap.of("gs.credential_provider_type", "DEFAULT",
                         S3ResourceCompat.ACCESS_KEY, "", S3ResourceCompat.SECRET_KEY, "")));
     }
 

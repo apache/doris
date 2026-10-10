@@ -22,8 +22,7 @@ import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.storage.auth.ObjCredentialFactory;
-import org.apache.doris.filesystem.auth.GcsAuth;
-import org.apache.doris.filesystem.auth.GcsAuthResolver;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import com.google.common.base.Preconditions;
@@ -64,8 +63,8 @@ public final class CloudObjectStoreAdapter {
 
     /** Direct move of legacy {@code S3Properties.getObjStoreInfoPB}. */
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
-        Optional<GcsAuth> gcsAuth = GcsAuthResolver.resolve(properties);
-        if (gcsAuth.filter(GcsAuth::isAnonymous).isPresent()) {
+        Optional<ObjectStorageAuthentication> authentication = StorageAdapter.resolveAuthentication(properties);
+        if (authentication.filter(ObjectStorageAuthentication::isAnonymous).isPresent()) {
             throw new IllegalArgumentException("Anonymous GCS authentication is not supported for storage vaults.");
         }
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
@@ -123,9 +122,18 @@ public final class CloudObjectStoreAdapter {
             }
         }
 
-        ObjCredentialFactory.fromProperties(properties, gcsAuth)
+        ObjCredentialFactory.fromAuthentication(authentication)
                 .ifPresent(credential -> credential.applyTo(builder));
         return builder;
+    }
+
+    /** ALTER carries only explicitly supplied credential fields, including empty values. */
+    public static void applyCredentialPatch(Cloud.ObjectStoreInfoPB.Builder builder, Map<String, String> properties) {
+        builder.clearCredential();
+        StorageAdapter.resolveAuthentication(properties)
+                .filter(auth -> !auth.getCredentialUpdates().isEmpty())
+                .ifPresent(auth -> ObjCredentialFactory.fromCredential(auth.getProvider(), auth.getCredentialUpdates())
+                        .applyTo(builder));
     }
 
     private static boolean hasCredentialsProviderType(Map<String, String> properties) {

@@ -21,7 +21,6 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
-import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.nereids.parser.NereidsParser;
 
 import org.junit.jupiter.api.Assertions;
@@ -46,8 +45,8 @@ public class ShowCreateStorageVaultCommandTest {
                 original.getCredentialBuilder().setGcpCredential(credential);
 
                 Map<String, String> properties = shownProperties(original.build());
-                Assertions.assertEquals(providerType.name(), properties.get(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
-                Assertions.assertEquals(account, properties.getOrDefault(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, ""));
+                Assertions.assertEquals(providerType.name(), properties.get("gs.credential_provider_type"));
+                Assertions.assertEquals(account, properties.getOrDefault("gs.impersonation_service_account", ""));
                 Assertions.assertFalse(properties.containsKey("s3.access_key"));
                 Assertions.assertFalse(properties.containsKey("s3.secret_key"));
                 Assertions.assertEquals(original.build(), CloudObjectStoreAdapter.getObjStoreInfoPB(properties).build(),
@@ -64,8 +63,8 @@ public class ShowCreateStorageVaultCommandTest {
                     .setAk("access-key").setSk("secret-key").build());
             Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK, properties.get("s3.access_key"));
             Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK, properties.get("s3.secret_key"));
-            Assertions.assertFalse(properties.containsKey(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
-            Assertions.assertFalse(properties.containsKey(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+            Assertions.assertFalse(properties.containsKey("gs.credential_provider_type"));
+            Assertions.assertFalse(properties.containsKey("gs.impersonation_service_account"));
         }
     }
 

@@ -71,8 +71,6 @@ public class S3StorageVault extends StorageVault {
         public static final String ROLE_ARN = "s3.role_arn";
         public static final String EXTERNAL_ID = "s3.external_id";
         public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
-        public static final String GCP_CREDENTIAL_PROVIDER_TYPE = "gs.credential_provider_type";
-        public static final String GCP_IMPERSONATION_SERVICE_ACCOUNT = "gs.impersonation_service_account";
     }
 
     public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(
@@ -83,9 +81,7 @@ public class S3StorageVault extends StorageVault {
             PropertyKey.USE_PATH_STYLE,
             PropertyKey.ROLE_ARN,
             PropertyKey.EXTERNAL_ID,
-            PropertyKey.CREDENTIALS_PROVIDER_TYPE,
-            PropertyKey.GCP_CREDENTIAL_PROVIDER_TYPE,
-            PropertyKey.GCP_IMPERSONATION_SERVICE_ACCOUNT
+            PropertyKey.CREDENTIALS_PROVIDER_TYPE
     ));
 
     @SerializedName(value = "properties")

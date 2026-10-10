@@ -23,9 +23,8 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.UploadPartResult;
-import org.apache.doris.filesystem.auth.GcpCredential;
-import org.apache.doris.filesystem.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RequestBody;
@@ -37,7 +36,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,7 +45,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -79,20 +76,6 @@ import java.util.Optional;
  */
 public class S3Resource extends Resource {
     private static final Logger LOG = LogManager.getLogger(S3Resource.class);
-    // Only aliases already supported by GCSProperties belong here. Resource/Vault options
-    // without a GCS alias (bucket, root path, region, validity checking) keep their existing names.
-    private static final Map<String, String> GCS_PROPERTY_ALIASES = ImmutableMap.<String, String>builder()
-            .put("gs.endpoint", S3ResourceCompat.ENDPOINT)
-            .put("gs.access_key", S3ResourceCompat.ACCESS_KEY)
-            .put("gs.secret_key", S3ResourceCompat.SECRET_KEY)
-            .put("gs.session_token", S3ResourceCompat.SESSION_TOKEN)
-            .put("gs.connection.maximum", S3ResourceCompat.MAX_CONNECTIONS)
-            .put("gs.connection.request.timeout", S3ResourceCompat.REQUEST_TIMEOUT_MS)
-            .put("gs.connection.timeout", S3ResourceCompat.CONNECTION_TIMEOUT_MS)
-            .put("gs.use_path_style", S3ResourceCompat.USE_PATH_STYLE)
-            .put("gs.force_parsing_by_standard_uri", "force_parsing_by_standard_uri")
-            .build();
-
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
@@ -112,8 +95,7 @@ public class S3Resource extends Resource {
     @Override
     protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
-        this.properties = Maps.newHashMap(newProperties);
-        normalizeProperties(this.properties, this.properties.get("provider"));
+        this.properties = StorageAdapter.normalizeProperties(newProperties, newProperties);
 
         // check properties
         S3ResourceCompat.requiredS3PingProperties(properties);
@@ -238,62 +220,29 @@ public class S3Resource extends Resource {
         LOG.info("success to ping s3");
     }
 
-    private static void normalizeProperties(Map<String, String> properties, String provider) {
-        // Validate the raw aliases before a preferred value can hide conflicting credentials.
-        GcsAuthResolver.resolve(properties);
-        if (StringUtils.isBlank(provider) && GcsAuthResolver.guessIsGcs(properties)) {
-            provider = "GCP";
-            properties.put("provider", provider);
-        }
-        if (StringUtils.isBlank(provider)) {
-            return;
-        }
-        switch (provider.toUpperCase(Locale.ROOT)) {
-            case "GCP":
-                // Normalize before validation, policy checks and persistence, so FE connector
-                // binding and Resource/Vault protocol builders consume the same values.
-                GCS_PROPERTY_ALIASES.forEach((alias, key) -> {
-                    String value = properties.remove(alias);
-                    // Match connector binding: nonblank gs.* values take precedence.
-                    if (StringUtils.isNotBlank(value)) {
-                        properties.put(key, value);
-                    }
-                });
-                break;
-            default:
-                break;
-        }
-    }
-
     @Override
     public synchronized void modifyProperties(Map<String, String> newProperties) throws DdlException {
         // Serialize the snapshot, validation and publication. A lock only around publication
         // would allow a concurrent ALTER to replace a successful update with an older snapshot.
         Map<String, String> properties = new HashMap<>(newProperties);
-        String provider = StringUtils.defaultIfEmpty(properties.get("provider"),
-                this.properties.get("provider"));
-        if (StringUtils.isBlank(provider)) {
-            Map<String, String> selectionProperties = new HashMap<>(this.properties);
-            selectionProperties.putAll(properties);
-            if (GcsAuthResolver.guessIsGcs(selectionProperties)) {
-                provider = "GCP";
-                properties.put("provider", provider);
-            }
+        Map<String, String> selectionProperties = new HashMap<>(this.properties);
+        selectionProperties.putAll(properties);
+        if (Strings.isNullOrEmpty(properties.get("provider"))) {
+            // Empty ALTER values retain the persisted provider, like other resource properties.
+            selectionProperties.put("provider", this.properties.get("provider"));
         }
-        // Preserve AWS_* ALTER compatibility before merging with stored canonical properties.
+        // Normalize the patch independently so its aliases win over persisted canonical values.
         S3ResourceCompat.convertToStdProperties(properties);
-        // Resolve aliases separately so this ALTER wins over persisted values regardless
-        // of their spelling. Within each map, nonblank gs.* values still take precedence.
-        normalizeProperties(properties, provider);
-        Map<String, String> effectiveProperties = new HashMap<>(this.properties);
-        normalizeProperties(effectiveProperties, provider);
+        Map<String, String> normalizedUpdates = StorageAdapter.normalizeProperties(properties, selectionProperties);
+        Map<String, String> effectiveProperties =
+                StorageAdapter.normalizeProperties(this.properties, selectionProperties);
         S3ResourceCompat.convertToStdProperties(effectiveProperties);
-        for (Map.Entry<String, String> update : properties.entrySet()) {
+        for (Map.Entry<String, String> update : normalizedUpdates.entrySet()) {
             // Empty updates are ignored, except when clearing a session token or impersonation account.
             replaceIfEffectiveValue(effectiveProperties, update.getKey(), update.getValue());
             if (S3ResourceCompat.SESSION_TOKEN.equals(update.getKey())
                     || S3ResourceCompat.Env.TOKEN.equals(update.getKey())
-                    || GcpCredential.IMPERSONATION_SERVICE_ACCOUNT.equals(update.getKey())) {
+                    || StorageAdapter.isClearableProperty(update.getKey())) {
                 effectiveProperties.put(update.getKey(), update.getValue());
             }
         }
@@ -304,7 +253,7 @@ public class S3Resource extends Resource {
                     S3ResourceCompat.Env.REGION,
                     S3ResourceCompat.Env.ROOT_PATH, S3ResourceCompat.Env.BUCKET);
             Optional<String> any = cantChangeProperties.stream()
-                    .filter(key -> properties.containsKey(key)
+                    .filter(key -> normalizedUpdates.containsKey(key)
                             || !Objects.equals(this.properties.get(key), effectiveProperties.get(key)))
                     .findAny();
             if (any.isPresent()) {
@@ -314,7 +263,7 @@ public class S3Resource extends Resource {
         if (!Strings.isNullOrEmpty(effectiveProperties.get(S3ResourceCompat.ENDPOINT))) {
             effectiveProperties.put(S3ResourceCompat.Env.ENDPOINT, effectiveProperties.get(S3ResourceCompat.ENDPOINT));
         }
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
+        for (Map.Entry<String, String> kv : normalizedUpdates.entrySet()) {
             if (kv.getKey().equalsIgnoreCase(S3ResourceCompat.ROLE_ARN)
                     && !Strings.isNullOrEmpty(kv.getValue())) {
                 effectiveProperties.remove(S3ResourceCompat.ACCESS_KEY);
@@ -330,7 +279,7 @@ public class S3Resource extends Resource {
                 effectiveProperties.remove(S3ResourceCompat.Env.EXTERNAL_ID);
             }
         }
-        GcsAuthResolver.resolve(effectiveProperties);
+        StorageAdapter.resolveAuthentication(effectiveProperties);
         boolean needCheck = isNeedCheck(effectiveProperties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("s3 info need check validity : {}", needCheck);

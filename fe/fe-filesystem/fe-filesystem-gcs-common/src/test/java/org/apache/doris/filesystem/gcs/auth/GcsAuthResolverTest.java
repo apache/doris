@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.auth;
+package org.apache.doris.filesystem.gcs.auth;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

@@ -22,7 +22,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
-import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -103,9 +102,9 @@ public class LoadCommandTest extends TestWithFeService {
         Assertions.assertEquals("us-east1", brokerDesc.getBackendConfigProperties().get("AWS_REGION"));
         Assertions.assertEquals("GCP", brokerDesc.getBackendConfigProperties().get("provider"));
         Assertions.assertEquals("COMPUTE_ENGINE", brokerDesc.getBackendConfigProperties()
-                .get(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+                .get("gs.credential_provider_type"));
         Assertions.assertEquals("target@my-project.iam.gserviceaccount.com",
-                brokerDesc.getBackendConfigProperties().get(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                brokerDesc.getBackendConfigProperties().get("gs.impersonation_service_account"));
     }
 
     @Test
@@ -120,7 +119,7 @@ public class LoadCommandTest extends TestWithFeService {
 
         IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new NereidsParser().parseSingle(loadSql));
-        Assertions.assertTrue(exception.getMessage().contains(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+        Assertions.assertTrue(exception.getMessage().contains("gs.credential_provider_type"));
         Assertions.assertTrue(exception.getMessage().contains("DEFAULT"));
         Assertions.assertTrue(exception.getMessage().contains("COMPUTE_ENGINE"));
     }

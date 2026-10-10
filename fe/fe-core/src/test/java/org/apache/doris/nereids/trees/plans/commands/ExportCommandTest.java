@@ -22,7 +22,6 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
-import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
@@ -81,9 +80,9 @@ public class ExportCommandTest extends TestWithFeService {
                     Map<String, String> properties = new HashMap<>();
                     properties.put("provider", "GCP");
                     properties.put("s3.endpoint", "https://storage.googleapis.com");
-                    properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, provider);
+                    properties.put("gs.credential_provider_type", provider);
                     if (!serviceAccount.isEmpty()) {
-                        properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, serviceAccount);
+                        properties.put("gs.impersonation_service_account", serviceAccount);
                     }
                     ExportJob job = generateExportJob(scheme + "://export-bucket/nested/result_",
                             new BrokerDesc(null, properties));
@@ -91,9 +90,9 @@ public class ExportCommandTest extends TestWithFeService {
                     Map<String, String> backendProperties = job.getBrokerDesc().getBackendConfigProperties();
                     Assertions.assertEquals("GCP", backendProperties.get("provider"));
                     Assertions.assertEquals("https://storage.googleapis.com", backendProperties.get("AWS_ENDPOINT"));
-                    Assertions.assertEquals(provider, backendProperties.get(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+                    Assertions.assertEquals(provider, backendProperties.get("gs.credential_provider_type"));
                     Assertions.assertEquals(serviceAccount,
-                            backendProperties.getOrDefault(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, ""));
+                            backendProperties.getOrDefault("gs.impersonation_service_account", ""));
                 }
             }
         }

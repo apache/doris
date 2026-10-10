@@ -17,8 +17,8 @@
 
 package org.apache.doris.filesystem.gcs;
 
-import org.apache.doris.filesystem.auth.GcpCredential;
-import org.apache.doris.filesystem.auth.GcsEndpoint;
+import org.apache.doris.filesystem.gcs.auth.GcpCredential;
+import org.apache.doris.filesystem.gcs.auth.GcsEndpoint;
 
 import com.google.auth.oauth2.ComputeEngineCredentials;
 import com.google.auth.oauth2.GoogleCredentials;

@@ -28,7 +28,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
-import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeNode;
@@ -117,8 +116,8 @@ public class ExternalFileTableValuedFunctionTest {
             properties.put("format", "parquet");
             properties.put("provider", "GCP");
             properties.put("gs.endpoint", "https://storage.googleapis.com");
-            properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "COMPUTE_ENGINE");
-            properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
+            properties.put("gs.credential_provider_type", "COMPUTE_ENGINE");
+            properties.put("gs.impersonation_service_account",
                     "target@my-project.iam.gserviceaccount.com");
 
             S3TableValuedFunction tvf = new S3TableValuedFunction(properties);
@@ -126,9 +125,9 @@ public class ExternalFileTableValuedFunctionTest {
             Assertions.assertEquals("us-east1", tvf.getBackendConnectProperties().get("AWS_REGION"));
             Assertions.assertEquals("GCP", tvf.getBackendConnectProperties().get("provider"));
             Assertions.assertEquals("COMPUTE_ENGINE", tvf.getBackendConnectProperties()
-                    .get(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+                    .get("gs.credential_provider_type"));
             Assertions.assertEquals("target@my-project.iam.gserviceaccount.com",
-                    tvf.getBackendConnectProperties().get(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                    tvf.getBackendConnectProperties().get("gs.impersonation_service_account"));
         } finally {
             FeConstants.runningUnitTest = previousRunningUnitTest;
         }
@@ -143,7 +142,7 @@ public class ExternalFileTableValuedFunctionTest {
             properties.put("uri", "gs://tvf-bucket/path/file.parquet");
             properties.put("format", "parquet");
             properties.put("provider", "GCP");
-            properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "DEFAULT");
+            properties.put("gs.credential_provider_type", "DEFAULT");
             properties.put("s3.session_token", "session-token");
 
             IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,

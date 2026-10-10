@@ -25,7 +25,6 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
-import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.system.SystemInfoService;
 
@@ -130,13 +129,13 @@ public class S3StorageVaultTest {
     @Test
     public void testGcpCreateDefaultsAndExplicitProvider() throws Exception {
         Map<String, String> properties = new HashMap<>();
-        properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, ACCOUNT);
+        properties.put("gs.impersonation_service_account", ACCOUNT);
         Cloud.GcpCredentialPB credential = captureRequest(properties, false).getCredential().getGcpCredential();
         Assertions.assertTrue(credential.hasCredentialProviderType());
         Assertions.assertEquals(Cloud.GcpCredentialPB.CredentialProviderType.DEFAULT,
                 credential.getCredentialProviderType());
         Assertions.assertEquals(ACCOUNT, credential.getImpersonationServiceAccount());
-        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "COMPUTE_ENGINE");
+        properties.put("gs.credential_provider_type", "COMPUTE_ENGINE");
         credential = captureRequest(properties, false).getCredential().getGcpCredential();
         Assertions.assertTrue(credential.hasCredentialProviderType());
         Assertions.assertEquals(Cloud.GcpCredentialPB.CredentialProviderType.COMPUTE_ENGINE,
@@ -146,7 +145,7 @@ public class S3StorageVaultTest {
     @Test
     public void testGcpEmptyTargetDefaultsToDefault() throws Exception {
         Map<String, String> properties = new HashMap<>();
-        properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "");
+        properties.put("gs.impersonation_service_account", "");
         Cloud.GcpCredentialPB credential = captureRequest(properties, false).getCredential().getGcpCredential();
         Assertions.assertTrue(credential.hasCredentialProviderType());
         Assertions.assertEquals(Cloud.GcpCredentialPB.CredentialProviderType.DEFAULT,
@@ -162,19 +161,19 @@ public class S3StorageVaultTest {
     @Test
     public void testGcpAlterPreservesOmittedFields() throws Exception {
         Map<String, String> properties = new HashMap<>();
-        properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, ACCOUNT);
+        properties.put("gs.impersonation_service_account", ACCOUNT);
         Cloud.GcpCredentialPB credential = captureRequest(properties, true).getCredential().getGcpCredential();
         Assertions.assertFalse(credential.hasCredentialProviderType());
         Assertions.assertTrue(credential.hasImpersonationServiceAccount());
         Assertions.assertEquals(ACCOUNT, credential.getImpersonationServiceAccount());
         properties.clear();
-        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "COMPUTE_ENGINE");
+        properties.put("gs.credential_provider_type", "COMPUTE_ENGINE");
         credential = captureRequest(properties, true).getCredential().getGcpCredential();
         Assertions.assertTrue(credential.hasCredentialProviderType());
         Assertions.assertEquals(Cloud.GcpCredentialPB.CredentialProviderType.COMPUTE_ENGINE,
                 credential.getCredentialProviderType());
         Assertions.assertFalse(credential.hasImpersonationServiceAccount());
-        properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, ACCOUNT);
+        properties.put("gs.impersonation_service_account", ACCOUNT);
         credential = captureRequest(properties, true).getCredential().getGcpCredential();
         Assertions.assertTrue(credential.hasCredentialProviderType());
         Assertions.assertEquals(Cloud.GcpCredentialPB.CredentialProviderType.COMPUTE_ENGINE,
@@ -208,7 +207,7 @@ public class S3StorageVaultTest {
             mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             StorageVaultMgr mgr = new StorageVaultMgr(new SystemInfoService());
-            for (String key : new String[] {GcpCredential.CREDENTIAL_PROVIDER_TYPE,
+            for (String key : new String[] {"gs.credential_provider_type",
                     S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE, S3ResourceCompat.Env.CREDENTIALS_PROVIDER_TYPE}) {
                 Map<String, String> properties = new HashMap<>();
                 properties.put("type", "S3");

@@ -458,11 +458,6 @@ under the License.
             <artifactId>commons-codec</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.google.cloud.bigdataoss</groupId>
-            <artifactId>gcs-connector</artifactId>
-            <classifier>shaded</classifier>
-        </dependency>
-        <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-azure</artifactId>
         </dependency>

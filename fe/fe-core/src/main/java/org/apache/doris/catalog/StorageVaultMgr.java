@@ -27,8 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
-import org.apache.doris.filesystem.auth.GcpCredential;
-import org.apache.doris.filesystem.auth.GcsAuthResolver;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -162,6 +161,7 @@ public class StorageVaultMgr {
             throws Exception {
         Cloud.StorageVaultPB.Builder builder = buildS3VaultRequest(properties, name);
         Cloud.ObjectStoreInfoPB.Builder objBuilder = builder.getObjInfoBuilder();
+        CloudObjectStoreAdapter.applyCredentialPatch(objBuilder, properties);
         // CREATE may infer GCP from native credentials. ALTER must not send an inferred
         // provider because MS rejects changes to this immutable storage field.
         if (!properties.containsKey("provider")) {
@@ -181,22 +181,6 @@ public class StorageVaultMgr {
         }
         if (properties.containsKey(S3ResourceCompat.EXTERNAL_ID)) {
             objBuilder.setExternalId(properties.get(S3ResourceCompat.EXTERNAL_ID));
-        }
-        // GCS CREATE defaults to ADC, but a storage-only ALTER must not change authentication.
-        if (!GcsAuthResolver.hasNativeCredentialProperties(properties)
-                && objBuilder.hasCredential() && objBuilder.getCredential().hasGcpCredential()) {
-            objBuilder.clearCredential();
-        }
-        if (objBuilder.hasCredential() && objBuilder.getCredential().hasGcpCredential()) {
-            Cloud.GcpCredentialPB.Builder credential = objBuilder.getCredentialBuilder().getGcpCredentialBuilder();
-            if (!properties.containsKey(GcpCredential.CREDENTIAL_PROVIDER_TYPE)) {
-                credential.clearCredentialProviderType();
-            }
-            // Preserve explicit empty strings so MS can distinguish clearing
-            // impersonation from leaving the stored target unchanged.
-            if (properties.containsKey(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT)) {
-                credential.setImpersonationServiceAccount(properties.get(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
-            }
         }
         return builder;
     }
@@ -251,7 +235,8 @@ public class StorageVaultMgr {
                     .setRequestIp(FrontendOptions.getLocalHostAddressCached());
             if (type == StorageVaultType.S3) {
                 properties.keySet().stream()
-                        .filter(key -> !S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(key))
+                        .filter(key -> !S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(key)
+                                && !StorageAdapter.isModifiableCredentialProperty(key))
                         .findAny()
                         .ifPresent(key -> {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");

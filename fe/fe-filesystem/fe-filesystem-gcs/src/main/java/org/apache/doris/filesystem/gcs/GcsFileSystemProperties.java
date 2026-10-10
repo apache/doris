@@ -17,10 +17,10 @@
 
 package org.apache.doris.filesystem.gcs;
 
-import org.apache.doris.filesystem.auth.GcpCredential;
-import org.apache.doris.filesystem.auth.GcpCredentialProviderType;
-import org.apache.doris.filesystem.auth.GcsAuth;
-import org.apache.doris.filesystem.auth.GcsAuthResolver;
+import org.apache.doris.filesystem.gcs.auth.GcpCredential;
+import org.apache.doris.filesystem.gcs.auth.GcpCredentialProviderType;
+import org.apache.doris.filesystem.gcs.auth.GcsAuth;
+import org.apache.doris.filesystem.gcs.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.s3.AbstractDelegatingS3Properties;
 import org.apache.doris.foundation.property.ConnectorProperty;

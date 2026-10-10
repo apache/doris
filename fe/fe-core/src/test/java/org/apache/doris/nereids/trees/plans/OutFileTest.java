@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -110,10 +109,9 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                     String properties = "\"provider\" = \"GCP\","
                             + "\"s3.endpoint\" = \"https://storage.googleapis.com\","
                             + "\"s3.region\" = \"us-central1\","
-                            + "\"" + GcpCredential.CREDENTIAL_PROVIDER_TYPE + "\" = \"" + provider + "\"";
+                            + "\"gs.credential_provider_type\" = \"" + provider + "\"";
                     if (!serviceAccount.isEmpty()) {
-                        properties += ",\"" + GcpCredential.IMPERSONATION_SERVICE_ACCOUNT
-                                + "\" = \"" + serviceAccount + "\"";
+                        properties += ",\"gs.impersonation_service_account\" = \"" + serviceAccount + "\"";
                     }
                     TResultFileSinkOptions options = getFileSinkOptions("select * from T1 into outfile '"
                             + scheme + "://outfile-bucket/nested/result_' format as csv properties ("
@@ -124,9 +122,9 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                     Assertions.assertEquals("https://storage.googleapis.com", backendProperties.get("AWS_ENDPOINT"));
                     // GCSProperties does not bind s3.region and retains its compatibility default.
                     Assertions.assertEquals("us-east1", backendProperties.get("AWS_REGION"));
-                    Assertions.assertEquals(provider, backendProperties.get(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+                    Assertions.assertEquals(provider, backendProperties.get("gs.credential_provider_type"));
                     Assertions.assertEquals(serviceAccount,
-                            backendProperties.getOrDefault(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, ""));
+                            backendProperties.getOrDefault("gs.impersonation_service_account", ""));
                 }
             }
         }

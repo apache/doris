@@ -19,6 +19,7 @@ package org.apache.doris.datasource.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -139,6 +141,48 @@ public final class StorageAdapter {
                 : null;
         this.forceParsingByStandardUriValue = resolveForceParsingByStandardUri();
         checkAzureOauth2OnlyForIcebergRest();
+    }
+
+    /** Provider-owned normalization also accepts partial resource/vault ALTER maps. */
+    public static Map<String, String> normalizeProperties(Map<String, String> properties,
+            Map<String, String> context) {
+        Map<String, String> normalized = new HashMap<>(properties);
+        for (FileSystemProvider<?> provider : manager().getProviders()) {
+            normalized = provider.normalizeProperties(normalized, context);
+        }
+        return normalized;
+    }
+
+    public static Optional<ObjectStorageAuthentication> resolveAuthentication(Map<String, String> properties) {
+        ObjectStorageAuthentication selected = null;
+        for (FileSystemProvider<?> provider : manager().getProviders()) {
+            Optional<ObjectStorageAuthentication> auth = provider.resolveAuthentication(properties);
+            if (auth.isPresent()) {
+                if (selected != null) {
+                    throw new IllegalArgumentException("Multiple filesystem providers claimed object authentication");
+                }
+                selected = auth.get();
+            }
+        }
+        return Optional.ofNullable(selected);
+    }
+
+    public static boolean isModifiableCredentialProperty(String key) {
+        return manager().getProviders().stream()
+                .anyMatch(provider -> provider.modifiableCredentialPropertyKeys().contains(key));
+    }
+
+    public static boolean isClearableProperty(String key) {
+        return manager().getProviders().stream().anyMatch(provider -> provider.clearablePropertyKeys().contains(key));
+    }
+
+    public static Map<String, String> credentialToProperties(String providerName, Map<String, String> credential) {
+        for (FileSystemProvider<?> provider : manager().getProviders()) {
+            if (provider.name().equalsIgnoreCase(providerName)) {
+                return provider.credentialToProperties(credential);
+            }
+        }
+        throw new StoragePropertiesException("Filesystem provider '" + providerName + "' is not available");
     }
 
     /**
@@ -505,7 +549,7 @@ public final class StorageAdapter {
             aligned.remove("AWS_ROLE_ARN");
             aligned.remove("AWS_EXTERNAL_ID");
             if (s3.hasStaticCredentials()
-                    || aligned.containsKey(org.apache.doris.filesystem.auth.GcpCredential.CREDENTIAL_PROVIDER_TYPE)) {
+                    || resolveAuthentication(aligned).map(ObjectStorageAuthentication::isNative).orElse(false)) {
                 aligned.remove("AWS_CREDENTIALS_PROVIDER_TYPE");
             } else {
                 aligned.put("AWS_CREDENTIALS_PROVIDER_TYPE", AwsCredentialsProviderMode.ANONYMOUS.name());

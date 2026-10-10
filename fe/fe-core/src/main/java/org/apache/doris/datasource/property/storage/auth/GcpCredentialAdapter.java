@@ -19,24 +19,31 @@ package org.apache.doris.datasource.property.storage.auth;
 
 import org.apache.doris.cloud.proto.Cloud.GcpCredentialPB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
-import org.apache.doris.filesystem.auth.GcpCredential;
-import org.apache.doris.filesystem.auth.GcpCredentialProviderType;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.thrift.TCredential;
 import org.apache.doris.thrift.TGcpCredential;
 import org.apache.doris.thrift.TGcpCredentialProviderType;
 import org.apache.doris.thrift.TObjStorageType;
 import org.apache.doris.thrift.TS3StorageParam;
 
-import org.apache.commons.lang3.StringUtils;
+import java.util.HashMap;
+import java.util.Map;
 
 /** GCP native credential shared by the Cloud protobuf and BE Thrift paths. */
 public final class GcpCredentialAdapter implements ObjCredential {
-    private final GcpCredentialProviderType providerType;
-    private final String impersonationServiceAccount;
+    private final Map<String, String> fields;
 
-    public GcpCredentialAdapter(GcpCredential credential) {
-        providerType = credential.getCredentialProviderType();
-        impersonationServiceAccount = credential.getImpersonationServiceAccount();
+    public GcpCredentialAdapter(Map<String, String> fields) {
+        this.fields = Map.copyOf(fields);
+    }
+
+    public static Map<String, String> toProperties(GcpCredentialPB credential) {
+        Map<String, String> fields = new HashMap<>();
+        fields.put("credential_provider_type", credential.getCredentialProviderType().name());
+        if (credential.hasImpersonationServiceAccount()) {
+            fields.put("impersonation_service_account", credential.getImpersonationServiceAccount());
+        }
+        return StorageAdapter.credentialToProperties("GCS", fields);
     }
 
     @Override
@@ -44,12 +51,13 @@ public final class GcpCredentialAdapter implements ObjCredential {
         if (!builder.hasProvider()) {
             builder.setProvider(ObjectStoreInfoPB.Provider.GCP);
         }
-        GcpCredentialPB.Builder credential = GcpCredentialPB.newBuilder()
-                .setCredentialProviderType(providerType == GcpCredentialProviderType.DEFAULT
-                        ? GcpCredentialPB.CredentialProviderType.DEFAULT
-                        : GcpCredentialPB.CredentialProviderType.COMPUTE_ENGINE);
-        if (StringUtils.isNotBlank(impersonationServiceAccount)) {
-            credential.setImpersonationServiceAccount(impersonationServiceAccount);
+        GcpCredentialPB.Builder credential = GcpCredentialPB.newBuilder();
+        if (fields.containsKey("credential_provider_type")) {
+            credential.setCredentialProviderType(GcpCredentialPB.CredentialProviderType.valueOf(
+                    fields.get("credential_provider_type")));
+        }
+        if (fields.containsKey("impersonation_service_account")) {
+            credential.setImpersonationServiceAccount(fields.get("impersonation_service_account"));
         }
         builder.getCredentialBuilder().setGcpCredential(credential);
     }
@@ -59,12 +67,13 @@ public final class GcpCredentialAdapter implements ObjCredential {
         if (!param.isSetProvider()) {
             param.setProvider(TObjStorageType.GCP);
         }
-        TGcpCredential credential = new TGcpCredential()
-                .setCredentialProviderType(providerType == GcpCredentialProviderType.DEFAULT
-                        ? TGcpCredentialProviderType.DEFAULT
-                        : TGcpCredentialProviderType.COMPUTE_ENGINE);
-        if (StringUtils.isNotBlank(impersonationServiceAccount)) {
-            credential.setImpersonationServiceAccount(impersonationServiceAccount);
+        TGcpCredential credential = new TGcpCredential();
+        if (fields.containsKey("credential_provider_type")) {
+            credential.setCredentialProviderType(TGcpCredentialProviderType.valueOf(
+                    fields.get("credential_provider_type")));
+        }
+        if (fields.containsKey("impersonation_service_account")) {
+            credential.setImpersonationServiceAccount(fields.get("impersonation_service_account"));
         }
         param.setCredential(new TCredential().setGcpCredential(credential));
     }

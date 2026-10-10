@@ -20,13 +20,16 @@ package org.apache.doris.filesystem.spi;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.FileSystemCapability;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -43,6 +46,35 @@ import java.util.Set;
  * 3. Have NO dependency on fe-core, fe-common, or fe-catalog.
  */
 public interface FileSystemProvider<P extends FileSystemProperties> extends PluginFactory {
+
+    /**
+     * Normalize provider-owned aliases without binding clients or requiring a complete property map.
+     * Context is the effective CREATE/ALTER selection; properties may be a partial ALTER patch.
+     * Implementations return a new map and preserve explicit credential-clearing values.
+     */
+    default Map<String, String> normalizeProperties(Map<String, String> properties, Map<String, String> context) {
+        return new HashMap<>(properties);
+    }
+
+    /** Resolve authentication without I/O, including validation of conflicting raw aliases. */
+    default Optional<ObjectStorageAuthentication> resolveAuthentication(Map<String, String> properties) {
+        return Optional.empty();
+    }
+
+    /** Translate protocol-native fields back into provider-owned user properties. */
+    default Map<String, String> credentialToProperties(Map<String, String> credential) {
+        throw new UnsupportedOperationException(name() + " has no native credential property codec");
+    }
+
+    /** Provider-owned credential properties accepted by a storage vault ALTER. */
+    default Set<String> modifiableCredentialPropertyKeys() {
+        return Collections.emptySet();
+    }
+
+    /** Properties whose explicit empty ALTER value clears the persisted setting. */
+    default Set<String> clearablePropertyKeys() {
+        return Collections.emptySet();
+    }
 
     /**
      * Returns true if this provider can handle the given properties.

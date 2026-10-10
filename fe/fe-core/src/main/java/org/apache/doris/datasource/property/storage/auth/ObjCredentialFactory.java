@@ -17,50 +17,30 @@
 
 package org.apache.doris.datasource.property.storage.auth;
 
-import org.apache.doris.filesystem.auth.GcsAuth;
-import org.apache.doris.filesystem.auth.GcsAuthResolver;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** Selects exactly one provider-native credential from object-storage properties. */
+/** Converts plugin-resolved native credentials to the core wire protocols. */
 public final class ObjCredentialFactory {
-    private interface Parser {
-        Optional<ObjCredential> parse(Map<String, String> properties, Optional<GcsAuth> gcsAuth);
-    }
-
-    // Add one parser here when introducing OSS, Azure, or another native credential.
-    // Provider-specific resolvers select credentials; credential classes handle transport conversion.
-    private static final List<Parser> PARSERS = Arrays.asList((properties, gcsAuth) ->
-            gcsAuth.flatMap(GcsAuth::getNativeCredential).map(GcpCredentialAdapter::new));
-
-    // TODO: Add AWS role-based authentication after its existing property and
-    // transport fields can be migrated without breaking compatibility. Static
-    // AK/SK credentials remain outside this provider-native credential model.
-
     private ObjCredentialFactory() {
     }
 
     public static Optional<ObjCredential> fromProperties(Map<String, String> properties) {
-        return fromProperties(properties, GcsAuthResolver.resolve(properties));
+        return fromAuthentication(StorageAdapter.resolveAuthentication(properties));
     }
 
-    /** Reuse the authentication choice already resolved by a protocol builder. */
-    public static Optional<ObjCredential> fromProperties(Map<String, String> properties, Optional<GcsAuth> gcsAuth) {
-        ObjCredential selected = null;
-        for (Parser parser : PARSERS) {
-            Optional<ObjCredential> parsed = parser.parse(properties, gcsAuth);
-            if (!parsed.isPresent()) {
-                continue;
-            }
-            if (selected != null) {
-                throw new IllegalArgumentException(
-                        "Only one provider-native object storage credential may be configured.");
-            }
-            selected = parsed.get();
+    public static Optional<ObjCredential> fromAuthentication(Optional<ObjectStorageAuthentication> authentication) {
+        return authentication.filter(ObjectStorageAuthentication::isNative)
+                .map(auth -> fromCredential(auth.getProvider(), auth.getCredential()));
+    }
+
+    public static ObjCredential fromCredential(String provider, Map<String, String> credential) {
+        if ("GCP".equals(provider)) {
+            return new GcpCredentialAdapter(credential);
         }
-        return Optional.ofNullable(selected);
+        throw new IllegalArgumentException("Unsupported native credential wire format: " + provider);
     }
 }

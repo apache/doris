@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.datasource.storage.StorageAdapter;
-import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -82,7 +81,7 @@ public class StorageDescPersistTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("provider", "GCP");
         properties.put("s3.region", "us-east1");
-        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "DEFAULT");
+        properties.put("gs.credential_provider_type", "DEFAULT");
 
         // EXPORT forwards this BrokerDesc map to BE Writer. Verify the shared FE conversion
         // preserves the provider-specific credential while keeping the S3-compatible file type.
@@ -91,7 +90,7 @@ public class StorageDescPersistTest {
         Assertions.assertEquals(TFileType.FILE_S3, brokerDesc.getFileType());
         Assertions.assertEquals("GCP", brokerDesc.getBackendConfigProperties().get("provider"));
         Assertions.assertEquals("DEFAULT", brokerDesc.getBackendConfigProperties()
-                .get(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+                .get("gs.credential_provider_type"));
         Assertions.assertEquals("s3://export-bucket/path",
                 brokerDesc.getFileLocation("gs://export-bucket/path"));
     }

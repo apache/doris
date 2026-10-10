@@ -22,9 +22,9 @@ import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStorePro
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
-import org.apache.doris.filesystem.auth.GcpCredential;
-import org.apache.doris.filesystem.auth.GcsAuth;
-import org.apache.doris.filesystem.auth.GcsAuthResolver;
+import org.apache.doris.filesystem.gcs.auth.GcpCredential;
+import org.apache.doris.filesystem.gcs.auth.GcsAuth;
+import org.apache.doris.filesystem.gcs.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 

@@ -180,7 +180,7 @@ public final class S3CompatSignals {
      * key comparison is genuinely case-insensitive, which is what legacy clearly intended.
      */
     public static boolean guessIsGcs(Map<String, String> properties) {
-        return org.apache.doris.filesystem.auth.GcsAuthResolver.guessIsGcs(properties);
+        return org.apache.doris.filesystem.gcs.auth.GcsAuthResolver.guessIsGcs(properties);
     }
 
     /**
