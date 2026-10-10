@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
@@ -56,6 +57,56 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class OlapTableTest {
+
+    @Test
+    public void testFlexiblePartialUpdateRejectsRollup() {
+        OlapTable table = newFlexiblePartialUpdateTable();
+        Assertions.assertDoesNotThrow(table::validateForFlexiblePartialUpdate);
+
+        List<Column> baseSchema = table.getBaseSchema(true);
+        List<Column> rollupSchema = Lists.newArrayList(new Column(baseSchema.get(1)),
+                new Column(baseSchema.get(0)), new Column(baseSchema.get(2)));
+        table.setIndexMeta(20L, "rollup", rollupSchema, 0, 0, (short) 2,
+                TStorageType.COLUMN, KeysType.UNIQUE_KEYS);
+        table.rebuildFullSchema();
+        // Plain rollup columns have no defining expression, so the MV-column check misses them.
+        Assertions.assertFalse(table.getFullSchema().stream().anyMatch(Column::isMaterializedViewColumn));
+
+        UserException exception = Assertions.assertThrows(UserException.class,
+                table::validateForFlexiblePartialUpdate);
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Flexible partial update is not supported on tables with rollup or sync materialized view."));
+    }
+
+    @Test
+    public void testFlexiblePartialUpdateAllowsRowBinlogIndex() {
+        OlapTable table = newFlexiblePartialUpdateTable();
+        table.setIndexMeta(20L, "row_binlog", table.getBaseSchema(true), 0, 0, (short) 2,
+                TStorageType.COLUMN, KeysType.UNIQUE_KEYS);
+        table.getIndexMetaByIndexId(20L).setRowBinlogIndexId(20L);
+        table.getIndexMetaByIndexId(10L).setRowBinlogIndexId(20L);
+
+        Assertions.assertDoesNotThrow(table::validateForFlexiblePartialUpdate);
+    }
+
+    private static OlapTable newFlexiblePartialUpdateTable() {
+        Column firstKey = new Column("k1", PrimitiveType.INT);
+        firstKey.setIsKey(true);
+        Column secondKey = new Column("k2", PrimitiveType.INT);
+        secondKey.setIsKey(true);
+        Column value = new Column("v1", Type.INT, false, AggregateType.NONE, false, "0", "");
+        Column skipBitmap = new Column(Column.SKIP_BITMAP_COL, PrimitiveType.BITMAP);
+        skipBitmap.setIsVisible(false);
+        List<Column> schema = Lists.newArrayList(firstKey, secondKey, value, skipBitmap);
+        OlapTable table = new OlapTable(1L, "flexible_update", schema, KeysType.UNIQUE_KEYS,
+                new SinglePartitionInfo(), new HashDistributionInfo(1, Lists.newArrayList(firstKey)));
+        table.setBaseIndexId(10L);
+        table.setIndexMeta(10L, "flexible_update", schema, 0, 0, (short) 2,
+                TStorageType.COLUMN, KeysType.UNIQUE_KEYS);
+        table.setEnableUniqueKeyMergeOnWrite(true);
+        table.setEnableLightSchemaChange(true);
+        return table;
+    }
 
     @Test
     public void testPartitionFormatChangeDoesNotChangeLogicalSchemaVersion() {
