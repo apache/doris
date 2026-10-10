@@ -37,6 +37,7 @@ suite("test_basic_delete_job") {
     """
     sql """insert into ${unpartitionTable} values (1, "a"), (2, "b"), (3, "c")"""
     qt_unpartition1 """select * from ${unpartitionTable} order by id"""
+    sql """set delete_without_partition = false"""
     sql """delete from ${unpartitionTable} where id < 0"""
     qt_unpartition2 """select * from ${unpartitionTable} order by id"""
     sql """delete from ${unpartitionTable} where id = 1"""
@@ -70,6 +71,11 @@ suite("test_basic_delete_job") {
     qt_one_range4 """select * from ${oneRangeColumnTable} order by id"""
     sql """delete from ${oneRangeColumnTable} partition(p0) where id < 22"""
     qt_one_range5 """select * from ${oneRangeColumnTable} order by id"""
+    test {
+        sql """delete from ${oneRangeColumnTable} where name = "d" """
+        exception "This is a range or list partitioned table. You should specify partition in delete stmt, or set delete_without_partition to true"
+    }
+    sql """set delete_without_partition = true"""
     sql """delete from ${oneRangeColumnTable} where name = "d" """
     qt_one_range6 """select * from ${oneRangeColumnTable} order by id"""
     sql """delete from ${oneRangeColumnTable} partition(p2) where name = "g" """
@@ -117,6 +123,7 @@ suite("test_basic_delete_job") {
     qt_two_range9 """select * from ${twoRangeColumnTable} order by id1, id2"""
 
     // Test one list partition column
+    sql """set delete_without_partition = false"""
     sql """DROP TABLE IF EXISTS ${oneListColumnTable} """
     sql """CREATE TABLE ${oneListColumnTable} (
           `id` int NOT NULL,
@@ -142,6 +149,11 @@ suite("test_basic_delete_job") {
     qt_one_list4 """select * from ${oneListColumnTable} order by id"""
     sql """delete from ${oneListColumnTable} partition(p0) where id < 22"""
     qt_one_list5 """select * from ${oneListColumnTable} order by id"""
+    test {
+        sql """delete from ${oneListColumnTable} where name = "d" """
+        exception "This is a range or list partitioned table. You should specify partition in delete stmt, or set delete_without_partition to true"
+    }
+    sql """set delete_without_partition = true"""
     sql """delete from ${oneListColumnTable} where name = "d" """
     qt_one_list6 """select * from ${oneListColumnTable} order by id"""
     sql """delete from ${oneListColumnTable} partition(p2) where name = "g" """
@@ -187,4 +199,5 @@ suite("test_basic_delete_job") {
     qt_two_list8 """select * from ${twoListColumnTable} order by id1, id2"""
     sql """delete from ${twoListColumnTable} where id2 > 300"""
     qt_two_list9 """select * from ${twoListColumnTable} order by id1, id2"""
+    sql """set delete_without_partition = false"""
 }
