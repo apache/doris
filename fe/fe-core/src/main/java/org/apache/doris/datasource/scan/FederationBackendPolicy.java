@@ -67,6 +67,8 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.IntUnaryOperator;
 import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
@@ -90,6 +92,8 @@ public class FederationBackendPolicy {
 
     private NodeSelectionStrategy nodeSelectionStrategy;
     private boolean enableSplitsRedistribution = true;
+    private final int consistentHashSpreadNum;
+    private final IntUnaryOperator randomIndex;
 
     // Create a ConsistentHash ring may be a time-consuming operation, so we cache it.
     private static LoadingCache<HashCacheKey, ConsistentHash<Split, Backend>> consistentHashCache;
@@ -142,7 +146,20 @@ public class FederationBackendPolicy {
     }
 
     public FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy) {
+        this(nodeSelectionStrategy, 1);
+    }
+
+    public FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy, int consistentHashSpreadNum) {
+        this(nodeSelectionStrategy, consistentHashSpreadNum, bound -> ThreadLocalRandom.current().nextInt(bound));
+    }
+
+    @VisibleForTesting
+    FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy, int consistentHashSpreadNum,
+            IntUnaryOperator randomIndex) {
+        Preconditions.checkArgument(consistentHashSpreadNum >= 0, "consistentHashSpreadNum must be at least 0");
         this.nodeSelectionStrategy = nodeSelectionStrategy;
+        this.consistentHashSpreadNum = consistentHashSpreadNum;
+        this.randomIndex = randomIndex;
     }
 
     public FederationBackendPolicy() {
@@ -252,7 +269,15 @@ public class FederationBackendPolicy {
                     Optional<Backend> chosenNode = candidateNodes.stream()
                             .min(Comparator.comparingLong(ownerNode -> assignedWeightPerBackend.get(ownerNode)));
 
-                    if (chosenNode.isPresent()) {
+                    // A host hint is a local preference for remotely readable splits. In spread mode, do not
+                    // let a repeated hint monopolize one backend while other eligible backends are idle.
+                    boolean localNodeIsWithinGlobalMinimum = chosenNode.isPresent();
+                    if (localNodeIsWithinGlobalMinimum && isSpreadEnabled()) {
+                        long minimumAssignedWeight = Collections.min(assignedWeightPerBackend.values());
+                        localNodeIsWithinGlobalMinimum = assignedWeightPerBackend.get(chosenNode.get())
+                                <= minimumAssignedWeight;
+                    }
+                    if (localNodeIsWithinGlobalMinimum) {
                         Backend selectedBackend = chosenNode.get();
                         assignment.put(selectedBackend, split);
                         assignedWeightPerBackend.put(selectedBackend,
@@ -280,12 +305,20 @@ public class FederationBackendPolicy {
                     }
                     case RANDOM: {
                         randomCandidates.reset();
-                        candidateNodes = selectNodes(Config.split_assigner_min_random_candidate_num, randomCandidates);
+                        candidateNodes = consistentHashSpreadNum == 0 ? backends
+                                : selectNodes(Config.split_assigner_min_random_candidate_num, randomCandidates);
                         break;
                     }
                     case CONSISTENT_HASHING: {
-                        candidateNodes = consistentHash.getNode(split,
-                                Config.split_assigner_min_consistent_hash_candidate_num);
+                        if (consistentHashSpreadNum == 0) {
+                            candidateNodes = backends;
+                        } else {
+                            int candidateCount = isSpreadEnabled()
+                                    ? Math.min(consistentHashSpreadNum, backends.size())
+                                    : Config.split_assigner_min_consistent_hash_candidate_num;
+                            candidateNodes = candidateCount >= backends.size() ? backends
+                                    : consistentHash.getNode(split, candidateCount);
+                        }
                         break;
                     }
                     default: {
@@ -301,17 +334,23 @@ public class FederationBackendPolicy {
                 throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
             }
 
-            Backend selectedBackend = chooseNodeForSplit(candidateNodes);
-            List<Backend> alternativeBackends = new ArrayList<>(candidateNodes);
-            alternativeBackends.remove(selectedBackend);
-            split.setAlternativeHosts(
-                    alternativeBackends.stream().map(each -> each.getHost()).collect(Collectors.toList()));
+            Backend selectedBackend = isSpreadEnabled() && split.isRemotelyAccessible()
+                    ? chooseNodeForSpread(candidateNodes) : chooseNodeForSplit(candidateNodes);
+            // Alternative hosts are used only by global redistribution, which spread mode disables.
+            if (!isSpreadEnabled()) {
+                List<Backend> alternativeBackends = new ArrayList<>(candidateNodes);
+                alternativeBackends.remove(selectedBackend);
+                split.setAlternativeHosts(
+                        alternativeBackends.stream().map(each -> each.getHost()).collect(Collectors.toList()));
+            }
             assignment.put(selectedBackend, split);
             assignedWeightPerBackend.put(selectedBackend,
                     assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
         }
 
-        if (enableSplitsRedistribution) {
+        // Global redistribution can move a split outside its hash candidates or its locality constraints.
+        // The spread mode balances weights within each split's candidates during initial assignment instead.
+        if (enableSplitsRedistribution && !isSpreadEnabled()) {
             equateDistribution(assignment);
         }
         return assignment;
@@ -484,6 +523,29 @@ public class FederationBackendPolicy {
         return chosenNode;
     }
 
+    private boolean isSpreadEnabled() {
+        return (nodeSelectionStrategy == NodeSelectionStrategy.CONSISTENT_HASHING && consistentHashSpreadNum != 1)
+                || (nodeSelectionStrategy == NodeSelectionStrategy.RANDOM && consistentHashSpreadNum == 0);
+    }
+
+    private Backend chooseNodeForSpread(List<Backend> candidateNodes) {
+        Backend chosenNode = null;
+        long minWeight = Long.MAX_VALUE;
+        int tiedNodes = 0;
+        for (Backend node : candidateNodes) {
+            long queuedWeight = assignedWeightPerBackend.get(node);
+            if (queuedWeight < minWeight) {
+                chosenNode = node;
+                minWeight = queuedWeight;
+                tiedNodes = 1;
+            } else if (queuedWeight == minWeight && randomIndex.applyAsInt(++tiedNodes) == 0) {
+                // Reservoir sampling gives every node with the minimum weight the same probability.
+                chosenNode = node;
+            }
+        }
+        return chosenNode;
+    }
+
     public int numBackends() {
         return backends.size();
     }
@@ -502,7 +564,7 @@ public class FederationBackendPolicy {
     private static class SplitHash implements Funnel<Split> {
         @Override
         public void funnel(Split split, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(split.getConsistentHashString().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putBytes(split.getSplitIdentity().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putLong(split.getStart());
             primitiveSink.putLong(split.getLength());
         }

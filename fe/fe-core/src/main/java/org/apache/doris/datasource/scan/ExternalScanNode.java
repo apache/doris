@@ -44,11 +44,23 @@ public abstract class ExternalScanNode extends ScanNode {
     // set to false means this scan node does not need to check column priv.
     protected boolean needCheckColumnPriv;
 
-    protected final FederationBackendPolicy backendPolicy = (ConnectContext.get() != null
-            && (ConnectContext.get().getSessionVariable().enableFileCache
-                || ConnectContext.get().getSessionVariable().getUseConsistentHashForExternalScan()))
-            ? new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING)
-            : new FederationBackendPolicy();
+    protected final FederationBackendPolicy backendPolicy = createBackendPolicy();
+
+    private static FederationBackendPolicy createBackendPolicy() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return new FederationBackendPolicy();
+        }
+        int spreadNum = context.getSessionVariable().getExternalScanConsistentHashSpreadNum();
+        if (context.getSessionVariable().enableFileCache
+                || context.getSessionVariable().getUseConsistentHashForExternalScan()) {
+            return new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING, spreadNum);
+        }
+        if (spreadNum == 0) {
+            return new FederationBackendPolicy(NodeSelectionStrategy.RANDOM, spreadNum);
+        }
+        return new FederationBackendPolicy();
+    }
 
     public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             ScanContext scanContext, boolean needCheckColumnPriv) {

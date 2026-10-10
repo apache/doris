@@ -179,6 +179,12 @@ public class FlussLakeRange implements ConnectorScanRange {
     }
 
     @Override
+    public String getSplitIdentity() {
+        return inner.getSplitIdentity() + "\u0001"
+                + (tail == null ? RANGE_TYPE_LAKE : tail.encode());
+    }
+
+    @Override
     public long getStart() {
         return inner.getStart();
     }

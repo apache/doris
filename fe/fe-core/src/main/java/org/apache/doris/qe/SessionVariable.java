@@ -1487,8 +1487,20 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN = "use_consistent_hash_for_external_scan";
     @VarAttrDef.VarAttr(name = USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN,
+            needForward = true,
             description = "Use consistent hashing to split the appearance for external scan")
     public boolean useConsistentHashForExternalScan = false;
+
+    public static final String EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM = "external_scan_consistent_hash_spread_num";
+    @VarAttrDef.VarAttr(name = EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM,
+            checker = "checkExternalScanConsistentHashSpreadNum", needForward = true,
+            description = "1 preserves the original scheduling, candidate counts and redistribution (default). "
+                    + "It does not limit scans to one backend. "
+                    + "0 enables automatic spreading across all eligible backends in the compute group. "
+                    + "Values above 1 bound consistent hash candidates "
+                    + "when file cache or use_consistent_hash_for_external_scan is enabled. "
+                    + "Spreading balances assigned weights with random ties and disables global redistribution.")
+    public int externalScanConsistentHashSpreadNum = 1;
 
     @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
@@ -6465,6 +6477,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getUseConsistentHashForExternalScan() {
         return useConsistentHashForExternalScan;
+    }
+
+    public int getExternalScanConsistentHashSpreadNum() {
+        return externalScanConsistentHashSpreadNum;
+    }
+
+    public void checkExternalScanConsistentHashSpreadNum(String value) throws Exception {
+        checkFieldValue(EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, 0, value);
     }
 
     public void setForceJniScanner(boolean force) {

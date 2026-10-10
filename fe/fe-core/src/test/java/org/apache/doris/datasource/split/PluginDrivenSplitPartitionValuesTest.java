@@ -93,4 +93,26 @@ public class PluginDrivenSplitPartitionValuesTest {
         PluginDrivenSplit split = new PluginDrivenSplit(range(parts, true));
         Assertions.assertEquals(java.util.Arrays.asList("1", "2"), split.getPartitionValues());
     }
+
+    @Test
+    public void connectorMetadataParticipatesInConsistentHashIdentity() {
+        PluginDrivenSplit first = new PluginDrivenSplit(rangeWithProperty("paimon.split", "split-1"));
+        PluginDrivenSplit second = new PluginDrivenSplit(rangeWithProperty("paimon.split", "split-2"));
+
+        Assertions.assertNotEquals(first.getSplitIdentity(), second.getSplitIdentity());
+    }
+
+    private static ConnectorScanRange rangeWithProperty(String key, String value) {
+        return new ConnectorScanRange() {
+            @Override
+            public Map<String, String> getProperties() {
+                return Collections.singletonMap(key, value);
+            }
+
+            @Override
+            public String getSplitIdentity() {
+                return value;
+            }
+        };
+    }
 }

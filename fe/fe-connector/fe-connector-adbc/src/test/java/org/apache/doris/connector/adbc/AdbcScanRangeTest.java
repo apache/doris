@@ -107,6 +107,22 @@ class AdbcScanRangeTest {
     }
 
     @Test
+    void usesPartitionDescriptorAsSchedulingIdentity() {
+        AdbcScanRange first = new AdbcScanRange.Builder()
+                .driverPath("/opt/doris/plugins/adbc_drivers/libadbc_driver_flightsql.so")
+                .uri("grpc://remote:9090")
+                .partitionDescriptor("partition-1")
+                .build();
+        AdbcScanRange second = new AdbcScanRange.Builder()
+                .driverPath("/opt/doris/plugins/adbc_drivers/libadbc_driver_flightsql.so")
+                .uri("grpc://remote:9090")
+                .partitionDescriptor("partition-2")
+                .build();
+
+        Assertions.assertNotEquals(first.getSplitIdentity(), second.getSplitIdentity());
+    }
+
+    @Test
     void partitionsCanBeReadOnlyOnceWhileStatementsRunOnEveryRead() {
         // A partition is a ticket for a result stream the source produced once, and reading it drains the
         // stream: the engine must not dispatch the plan again on a retry, or the retry reads nothing and

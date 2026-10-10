@@ -46,6 +46,14 @@ public interface ConnectorScanRange extends Serializable {
         return Optional.empty();
     }
 
+    /**
+     * Returns a stable identity used to assign connector ranges to external-scan backends. Connectors whose JNI
+     * ranges do not have a path should override this with their serialized split identity.
+     */
+    default String getSplitIdentity() {
+        return getPath().orElse("");
+    }
+
     /** Returns the byte offset to start reading from. */
     default long getStart() {
         return 0;

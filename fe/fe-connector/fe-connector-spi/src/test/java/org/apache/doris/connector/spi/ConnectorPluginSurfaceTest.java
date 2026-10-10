@@ -87,7 +87,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 13 carries textual write-input semantics on ConnectorColumn.
+        // Major 13 carries textual write-input semantics on ConnectorColumn and adds
+        // ConnectorScanRange#getSplitIdentity: plugins compiled against the previous connector
+        // surface cannot link against an FE that exposes either new API hook.
         Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
