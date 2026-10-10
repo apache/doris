@@ -56,6 +56,16 @@ TEST(TimeValueTest, to_string) {
     EXPECT_EQ(result, "01:02:03");
 }
 
+TEST(TimeValueTest, nanosecond_precision) {
+    const auto time = TimeValue::make_time_from_nanoseconds(1, 2, 3, 123456789);
+    EXPECT_EQ(TimeValue::to_nanoseconds(time), 3723123456789);
+    EXPECT_EQ(TimeValue::microsecond(time), 123456);
+    EXPECT_EQ(TimeValue::nanosecond(time), 123456789);
+    EXPECT_EQ(TimeValue::to_string(time, 9), "01:02:03.123456789");
+    EXPECT_EQ(TimeValue::to_string(-time, 9), "-01:02:03.123456789");
+    EXPECT_EQ(TimeValue::round_time(time, 6), TimeValue::make_time(1, 2, 3, 123457));
+}
+
 TEST(TimeValueTest, hour) {
     {
         TimeValue::TimeType time = 3723000000;

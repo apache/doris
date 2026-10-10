@@ -69,4 +69,21 @@ public class MysqlSerializerDateTimeTest {
                     field[mysqlTypeOffset] & 0xFF);
         }
     }
+
+    @Test
+    public void testTimeV2NanosecondMetadata() {
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        ScalarType type = ScalarType.createTimeV2Type(9);
+        Assertions.assertEquals(20, serializer.getMysqlTypeLength(type));
+        Assertions.assertEquals(0, serializer.getMysqlDecimals(type));
+
+        serializer.writeField("t", type);
+        byte[] field = serializer.toArray();
+        int metadataOffset = fieldMetadataOffset(field);
+        int mysqlTypeOffset = metadataOffset + 2 + 4;
+        Assertions.assertEquals(MysqlColType.MYSQL_TYPE_STRING.getCode(),
+                field[mysqlTypeOffset] & 0xFF);
+        int decimalsOffset = mysqlTypeOffset + 1 + 2;
+        Assertions.assertEquals(0, field[decimalsOffset] & 0xFF);
+    }
 }

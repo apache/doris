@@ -123,7 +123,10 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
     EXPECT_THROW(create_datetimev2(8), Exception);
     EXPECT_THROW(create_datetimev2(9), Exception);
     EXPECT_THROW(create_datetimev2(10), Exception);
-    EXPECT_THROW(DataTypeTimeV2(7), Exception);
+    EXPECT_NO_THROW(DataTypeTimeV2(7));
+    EXPECT_NO_THROW(DataTypeTimeV2(8));
+    EXPECT_NO_THROW(DataTypeTimeV2(9));
+    EXPECT_THROW(DataTypeTimeV2(10), Exception);
 }
 
 TEST_F(DataTypeDateTimeV2Test, get_field) {

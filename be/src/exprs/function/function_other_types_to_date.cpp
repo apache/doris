@@ -427,8 +427,7 @@ private:
             return false;
         }
 
-        // Avoid overflow in `execute_single`
-        // the case {838, 59, 59.999999} will be slove in `TimeValue::from_double_with_limit`
+        // Avoid overflow in `execute_single`.
         if (std::abs(hour) > MAX_HOUR_FOR_MAKETIME) {
             hour = hour > 0 ? MAX_HOUR_FOR_MAKETIME : -MAX_HOUR_FOR_MAKETIME;
             minute = sec = 59;
@@ -438,11 +437,11 @@ private:
 
     static void execute_single(int64_t hour, int64_t minute, double sec,
                                PaddedPODArray<double>& res_data, size_t row) {
-        // Round sec to 6 decimal places (microsecond precision)
-        double total_sec =
-                std::abs(hour) * 3600 + minute * 60 + std::round(sec * 1000000.0) / 1000000.0;
-
-        res_data[row] = TimeValue::from_double_with_limit(total_sec * (hour < 0 ? -1 : 1));
+        const int64_t total_nanoseconds =
+                (std::abs(hour) * 3600 + minute * 60) * TimeValue::ONE_SECOND_NANOSECONDS +
+                std::llround(sec * TimeValue::ONE_SECOND_NANOSECONDS);
+        res_data[row] = TimeValue::from_nanoseconds_with_limit(
+                hour < 0 ? -static_cast<__int128>(total_nanoseconds) : total_nanoseconds);
     }
 };
 

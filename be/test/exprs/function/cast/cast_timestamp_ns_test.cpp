@@ -154,6 +154,15 @@ TEST_F(FunctionCastTest, datelike_to_timestamp_ns) {
         };
         check_function_for_cast<DataTypeTimeStampNs>(input_types, data_set);
     }
+    {
+        const InputTypeSet input_types = {{PrimitiveType::TYPE_TIMEV2, 9}};
+        const DataSet data_set = {
+                {{std::string("23:59:59.123456789")}, std::string("2019-08-06 23:59:59.123456789")},
+                {{std::string("-00:00:00.000000001")},
+                 std::string("2019-08-05 23:59:59.999999999")},
+        };
+        check_function_for_cast<DataTypeTimeStampNs>(input_types, data_set);
+    }
 }
 
 TEST_F(FunctionCastTest, datetimev2_to_timestamp_ns_strict_overflow) {
@@ -228,6 +237,13 @@ TEST_F(FunctionCastTest, timestamp_ns_to_supported_scalar_types) {
             {{std::string("2024-02-29 12:34:56.123456789")}, std::string("12:34:56.123457")},
     };
     check_function_for_cast<DataTypeTimeV2>(input_types, time_data, 6);
+
+    const DataSet time_ns_data = {
+            {{std::string("1677-09-21 00:12:43.145224192")}, std::string("00:12:43.145224192")},
+            {{std::string("1969-12-31 23:59:59.999999999")}, std::string("23:59:59.999999999")},
+            {{std::string("2024-02-29 12:34:56.123456789")}, std::string("12:34:56.123456789")},
+    };
+    check_function_for_cast<DataTypeTimeV2>(input_types, time_ns_data, 9);
 
     const DataSet integer_data = {
             {{std::string("1677-09-21 00:12:43.145224192")}, int64_t(16770921001243)},

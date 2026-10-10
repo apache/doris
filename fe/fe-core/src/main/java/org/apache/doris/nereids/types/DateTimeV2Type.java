@@ -91,7 +91,7 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
             return DateTimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), 6));
         }
         if (dataType instanceof TimeV2Type) {
-            return DateTimeV2Type.of(((TimeV2Type) dataType).getScale());
+            return DateTimeV2Type.of(Math.min(((TimeV2Type) dataType).getScale(), MAX_SCALE));
         }
         return MAX;
     }

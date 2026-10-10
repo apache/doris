@@ -96,6 +96,51 @@ TEST_F(ParquetThriftReaderTest, normal) {
     }
 }
 
+TEST_F(ParquetThriftReaderTest, timestampNanosMapsToTimestampNs) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement timestamp;
+    timestamp.__set_name("ts_ns");
+    timestamp.__set_type(tparquet::Type::INT64);
+    timestamp.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    timestamp.__set_logicalType(tparquet::LogicalType());
+    timestamp.logicalType.__set_TIMESTAMP(tparquet::TimestampType());
+    timestamp.logicalType.TIMESTAMP.__set_isAdjustedToUTC(false);
+    timestamp.logicalType.TIMESTAMP.__set_unit(tparquet::TimeUnit());
+    timestamp.logicalType.TIMESTAMP.unit.__set_NANOS(tparquet::NanoSeconds());
+
+    FieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, timestamp}).ok());
+    ASSERT_EQ(descriptor.size(), 1);
+    EXPECT_EQ(remove_nullable(descriptor.get_column(0)->data_type)->get_primitive_type(),
+              TYPE_TIMESTAMP_NS);
+}
+
+TEST_F(ParquetThriftReaderTest, timeNanosMapsToTimeV2ScaleNine) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::SchemaElement time;
+    time.__set_name("time_ns");
+    time.__set_type(tparquet::Type::INT64);
+    time.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    time.__set_logicalType(tparquet::LogicalType());
+    time.logicalType.__set_TIME(tparquet::TimeType());
+    time.logicalType.TIME.__set_isAdjustedToUTC(false);
+    time.logicalType.TIME.__set_unit(tparquet::TimeUnit());
+    time.logicalType.TIME.unit.__set_NANOS(tparquet::NanoSeconds());
+
+    FieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, time}).ok());
+    ASSERT_EQ(descriptor.size(), 1);
+    const auto type = remove_nullable(descriptor.get_column(0)->data_type);
+    EXPECT_EQ(type->get_primitive_type(), TYPE_TIMEV2);
+    EXPECT_EQ(type->get_scale(), 9);
+}
+
 TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     // hive-complex.parquet is the part of following table:
     // complex_nested_table(

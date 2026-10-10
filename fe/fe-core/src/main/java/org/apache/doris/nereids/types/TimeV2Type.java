@@ -33,7 +33,7 @@ import org.apache.doris.nereids.types.coercion.ScaleTimeType;
  */
 public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTimeType {
 
-    public static final int MAX_SCALE = 6;
+    public static final int MAX_SCALE = ScalarType.MAX_TIMEV2_SCALE;
     public static final TimeV2Type SYSTEM_DEFAULT = new TimeV2Type(0);
     public static final TimeV2Type MAX = new TimeV2Type(MAX_SCALE);
     public static final TimeV2Type WILDCARD = new TimeV2Type(-1);
@@ -79,7 +79,8 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
      */
     public static TimeV2Type of(int scale) {
         if (scale > MAX_SCALE || scale < 0) {
-            throw new AnalysisException("Scale of Datetime/Time must between 0 and 6. Scale was set to: " + scale);
+            throw new AnalysisException("Scale of Time must between 0 and " + MAX_SCALE
+                    + ". Scale was set to: " + scale);
         }
         return new TimeV2Type(scale);
     }
@@ -122,10 +123,10 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
             return SYSTEM_DEFAULT;
         }
         if (dataType instanceof DecimalV3Type) {
-            return TimeV2Type.of(Math.min(((DecimalV3Type) dataType).getScale(), 6));
+            return TimeV2Type.of(Math.min(((DecimalV3Type) dataType).getScale(), MAX_SCALE));
         }
         if (dataType instanceof DecimalV2Type) {
-            return TimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), 6));
+            return TimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), MAX_SCALE));
         }
         if (dataType instanceof DateTimeV2Type) {
             return TimeV2Type.of(((DateTimeV2Type) dataType).getScale());
