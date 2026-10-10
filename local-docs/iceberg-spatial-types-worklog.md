@@ -296,3 +296,9 @@ Iceberg V3 schema
 - Connector SPI 适配：Iceberg V3 GEOMETRY/GEOGRAPHY 读方向不再统一降级为 `UNSUPPORTED`；写方向映射到 Iceberg `GeometryType.crs84()` / `GeographyType.crs84()`；FE connector 转换器可生成对应 Doris `ScalarType`。当前 ConnectorType 仍只传递类型名，CRS/algorithm 的完整保真将在后续写入请求元数据时处理，暂不宣称已完成端到端语义。
 
 - 阶段 2 验证：Nereids 空间类型类已加入，`./build.sh --fe` 再次成功；当前只完成类型分派与元数据保留，空间字面量、函数参数绑定和表达式求值仍属于阶段 4。
+
+## 执行记录：阶段 3（进行中）
+
+- 已从旧 PR 提取 BE 空间物理类型的最小变更集：`ColumnSpatial`、`DataTypeSpatial`、DataTypeFactory 分派和 BE 单测；保留 master 当前 `VARBINARY` SerDe，未接受旧提交对该文件的覆盖。
+- `./build.sh --be` 已进入 worktree 子模块准备，但在 `clucene` 外部下载阶段因依赖传输阻塞而中止，尚未获得 BE 编译结论；该状态不能视为通过。
+- 构建过程中 datasketches 子模块的两个二进制 fixture 被工具改写，未纳入提交；后续需在依赖恢复后清理/确认子模块工作树。
