@@ -3392,6 +3392,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 // register table, write create table edit log
                 result = db.createTableWithoutLock(olapTable, false, createTableInfo.isIfNotExists());
+                // CTAS must skip INSERT when another creator registered the table first.
+                tableHasExist = result.second;
                 if (!result.second) {
                     olapTable.writeLock();
                     holdTableLock = true;
