@@ -746,17 +746,17 @@ public class DateTimeArithmetic {
      */
     @ExecFunction(name = "quarters_sub")
     public static Expression quartersSub(DateV2Literal date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
+        return date.plusMonths(-3L * quarter.getValue());
     }
 
     @ExecFunction(name = "quarters_sub")
     public static Expression quartersSub(DateTimeV2Literal date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
+        return date.plusMonths(-3L * quarter.getValue());
     }
 
     @ExecFunction(name = "quarters_sub")
     public static Expression quartersSub(TimestampTzLiteral date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
+        return date.plusMonths(-3L * quarter.getValue());
     }
 
     /**
