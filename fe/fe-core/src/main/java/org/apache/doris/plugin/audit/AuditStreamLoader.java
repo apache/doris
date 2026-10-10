@@ -28,8 +28,6 @@ import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.qe.GlobalVariable;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,7 +43,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 import javax.net.ssl.HttpsURLConnection;
@@ -92,7 +89,7 @@ public class AuditStreamLoader {
         conn.setConnectTimeout(HTTP_TIMEOUT_MS);
         conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setRequestProperty("timeout", String.valueOf(GlobalVariable.auditPluginLoadTimeoutS));
-        conn.addRequestProperty("max_filter_ratio", "0");
+        conn.addRequestProperty("max_filter_ratio", "1.0");
         conn.addRequestProperty("columns", columns);
         conn.addRequestProperty("redirect-policy", "random-be");
         conn.addRequestProperty("column_separator", AuditLoader.AUDIT_TABLE_COL_SEPARATOR_STR);
@@ -109,7 +106,7 @@ public class AuditStreamLoader {
         sb.append("-H \"").append("Authorization\":").append("\"Basic YWRtaW46").append("\" \\\n  ");
         sb.append("-H \"").append("Expect\":").append("\"100-continue\" \\\n  ");
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
-        sb.append("-H \"").append("max_filter_ratio\":").append("\"0\" \\\n  ");
+        sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
         sb.append("-H \"").append("compress_type\":").append("\"").append(COMPRESS_TYPE).append("\" \\\n  ");
         sb.append("-H \"").append("columns\":")
                 .append("\"" + conn.getRequestProperty("columns") + "\" \\\n  ");
@@ -191,7 +188,8 @@ public class AuditStreamLoader {
         }
     }
 
-    public LoadResponse loadBatch(StringBuilder sb, String clusterToken, String label) {
+    public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
+        String label = genLabel();
         // A new follower can run before the old master adds these columns. The buffer always
         // has the new shape; project it at send time so a batch spanning a schema change is safe.
         PreparedBatch batch = prepareBatch(sb, targetHasRemoteSpillColumns());
@@ -200,6 +198,7 @@ public class AuditStreamLoader {
         HttpURLConnection beConn = null;
         try {
             // build request and send to fe
+            label = "audit" + label;
             feConn = getConnection(auditLogLoadUrlStr, label, clusterToken, batch.columns);
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
@@ -241,13 +240,13 @@ public class AuditStreamLoader {
         }
     }
 
-    String genLabel() {
+    private String genLabel() {
         Calendar calendar = Calendar.getInstance();
-        return String.format("audit_log_%s%02d%02d_%02d%02d%02d_%s_%s_%s",
+        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
                 calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
                 calendar.get(Calendar.MILLISECOND),
-                feIdentity, UUID.randomUUID().toString().replace("-", ""));
+                feIdentity);
     }
 
     public static class LoadResponse {
@@ -259,43 +258,6 @@ public class AuditStreamLoader {
             this.status = status;
             this.respMsg = respMsg;
             this.respContent = respContent;
-        }
-
-        public boolean succeeded(int expectedRows) {
-            if (status != HttpURLConnection.HTTP_OK) {
-                return false;
-            }
-            try {
-                JsonObject json = JsonParser.parseString(respContent).getAsJsonObject();
-                String loadStatus = json.get("Status").getAsString();
-                if ("Label Already Exists".equalsIgnoreCase(loadStatus)) {
-                    return "FINISHED".equalsIgnoreCase(json.get("ExistingJobStatus").getAsString());
-                }
-                if (!"Success".equalsIgnoreCase(loadStatus) && !"Publish Timeout".equalsIgnoreCase(loadStatus)) {
-                    return false;
-                }
-                return json.get("NumberFilteredRows").getAsLong() == 0
-                        && json.get("NumberLoadedRows").getAsLong() == expectedRows;
-            } catch (RuntimeException e) {
-                return false;
-            }
-        }
-
-        public boolean rejectedOrIncomplete(int expectedRows) {
-            if (status != HttpURLConnection.HTTP_OK) {
-                return false;
-            }
-            try {
-                JsonObject json = JsonParser.parseString(respContent).getAsJsonObject();
-                String loadStatus = json.get("Status").getAsString();
-                return "Fail".equalsIgnoreCase(loadStatus)
-                        || (("Success".equalsIgnoreCase(loadStatus)
-                        || "Publish Timeout".equalsIgnoreCase(loadStatus))
-                        && (json.get("NumberLoadedRows").getAsLong() != expectedRows
-                        || json.get("NumberFilteredRows").getAsLong() != 0));
-            } catch (RuntimeException e) {
-                return false;
-            }
         }
 
         @Override

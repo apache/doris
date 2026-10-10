@@ -57,8 +57,6 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     private StringBuilder auditLogBuffer = new StringBuilder();
     private int auditLogNum = 0;
     private long lastLoadTimeAuditLog = 0;
-    private volatile boolean failedLoad = false;
-    private String batchLabel;
     // sometimes the audit log may fail to load to doris, count it to observe.
     private long discardLogNum = 0;
 
@@ -273,31 +271,32 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
         if (auditLogBuffer.length() != 0 && (force || auditLogBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
                 || currentTime - lastLoadTimeAuditLog >= GlobalVariable.auditPluginMaxBatchInternalSec * 1000)) {
-            // Keep the batch until a successful load. In a follower-first upgrade the table can
-            // still have its old schema, and a rejected request must not erase audit rows.
+            // begin to load
             try {
-                if (batchLabel == null) {
-                    batchLabel = streamLoader.genLabel();
-                }
-                String token = Env.getCurrentEnv().getTokenManager().acquireToken();
-                AuditStreamLoader.LoadResponse response = streamLoader.loadBatch(auditLogBuffer, token, batchLabel);
-                if (!response.succeeded(auditLogNum)) {
-                    failedLoad = true;
-                    if (response.rejectedOrIncomplete(auditLogNum)) {
-                        // A rejected load has not committed. If a response confirms fewer rows
-                        // than sent, replay the batch with a new label rather than silently
-                        // accepting a duplicate-label response on the next attempt. Transport
-                        // failures are ambiguous, so they retain the original label.
-                        batchLabel = null;
-                    }
-                    LOG.warn("audit loader will retry {} rows after unsuccessful load: {}", auditLogNum, response);
+                String token = "";
+                try {
+                    // Acquire token from master
+                    token = Env.getCurrentEnv().getTokenManager().acquireToken();
+                } catch (Exception e) {
+                    LOG.warn("Failed to get auth token: {}", e);
+                    discardLogNum += auditLogNum;
                     return;
                 }
-                resetBatch(currentTime);
-                failedLoad = false;
+                AuditStreamLoader.LoadResponse response = streamLoader.loadBatch(auditLogBuffer, token);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("audit loader response: {}", response);
+                }
             } catch (Exception e) {
-                failedLoad = true;
-                LOG.warn("encountered exception when loading audit batch; will retry", e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
+                }
+                discardLogNum += auditLogNum;
+            } finally {
+                // make a new string builder to receive following events.
+                resetBatch(currentTime);
+                if (discardLogNum > 0) {
+                    LOG.info("num of total discarded audit logs: {}", discardLogNum);
+                }
             }
         }
     }
@@ -306,7 +305,6 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         this.auditLogBuffer = new StringBuilder();
         this.lastLoadTimeAuditLog = currentTime;
         this.auditLogNum = 0;
-        this.batchLabel = null;
     }
 
     private class LoadWorker implements Runnable {
@@ -317,13 +315,6 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         public void run() {
             while (!isClosed) {
                 try {
-                    if (failedLoad) {
-                        // Leave new events in the bounded queue until the retained batch is
-                        // accepted; otherwise a prolonged outage grows auditLogBuffer without bound.
-                        TimeUnit.SECONDS.sleep(1);
-                        loadIfNecessary(true);
-                        continue;
-                    }
                     AuditEvent event = auditEventQueue.poll(5, TimeUnit.SECONDS);
                     if (event != null) {
                         assembleAudit(event);
