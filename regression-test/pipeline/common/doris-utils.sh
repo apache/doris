@@ -662,6 +662,17 @@ _monitor_regression_log() {
 
 }
 
+_redact_creds() {
+    local expr="" v escaped
+    for v in "${hwYunAk:-}" "${hwYunSk:-}" "${s3SourceAk:-}" "${s3SourceSk:-}" "${txYunAk:-}" "${txYunSk:-}"; do
+        if [[ -n "${v}" ]]; then
+            escaped=$(printf '%s' "${v}" | sed 's/[]\/$*.^[]/\\&/g')
+            expr+="s/${escaped}//g;"
+        fi
+    done
+    [[ -n "${expr}" ]] && sed -i "${expr}" "$@" &>/dev/null || true
+}
+
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local archive_name="$1"
@@ -674,17 +685,19 @@ archive_doris_logs() {
     (
         cd "${DORIS_HOME}" || return 1
         cp --parents -rf "fe/conf" "${archive_dir}"/
+        _redact_creds fe/log/*
         cp --parents -rf "fe/log" "${archive_dir}"/
         cp --parents -rf "be/conf" "${archive_dir}"/
+        _redact_creds be/log/*
         cp --parents -rf "be/log" "${archive_dir}"/
         if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
             # try to hide ak and sk
-            if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" regression-test/log/* &>/dev/null; then :; fi
+            _redact_creds regression-test/log/*
             cp --parents -rf "regression-test/log" "${archive_dir}"/
         fi
         if [[ -d "${DORIS_HOME}"/../regression-test/conf ]]; then
             # try to hide ak and sk
-            if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" ../regression-test/conf/* &>/dev/null; then :; fi
+            _redact_creds ../regression-test/conf/*
             mkdir -p "${archive_dir}"/regression-test/conf
             cp -rf ../regression-test/conf/* "${archive_dir}"/regression-test/conf/
         fi
