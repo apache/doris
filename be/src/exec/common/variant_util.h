@@ -150,7 +150,11 @@ TabletColumn create_sparse_column(const TabletColumn& variant);
 // Create one bucket sparse column: name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b{index}"
 TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_index);
 
+// Physical doc bucket stored as MAP<STRING, STRING>.
 TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_index);
+
+// Decoded doc bucket used in compaction blocks, nullable with a SQL NULL default for old segments.
+TabletColumn create_doc_value_compaction_column(const TabletColumn& variant, int bucket_index);
 
 // Compute bucket id for given path string using SipHash64(path) % bucket_num.
 uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num);

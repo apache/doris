@@ -729,6 +729,23 @@ TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_ind
     return res;
 }
 
+TabletColumn create_doc_value_compaction_column(const TabletColumn& variant, int bucket_index) {
+    TabletColumn res;
+    const std::string name = variant.name_lower_case() + "." + DOC_VALUE_COLUMN_PATH + ".b" +
+                             std::to_string(bucket_index);
+    res.set_name(name);
+    res.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    res.set_aggregation_method(variant.aggregation());
+    res.set_parent_unique_id(variant.unique_id());
+    res.set_path_info(PathInData {name});
+    res.set_is_nullable(true);
+    res.set_variant_enable_doc_mode(true);
+    // A segment predating the root column supplies SQL NULL. The doc compact writer accepts
+    // the null map and emits no doc fields for these rows, preserving their row positions.
+    res.set_default_value("NULL");
+    return res;
+}
+
 uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num) {
     if (bucket_num <= 1) return 0;
     SipHash hash;
@@ -1209,11 +1226,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         if (column->variant_enable_doc_mode()) {
             const int bucket_num = std::max(1, column->variant_doc_hash_shard_count());
             for (int b = 0; b < bucket_num; ++b) {
-                TabletColumn doc_value_bucket_column = create_doc_value_column(*column, b);
-                doc_value_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-                doc_value_bucket_column.set_is_nullable(false);
-                doc_value_bucket_column.set_variant_enable_doc_mode(true);
-                output_schema->append_column(doc_value_bucket_column);
+                output_schema->append_column(create_doc_value_compaction_column(*column, b));
             }
             continue;
         }

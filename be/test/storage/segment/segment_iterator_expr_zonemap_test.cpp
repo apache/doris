@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
+#include "exec/common/variant_util.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/fs/file_writer.h"
@@ -872,6 +873,42 @@ TEST_F(SegmentIteratorExprZonemapTest, DeletePredicateFiltersSchemaDefault) {
         st = iterator->next_batch(&block);
     }
     EXPECT_TRUE(st.is<ErrorCode::END_OF_FILE>()) << st;
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, MissingVariantDocBucketsDefaultToNull) {
+    _tablet_schema = make_schema_with_added_nullable_variant();
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
+
+    StorageReadOptions read_options(_stats);
+    read_options.io_ctx.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
+    // Match VariantCompactionUtil's doc bucket schema for a root added after this segment.
+    for (int bucket = 0; bucket < 2; ++bucket) {
+        auto column =
+                variant_util::create_doc_value_compaction_column(_tablet_schema->column(1), bucket);
+        ColumnIteratorUPtr iter;
+        auto st = segment->new_column_iterator(column, &iter, &read_options);
+        ASSERT_TRUE(st.ok()) << st;
+        ColumnIteratorOptions opts;
+        opts.stats = &_stats;
+        opts.file_reader = segment->file_reader().get();
+        opts.io_ctx = read_options.io_ctx;
+        ASSERT_TRUE(iter->init(opts).ok());
+        ASSERT_TRUE(iter->seek_to_ordinal(0).ok());
+
+        MutableColumnPtr values = column.get_vec_type()->create_column();
+        size_t rows = kRuntimeColumnRows;
+        bool has_null = false;
+        st = iter->next_batch(&rows, values, &has_null);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_TRUE(has_null);
+        ASSERT_EQ(kRuntimeColumnRows, values->size());
+        ASSERT_NO_FATAL_FAILURE(expect_all_null(values));
+    }
+
+    MutableColumnPtr root_values;
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, 1, read_options, &root_values));
+    ASSERT_NO_FATAL_FAILURE(expect_all_null(root_values));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, MissingVariantSeparatesValueAndPhysicalReaderSemantics) {
