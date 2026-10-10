@@ -31,6 +31,15 @@ suite("fold_literal_arguments") {
         (3, 3.5, 'ab', '2024-05-15 10:00:00'), (4, 4.5, 'x', '2024-06-01 00:00:00')
     """
 
+    // a real table, not an inline constant relation: FE cannot fold dt to a literal NULL and prune the
+    // whole relation away as empty before the aggregate ever runs
+    sql "drop table if exists fold_literal_arguments_null_dt"
+    sql """
+        create table fold_literal_arguments_null_dt (k int, dt datetime)
+        duplicate key(k) distributed by hash(k) buckets 1 properties('replication_num' = '1')
+    """
+    sql "insert into fold_literal_arguments_null_dt values (1, null)"
+
     // scalar functions
     qt_sha2 "select sha2('abc', 200 + 56)"
     qt_split_by_regexp "select split_by_regexp('a,b,c', ',', 1 + 1)"
@@ -275,11 +284,11 @@ suite("fold_literal_arguments") {
     test {
         // the pattern is validated once up front, even when every row's timestamp is NULL, so the
         // generic nullable-argument shortcut cannot skip every row and hide an invalid pattern
-        sql "select sequence_match(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from (select 1 k, cast(null as datetime) dt) t"
+        sql "select sequence_match(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from fold_literal_arguments_null_dt"
         exception "Event number 9 is out of range"
     }
     test {
-        sql "select sequence_count(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from (select 1 k, cast(null as datetime) dt) t"
+        sql "select sequence_count(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from fold_literal_arguments_null_dt"
         exception "Event number 9 is out of range"
     }
     test {
