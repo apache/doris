@@ -17,12 +17,15 @@
 
 #include "exec/spill/spill_file_writer.h"
 
+#include <algorithm>
+#include <chrono>
+#include <thread>
+
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
-#include "exec/spill/spill_remote_upload_budget.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/local_file_writer.h"
@@ -33,6 +36,9 @@
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/defer_op.h"
+#include "util/stopwatch.hpp"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -52,10 +58,6 @@ SpillFileWriter::SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, R
 
     // Register this writer as the active writer for the SpillFile.
     spill_file->_active_writer = this;
-
-    if (_data_dir->is_remote()) {
-        _budget = ExecEnv::GetInstance()->spill_file_mgr()->remote_upload_budget();
-    }
 
     // Custom (spill-specific) counters
     RuntimeProfile* custom_profile = profile->get_child("CustomCounters");
@@ -98,12 +100,14 @@ void SpillFileWriter::_discard(SpillFile* spill_file) {
         return;
     }
     // The part is dropped without a footer and without close(): destroying an unclosed
-    // writer waits for its in-flight uploads and publishes nothing, so the ledger below is
-    // complete afterwards and no object can appear after the SpillFile deleted its prefix.
+    // writer waits for its in-flight uploads and publishes nothing, so no object can appear
+    // after the SpillFile deleted its prefix.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
     MultipartUploadId upload = _multipart_upload_id(writer.get());
+    if (_data_dir->is_remote()) {
+        _account_remote_part(writer.get(), /*closed=*/false);
+    }
     writer.reset();
-    _reconcile_part();
     _abort_multipart_upload(upload);
     _advance_part();
 }
@@ -128,29 +132,6 @@ Status SpillFileWriter::_open_next_part(const std::shared_ptr<SpillFile>& spill_
     opts.write_file_cache = false;
     opts.allow_adaptive_file_cache_write = false;
     opts.approximate_bytes_to_write = 0;
-    if (_budget != nullptr) {
-        _part_stats = std::make_shared<io::RemoteWriteStats>();
-        _part_ledger = std::make_shared<PartBudgetLedger>();
-        opts.remote_write_stats = _part_stats;
-        // Budget is taken when S3FileWriter submits a buffer (appending thread) and given
-        // back when that upload finished (upload thread). Both lambdas own what they touch:
-        // the budget lives as long as the SpillFileManager, the ledger is shared.
-        opts.upload_submit_gate = [budget = _budget, ledger = _part_ledger,
-                                   ctx = _resource_ctx](size_t bytes) -> Status {
-            int64_t wait_ns = 0;
-            RETURN_IF_ERROR(budget->acquire(
-                    static_cast<int64_t>(bytes),
-                    [&ctx]() { return ctx != nullptr && ctx->task_controller()->is_cancelled(); },
-                    &wait_ns));
-            ledger->acquired.fetch_add(static_cast<int64_t>(bytes));
-            ledger->wait_ns.fetch_add(wait_ns);
-            return Status::OK();
-        };
-        opts.upload_done_callback = [budget = _budget, ledger = _part_ledger](size_t bytes) {
-            budget->release(static_cast<int64_t>(bytes));
-            ledger->released.fetch_add(static_cast<int64_t>(bytes));
-        };
-    }
     RETURN_IF_ERROR(fs->create_file(_current_part_path, &_file_writer, &opts));
     COUNTER_UPDATE(_total_file_count, 1);
     return Status::OK();
@@ -171,7 +152,7 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     Status status = _data_dir->try_reserve(meta_size, /*force=*/true);
     if (status.ok()) {
         SCOPED_TIMER(_write_file_timer);
-        status = _file_writer->append(_part_meta);
+        status = _append_to_part(Slice(_part_meta));
         if (!status.ok()) {
             _data_dir->release(meta_size);
         }
@@ -205,17 +186,23 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
     MultipartUploadId upload = _multipart_upload_id(writer.get());
     if (status.ok()) {
+        MonotonicStopWatch close_watch;
+        close_watch.start();
         status = writer->close();
+        if (_data_dir->is_remote()) {
+            _part_upload_ns += close_watch.elapsed_time();
+        }
     }
-    if (!status.ok() && writer->state() != io::FileWriter::State::CLOSED) {
-        // The part never reached a final state (the footer append failed). Destroying the
-        // writer waits for every in-flight upload, so the ledger below is complete
-        // afterwards. close() is not used for this: on a cancelled query it would be refused
-        // by the upload gate right away and drain nothing.
+    if (_data_dir->is_remote()) {
+        _account_remote_part(writer.get(), status.ok());
+    }
+    if (!status.ok()) {
+        // A part that failed before close() (an append failed or the query was cancelled) must
+        // not be published, so it is not closed; close() itself may also fail before its
+        // uploads are done. Destroying the writer waits for every in-flight upload in both
+        // cases, so nothing is uploaded after the multipart upload is aborted below.
         writer.reset();
     }
-
-    _reconcile_part();
 
     if (!status.ok()) {
         LOG(WARNING) << "failed to close spill part " << _current_part_path << ": " << status;
@@ -234,40 +221,93 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     return status;
 }
 
-void SpillFileWriter::_reconcile_part() {
-    // Budget: everything the gate took for this part but the upload callback never gave
-    // back (buffers that failed before their upload started) is released here. The writer is
-    // in its final state at this point, so every callback that will ever fire has fired.
-    if (_budget != nullptr && _part_ledger != nullptr) {
-        int64_t remaining = _part_ledger->acquired.load() - _part_ledger->released.load();
-        DCHECK_GE(remaining, 0) << "upload callback released more than acquired, part="
-                                << _current_part_path;
-        if (remaining > 0) {
-            _budget->release(remaining);
-        }
-        if (_remote_upload_wait_timer != nullptr) {
-            COUNTER_UPDATE(_remote_upload_wait_timer, _part_ledger->wait_ns.load());
-        }
+void SpillFileWriter::_account_remote_part(io::FileWriter* writer, bool closed) {
+    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(writer);
+    DORIS_CHECK(s3_writer != nullptr)
+            << "remote spill part is not an S3 file: " << _current_part_path;
+    // Derived from how S3FileWriter uploads: a part smaller than one upload buffer is one
+    // PutObject at close(); a larger one is CreateMultipartUpload, one UploadPart per buffer and
+    // CompleteMultipartUpload at close(), and a published object is checked with a HEAD when
+    // enable_s3_object_check_after_upload is set. Retries inside the client are not seen.
+    const bool multipart = !s3_writer->upload_id().empty();
+    int64_t data_requests = 0;
+    int64_t uploaded_bytes = 0;
+    // Only a successful close() guarantees that no upload is still running, so the parts of
+    // a failed part are not counted.
+    if (closed) {
+        data_requests = multipart ? static_cast<int64_t>(s3_writer->completed_parts().size()) : 1;
+        uploaded_bytes = static_cast<int64_t>(s3_writer->bytes_appended());
     }
+    int64_t requests = data_requests;
+    if (multipart) {
+        requests += closed ? 2 : 1; // CreateMultipartUpload, CompleteMultipartUpload
+    }
+    if (closed && config::enable_s3_object_check_after_upload) {
+        requests += 1; // HEAD
+    }
+    if (_remote_write_requests != nullptr) {
+        COUNTER_UPDATE(_remote_write_requests, requests);
+        COUNTER_UPDATE(_remote_upload_part_requests, data_requests);
+        COUNTER_UPDATE(_remote_upload_bytes, uploaded_bytes);
+        COUNTER_UPDATE(_remote_upload_timer, _part_upload_ns);
+    }
+    if (_resource_ctx) {
+        _resource_ctx->io_context()->update_spill_remote_write_requests(requests);
+    }
+    ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_write(uploaded_bytes,
+                                                                        data_requests);
+}
 
-    // Remote only: _part_stats is created together with the upload budget.
-    if (_part_stats != nullptr) {
-        int64_t requests = _part_stats->total_requests();
-        int64_t data_requests =
-                _part_stats->put_object_requests + _part_stats->upload_part_requests;
-        int64_t uploaded_bytes = _part_stats->uploaded_bytes;
-        if (_remote_write_requests != nullptr) {
-            COUNTER_UPDATE(_remote_write_requests, requests);
-            COUNTER_UPDATE(_remote_upload_part_requests, data_requests);
-            COUNTER_UPDATE(_remote_upload_bytes, uploaded_bytes);
-            COUNTER_UPDATE(_remote_upload_timer, _part_stats->request_time_ns.load());
-        }
-        if (_resource_ctx) {
-            _resource_ctx->io_context()->update_spill_remote_write_requests(requests);
-        }
-        ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_write(uploaded_bytes,
-                                                                            data_requests);
+Status SpillFileWriter::_wait_for_upload_queue() {
+    auto is_cancelled = [this]() {
+        return _resource_ctx != nullptr && _resource_ctx->task_controller()->is_cancelled();
+    };
+    // A cancelled query must not start another (billed) upload.
+    if (is_cancelled()) {
+        return Status::Cancelled("query cancelled before uploading spill data");
     }
+    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    auto queue_full = [upload_pool]() {
+        return static_cast<int64_t>(upload_pool->get_queue_size()) * config::s3_write_buffer_size >=
+               config::spill_s3_max_inflight_upload_bytes;
+    };
+    if (!queue_full()) {
+        return Status::OK();
+    }
+    MonotonicStopWatch wait_watch;
+    wait_watch.start();
+    Defer record_wait {
+            [&]() { COUNTER_UPDATE(_remote_upload_wait_timer, wait_watch.elapsed_time()); }};
+    // Queued uploads always finish, so the wait ends without help from other writers.
+    while (queue_full()) {
+        if (is_cancelled()) {
+            return Status::Cancelled("query cancelled while waiting for the spill upload queue");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return Status::OK();
+}
+
+Status SpillFileWriter::_append_to_part(const Slice& data) {
+    RETURN_IF_ERROR(_part_append_status);
+    if (!_data_dir->is_remote()) {
+        _part_append_status = _file_writer->append(data);
+        return _part_append_status;
+    }
+    // One upload buffer per append, so that the queue is checked before every buffer this
+    // writer can submit.
+    const auto buffer_size = static_cast<size_t>(config::s3_write_buffer_size);
+    for (size_t offset = 0; offset < data.size; offset += buffer_size) {
+        _part_append_status = _wait_for_upload_queue();
+        RETURN_IF_ERROR(_part_append_status);
+        MonotonicStopWatch append_watch;
+        append_watch.start();
+        _part_append_status = _file_writer->append(
+                Slice(data.data + offset, std::min(buffer_size, data.size - offset)));
+        _part_upload_ns += append_watch.elapsed_time();
+        RETURN_IF_ERROR(_part_append_status);
+    }
+    return Status::OK();
 }
 
 void SpillFileWriter::_advance_part() {
@@ -276,8 +316,8 @@ void SpillFileWriter::_advance_part() {
     _part_written_bytes = 0;
     _part_max_sub_block_size = 0;
     _part_meta.clear();
-    _part_ledger.reset();
-    _part_stats.reset();
+    _part_upload_ns = 0;
+    _part_append_status = Status::OK();
 }
 
 SpillFileWriter::MultipartUploadId SpillFileWriter::_multipart_upload_id(io::FileWriter* writer) {
@@ -318,7 +358,13 @@ Status SpillFileWriter::_rotate_if_needed(const std::shared_ptr<SpillFile>& spil
 
 Status SpillFileWriter::write_block(RuntimeState* state, const Block& block) {
     DCHECK(!_closed);
+    // A failed write lost data, so the file can no longer be completed.
+    RETURN_IF_ERROR(_write_status);
+    _write_status = _write_block(state, block);
+    return _write_status;
+}
 
+Status SpillFileWriter::_write_block(RuntimeState* state, const Block& block) {
     // Lock the SpillFile to ensure it is still alive. If it has already been
     // destroyed (gc'd), we must not write any more data because the disk
     // accounting would be out of sync.
@@ -357,10 +403,19 @@ Status SpillFileWriter::close() {
     _closed = true;
 
     auto spill_file = _spill_file_wptr.lock();
-    // Reconciles budget and statistics of the last part even when it fails.
+    if (!_write_status.ok()) {
+        // A write failed (possibly in a part that was already rotated out): the current part
+        // is dropped without publishing it and the file is not finished.
+        if (_part_append_status.ok()) {
+            _part_append_status = _write_status;
+        }
+        static_cast<void>(_close_current_part(spill_file));
+        return _write_status;
+    }
+    // Accounts the statistics of the last part even when it fails.
     RETURN_IF_ERROR(_close_current_part(spill_file));
 
-    // Injected after the last part is reconciled: a failed close must never strand budget.
+    // Injected after the last part is closed and accounted.
     DBUG_EXECUTE_IF("fault_inject::spill_file::spill_eof", {
         return Status::Error<INTERNAL_ERROR>("fault_inject spill_file spill_eof failed");
     });
@@ -407,8 +462,7 @@ Status SpillFileWriter::_write_internal(const Block& block,
             Defer defer2 {[&]() { COUNTER_UPDATE(_memory_used_counter, -buff_size); }};
         }
         // Capacity is checked and reserved atomically; concurrent writers cannot pass the
-        // limit together. Upload budget is not taken here: S3FileWriter asks for it when it actually submits
-        // a buffer (see the upload_submit_gate in _open_next_part).
+        // limit together.
         RETURN_IF_ERROR(_data_dir->try_reserve(buff_size));
 
         {
@@ -446,7 +500,7 @@ Status SpillFileWriter::_write_internal(const Block& block,
             }};
             {
                 SCOPED_TIMER(_write_file_timer);
-                status = _file_writer->append(buff);
+                status = _append_to_part(Slice(buff));
                 RETURN_IF_ERROR(status);
             }
         }

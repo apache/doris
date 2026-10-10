@@ -50,7 +50,6 @@
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
-#include "exec/spill/spill_remote_upload_budget.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -61,8 +60,8 @@
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/workload_management/io_context.h"
 #include "runtime/workload_management/resource_context.h"
-#include "storage/storage_policy.h"
 #include "service/backend_options.h"
+#include "storage/storage_policy.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -100,7 +99,9 @@ struct MockS3Store {
     // blocked; the others behave normally.
     std::atomic<int64_t> fail_put_index {0};
     std::atomic<bool> fail_create_multipart {false};
-    std::atomic<bool> fail_heads {false};
+    // CompleteMultipartUpload publishes the object but reports a failure, as when the response
+    // of a committed request is lost.
+    std::atomic<bool> fail_complete_after_publish {false};
     std::atomic<bool> fail_deletes {false};
     // Guarded by mutex. Delete every other key, then report a per-key failure.
     std::string fail_delete_key;
@@ -114,6 +115,7 @@ struct MockS3Store {
     std::atomic<int64_t> delete_requests {0};
     std::atomic<int64_t> create_multipart_requests {0};
     std::atomic<int64_t> abort_multipart_requests {0};
+    std::atomic<int64_t> complete_multipart_requests {0};
 
     // True when this put/upload_part must fail (fail_uploads, or beyond fail_puts_after).
     bool should_fail_put() {
@@ -137,7 +139,7 @@ struct MockS3Store {
         fail_puts_after = 0;
         fail_put_index = 0;
         fail_create_multipart = false;
-        fail_heads = false;
+        fail_complete_after_publish = false;
         fail_deletes = false;
         fail_delete_key.clear();
         block_uploads = false;
@@ -149,6 +151,7 @@ struct MockS3Store {
         delete_requests = 0;
         create_multipart_requests = 0;
         abort_multipart_requests = 0;
+        complete_multipart_requests = 0;
     }
 
     void wait_while_blocked() {
@@ -247,6 +250,7 @@ public:
     io::ObjStorageResponse complete_multipart_upload(
             const io::ObjStoragePath& opts, const std::string& upload_id,
             const std::vector<io::ObjStorageCompletedPart>& completed_parts) override {
+        _store->complete_multipart_requests++;
         std::lock_guard lock(_store->mutex);
         auto ctx_it = _store->uploads.find(upload_id);
         if (ctx_it == _store->uploads.end()) {
@@ -263,6 +267,9 @@ public:
         _store->objects[_store->make_key(ctx_it->second.bucket, ctx_it->second.key)] =
                 std::move(data);
         _store->uploads.erase(ctx_it);
+        if (_store->fail_complete_after_publish) {
+            return make_error("injected complete_multipart_upload failure after publish");
+        }
         return io::ObjStorageResponse::OK();
     }
 
@@ -277,10 +284,6 @@ public:
     io::ObjStorageHeadResult head_object(const io::ObjStoragePath& opts) override {
         io::ObjStorageHeadResult resp;
         _store->head_requests++;
-        if (_store->fail_heads) {
-            resp.resp = make_error("injected head_object failure");
-            return resp;
-        }
         std::lock_guard lock(_store->mutex);
         auto it = _store->objects.find(_store->make_key(opts.bucket, opts.key));
         if (it == _store->objects.end()) {
@@ -553,6 +556,40 @@ protected:
 
     // Vault-prefixed keys of the mock store: {vault}/spill/{ip}_{port}/{query_id}/...
     static std::string spill_root() { return fmt::format("{}/spill/{}", kVaultPrefix, kEndpoint); }
+
+    // Keys of the objects a query left under the spill root, relative to its query directory.
+    static std::vector<std::string> _query_objects(const std::string& query_id) {
+        const std::string prefix = spill_root() + "/" + query_id + "/";
+        std::vector<std::string> keys;
+        for (auto& key : mock_store().keys_with_prefix(kBucket, prefix)) {
+            keys.push_back(key.substr(prefix.size()));
+        }
+        return keys;
+    }
+
+    // The part objects {spill_file}/0 .. {spill_file}/{parts - 1} in key order.
+    static std::vector<std::string> _part_keys(const std::string& spill_file, size_t parts) {
+        std::vector<std::string> keys;
+        for (size_t i = 0; i < parts; ++i) {
+            keys.push_back(fmt::format("{}/{}", spill_file, i));
+        }
+        std::ranges::sort(keys);
+        return keys;
+    }
+
+    static bool _no_open_multipart_uploads() {
+        std::lock_guard lock(mock_store().mutex);
+        return mock_store().uploads.empty();
+    }
+
+    // Wait until no upload is queued or running.
+    static void _wait_uploads_idle() {
+        auto* pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+        for (int i = 0; i < 500 && (pool->get_queue_size() > 0 || pool->num_active_threads() > 0);
+             ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
 
     static Block _random_string_block(std::mt19937& rng, size_t rows, size_t len) {
         std::vector<std::string> values;
@@ -830,29 +867,38 @@ TEST_F(SpillFileS3Test, RemoteBillingExcludesOpenPartReservations) {
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
 }
 
-TEST_F(SpillFileS3Test, PublishedPartRemainsBillableWhenVerificationAndCleanupFail) {
-    config::enable_s3_object_check_after_upload = true;
+// CompleteMultipartUpload committed the part but its response was lost: close() fails, yet the
+// object exists. It stays billable and is deleted with its spill file, also when that deletion
+// first fails and is retried by the GC.
+TEST_F(SpillFileS3Test, PublishedPartRemainsBillableWhenCloseAndCleanupFail) {
     _create_manager();
-    mock_store().fail_heads = true;
+    mock_store().fail_complete_after_publish = true;
     std::mt19937 rng(126);
     Status close_status;
-    auto file = _write_blocks("query_failed_head/sort-1", {_random_string_block(rng, 16, 100)},
+    // One block larger than an upload buffer: a multipart upload.
+    auto file = _write_blocks("query_failed_complete/sort-1", {_random_string_block(rng, 64, 200)},
                               &close_status);
     ASSERT_FALSE(close_status.ok());
-    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_failed_head/");
-    ASSERT_EQ(keys.size(), 1);
     ASSERT_FALSE(file->ready_for_reading());
-    ASSERT_EQ(_manager->remote_spill_data_bytes(), _object(keys.front()).size());
+    // After the failed close: the object was published anyway and stays charged.
+    ASSERT_EQ(_query_objects("query_failed_complete"), _part_keys("sort-1", 1));
+    const auto object_bytes =
+            static_cast<int64_t>(_object(spill_root() + "/query_failed_complete/sort-1/0").size());
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), object_bytes);
+    mock_store().fail_complete_after_publish = false;
 
     _manager->stop();
     mock_store().fail_deletes = true;
     file.reset();
     ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
-    ASSERT_EQ(_manager->remote_spill_data_bytes(), _object(keys.front()).size());
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), object_bytes);
+    // After the failed deletion: still there, retried by the GC.
+    ASSERT_EQ(_query_objects("query_failed_complete"), _part_keys("sort-1", 1));
     mock_store().fail_deletes = false;
-    mock_store().fail_heads = false;
     _manager->gc(1000);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+    ASSERT_TRUE(_query_objects("query_failed_complete").empty());
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
 TEST_F(SpillFileS3Test, PartialDeleteReconcilesOnlyRemainingObjectBytes) {
@@ -893,6 +939,7 @@ TEST_F(SpillFileS3Test, PartialDeleteReconcilesOnlyRemainingObjectBytes) {
     }
     _manager->gc(1000);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+    ASSERT_TRUE(_query_objects("query_partial_delete").empty());
 }
 
 TEST_F(SpillFileS3Test, ExternalSpillSessionUsesLocalRootWhileQuerySpillUsesS3) {
@@ -993,7 +1040,15 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     ASSERT_GE(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS),
               _counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS));
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS), mock_store().put_requests);
-    ASSERT_EQ(_manager->remote_upload_budget()->inflight_bytes(), 0);
+    // Request statistics are derived from the closed parts: every part is a multipart upload
+    // here (create + parts + complete) followed by a HEAD when the check is enabled.
+    ASSERT_EQ(mock_store().create_multipart_requests, static_cast<int64_t>(keys.size()));
+    ASSERT_EQ(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS),
+              mock_store().put_requests + mock_store().create_multipart_requests +
+                      mock_store().complete_multipart_requests + mock_store().head_requests);
+    // After writing: exactly the parts of the file, no multipart upload left open.
+    ASSERT_EQ(_query_objects("query_1"), _part_keys("sort-1-0-1", keys.size()));
+    ASSERT_TRUE(_no_open_multipart_uploads());
 
     auto* io_ctx = _runtime_state->get_query_ctx()->resource_ctx()->io_context();
     ASSERT_EQ(io_ctx->spill_write_bytes_to_remote_storage(), object_bytes);
@@ -1045,6 +1100,44 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     ASSERT_EQ(statistics.spill_read_bytes_from_local_storage, 0);
     // Part sizes come from the writer: the reader never asks the store for them.
     ASSERT_EQ(mock_store().head_requests, heads_after_write);
+
+    // After deleting: nothing is left of the query.
+    spill_file.reset();
+    ASSERT_TRUE(_query_objects("query_1").empty());
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+}
+
+// A part smaller than one upload buffer is a single PutObject (no multipart upload), checked
+// with a HEAD when enable_s3_object_check_after_upload is set.
+TEST_F(SpillFileS3Test, SmallPartIsOnePutObject) {
+    for (bool check_after_upload : {true, false}) {
+        config::enable_s3_object_check_after_upload = check_after_upload;
+        _create_manager();
+        mock_store().reset();
+        const int64_t requests_before = _counter(profile::SPILL_REMOTE_WRITE_REQUESTS);
+        const int64_t parts_before = _counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS);
+        const int64_t bytes_before = _counter(profile::SPILL_REMOTE_UPLOAD_BYTES);
+        std::mt19937 rng(7);
+        Status st;
+        auto spill_file =
+                _write_blocks("query_small/sort-1", {_random_string_block(rng, 8, 100)}, &st);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(_query_objects("query_small"), _part_keys("sort-1", 1));
+        const auto object_bytes =
+                static_cast<int64_t>(_object(spill_root() + "/query_small/sort-1/0").size());
+        ASSERT_LT(object_bytes, config::s3_write_buffer_size);
+        ASSERT_EQ(mock_store().put_requests, 1);
+        ASSERT_EQ(mock_store().create_multipart_requests, 0);
+        ASSERT_EQ(mock_store().head_requests, check_after_upload ? 1 : 0);
+        ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS) - parts_before, 1);
+        ASSERT_EQ(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS) - requests_before,
+                  check_after_upload ? 2 : 1);
+        ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES) - bytes_before, object_bytes);
+        spill_file.reset();
+        ASSERT_TRUE(_query_objects("query_small").empty());
+        _destroy_manager();
+    }
 }
 
 TEST_F(SpillFileS3Test, SeekAcrossParts) {
@@ -1301,9 +1394,12 @@ TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
     ASSERT_TRUE(st.ok()) << st;
     const int64_t charged = _data_dir->get_spill_data_bytes();
     ASSERT_GT(charged, 0);
+    const auto written = _query_objects("query_8");
+    ASSERT_EQ(written, _part_keys("sort-1-0-1", written.size()));
 
     mock_store().fail_deletes = true;
     spill_file.reset();
+    ASSERT_EQ(_query_objects("query_8"), written);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), charged);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), charged);
     ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
@@ -1345,9 +1441,10 @@ TEST_F(SpillFileS3Test, StorageLimitIsEnforced) {
             _write_blocks("query_5/sort-1-0-1", {_random_string_block(rng, 64, 200)}, &st);
     ASSERT_FALSE(st.ok());
     ASSERT_TRUE(st.is<ErrorCode::DISK_REACH_CAPACITY_LIMIT>()) << st;
-    // Nothing was accounted for the rejected block; the store is still usable.
-    ASSERT_EQ(_manager->remote_upload_budget()->inflight_bytes(), 0);
+    // Nothing was accounted for the rejected block; the store is still usable. Closing the
+    // writer published a part without blocks, deleted with its file.
     spill_file.reset();
+    ASSERT_TRUE(_query_objects("query_5").empty());
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 
     config::spill_storage_limit_bytes = 0;
@@ -1381,12 +1478,15 @@ TEST_F(SpillFileS3Test, TryReserveIsAtomic) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
-TEST_F(SpillFileS3Test, UploadBudgetBlocksAndReconciles) {
-    config::spill_s3_max_inflight_upload_bytes = 40 * 1024;
-    config::spill_file_part_size_bytes = 16 * 1024;
+// With uploads stuck, a writer pauses before handing another buffer to object storage once the
+// S3 upload queue holds spill_s3_max_inflight_upload_bytes of buffers, and goes on when the
+// queue drains.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
+    config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
+    config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* budget = _manager->remote_upload_budget();
-    ASSERT_EQ(budget->limit_bytes(), 40 * 1024);
+    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
 
     std::mt19937 rng(11);
     std::vector<Block> blocks;
@@ -1396,50 +1496,65 @@ TEST_F(SpillFileS3Test, UploadBudgetBlocksAndReconciles) {
 
     mock_store().set_block_uploads(true);
     Status write_status;
+    SpillFileSPtr spill_file;
     std::atomic<bool> finished {false};
-    ScopedThread writer_thread([&]() {
-        _write_blocks("query_6/sort-1-0-1", blocks, &write_status);
-        finished = true;
-    });
-    // Runs before writer_thread is joined: an early ASSERT return must not leave the writer
-    // stuck behind blocked uploads or the budget gate.
+    std::atomic<int> max_queue {0};
+    std::atomic<bool> sampling {true};
+    // Runs before the threads are joined: an early ASSERT return must not leave the writer
+    // stuck behind blocked uploads.
     Defer release_writer {[&]() {
+        sampling = false;
         mock_store().set_block_uploads(false);
         _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
     }};
+    ScopedThread sampler([&]() {
+        while (sampling.load()) {
+            max_queue = std::max(max_queue.load(), upload_pool->get_queue_size());
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+    ScopedThread writer_thread([&]() {
+        spill_file = _write_blocks("query_6/sort-1-0-1", blocks, &write_status);
+        finished = true;
+    });
 
-    // With uploads stuck the writer must stall once the budget is used up.
-    for (int i = 0; i < 50 && budget->inflight_bytes() < 30 * 1024; ++i) {
+    // The blocked uploads occupy the pool; the writer stalls once two buffers are queued.
+    for (int i = 0; i < 250 && upload_pool->get_queue_size() < 2; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
+    ASSERT_GE(upload_pool->get_queue_size(), 2);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     ASSERT_FALSE(finished.load());
-    // A single append may exceed the limit, never more than one.
-    ASSERT_LE(budget->inflight_bytes(), 40 * 1024 + 16 * 1024);
+    // The queue is checked before every buffer, so it never exceeds the limit.
+    ASSERT_LE(upload_pool->get_queue_size(), 2);
 
     mock_store().set_block_uploads(false);
     writer_thread.join();
+    sampling = false;
+    sampler.join();
     ASSERT_TRUE(write_status.ok()) << write_status;
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
-    ASSERT_GT(budget->total_acquired_bytes(), 0);
+    ASSERT_LE(max_queue.load(), 2);
     ASSERT_GT(_counter(profile::SPILL_REMOTE_UPLOAD_WAIT_TIME), 0);
+    ASSERT_EQ(_query_objects("query_6"), _part_keys("sort-1-0-1", 1));
+    ASSERT_TRUE(_no_open_multipart_uploads());
+    ASSERT_EQ(_read_all(spill_file), _values_of(blocks));
+    spill_file.reset();
+    ASSERT_TRUE(_query_objects("query_6").empty());
 }
 
 // Regression test for the BE-wide hang: bytes sitting in a writer's not-yet-full pending
-// buffer must not count against the budget, otherwise a handful of idle open writers could
-// hold the whole budget and block every other writer forever.
-TEST_F(SpillFileS3Test, PendingBuffersDoNotConsumeBudget) {
-    config::spill_s3_max_inflight_upload_bytes = 24 * 1024; // three 8 KB buffers
+// buffer must not count against the limit, otherwise a handful of idle open writers could
+// hold all of it and block every other writer forever.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SpillFileS3Test, PendingBuffersDoNotBlockWriters) {
+    config::spill_s3_max_inflight_upload_bytes = 3 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* budget = _manager->remote_upload_budget();
 
     std::mt19937 rng(23);
     // Six idle writers, each holding ~6 KB in a pending buffer (36 KB > limit in total).
-    // Written on a deadline thread: with append-time accounting the fourth writer would block
-    // forever, and the query is cancelled below so that such a regression fails instead of
-    // hanging the binary.
+    // Written on a deadline thread, and the query is cancelled below, so that a regression
+    // fails instead of hanging the binary.
     std::vector<SpillFileSPtr> idle_files;
     std::vector<SpillFileWriterSPtr> idle_writers;
     Status idle_status;
@@ -1475,26 +1590,23 @@ TEST_F(SpillFileS3Test, PendingBuffersDoNotConsumeBudget) {
         idle_thread.join();
     }
     ASSERT_TRUE(idle_done.load() && idle_status.ok())
-            << "idle writers blocked on budget: " << idle_status;
-    ASSERT_EQ(budget->inflight_bytes(), 0) << "pending buffers must not be counted";
+            << "idle writers blocked each other: " << idle_status;
 
-    // A seventh writer streams several full buffers through the budget; it must finish.
+    // A seventh writer streams several full buffers; it must finish.
     std::vector<Block> blocks;
     for (int i = 0; i < 10; ++i) {
         blocks.push_back(_random_string_block(rng, 64, 200));
     }
     Status write_status;
+    SpillFileSPtr active_file;
     std::atomic<bool> finished {false};
+    // Runs before writer_thread is joined: an early ASSERT return must not leave it stuck.
+    Defer release_writer {
+            [&]() { _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown")); }};
     ScopedThread writer_thread([&]() {
-        _write_blocks("query_10/active", blocks, &write_status);
+        active_file = _write_blocks("query_10/active", blocks, &write_status);
         finished = true;
     });
-    // Runs before writer_thread is joined: an early ASSERT return must not leave the writer
-    // stuck behind blocked uploads or the budget gate.
-    Defer release_writer {[&]() {
-        mock_store().set_block_uploads(false);
-        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
-    }};
     for (int i = 0; i < 500 && !finished.load(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -1503,27 +1615,34 @@ TEST_F(SpillFileS3Test, PendingBuffersDoNotConsumeBudget) {
     }
     writer_thread.join();
     ASSERT_TRUE(finished.load() && write_status.ok())
-            << "writer blocked on budget held by idle pending buffers: " << write_status;
+            << "writer blocked by idle pending buffers: " << write_status;
 
     for (auto& writer : idle_writers) {
         ASSERT_TRUE(writer->close().ok());
     }
     idle_writers.clear();
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
+    std::vector<std::string> expected {"active/0"};
+    for (int i = 0; i < 6; ++i) {
+        expected.push_back(fmt::format("idle-{}/0", i));
+    }
+    ASSERT_EQ(_query_objects("query_10"), expected);
+    idle_files.clear();
+    active_file.reset();
+    ASSERT_TRUE(_query_objects("query_10").empty());
 }
 
-TEST_F(SpillFileS3Test, UploadBudgetWaitIsCancellable) {
-    config::spill_s3_max_inflight_upload_bytes = 16 * 1024;
-    // Larger than the budget: the writer must block in the gate of the third buffer, not in
-    // the synchronous close of a part that fits the budget exactly.
+// A writer waiting for the upload queue observes the cancellation of its query; the part is
+// not published and its multipart upload is aborted.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
+    config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* budget = _manager->remote_upload_budget();
+    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
 
     std::mt19937 rng(13);
     std::vector<Block> blocks;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 20; ++i) {
         blocks.push_back(_random_string_block(rng, 64, 200));
     }
 
@@ -1534,7 +1653,14 @@ TEST_F(SpillFileS3Test, UploadBudgetWaitIsCancellable) {
     ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
 
     Status write_status;
+    Status close_status;
     std::atomic<bool> writes_done {false};
+    // Runs before writer_thread is joined: an early ASSERT return must not leave the writer
+    // stuck behind blocked uploads.
+    Defer release_writer {[&]() {
+        mock_store().set_block_uploads(false);
+        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
+    }};
     ScopedThread writer_thread([&]() {
         for (const auto& block : blocks) {
             write_status = writer->write_block(_runtime_state.get(), block);
@@ -1543,18 +1669,14 @@ TEST_F(SpillFileS3Test, UploadBudgetWaitIsCancellable) {
             }
         }
         writes_done = true;
-        // close() has to wait for the stuck uploads; the test releases them below.
-        (void)writer->close();
+        // Destroying the part waits for the stuck uploads; the test releases them below.
+        close_status = writer->close();
     });
-    // Runs before writer_thread is joined: an early ASSERT return must not leave the writer
-    // stuck behind blocked uploads or the budget gate.
-    Defer release_writer {[&]() {
-        mock_store().set_block_uploads(false);
-        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
-    }};
-    for (int i = 0; i < 50 && budget->inflight_bytes() < 16 * 1024; ++i) {
+    for (int i = 0; i < 250 && upload_pool->get_queue_size() < 2; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
+    ASSERT_GE(upload_pool->get_queue_size(), 2);
+    ASSERT_FALSE(writes_done.load());
     // Cancellation is observed through the query's task controller, not the RuntimeState.
     _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test cancel"));
     ASSERT_TRUE(_runtime_state->get_query_ctx()->resource_ctx()->task_controller()->is_cancelled());
@@ -1566,187 +1688,24 @@ TEST_F(SpillFileS3Test, UploadBudgetWaitIsCancellable) {
 
     mock_store().set_block_uploads(false);
     writer_thread.join();
-    // Budget acquired for buffers that were never uploaded is reconciled on close.
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
+    ASSERT_TRUE(close_status.is<ErrorCode::CANCELLED>()) << close_status;
+    ASSERT_FALSE(spill_file->ready_for_reading());
+    // After the failure: nothing published, the multipart upload aborted.
+    ASSERT_TRUE(_query_objects("query_7").empty());
+    ASSERT_TRUE(_no_open_multipart_uploads());
+    ASSERT_EQ(mock_store().abort_multipart_requests, mock_store().create_multipart_requests);
+    writer.reset();
+    spill_file.reset();
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
-TEST_F(SpillFileS3Test, UploadBudgetRejectsCancelledQueryImmediately) {
-    // A cancelled query must not be admitted even when the budget is free (fast path)...
-    SpillRemoteUploadBudget budget(64 * 1024);
-    std::atomic<bool> cancelled {true};
-    int64_t wait_ns = 0;
-    auto st = budget.acquire(
-            8 * 1024, [&]() { return cancelled.load(); }, &wait_ns);
-    ASSERT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
-    ASSERT_EQ(budget.inflight_bytes(), 0);
-    ASSERT_EQ(budget.total_acquired_bytes(), 0);
-
-    // ...nor when it was waiting and the budget became available at the moment of the cancel.
-    cancelled = false;
-    ASSERT_TRUE(budget.acquire(64 * 1024, nullptr, nullptr).ok()); // budget full
-    std::atomic<bool> waiter_done {false};
-    Status waiter_status;
-    ScopedThread waiter([&]() {
-        waiter_status = budget.acquire(
-                8 * 1024, [&]() { return cancelled.load(); }, nullptr);
-        waiter_done = true;
-    });
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    ASSERT_FALSE(waiter_done.load());
-    cancelled = true;
-    budget.release(64 * 1024); // wakes the waiter with room available and the query cancelled
-    for (int i = 0; i < 200 && !waiter_done.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    waiter.join();
-    ASSERT_TRUE(waiter_done.load());
-    ASSERT_TRUE(waiter_status.is<ErrorCode::CANCELLED>()) << waiter_status;
-    ASSERT_EQ(budget.inflight_bytes(), 0);
-    ASSERT_EQ(budget.total_acquired_bytes(), budget.total_released_bytes());
-}
-
-TEST_F(SpillFileS3Test, PartialBufferIsChargedAtCapacity) {
-    // The last buffer of a part is partially filled but keeps its full allocation; the budget
-    // must see the allocation, otherwise many small parts could hold unbounded memory.
-    config::spill_s3_max_inflight_upload_bytes = 64 * 1024;
-    _create_manager();
-    auto* budget = _manager->remote_upload_budget();
-    std::mt19937 rng(21);
-    std::vector<Block> blocks {_random_string_block(rng, 8, 100)}; // well below 8 KiB
-
-    mock_store().set_block_uploads(true);
-    Status write_status;
-    ScopedThread writer_thread(
-            [&]() { _write_blocks("query_12/agg-1-0-1", blocks, &write_status); });
-    Defer release_writer {[&]() {
-        mock_store().set_block_uploads(false);
-        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
-    }};
-    for (int i = 0; i < 250 && budget->inflight_bytes() == 0; ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    // One partial buffer in flight: charged at s3_write_buffer_size, not at its payload.
-    ASSERT_EQ(budget->inflight_bytes(), config::s3_write_buffer_size);
-    mock_store().set_block_uploads(false);
-    writer_thread.join();
-    ASSERT_TRUE(write_status.ok()) << write_status;
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), config::s3_write_buffer_size);
-    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
-}
-
-// The done callback must report exactly what the gate was charged, for every buffer, on the
-// PutObject path (partial buffer), the multipart path (partial last buffer) and the empty
-// object created by close() without any append.
-TEST_F(SpillFileS3Test, GateAndDoneCallbackReportTheSameCapacity) {
-    _create_manager();
-    struct Recorder {
-        std::mutex mutex;
-        std::vector<size_t> gate;
-        std::vector<size_t> done;
-    };
-    auto run = [&](const std::string& name, size_t payload_bytes, size_t expected_buffers) {
-        Recorder rec;
-        io::FileWriterOptions opts;
-        opts.write_file_cache = false;
-        opts.upload_submit_gate = [&rec](size_t bytes) -> Status {
-            std::lock_guard lock(rec.mutex);
-            rec.gate.push_back(bytes);
-            return Status::OK();
-        };
-        opts.upload_done_callback = [&rec](size_t bytes) {
-            std::lock_guard lock(rec.mutex);
-            rec.done.push_back(bytes);
-        };
-        io::FileWriterPtr writer;
-        ASSERT_TRUE(_s3_fs->create_file(fmt::format("hooks/{}", name), &writer, &opts).ok());
-        if (payload_bytes > 0) {
-            std::string payload(payload_bytes, 'x');
-            ASSERT_TRUE(writer->append(Slice(payload)).ok());
-        }
-        ASSERT_TRUE(writer->close().ok());
-        std::lock_guard lock(rec.mutex);
-        const auto capacity = static_cast<size_t>(config::s3_write_buffer_size);
-        ASSERT_EQ(rec.gate.size(), expected_buffers) << name;
-        ASSERT_EQ(rec.done.size(), expected_buffers) << name;
-        for (size_t b : rec.gate) {
-            EXPECT_EQ(b, capacity) << name;
-        }
-        for (size_t b : rec.done) {
-            EXPECT_EQ(b, capacity) << name;
-        }
-    };
-    // Partial buffer -> one PutObject.
-    run("partial", 100, 1);
-    // 2.5 buffers -> multipart with a partial last buffer.
-    run("multipart", static_cast<size_t>(config::s3_write_buffer_size) * 5 / 2, 3);
-    ASSERT_EQ(mock_store().create_multipart_requests, 1);
-    // No append at all -> empty object, still one gate + one callback.
-    run("empty", 0, 1);
-    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, kVaultPrefix + std::string("/hooks/")).size(),
-              3);
-}
-
-// A gate that refuses the buffer of an empty object fails the writer: no object is created and
-// the done callback is not invoked for a buffer that never passed the gate.
-TEST_F(SpillFileS3Test, EmptyObjectRefusedByGateIsNotCreated) {
-    _create_manager();
-    std::atomic<int> gate_calls {0};
-    std::atomic<int> done_calls {0};
-    io::FileWriterOptions opts;
-    opts.write_file_cache = false;
-    opts.upload_submit_gate = [&](size_t) -> Status {
-        ++gate_calls;
-        return Status::Cancelled("refused");
-    };
-    opts.upload_done_callback = [&](size_t) { ++done_calls; };
-    io::FileWriterPtr writer;
-    ASSERT_TRUE(_s3_fs->create_file("hooks/refused", &writer, &opts).ok());
-    const int64_t puts_before = mock_store().put_requests;
-    auto st = writer->close();
-    ASSERT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
-    ASSERT_EQ(gate_calls, 1);
-    ASSERT_EQ(done_calls, 0);
-    ASSERT_EQ(mock_store().put_requests, puts_before);
-    ASSERT_EQ(mock_store().create_multipart_requests, 0);
-    ASSERT_TRUE(
-            mock_store().keys_with_prefix(kBucket, kVaultPrefix + std::string("/hooks/")).empty());
-}
-
-// A writer whose first append failed before any byte was counted (CreateMultipartUpload
-// refused) creates no object when closed, and close() reports the failure.
-TEST_F(SpillFileS3Test, FailedAppendThenCloseCreatesNoObject) {
-    _create_manager();
-    std::atomic<int> gate_calls {0};
-    io::FileWriterOptions opts;
-    opts.write_file_cache = false;
-    opts.upload_submit_gate = [&](size_t) -> Status {
-        ++gate_calls;
-        return Status::OK();
-    };
-    io::FileWriterPtr writer;
-    ASSERT_TRUE(_s3_fs->create_file("hooks/failed_append", &writer, &opts).ok());
-    mock_store().fail_create_multipart = true;
-    Defer restore {[&]() { mock_store().fail_create_multipart = false; }};
-    std::string payload(static_cast<size_t>(config::s3_write_buffer_size), 'x');
-    ASSERT_FALSE(writer->append(Slice(payload)).ok());
-    ASSERT_EQ(gate_calls, 1);
-    const int64_t puts_before = mock_store().put_requests;
-    ASSERT_FALSE(writer->close().ok());
-    ASSERT_EQ(mock_store().put_requests, puts_before);
-    ASSERT_TRUE(
-            mock_store().keys_with_prefix(kBucket, kVaultPrefix + std::string("/hooks/")).empty());
-}
-
-// A query cancelled while a multipart upload is open: the last buffer is refused by the gate,
-// the upload is aborted and nothing is left behind.
+// A query cancelled while a multipart upload is open: the last buffer is not uploaded, the
+// upload is aborted and nothing is left behind.
 // GoogleTest assertions inflate the metric; retain the checks across the upload lifecycle.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* budget = _manager->remote_upload_budget();
     std::mt19937 rng(43);
     SpillFileSPtr spill_file;
     ASSERT_TRUE(_manager->create_spill_file("query_14/sort-1-0-1", spill_file).ok());
@@ -1762,10 +1721,7 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
     ASSERT_GT(mock_store().put_requests, 0);
     // Let the submitted uploads finish so that the count below is stable: only the pending
     // partial buffer is left, and that one must not be uploaded after the cancellation.
-    for (int i = 0; i < 250 && budget->inflight_bytes() > 0; ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    ASSERT_EQ(budget->inflight_bytes(), 0);
+    _wait_uploads_idle();
     const int64_t puts_before_close = mock_store().put_requests;
 
     _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test cancel"));
@@ -1773,9 +1729,9 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
     ASSERT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
     ASSERT_EQ(mock_store().put_requests, puts_before_close);
     ASSERT_EQ(mock_store().abort_multipart_requests, 1);
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
     ASSERT_FALSE(spill_file->ready_for_reading());
+    ASSERT_TRUE(_query_objects("query_14").empty());
+    ASSERT_TRUE(_no_open_multipart_uploads());
     writer.reset();
     spill_file.reset();
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
@@ -1790,7 +1746,6 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
 TEST_F(SpillFileS3Test, SpillFileDestroyedBeforeWriterDiscardsPart) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* budget = _manager->remote_upload_budget();
     std::mt19937 rng(47);
     SpillFileSPtr spill_file;
     ASSERT_TRUE(_manager->create_spill_file("query_16/join-1-0-1", spill_file).ok());
@@ -1806,8 +1761,7 @@ TEST_F(SpillFileS3Test, SpillFileDestroyedBeforeWriterDiscardsPart) {
     spill_file.reset();
     ASSERT_EQ(mock_store().abort_multipart_requests, 1);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
+    ASSERT_TRUE(_no_open_multipart_uploads());
 
     const int64_t puts_before = mock_store().put_requests;
     ASSERT_TRUE(writer->close().ok());
@@ -1845,16 +1799,16 @@ TEST_F(SpillFileS3Test, FailedCloseThenSpillFileDestroyed) {
             writer.reset();
         }
         ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+        ASSERT_TRUE(_query_objects("query_17").empty());
+        ASSERT_TRUE(_no_open_multipart_uploads());
     }
 }
 
-// The scenario behind the fast-path cancellation check: a query cancelled before close() must
-// not start a new upload for its last buffer; the part is refused, nothing is put, the budget
-// stays balanced.
+// A query cancelled before close() must not start a new upload for its last buffer: the part
+// is refused and nothing is put.
 TEST_F(SpillFileS3Test, CancelledQueryCloseIssuesNoUpload) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* budget = _manager->remote_upload_budget();
     std::mt19937 rng(37);
     SpillFileSPtr spill_file;
     ASSERT_TRUE(_manager->create_spill_file("query_13/sort-1-0-1", spill_file).ok());
@@ -1869,9 +1823,8 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseIssuesNoUpload) {
     ASSERT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
     ASSERT_EQ(mock_store().put_requests, 0);
     ASSERT_EQ(mock_store().create_multipart_requests, 0);
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), 0);
     ASSERT_FALSE(spill_file->ready_for_reading());
+    ASSERT_TRUE(_query_objects("query_13").empty());
     writer.reset();
     spill_file.reset();
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
@@ -1889,10 +1842,9 @@ TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
     auto spill_file = _write_blocks("query_8/sort-1-0-1", blocks, &st);
     ASSERT_FALSE(st.ok());
     ASSERT_FALSE(spill_file->ready_for_reading());
-    ASSERT_EQ(_manager->remote_upload_budget()->inflight_bytes(), 0);
-    ASSERT_EQ(_manager->remote_upload_budget()->total_acquired_bytes(),
-              _manager->remote_upload_budget()->total_released_bytes());
-    ASSERT_GT(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS), 0);
+    // A failed part only accounts its CreateMultipartUpload.
+    ASSERT_EQ(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS),
+              mock_store().create_multipart_requests);
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES), 0);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     // Every multipart upload that was started for the failed part has been aborted.
@@ -1902,19 +1854,55 @@ TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
         std::lock_guard lock(mock_store().mutex);
         ASSERT_TRUE(mock_store().uploads.empty()) << "multipart uploads must be aborted";
     }
+    ASSERT_TRUE(_query_objects("query_8").empty());
     mock_store().fail_uploads = false;
     spill_file.reset();
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
+// A part fails when it is rotated out: write_block() reports it, and the file must not be
+// finished by a later close() (also the one of the destructor), which has no part of its own
+// to fail. The objects the failed part may have published are deleted with the file.
+TEST_F(SpillFileS3Test, FailedRotationDoesNotFinishFile) {
+    _create_manager(); // 32 KB parts of 8 KB upload buffers
+    std::mt19937 rng(59);
+    SpillFileSPtr spill_file;
+    ASSERT_TRUE(_manager->create_spill_file("query_18/sort-1-0-1", spill_file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    mock_store().fail_complete_after_publish = true;
+    Status write_status;
+    int written = 0;
+    // The block that fills the part closes it, and that close fails.
+    while (write_status.ok() && written < 10) {
+        write_status =
+                writer->write_block(_runtime_state.get(), _random_string_block(rng, 64, 200));
+        ++written;
+    }
+    mock_store().fail_complete_after_publish = false;
+    ASSERT_FALSE(write_status.ok());
+    ASSERT_GT(written, 1);
+    // Later writes and close() report the same failure; the file is not finished.
+    ASSERT_FALSE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 8, 100)).ok());
+    ASSERT_EQ(writer->close().code(), write_status.code());
+    ASSERT_FALSE(spill_file->ready_for_reading());
+    // After the failure: the published part 0 is still charged until the file is deleted.
+    ASSERT_EQ(_query_objects("query_18"), _part_keys("sort-1-0-1", 1));
+    ASSERT_TRUE(_no_open_multipart_uploads());
+    writer.reset();
+    spill_file.reset();
+    ASSERT_TRUE(_query_objects("query_18").empty());
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+}
+
 // One upload fails while earlier buffers of the same part are still in flight: the writer
-// turns failed, the footer write is refused, the part never gets a close(true) and is drained
-// through destruction. The budget must balance exactly and the multipart upload be aborted.
-TEST_F(SpillFileS3Test, LateUploadFailureBalancesBudget) {
+// turns failed, the footer write is refused, the part is never closed and is drained through
+// destruction, and its multipart upload is aborted.
+TEST_F(SpillFileS3Test, LateUploadFailureAbortsPart) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* budget = _manager->remote_upload_budget();
     // Uploads 1 and 2 hang in the mock; upload 3 fails immediately while they are in flight.
     mock_store().fail_put_index = 3;
     mock_store().set_block_uploads(true);
@@ -1925,10 +1913,11 @@ TEST_F(SpillFileS3Test, LateUploadFailureBalancesBudget) {
         blocks.push_back(_random_string_block(rng, 64, 200)); // ~12 KB each -> ~12 buffers
     }
     Status write_status;
+    SpillFileSPtr spill_file;
     ScopedThread writer_thread(
-            [&]() { _write_blocks("query_11/sort-1-0-1", blocks, &write_status); });
+            [&]() { spill_file = _write_blocks("query_11/sort-1-0-1", blocks, &write_status); });
     // Runs before writer_thread is joined: an early ASSERT return must not leave the writer
-    // stuck behind blocked uploads or the budget gate.
+    // stuck behind blocked uploads.
     Defer release_writer {[&]() {
         mock_store().set_block_uploads(false);
         _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
@@ -1942,20 +1931,20 @@ TEST_F(SpillFileS3Test, LateUploadFailureBalancesBudget) {
     mock_store().set_block_uploads(false);
     writer_thread.join();
     ASSERT_FALSE(write_status.ok());
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
-    ASSERT_GT(budget->total_acquired_bytes(), 0);
     ASSERT_GE(mock_store().create_multipart_requests, 1);
     ASSERT_EQ(mock_store().abort_multipart_requests, mock_store().create_multipart_requests);
+    ASSERT_TRUE(_no_open_multipart_uploads());
+    ASSERT_TRUE(_query_objects("query_11").empty());
+    spill_file.reset();
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
-// CreateMultipartUpload fails after the first buffer filled: the writer must turn failed and
-// drop the full pending buffer; the footer append that close() attempts afterwards must be
-// refused instead of overflowing the buffer, and no upload may be issued.
+// CreateMultipartUpload fails after the first buffer filled. S3FileWriter keeps that full buffer
+// without counting it, so another append (the footer of close()) would overflow it: the part
+// must refuse every append after a failed one, and no upload may be issued.
 TEST_F(SpillFileS3Test, CreateMultipartFailureIsSafe) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* budget = _manager->remote_upload_budget();
     mock_store().fail_create_multipart = true;
 
     std::mt19937 rng(31);
@@ -1969,8 +1958,7 @@ TEST_F(SpillFileS3Test, CreateMultipartFailureIsSafe) {
     ASSERT_FALSE(spill_file->ready_for_reading());
     ASSERT_EQ(mock_store().put_requests, 0);
     ASSERT_GE(mock_store().create_multipart_requests, 1);
-    ASSERT_EQ(budget->inflight_bytes(), 0);
-    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
+    ASSERT_TRUE(_query_objects("query_12").empty());
     spill_file.reset();
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }

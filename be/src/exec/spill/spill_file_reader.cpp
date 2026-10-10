@@ -83,7 +83,7 @@ void SpillFileReader::_record_read(size_t bytes_read) {
     ExecEnv::GetInstance()->spill_file_mgr()->update_spill_read_bytes(bytes_read);
     if (_is_remote) {
         // One successful read_at() is one logical GET. Retries inside the object storage client
-        // and reads that finally failed are not counted (see RemoteWriteStats).
+        // and reads that finally failed are not counted.
         if (_remote_read_requests != nullptr) {
             COUNTER_UPDATE(_remote_read_requests, 1);
         }
