@@ -566,7 +566,7 @@ public class PaimonConnector implements Connector {
                         metaCache.hasEnclosingWeightLimit());
             });
         } catch (Exception e) {
-            throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);
+            throw PaimonExceptionUtils.catalogCreationFailure(failureMessage + " (flavor=" + flavor + ")", e);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
