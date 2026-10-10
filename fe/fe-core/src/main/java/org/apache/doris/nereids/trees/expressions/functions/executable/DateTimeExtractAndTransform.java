@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -2057,5 +2058,66 @@ public class DateTimeExtractAndTransform {
             fraction *= (long) Math.pow(10, 6 - scale);
         }
         return new IntegerLiteral((int) fraction);
+    }
+
+    /**
+     * Constant folding for human_readable_seconds(DoubleLiteral)
+     */
+    @ExecFunction(name = "human_readable_seconds")
+    public static Expression humanReadableSeconds(DoubleLiteral seconds) {
+        double val = seconds.getValue();
+        if (Double.isNaN(val) || Double.isInfinite(val)) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        double absVal = Math.abs(val);
+        // (double) Long.MAX_VALUE == 2^63; keep 2^63 out of Math.round so FE and BE agree on NULL
+        if (absVal >= 0x1.0p63) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        return formatHumanReadableSeconds(Math.round(absVal));
+    }
+
+    private static Expression formatHumanReadableSeconds(long seconds) {
+        if (seconds == 0) {
+            return new VarcharLiteral("0 seconds");
+        }
+        long weeks = seconds / 604800L;
+        seconds %= 604800L;
+        long days = seconds / 86400L;
+        seconds %= 86400L;
+        long hours = seconds / 3600L;
+        seconds %= 3600L;
+        long minutes = seconds / 60L;
+        long secs = seconds % 60L;
+
+        StringBuilder sb = new StringBuilder();
+        if (weeks > 0) {
+            sb.append(weeks).append(weeks == 1 ? " week" : " weeks");
+        }
+        if (days > 0) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(days).append(days == 1 ? " day" : " days");
+        }
+        if (hours > 0) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(hours).append(hours == 1 ? " hour" : " hours");
+        }
+        if (minutes > 0) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(minutes).append(minutes == 1 ? " minute" : " minutes");
+        }
+        if (secs > 0) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(secs).append(secs == 1 ? " second" : " seconds");
+        }
+        return new VarcharLiteral(sb.toString());
     }
 }
