@@ -272,7 +272,6 @@ under the License.
         <skip.plugin>false</skip.plugin>
         <sonar.organization>apache</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-        <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
         <commons-configuration2.version>2.15.1</commons-configuration2.version>
@@ -292,10 +291,7 @@ under the License.
         <jackson.version>2.21.5</jackson.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
-        <!-- Jetty 12.0.38 (jetty-ee10-servlet) invokes jakarta.servlet.http.Cookie#getAttributes(),
-             which only exists since Jakarta Servlet 6.1. Pin the API to 6.1.0 so it matches the
-             jetty version; otherwise the transitive 6.0.0 from spring-boot triggers NoSuchMethodError
-             when the FE HTTP server writes a Set-Cookie (SameSite) header. -->
+        <!-- Spring Framework 7 and Jetty EE11 require Jakarta Servlet 6.1. -->
         <jakarta.servlet-api.version>6.1.0</jakarta.servlet-api.version>
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
         <commons-io.version>2.18.0</commons-io.version>
@@ -305,7 +301,6 @@ under the License.
         <junit.version>5.14.1</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.24.0</thrift.version>
-        <tomcat-embed.version>9.0.104</tomcat-embed.version>
         <log4j2.version>2.25.5</log4j2.version>
         <log4j-1.2.version>2.25.5</log4j-1.2.version>
         <slf4j.version>2.0.17</slf4j.version>
@@ -342,7 +337,7 @@ under the License.
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
         <okhttp.version>5.3.2</okhttp.version>
-        <snakeyaml.version>2.0</snakeyaml.version>
+        <snakeyaml.version>2.6</snakeyaml.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
         <kafka-clients.version>3.4.0</kafka-clients.version>
         <oshi-core.version>6.4.5</oshi-core.version>
@@ -386,7 +381,6 @@ under the License.
              (CVE-2026-54399 and CVE-2026-54428). Use their fixed maintenance releases. -->
         <httpclient5.version>5.6.4</httpclient5.version>
         <httpcore5.version>5.4.3</httpcore5.version>
-        <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
@@ -399,12 +393,12 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <!-- Spring Boot 3.5.16 manages fixed Spring LDAP 3.3.8, Spring Data 3.5.13,
-             Micrometer 1.15.12, and Logback 1.5.34 releases for their 2026 advisories. -->
-        <spring.version>3.5.16</spring.version>
-        <!-- Spring Framework 6.2.19 fixes the June 2026 security advisory set, including
-             CVE-2026-41848; keep the explicit framework BOM aligned with that release. -->
-        <spring-framework.version>6.2.19</spring-framework.version>
+        <!-- Boot 3.5 and Framework 6.2 have ended OSS support. Boot 4.1 manages the
+             supported Spring LDAP and Spring Data generations. -->
+        <spring.version>4.1.1</spring.version>
+        <!-- 7.0.9 provides OSS fixes for the August 2026 advisories, including
+             CVE-2026-47883, CVE-2026-47889, and CVE-2026-47890. -->
+        <spring-framework.version>7.0.9</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
@@ -418,9 +412,8 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <!-- Jetty 12.0.34 is affected by CVE-2026-6790, CVE-2026-8384,
-             CVE-2026-10050, and CVE-2026-10051; 12.0.38 contains all published fixes. -->
-        <jetty.version>12.0.38</jetty.version>
+        <!-- Spring Framework 7 uses the Servlet 6.1 / Jetty EE11 baseline. -->
+        <jetty.version>12.1.14</jetty.version>
         <jetty-http.version>11.0.26</jetty-http.version>
         <!-- org.lz4:lz4-java is archived and vulnerable through its final 1.8.x line.
              Resolve its official 1.8.1 relocation POM, then manage the maintained coordinate at
@@ -703,11 +696,10 @@ under the License.
                 <scope>import</scope>
                 <type>pom</type>
             </dependency>
-            <!-- The core Jetty BOM does not manage Jakarta EE 10 artifacts; import the matching
-                 EE10 BOM before Spring Boot so the complete Jetty 12 graph stays on 12.0.38. -->
+            <!-- Align the EE11 servlet modules with the core Jetty BOM before Spring Boot. -->
             <dependency>
-                <groupId>org.eclipse.jetty.ee10</groupId>
-                <artifactId>jetty-ee10-bom</artifactId>
+                <groupId>org.eclipse.jetty.ee11</groupId>
+                <artifactId>jetty-ee11-bom</artifactId>
                 <version>${jetty.version}</version>
                 <scope>import</scope>
                 <type>pom</type>
@@ -858,12 +850,18 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-starter-web</artifactId>
+                <artifactId>spring-boot-starter-webmvc</artifactId>
                 <version>${spring.version}</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.springframework.boot</groupId>
                         <artifactId>spring-boot-starter-tomcat</artifactId>
+                    </exclusion>
+                    <!-- Keep the FE's Jackson 2 HTTP serialization while its catalog and
+                         filesystem dependencies still use Jackson 2. -->
+                    <exclusion>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-jackson</artifactId>
                     </exclusion>
                     <exclusion>
                         <groupId>validator</groupId>
@@ -907,6 +905,11 @@ under the License.
                     <exclusion>
                         <groupId>org.apache.hadoop</groupId>
                         <artifactId>hadoop-yarn-api</artifactId>
+                    </exclusion>
+                    <!-- Doris does not use YARN; its client brings EOL Jetty 9 WebSocket jars. -->
+                    <exclusion>
+                        <groupId>org.apache.hadoop</groupId>
+                        <artifactId>hadoop-yarn-client</artifactId>
                     </exclusion>
                     <exclusion>
                         <groupId>org.slf4j</groupId>
@@ -998,18 +1001,6 @@ under the License.
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-trino-connector-common</artifactId>
                 <version>${project.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/cglib/cglib -->
-            <dependency>
-                <groupId>cglib</groupId>
-                <artifactId>cglib</artifactId>
-                <version>${cglib.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <artifactId>asm</artifactId>
-                        <groupId>asm</groupId>
-                    </exclusion>
-                </exclusions>
             </dependency>
             <!-- https://mvnrepository.com/artifact/commons-cli/commons-cli -->
             <dependency>
@@ -1843,21 +1834,6 @@ under the License.
                 <version>${httpcore.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-s3</artifactId>
-                <version>${aws-java-sdk.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-glue</artifactId>
-                <version>${aws-java-sdk.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.amazonaws</groupId>
-                <artifactId>aws-java-sdk-sts</artifactId>
-                <version>${aws-java-sdk.version}</version>
-            </dependency>
-            <dependency>
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
@@ -1917,12 +1893,6 @@ under the License.
                 <groupId>joda-time</groupId>
                 <artifactId>joda-time</artifactId>
                 <version>${joda.version}</version>
-            </dependency>
-            <!--tomcat-->
-            <dependency>
-                <groupId>org.apache.tomcat.embed</groupId>
-                <artifactId>tomcat-embed-el</artifactId>
-                <version>${tomcat-embed.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
@@ -2069,7 +2039,7 @@ under the License.
                          fe-trino-connector-common and fe-connector-trino all reach it through here).
                          Its jakarta.servlet.http.Cookie predates Servlet 6.1 and has no
                          getAttributes(), so whenever it wins classpath order over
-                         jakarta:jakarta.servlet-api it shadows the method Jetty 12.0.34 calls while
+                         jakarta:jakarta.servlet-api it shadows the method Jetty EE11 calls while
                          writing a Set-Cookie header -> NoSuchMethodError, which
                          RestApiExceptionHandler turns into an error payload, so every cookie-carrying
                          REST endpoint silently answers with no data (RemoteDorisRestClientTest
