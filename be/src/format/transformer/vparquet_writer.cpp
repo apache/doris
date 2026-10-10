@@ -97,6 +97,25 @@ void ParquetOutputStream::set_written_len(int64_t written_len) {
     _written_len = written_len;
 }
 
+Result<TParquetCompressionType::type> ParquetBuildHelper::to_parquet_compression_type(
+        TFileCompressType::type compression_type) {
+    switch (compression_type) {
+    case TFileCompressType::PLAIN:
+        return TParquetCompressionType::UNCOMPRESSED;
+    case TFileCompressType::SNAPPYBLOCK:
+        return TParquetCompressionType::SNAPPY;
+    case TFileCompressType::ZSTD:
+        return TParquetCompressionType::ZSTD;
+    case TFileCompressType::GZ:
+        return TParquetCompressionType::GZIP;
+    case TFileCompressType::LZ4BLOCK:
+        return TParquetCompressionType::LZ4_HADOOP;
+    default:
+        return ResultError(Status::InternalError("Unsupported compress type {} with parquet",
+                                                 to_string(compression_type)));
+    }
+}
+
 void ParquetBuildHelper::build_compression_type(
         ::parquet::WriterProperties::Builder& builder,
         const TParquetCompressionType::type& compression_type) {
