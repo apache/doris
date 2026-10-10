@@ -23,6 +23,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <memory>
 #include <ostream>
 #include <string_view>
@@ -493,6 +494,16 @@ bool AggFnEvaluator::is_blockable() const {
     return _function->is_blockable() ||
            std::any_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
                        [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
+}
+
+bool AggFnEvaluator::is_simple_count() const {
+    // The inline count path never evaluates the arguments, so it is only valid when
+    // skipping the evaluation cannot change the result, e.g. COUNT(assert_true(...)).
+    return _function->is_simple_count() &&
+           std::all_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
+                       [](const VExprContextSPtr& ctx) {
+                           return ctx->root()->is_slot_ref() || ctx->root()->is_literal();
+                       });
 }
 
 } // namespace doris

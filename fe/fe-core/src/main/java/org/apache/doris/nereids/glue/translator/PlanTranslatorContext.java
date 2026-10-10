@@ -364,6 +364,23 @@ public class PlanTranslatorContext {
     }
 
     /**
+     * A distribute is an exchange boundary: the plan below it is translated into fragments
+     * of its own, so a fragment-merging ancestor (join / set operation / recursive union)
+     * cannot absorb a scan that sits below the exchange. Clears the fragment-merge child
+     * context while the child of the distribute is translated and returns the previous
+     * depth, which {@link #exitExchangeBoundary(int)} restores.
+     */
+    public int enterExchangeBoundary() {
+        int savedDepth = fragmentMergeChildDepth;
+        fragmentMergeChildDepth = 0;
+        return savedDepth;
+    }
+
+    public void exitExchangeBoundary(int savedDepth) {
+        fragmentMergeChildDepth = savedDepth;
+    }
+
+    /**
      * merge source fragment info into target fragment.
      * include runtime filter info and fragment attribute.
      */

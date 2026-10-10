@@ -163,14 +163,15 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     // instead of storing the full aggregate state, saving memory and computation overhead.
     // Requirements:
     // 0. The aggregation has a GROUP BY clause.
-    // 1. There is exactly one count aggregate function.
+    // 1. There is exactly one count aggregate function, and its arguments need no evaluation
+    //    (slots or literals only).
     // 2. No limit optimization is applied.
     // 3. Spill is not enabled (the spill path accesses aggregate_data_container, which is empty in inline count mode).
     // Supports update / merge / finalize / serialize phases, since count's serialization format is UInt64 itself.
 
     if (!Base::_shared_state->probe_expr_ctxs.empty() /* has GROUP BY */
         && (p._aggregate_evaluators.size() == 1 &&
-            p._aggregate_evaluators[0]->is_simple_count()) /* only one count(*) */
+            p._aggregate_evaluators[0]->is_simple_count()) /* only one count(*) / count(slot) */
         && !_should_limit_output /* no limit optimization */ &&
         !Base::_shared_state->enable_spill /* spill not enabled */) {
         _shared_state->use_simple_count = true;

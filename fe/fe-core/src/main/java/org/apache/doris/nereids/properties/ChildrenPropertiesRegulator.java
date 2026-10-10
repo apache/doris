@@ -162,9 +162,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         } else {
             // Bucketed hash agg exception: allow one-phase GLOBAL + distribute
             // pattern so the translator can fuse it into BucketedAggregationNode.
+            // Only aggregates with the shape the translator actually fuses qualify;
+            // the others would keep their exchange and stay banned as before. That
+            // includes a distribute on the parent's keys (agg_shuffle_use_parent_key),
+            // a strict subset of the GROUP BY keys, and a distribute whose input is not
+            // a single olap scan pipeline (a nested aggregate, a join, a set operation,
+            // a projected CTE consumer), which the translator never fuses.
             // Gate with data-volume checks using group-level statistics to avoid
             // generating this pattern when bucketed agg is unsuitable.
-            if (AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
+            if (AggregateUtils.isBucketedHashAggFusible(parent, requiredChildProperty)) {
                 return !bucketedDataVolumeGatesPass(aggregate);
             }
             return true;

@@ -38,6 +38,7 @@ public class PlanContext {
     private final ConnectContext connectContext;
     private final GroupExpression groupExpression;
     private final boolean isBroadcastJoin;
+    private boolean isBucketedAggFusion = false;
     private final CostWeight costWeight;
 
     /**
@@ -72,6 +73,14 @@ public class PlanContext {
 
     public boolean isBroadcastJoin() {
         return isBroadcastJoin;
+    }
+
+    public void setBucketedAggFusion() {
+        isBucketedAggFusion = true;
+    }
+
+    public boolean isBucketedAggFusion() {
+        return isBucketedAggFusion;
     }
 
     public int arity() {

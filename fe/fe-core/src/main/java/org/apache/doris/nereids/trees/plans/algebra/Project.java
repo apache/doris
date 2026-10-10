@@ -32,9 +32,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Common interface for logical/physical project.
@@ -85,9 +88,13 @@ public interface Project extends ProjectMergeable {
         ImmutableList.Builder<NamedExpression> projectsBuilder
                 = ImmutableList.builderWithExpectedSize(parentProjectsOpt.get().size());
         projectsBuilder.addAll(parentProjectsOpt.get());
+        Set<ExprId> outputExprIds = parentProjectsOpt.get().stream()
+                .map(NamedExpression::getExprId)
+                .collect(Collectors.toCollection(HashSet::new));
         for (NamedExpression expression : childProject.getProjects()) {
-            // keep NoneMovableFunction for later use
-            if (expression.containsType(NoneMovableFunction.class)) {
+            // keep NoneMovableFunction for later use, unless the parent already outputs it:
+            // a parent slot referencing the alias has been replaced by the alias itself
+            if (expression.containsType(NoneMovableFunction.class) && outputExprIds.add(expression.getExprId())) {
                 projectsBuilder.add(expression);
             }
         }
