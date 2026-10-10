@@ -359,4 +359,17 @@ uint64_t VariantV2ColumnWriter::estimate_buffer_size() {
     return size;
 }
 
+uint64_t VariantV2ColumnWriter::get_total_data_pages_bytes(
+        ColumnWriter::DataBytesGetter getter) const {
+    DORIS_CHECK(_is_finalized);
+    uint64_t size = std::invoke(getter, _root_writer.get());
+    for (const auto& writer : _subcolumn_writers) {
+        size += std::invoke(getter, writer.get());
+    }
+    if (_binary_writer != nullptr) {
+        size += _binary_writer->get_total_data_pages_bytes(getter);
+    }
+    return size;
+}
+
 } // namespace doris::segment_v2
