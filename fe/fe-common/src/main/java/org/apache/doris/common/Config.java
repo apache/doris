@@ -2408,6 +2408,18 @@ public class Config extends ConfigBase {
     public static boolean ssl_force_client_auth = false;
 
     /**
+     * Which MySQL clients that announce caching_sha2_password are authenticated with it (through its
+     * full-authentication exchange, the password is still checked against the stored native hash):
+     * "auto" - clients announcing caching_sha2_password with _client_version 9 or later
+     * (such as mysql / mysqldump 9.x); every other client is switched to mysql_native_password
+     * as before. "all" - every client announcing caching_sha2_password. "none" - no client;
+     * every client is switched to mysql_native_password, the behavior before this option.
+     */
+    @ConfField(mutable = true, masterOnly = false, options = {"auto", "all", "none"},
+            callback = OptionsConfHandler.class)
+    public static String mysql_caching_sha2_password_clients = "auto";
+
+    /**
      * ssl connection needs to authenticate client's certificate store type.
      */
     @ConfField(mutable = false, masterOnly = false)

@@ -143,6 +143,73 @@ public class ConfigTest {
     }
 
     @Test
+    public void testOptionsConfigAcceptsItsOptionsOnly() throws ConfigException {
+        String original = Config.mysql_caching_sha2_password_clients;
+        try {
+            ConfigBase.setMutableConfig("mysql_caching_sha2_password_clients", "ALL");
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("mysql_caching_sha2_password_clients", "bogus"));
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+        } finally {
+            Config.mysql_caching_sha2_password_clients = original;
+        }
+    }
+
+    @Test
+    public void testOptionsConfigIsValidatedDuringStartup() throws Exception {
+        String original = Config.mysql_caching_sha2_password_clients;
+        int originalInterval = Config.cloud_warm_up_job_scheduler_interval_millisecond;
+        try {
+            Config config = new Config();
+            Path file = configFile("mysql_caching_sha2_password_clients= ALL \n"
+                    + "cloud_warm_up_job_scheduler_interval_millisecond=0\n");
+            config.init(file.toString());
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            // This unrelated callback rejects zero at runtime; startup must not dispatch it.
+            Assertions.assertEquals(0, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+            config.init(configFile("").toString());
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            for (String value : new String[] {"nnoe", "", " "}) {
+                IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> config.init(configFile("mysql_caching_sha2_password_clients=" + value + "\n")
+                                .toString()));
+                Assertions.assertInstanceOf(ConfigException.class, error.getCause());
+                Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            }
+        } finally {
+            Config.mysql_caching_sha2_password_clients = original;
+            Config.cloud_warm_up_job_scheduler_interval_millisecond = originalInterval;
+        }
+    }
+
+    @Test
+    public void testOptionsConfigIsValidatedInCustomStartupFile() throws Exception {
+        String original = Config.mysql_caching_sha2_password_clients;
+        try {
+            Config config = new Config();
+            config.init(configFile("mysql_caching_sha2_password_clients=auto\n").toString());
+            Path custom = configFile("mysql_caching_sha2_password_clients= NONE \n");
+            config.initCustom(custom.toString());
+            Assertions.assertEquals("none", Config.mysql_caching_sha2_password_clients);
+            Files.writeString(custom, "mysql_caching_sha2_password_clients=nnoe\n");
+            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> config.initCustom(custom.toString()));
+            Assertions.assertInstanceOf(ConfigException.class, error.getCause());
+            Assertions.assertEquals("none", Config.mysql_caching_sha2_password_clients);
+        } finally {
+            Config.mysql_caching_sha2_password_clients = original;
+        }
+    }
+
+    private static Path configFile(String contents) throws Exception {
+        Path file = Files.createTempFile("fe_ut_options_", ".conf");
+        file.toFile().deleteOnExit();
+        Files.writeString(file, contents);
+        return file;
+    }
+
+    @Test
     public void testSetEmptyArray() throws ConfigException {
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "a,b,c");
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "");

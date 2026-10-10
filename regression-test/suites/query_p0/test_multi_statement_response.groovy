@@ -33,10 +33,10 @@ import java.sql.Statement
 // statement's OK alone; it used to answer with the packets of the preceding query followed by the
 // OK, a stream no client can parse.
 //
-// Connector/J exercises the second case only: it asks for CLIENT_MULTI_STATEMENTS only when the
-// server advertises it, which Doris does not, and it always asks for CLIENT_DEPRECATE_EOF. The
-// other combinations are driven through a bare protocol client below, which also sees the response
-// packet by packet.
+// Connector/J asks for CLIENT_MULTI_STATEMENTS only with allowMultiQueries=true, and 8.x and 9.x
+// only when the server advertises it too, which Doris does like MySQL; it always asks for
+// CLIENT_DEPRECATE_EOF. The other combinations are driven through a bare protocol client below,
+// which also sees the response packet by packet.
 suite("test_multi_statement_response") {
     def tableName = "multi_statement_response"
     sql "DROP TABLE IF EXISTS ${tableName}"
