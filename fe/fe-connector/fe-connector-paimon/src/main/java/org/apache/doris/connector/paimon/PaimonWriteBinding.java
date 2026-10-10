@@ -62,10 +62,14 @@ final class PaimonWriteBinding {
 
     static PaimonWriteBinding create(PaimonTableHandle handle, FileStoreTable table,
             Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle) {
-        Map<String, String> staticPartition = resolveStaticPartition(table, writeHandle);
-        FileStoreTable writeTable = configureTableForWrite(table, writeHandle.isOverwrite(), staticPartition);
+        boolean overwrite = writeHandle.isOverwrite();
+        // Only a static overwrite reads the partition values. An INSERT writes each row to the partition its own
+        // values name, so it leaves them alone: casting them could only fail a write the rows would accept.
+        Map<String, String> staticPartition = overwrite
+                ? resolveStaticPartition(table, writeHandle) : Collections.emptyMap();
+        FileStoreTable writeTable = configureTableForWrite(table, overwrite, staticPartition);
         return new PaimonWriteBinding(handle.getDatabaseName() + "." + handle.getTableName(),
-                writeTable, hadoopConfig, writeHandle.isOverwrite(), staticPartition);
+                writeTable, hadoopConfig, overwrite, staticPartition);
     }
 
     static FileStoreTable configureTableForWrite(FileStoreTable table, boolean overwrite,
@@ -83,7 +87,7 @@ final class PaimonWriteBinding {
     }
 
     /**
-     * The static partition as Paimon's static overwrite parses it: SQL NULL becomes the table's
+     * The static partition of an overwrite, as Paimon's static overwrite parses it: SQL NULL becomes the table's
      * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
      * column type.
      */
@@ -109,9 +113,9 @@ final class PaimonWriteBinding {
                     () -> "missing the cast value of static partition column " + key);
             if (table.rowType().getField(canonicalName).type().getTypeRoot()
                     == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
-                value = toSdkLocalTime(canonicalName, value, writeHandle.isOverwrite());
+                value = toSdkLocalTime(canonicalName, value);
             }
-            if (writeHandle.isOverwrite() && defaultPartitionName.equals(value)) {
+            if (defaultPartitionName.equals(value)) {
                 // Paimon's static overwrite reads this string as the NULL partition of any partition type, so
                 // a value equal to it would overwrite the NULL partition instead.
                 throw new DorisConnectorException("Static partition value for column '" + canonicalName
@@ -127,14 +131,14 @@ final class PaimonWriteBinding {
      * Paimon parses a static overwrite value of a TIMESTAMP WITH LOCAL TIME ZONE column as local time in the FE
      * JVM's default zone. Doris binds such a column as TIMESTAMPTZ, so the cast value is the instant in UTC with
      * its offset; it is moved to the JVM zone, with a space between the date and the time as Paimon's parser
-     * needs. An overwrite rejects an instant whose local time a DST change repeats there: both instants of the
-     * overlap format to the same value, which Paimon reads as the earlier one.
+     * needs. An instant whose local time a DST change repeats there is rejected: both instants of the overlap
+     * format to the same value, which Paimon reads as the earlier one.
      */
-    private static String toSdkLocalTime(String column, String value, boolean overwrite) {
+    private static String toSdkLocalTime(String column, String value) {
         ZoneId sdkZone = ZoneId.systemDefault();
         LocalDateTime sdkLocal = OffsetDateTime.parse(value.replace(' ', 'T'), DateTimeFormatter.ISO_OFFSET_DATE_TIME)
                 .atZoneSameInstant(sdkZone).toLocalDateTime();
-        if (overwrite && sdkZone.getRules().getValidOffsets(sdkLocal).size() > 1) {
+        if (sdkZone.getRules().getValidOffsets(sdkLocal).size() > 1) {
             throw new DorisConnectorException("Static LTZ partition value for column '" + column
                     + "' is ambiguous in FE JVM time zone " + sdkZone
                     + " and cannot be represented in a static overwrite");

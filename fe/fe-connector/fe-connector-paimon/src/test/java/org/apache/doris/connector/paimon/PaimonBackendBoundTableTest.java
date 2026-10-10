@@ -121,7 +121,7 @@ public class PaimonBackendBoundTableTest {
 
         PaimonWriteBinding binding = PaimonWriteBinding.create(
                 dataHandle(), table, Collections.emptyMap(),
-                writeHandle(Collections.emptyMap(), Collections.emptySet()));
+                writeHandle(false, Collections.emptyMap(), Collections.emptySet()));
         FileStoreTable backendTable = deserializeTable(binding.getSerializedTable());
 
         Assertions.assertNotNull(binding.getTable().catalogEnvironment().catalogLoader());
@@ -142,9 +142,9 @@ public class PaimonBackendBoundTableTest {
         Map<String, String> requested = Collections.singletonMap("pt", "NULL");
 
         PaimonWriteBinding literal = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), writeHandle(requested, Collections.emptySet()));
+                Collections.emptyMap(), writeHandle(true, requested, Collections.emptySet()));
         PaimonWriteBinding sqlNull = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), writeHandle(requested, Collections.singleton("pt")));
+                Collections.emptyMap(), writeHandle(true, requested, Collections.singleton("pt")));
 
         Assertions.assertEquals("NULL", literal.getStaticPartition().get("pt"));
         Assertions.assertEquals(table.coreOptions().partitionDefaultName(),
@@ -821,8 +821,12 @@ public class PaimonBackendBoundTableTest {
         return new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList());
     }
 
-    /** An INSERT whose static partition values need no cast, so the handle's default cast spec applies. */
-    private static ConnectorWriteHandle writeHandle(Map<String, String> staticPartition, Set<String> nullKeys) {
+    /**
+     * A write whose static partition values need no cast, so the handle's default cast spec applies. Only an
+     * overwrite resolves the static partition.
+     */
+    private static ConnectorWriteHandle writeHandle(boolean overwrite, Map<String, String> staticPartition,
+            Set<String> nullKeys) {
         return new ConnectorWriteHandle() {
             @Override
             public ConnectorTableHandle getTableHandle() {
@@ -836,7 +840,7 @@ public class PaimonBackendBoundTableTest {
 
             @Override
             public boolean isOverwrite() {
-                return false;
+                return overwrite;
             }
 
             @Override

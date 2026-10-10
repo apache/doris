@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.function.Supplier;
 
 /**
  * How a static partition reaches Paimon's static overwrite. The written rows carry each PARTITION literal cast
@@ -143,10 +144,6 @@ public class PaimonWriteBindingTest {
                 () -> PaimonWriteBinding.resolveStaticPartition(table,
                         write(true, "part", DEFAULT_NAME, DEFAULT_NAME)));
         Assertions.assertTrue(error.getMessage().contains("cannot be represented"), error.getMessage());
-
-        // An INSERT does not overwrite anything, and its rows keep the value as written.
-        Assertions.assertEquals(DEFAULT_NAME, PaimonWriteBinding.resolveStaticPartition(table,
-                write(false, "part", DEFAULT_NAME, DEFAULT_NAME)).get("part"));
     }
 
     @Test
@@ -176,10 +173,6 @@ public class PaimonWriteBindingTest {
                     () -> PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant)));
             Assertions.assertTrue(error.getMessage().contains("ambiguous"), error.getMessage());
             Assertions.assertTrue(error.getMessage().contains("America/Los_Angeles"), error.getMessage());
-
-            // An INSERT does not overwrite anything, so it keeps the value.
-            Assertions.assertEquals("2023-11-05 01:30:00.123456", PaimonWriteBinding.resolveStaticPartition(table,
-                    write(false, "part", instant, instant)).get("part"));
         }
     }
 
@@ -204,10 +197,31 @@ public class PaimonWriteBindingTest {
                 Collections.singletonMap("partition.default-name", DEFAULT_NAME),
                 new DataField(1, "part", DataTypes.INT()));
         ConnectorWriteHandle write = handle(true, Collections.singletonMap("part", "NULL"),
-                Collections.emptyMap(), Collections.singleton("part"));
+                Collections::emptyMap, Collections.singleton("part"));
 
         Assertions.assertEquals(DEFAULT_NAME,
                 PaimonWriteBinding.resolveStaticPartition(table, write).get("part"));
+    }
+
+    @Test
+    public void insertLeavesTheStaticPartitionValuesAlone(@TempDir Path warehouse) {
+        // Only a static overwrite reads the static partition. An INSERT writes each row to the partition its own
+        // values name, so a value the cast rejects (a row keeps it as NULL, or as a fitting binary) or an
+        // overwrite cannot represent must not fail it. MUTATION: resolving the static partition of an INSERT
+        // -> red.
+        FileStoreTable table = partitionedTable(warehouse,
+                Collections.singletonMap("partition.default-name", DEFAULT_NAME),
+                new DataField(1, "part", DataTypes.STRING()));
+        ConnectorWriteHandle insert = handle(false, Collections.singletonMap("part", DEFAULT_NAME), () -> {
+            throw new AssertionError("an INSERT must not cast its static partition values");
+        }, Collections.emptySet());
+
+        PaimonWriteBinding binding = PaimonWriteBinding.create(
+                new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList()),
+                table, Collections.emptyMap(), insert);
+
+        Assertions.assertFalse(binding.isOverwrite());
+        Assertions.assertTrue(binding.getStaticPartition().isEmpty(), binding.getStaticPartition().toString());
     }
 
     private static void assertStaticLtzRoundTrip(FileStoreTable table, String instant) {
@@ -233,11 +247,11 @@ public class PaimonWriteBindingTest {
     private static ConnectorWriteHandle write(boolean overwrite, String name, String writtenValue,
             String castValue) {
         return handle(overwrite, Collections.singletonMap(name, writtenValue),
-                Collections.singletonMap(name, castValue), Collections.emptySet());
+                () -> Collections.singletonMap(name, castValue), Collections.emptySet());
     }
 
     private static ConnectorWriteHandle handle(boolean overwrite, Map<String, String> spec,
-            Map<String, String> castSpec, Set<String> nullKeys) {
+            Supplier<Map<String, String>> castSpec, Set<String> nullKeys) {
         return new ConnectorWriteHandle() {
             @Override
             public ConnectorTableHandle getTableHandle() {
@@ -266,7 +280,7 @@ public class PaimonWriteBindingTest {
 
             @Override
             public Map<String, String> getCastStaticPartitionSpec() {
-                return castSpec;
+                return castSpec.get();
             }
         };
     }
