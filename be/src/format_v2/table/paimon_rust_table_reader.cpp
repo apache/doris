@@ -541,7 +541,7 @@ Status PaimonRustTableReader::_apply_predicate() {
             }
         }
     }
-    LOG(INFO) << "paimon-rust predicate pushdown: " << _conjuncts.size() << " conjunct(s) input";
+    VLOG_DEBUG << "paimon-rust predicate pushdown: " << _conjuncts.size() << " conjunct(s) input";
     // The conjunct VSlotRefs carry table global indices (positions), so the v2
     // converter mode resolves fields by the projected column names; partition
     // keys are excluded because the rust reader does not read them.
@@ -562,7 +562,7 @@ Status PaimonRustTableReader::_apply_predicate() {
         COUNTER_UPDATE(_rust_predicates_converted, converter.converted_conjuncts());
     }
     if (predicate == nullptr) {
-        LOG(INFO) << "paimon-rust predicate pushdown: nothing convertible, no filter applied";
+        VLOG_DEBUG << "paimon-rust predicate pushdown: nothing convertible, no filter applied";
         return Status::OK();
     }
     // paimon_read_builder_with_filter consumes the predicate (ownership moves to
@@ -577,7 +577,7 @@ Status PaimonRustTableReader::_apply_predicate() {
         COUNTER_UPDATE(_rust_predicates_applied, converter.converted_conjuncts());
         COUNTER_UPDATE(_rust_runtime_filters_applied, converter.converted_runtime_filters());
     }
-    LOG(INFO) << "paimon-rust predicate pushdown: applied";
+    VLOG_DEBUG << "paimon-rust predicate pushdown: applied";
     return Status::OK();
 }
 
