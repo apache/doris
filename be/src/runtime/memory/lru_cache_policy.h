@@ -167,8 +167,8 @@ public:
             COUNTER_SET(_cost_timer, (int64_t)0);
             const int64_t curtime = UnixMillis();
             auto pred = [this, curtime](const LRUHandle* handle) -> bool {
-                return static_cast<bool>((handle->last_visit_time + _stale_sweep_time_s * 1000) <
-                                         curtime);
+                return static_cast<bool>((handle->last_visit_time.load(std::memory_order_relaxed) +
+                                          _stale_sweep_time_s * 1000) < curtime);
             };
 
             LOG(INFO) << fmt::format("[MemoryGC] {} prune stale start, consumption {}, usage {}",
