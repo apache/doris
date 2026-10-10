@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.FileIO;
@@ -40,6 +41,7 @@ import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -720,6 +722,72 @@ public class PaimonStatementSchemaTest {
             }
             Assertions.assertEquals(Collections.singletonList(20), values);
         }
+    }
+
+    @Test
+    public void statementPinKeepsTheChainOfAChainTable(@TempDir Path warehouse) throws Exception {
+        // A chain table reads a partition its snapshot branch lacks as the latest earlier snapshot partition
+        // merged with the delta branch, through a ChainGroupReadTable nested in its fallback pair. Restoring the
+        // pinned fallback snapshots and schemas rebuilds every pair, so the group has to stay a group and still
+        // read the chain. MUTATION: rebuilding the chain group as a plain fallback pair -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                    .column("value", DataTypes.STRING()).column("seq", DataTypes.BIGINT())
+                    .column("dt", DataTypes.STRING().notNull()).primaryKey("dt", "id").partitionKeys("dt")
+                    .option("bucket", "1").option("sequence.field", "seq").option("file.format", "parquet")
+                    .option("partition.timestamp-pattern", "$dt").option("partition.timestamp-formatter", "yyyyMMdd")
+                    .build(), false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(id);
+            main.createBranch("snapshot");
+            main.createBranch("delta");
+            // A pin maps each branch to its latest snapshot no later than the one above it (main, then the snapshot
+            // branch), as the SDK does; commit in that order so every row is visible at the pinned main snapshot.
+            append(main.switchToBranch("delta"), chainRow(2, "b2", 2L, "20240102"));
+            append(main.switchToBranch("delta"), chainRow(3, "c", 2L, "20240102"));
+            append(main.switchToBranch("snapshot"), chainRow(1, "a", 1L, "20240101"));
+            append(main.switchToBranch("snapshot"), chainRow(2, "b", 1L, "20240101"));
+            append(main, chainRow(9, "z", 1L, "20231231"));
+            List<SchemaChange> chainOptions = Arrays.asList(SchemaChange.setOption("chain-table.enabled", "true"),
+                    SchemaChange.setOption("scan.fallback-snapshot-branch", "snapshot"),
+                    SchemaChange.setOption("scan.fallback-delta-branch", "delta"));
+            catalog.alterTable(id, chainOptions, false);
+            catalog.alterTable(new Identifier("db", "t", "snapshot"), chainOptions, false);
+            catalog.alterTable(new Identifier("db", "t", "delta"), chainOptions, false);
+            FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+            Assertions.assertInstanceOf(ChainGroupReadTable.class, ((FallbackReadFileStoreTable) table).other());
+            long snapshotId = table.snapshotManager().latestSnapshotId();
+            Map<String, String> pinned = new HashMap<>(PaimonScanParams.withBoundSchema(
+                    PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), snapshotId), table.schema().id()));
+            pinned.putAll(PaimonSchemaPin.capture(table, table.schema().id(), snapshotId));
+
+            FileStoreTable restored = PaimonScanParams.applyOptionsWithoutTimeTravel(table, pinned);
+
+            Assertions.assertInstanceOf(ChainGroupReadTable.class, ((FallbackReadFileStoreTable) restored).other());
+            List<String> expected = Arrays.asList("20231231 9 z", "20240101 1 a", "20240101 2 b",
+                    "20240102 1 a", "20240102 2 b2", "20240102 3 c");
+            Assertions.assertEquals(expected, readChainRows(restored));
+            Assertions.assertEquals(expected, readChainRows(table.copy(Collections.singletonMap(
+                    "scan.snapshot-id", String.valueOf(snapshotId)))));
+        }
+    }
+
+    private static GenericRow chainRow(int id, String value, long seq, String dt) {
+        return GenericRow.of(id, BinaryString.fromString(value), seq, BinaryString.fromString(dt));
+    }
+
+    private static List<String> readChainRows(Table table) throws Exception {
+        List<String> rows = new ArrayList<>();
+        for (Split split : table.newReadBuilder().newScan().plan().splits()) {
+            try (RecordReader<InternalRow> reader = table.newReadBuilder().newRead().createReader(split)) {
+                reader.forEachRemaining(row -> rows.add(row.getString(3) + " " + row.getInt(0) + " "
+                        + row.getString(1)));
+            }
+        }
+        Collections.sort(rows);
+        return rows;
     }
 
     private void checkSchemaMutation(Path warehouse, boolean options, boolean system) throws Exception {

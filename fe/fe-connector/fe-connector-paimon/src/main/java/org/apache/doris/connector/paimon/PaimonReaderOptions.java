@@ -223,8 +223,7 @@ public final class PaimonReaderOptions {
             FileStoreTable other = normalizeManifestParallelism(
                     pair.other(), safeBound, materializeAbsent);
             return main == pair.wrapped() && other == pair.other()
-                    ? table : new FallbackReadFileStoreTable(
-                            main, other, isWrappedFirst(pair));
+                    ? table : PaimonTableDecorators.rebuildFallbackPair(pair, main, other);
         }
 
         if (table instanceof DelegatedFileStoreTable) {

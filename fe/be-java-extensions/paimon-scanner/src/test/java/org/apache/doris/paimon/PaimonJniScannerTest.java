@@ -27,13 +27,16 @@ import org.apache.paimon.disk.BufferFileWriter;
 import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.privilege.PrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.TableRead;
@@ -314,6 +317,24 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testBackendManifestCapKeepsTheChainGroupOfAChainTable(@TempDir Path dir) {
+        // Paimon builds a chain table as a fallback pair whose other branch is a ChainGroupReadTable, and the outer
+        // pair accepts no other nested fallback. Bounding the manifest parallelism rebuilds every branch, so the
+        // chain group has to come back as one. MUTATION: rebuilding it as a plain fallback pair -> red.
+        Table chain = new FallbackReadFileStoreTable(primaryKeyTable(dir, "main"),
+                new ChainGroupReadTable(primaryKeyTable(dir, "snapshot"), primaryKeyTable(dir, "delta")), true);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(chain, "2", 4);
+
+        FileStoreTable group = ((FallbackReadFileStoreTable) safe).other();
+        Assertions.assertTrue(group instanceof ChainGroupReadTable, group.getClass().getName());
+        Assertions.assertEquals("2", ((ChainGroupReadTable) group).wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertEquals("2", ((ChainGroupReadTable) group).other().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
     public void testAdvertisedFeCapStillChecksSerializedChildren() {
         FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
         FileStoreTable fallback = serializableFileStoreTable(
@@ -489,6 +510,16 @@ public class PaimonJniScannerTest {
         storeTable.setAccessible(true);
         Assertions.assertEquals("4", ((FileStoreTable) storeTable.get(safe)).options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    /** A primary-key table object, as each branch of a chain table is; no files are written. */
+    private static FileStoreTable primaryKeyTable(Path dir, String name) {
+        TableSchema schema = new TableSchema(0L,
+                Arrays.asList(new DataField(0, "id", DataTypes.INT().notNull()),
+                        new DataField(1, "v", DataTypes.STRING())),
+                1, Collections.emptyList(), Collections.singletonList("id"), Collections.emptyMap(), "");
+        return FileStoreTableFactory.create(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(dir.resolve(name).toUri().toString()), schema);
     }
 
     private static FileStoreTable serializableFileStoreTable(Map<String, String> options) {
