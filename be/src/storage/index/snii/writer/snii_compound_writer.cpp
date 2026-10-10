@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
@@ -662,13 +663,14 @@ Status SniiCompoundWriter::write_tail() {
     // while the filler bytes stay on disk: strictly worse than never having padded, until
     // compaction rewrites the container.
     //
-    // Gated on enable_file_cache because the saving is realised only by CachedRemoteFileReader.
-    // That flag defaults to FALSE; without this check a storage-compute-coupled or local-filesystem
-    // deployment appends up to a block of zeros per container and never reads through a block cache
-    // at all. (exec_env_init only validates file_cache_each_block_size when the cache is on, so in
-    // that configuration the value here would also be entirely unvalidated.)
+    // Gated on cloud mode because the saving is realised only by CachedRemoteFileReader, and only
+    // in cloud mode is every container read through it. A storage-compute-coupled BE writes its
+    // containers to local disk and reads them through LocalFileReader whether enable_file_cache is
+    // on (the default) or not, so padding there would append up to a block of zeros per container
+    // that no block cache ever repays. Cloud mode always runs with the file cache on, so
+    // exec_env_init has validated file_cache_each_block_size before it is read here.
     const int64_t block = config::file_cache_each_block_size;
-    if (config::enable_file_cache && block > 0) {
+    if (config::is_cloud_mode() && block > 0) {
         const uint64_t unpadded = out_->bytes_written() + tail_sink.buffer().size();
         const auto block_size = static_cast<uint64_t>(block);
         const uint64_t pad = (block_size - unpadded % block_size) % block_size;
