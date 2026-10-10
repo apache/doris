@@ -40,6 +40,7 @@ org.apache.doris.connector.spi.ConnectorContext#createSiblingConnector(java.lang
 org.apache.doris.connector.spi.ConnectorContext#executeAuthenticated(java.util.concurrent.Callable):java.lang.Object
 org.apache.doris.connector.spi.ConnectorContext#getCatalogId():long
 org.apache.doris.connector.spi.ConnectorContext#getCatalogName():java.lang.String
+org.apache.doris.connector.spi.ConnectorContext#getClusterId():int
 org.apache.doris.connector.spi.ConnectorContext#getConnectorConfig():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getEnvironment():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getHttpSecurityHook():org.apache.doris.connector.spi.ConnectorHttpSecurityHook
@@ -94,6 +95,7 @@ org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundWriteMetadata
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBranchName():java.util.Optional
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getColumns():java.util.List
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getSortInfo():org.apache.doris.thrift.TSortInfo
+org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getStaticPartitionNullKeys():java.util.Set
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getStaticPartitionSpec():java.util.Map
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getTableHandle():org.apache.doris.connector.spi.handle.ConnectorTableHandle
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getWriteOperation():org.apache.doris.connector.spi.handle.WriteOperation
@@ -118,6 +120,7 @@ org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#schemaId(long)
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#snapshotId(long):org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#adjustFileCompressType(org.apache.doris.thrift.TFileCompressType):org.apache.doris.thrift.TFileCompressType
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,java.util.Map):void
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#applyColumnDefaultsOnRead():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#canServeMetadataOnlyCount(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional):boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#classifyColumn(java.lang.String):org.apache.doris.connector.spi.scan.ConnectorColumnCategory
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#collectScanProfiles(org.apache.doris.connector.spi.ConnectorSession):java.util.List

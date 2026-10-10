@@ -107,7 +107,7 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
     @Override
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext applyContext) {
         IvmAggExpressionBuilder ctx = applyContext.expressions();
-        Slot oldExtreme = applyContext.rawMvSlot(target.getVisibleSlot().getName());
+        Slot oldExtreme = applyContext.rawMvSlot(target.getValueStateColumnName());
         Expression deltaInsert = applyContext.deltaSlotValue(target, functionKind);
         Expression deltaDel = applyContext.deltaSlotValue(target, deleteSlotRef(target));
         Expression newCount = applyContext.buildNewHiddenCount(target);

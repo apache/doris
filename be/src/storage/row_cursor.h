@@ -68,8 +68,8 @@ public:
     std::string to_string() const;
 
     // Encode one row into binary according given num_keys.
-    // Internally converts each core::Field to its storage representation via
-    // PrimitiveTypeConvertor before passing to KeyCoder.
+    // Internally converts each core::Field to its StorageValue via StorageLayout
+    // before passing to KeyCoder.
     // CHAR fields are zero-padded to column.length() for encoding.
     template <bool is_mow = false>
     void encode_key_with_padding(std::string* buf, size_t num_keys, bool padding_minimal) const;

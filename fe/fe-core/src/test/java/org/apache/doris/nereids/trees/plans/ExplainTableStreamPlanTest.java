@@ -38,6 +38,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -458,6 +459,32 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             }
         }
         Assertions.assertTrue(assertedAtLeastOne);
+    }
+
+    @Test
+    public void testStreamReadModesRejectArgumentsWithoutChangingOffsets() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        for (String streamName : new String[] {"s2", "s_dup"}) {
+            OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName);
+            OlapTable baseTable = stream.getBaseTableNullable();
+            Map<Long, Pair<Long, Long>> offsets = new java.util.HashMap<>();
+            for (Partition partition : baseTable.getPartitions()) {
+                offsets.put(partition.getId(), stream.getStreamUpdate(partition.getId()));
+            }
+            for (String mode : new String[] {"snapshot", "reset"}) {
+                for (String arguments : new String[] {"'unknown'='x'", "x", "`x`", "x,y"}) {
+                    String sql = "select * from test_stream." + streamName + "@" + mode + "(" + arguments + ")";
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            () -> PlanChecker.from(connectContext).analyze(sql));
+                    Assertions.assertTrue(error.getMessage().contains(mode + " does not accept parameters"),
+                            sql + ": " + error.getMessage());
+                    for (Partition partition : baseTable.getPartitions()) {
+                        Assertions.assertEquals(offsets.get(partition.getId()),
+                                stream.getStreamUpdate(partition.getId()));
+                    }
+                }
+            }
+        }
     }
 
     @Test

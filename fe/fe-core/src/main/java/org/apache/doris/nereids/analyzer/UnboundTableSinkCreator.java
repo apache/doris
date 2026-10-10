@@ -109,6 +109,7 @@ public class UnboundTableSinkCreator {
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
+            rejectTemporaryPartitionForExternalTable(temporaryPartition);
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
@@ -140,6 +141,7 @@ public class UnboundTableSinkCreator {
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog && !isAutoDetectPartition) {
+            rejectTemporaryPartitionForExternalTable(temporaryPartition);
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
@@ -149,6 +151,12 @@ public class UnboundTableSinkCreator {
                         + " is not supported."
                         + (isAutoDetectPartition
                         ? " PARTITION(*) is only supported in overwrite partition for OLAP table" : ""));
+    }
+
+    private static void rejectTemporaryPartitionForExternalTable(boolean temporaryPartition) {
+        if (temporaryPartition) {
+            throw new AnalysisException("TEMPORARY PARTITION is only supported for internal OLAP tables");
+        }
     }
 
     /**

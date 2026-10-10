@@ -54,6 +54,11 @@ struct ConvertImplGenericFromJsonb {
             const bool is_complex = is_complex_type(data_type_to->get_primitive_type());
             const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
+                if (null_map && null_map[i]) {
+                    (*vec_null_map_to)[i] = 1;
+                    col_to->insert_default();
+                    continue;
+                }
                 const auto& val = col_from_string->get_data_at(i);
                 const JsonbDocument* doc = nullptr;
                 auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
@@ -132,7 +137,7 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
     }
 
     return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
+              uint32_t result, size_t input_rows_count, const NullMap::value_type* null_map) {
         CastParameters params;
         params.is_strict = context->enable_strict_mode();
 
@@ -145,8 +150,8 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
         auto column_to = make_nullable(data_type_to)->create_column();
         auto& column_to_nullable = assert_cast<ColumnNullable&>(*column_to);
 
-        RETURN_IF_ERROR(serde_to->deserialize_column_from_jsonb_vector(column_to_nullable,
-                                                                       col_from_json, params));
+        RETURN_IF_ERROR(serde_to->deserialize_column_from_jsonb_vector(
+                column_to_nullable, col_from_json, params, null_map));
 
         block.get_by_position(result).column = std::move(column_to);
         return Status::OK();
@@ -230,13 +235,13 @@ WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const Dat
     }
 
     return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
+              uint32_t result, size_t input_rows_count, const NullMap::value_type* null_map) {
         // same as to_json function
         auto to_column = ColumnString::create();
         auto from_type_serde = block.get_by_position(arguments[0]).type->get_serde();
         auto from_column = block.get_by_position(arguments[0]).column;
-        RETURN_IF_ERROR(
-                from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column));
+        RETURN_IF_ERROR(from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column,
+                                                                          null_map));
         block.get_by_position(result).column = std::move(to_column);
         return Status::OK();
     };
