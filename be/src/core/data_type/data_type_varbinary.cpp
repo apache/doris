@@ -17,6 +17,7 @@
 
 #include "core/data_type/data_type_varbinary.h"
 
+#include <gen_cpp/data.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <lz4/lz4.h>
@@ -52,6 +53,12 @@ Status DataTypeVarbinary::check_column(const IColumn& column) const {
 
 bool DataTypeVarbinary::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
+}
+
+void DataTypeVarbinary::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    // Fixed-width binary writers need the declared width after a Block crosses an exchange.
+    col_meta->set_varbinary_length(_len);
 }
 
 // binary: const flag| row num | real saved num | size array | data array

@@ -25,6 +25,7 @@
 #include "runtime/result_block_buffer.h"
 
 namespace doris {
+class DorisArrowSchemaConvertor;
 class ResultBlockBufferBase;
 
 struct ResultFileOptions {
@@ -164,6 +165,8 @@ private:
     friend class ResultSinkLocalState;
 
     const TResultSinkType::type _sink_type;
+    const bool _enable_arrow_type_metadata;
+    std::shared_ptr<const DorisArrowSchemaConvertor> _arrow_schema_convertor;
     const int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts = nullptr;
