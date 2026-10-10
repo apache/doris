@@ -38,6 +38,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Global service for hbo plan stats. manager, including:
@@ -152,6 +154,14 @@ public class HboPlanStatisticsManager {
     // the best-effort persistence SQL of DELETE, so no load can observe a row in between a
     // DELETE's memory invalidation and its DB removal)
     private final Object pinnedLoadLock = new Object();
+    // the relation keys (see GroupStructInfo.HboStructSummary) of the pinned row count entries, so
+    // the read side can skip the expensive fingerprint of a group whose sub tree reads other tables
+    // than any entry does. Only appended to (an evicted entry may keep its key): an over
+    // approximation can only make a lookup happen, never suppress one.
+    private final Set<String> pinnedRelationKeys = ConcurrentHashMap.newKeySet();
+    // entries whose struct info records no scan at all (a hand written literal): they can not be
+    // classified by a relation key, so they disable the pre filter while they exist
+    private final AtomicInteger pinnedEntriesWithoutRelationKey = new AtomicInteger();
     // backoff timestamp after a failed load attempt, so a not-ready internal schema does not
     // trigger a DDL+SELECT retry for every group of every query (guarded by pinnedLoadLock)
     private long lastLoadFailedMs = 0L;
@@ -212,6 +222,7 @@ public class HboPlanStatisticsManager {
             pinnedPlanStatistics.put(fingerprint,
                     new PinnedHboStatistics(fingerprint, rows, type, structCanonical, expansion, literalMode,
                             createTimeMs));
+            registerRelationKey(structCanonical);
             // a SET after a failed DELETE re-creates the entry: drop the deletion intent so a
             // pending load does not skip the re-created row
             pendingLoadTombstones.remove(fingerprint);
@@ -239,6 +250,47 @@ public class HboPlanStatisticsManager {
     public Optional<PinnedHboStatistics> getPinnedPlanStatistics(String fingerprint) {
         return Optional.ofNullable(pinnedPlanStatistics.getIfPresent(fingerprint))
                 .filter(pinned -> !pinned.isExpansion());
+    }
+
+    /**
+     * Whether this FE holds any pinned entry at all (of any kind). The planning path looks an entry
+     * up by the hbo fingerprint of a plan node, and that fingerprint is expensive to build (a whole
+     * memo subtree traversal); an empty cache means every such lookup is a guaranteed miss, so the
+     * caller can skip building the fingerprint. Like {@link #getPinnedPlanStatistics(String)} this
+     * only reads the in-memory cache and never triggers the background loader.
+     */
+    public boolean hasAnyPinnedStatistics() {
+        return !pinnedPlanStatistics.asMap().isEmpty();
+    }
+
+    /**
+     * Whether a pinned entry could possibly apply to a sub tree which reads exactly {@code
+     * relationKey} (see {@link GroupStructInfo.HboStructSummary#getRelationKey()}).
+     *
+     * <p>An entry is keyed by the fingerprint of its struct info, and two equal struct infos
+     * necessarily read the same tables, so an entry whose relation key differs can not match: the
+     * caller can skip building the (expensive) fingerprint. The index is an over approximation -
+     * keys are only ever added, so a removed or evicted entry may keep its key - which can only make
+     * a lookup happen, never suppress one.
+     */
+    public boolean mayHavePinnedEntryForRelations(String relationKey) {
+        return pinnedEntriesWithoutRelationKey.get() > 0 || pinnedRelationKeys.contains(relationKey);
+    }
+
+    /** Register the relation key of an entry's struct info in the lookup index. */
+    private void registerRelationKey(String structCanonical) {
+        List<HboScanDescriptor> scans = HboScanDescriptor.parseAll(structCanonical);
+        if (scans.isEmpty()) {
+            // an entry which records no scan at all can not be filtered by a relation key
+            pinnedEntriesWithoutRelationKey.incrementAndGet();
+            return;
+        }
+        List<String> tables = new ArrayList<>(scans.size());
+        for (HboScanDescriptor scan : scans) {
+            tables.add(scan.getTable());
+        }
+        Collections.sort(tables);
+        pinnedRelationKeys.add(String.join(",", tables));
     }
 
     /**
@@ -421,6 +473,7 @@ public class HboPlanStatisticsManager {
                     suppressedByTombstone.add(pinned.getFingerprint());
                 } else {
                     pinnedPlanStatistics.asMap().putIfAbsent(pinned.getFingerprint(), pinned);
+                    registerRelationKey(pinned.getStructCanonical());
                 }
             }
             hboPinnedLoaded = true;

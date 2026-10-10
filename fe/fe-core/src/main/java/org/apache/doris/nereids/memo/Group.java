@@ -95,6 +95,8 @@ public class Group {
      */
     private GroupStructInfo hboStructInfo;
     private GroupStructInfo hboStructInfoNoLiteral;
+    /** The mode independent structural summary of this group, computed on first hbo lookup. */
+    private GroupStructInfo.HboStructSummary hboStructSummary;
 
     /**
      * Constructor for Group.
@@ -221,6 +223,24 @@ public class Group {
     /** The value to cache: null for a failure which a later lookup may survive. */
     private static GroupStructInfo cacheable(GroupStructInfo structInfo) {
         return structInfo == GroupStructInfo.TRANSIENT_FAILURE ? null : structInfo;
+    }
+
+    /**
+     * Lazily compute and cache the structural summary of this group (see
+     * {@link GroupStructInfo.HboStructSummary}): how many scan tokens the struct info of this group
+     * would contain and which tables it reads.
+     *
+     * <p>It is mode independent (the shape of a sub tree does not depend on literals) and is built
+     * from the children's cached summaries, so it costs one step per group. It gates the canonical
+     * string, which is far more expensive: a group whose sub tree exceeds
+     * {@code hbo_max_scans_per_group} never renders one, and a group whose relation key can not match
+     * any injected entry does not render one either.
+     */
+    public GroupStructInfo.HboStructSummary getOrComputeHboStructSummary() {
+        if (hboStructSummary == null) {
+            hboStructSummary = GroupStructInfo.summaryOf(this);
+        }
+        return hboStructSummary;
     }
 
     public GroupExpression getFirstLogicalExpression() {

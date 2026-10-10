@@ -43,6 +43,12 @@ public interface MutableState {
      * (never by folding the literal carrying form of {@link #KEY_HBO_STRUCT} as text)
      */
     String KEY_HBO_STRUCT_NO_LITERAL = "hbo-struct-no-literal";
+    /**
+     * why no struct info was attached to this node, when it was refused by a limit instead of being
+     * unsupported (e.g. its sub tree reads more scans than {@code hbo_max_scans_per_group}); printed
+     * by the explain annotation so a missing fingerprint can be told from a broken one
+     */
+    String KEY_HBO_STRUCT_SKIP = "hbo-struct-skip";
     /** canonical string of the join equality conditions (join nodes, for HBO SET EXPANSION) */
     String KEY_HBO_COND = "hbo-cond";
     /** fingerprint of the join equality conditions (join nodes, the expansion injection key) */

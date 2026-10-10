@@ -72,6 +72,11 @@ public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvide
     }
 
     @Override
+    public boolean hasAnyHboPlanStats() {
+        return !hboPlanStatsCache.asMap().isEmpty();
+    }
+
+    @Override
     public RecentRunsPlanStatistics getHboPlanStats(PlanNodeAndHash planNodeAndHash) {
         if (planNodeAndHash.getHash().isPresent()) {
             return hboPlanStatsCache.asMap().getOrDefault(planNodeAndHash.getHash().get(),

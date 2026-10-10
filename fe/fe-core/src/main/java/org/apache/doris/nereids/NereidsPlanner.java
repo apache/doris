@@ -751,6 +751,11 @@ public class NereidsPlanner extends Planner {
             // parenthesis, and the printed struct= must hash to the fingerprint next to it
             noLiteralStructInfo.ifPresent(noLiteral -> node.setMutableState(
                     MutableState.KEY_HBO_STRUCT_NO_LITERAL, noLiteral.getCanonicalString()));
+        } else {
+            // no struct info: record why, when the reason is a limit rather than an unsupported plan
+            // pattern, so the annotation can tell "no fingerprint by design" from "hbo is broken"
+            GroupStructInfo.limitSkipReasonOfPlanNode(node, groupsById)
+                    .ifPresent(reason -> node.setMutableState(MutableState.KEY_HBO_STRUCT_SKIP, reason));
         }
     }
 
@@ -1351,6 +1356,13 @@ public class NereidsPlanner extends Planner {
             Object fingerprint = node.getMutableState(MutableState.KEY_HBO_FP).orElse(null);
             Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
             if (fingerprint == null || struct == null) {
+                Object skip = node.getMutableState(MutableState.KEY_HBO_STRUCT_SKIP).orElse(null);
+                if (skip != null) {
+                    // a node whose sub tree is too wide for hbo: it has no fingerprint by design, and
+                    // saying so is the difference between "hbo is off for this shape" and "hbo broke"
+                    sb.append("  [").append(node.getId()).append("] ").append(kind)
+                            .append(" hbo fingerprint skipped: ").append(skip).append('\n');
+                }
                 continue;
             }
             Object expansion = node.getMutableState(MutableState.KEY_HBO_EXPANSION).orElse(null);

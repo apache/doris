@@ -253,6 +253,21 @@ public class HboStatsCalculator extends StatsCalculator {
      */
     private Statistics applyPinnedStats(AbstractPlan planNode, Statistics delegateStats,
             Statistics guardInputStats, GroupStructInfo.LiteralMode[] lookupModes) {
+        // the fingerprint of the node is what an entry is keyed by, and building it walks the whole
+        // memo subtree: with an empty pinned cache every lookup is a guaranteed miss, so the
+        // fingerprint is not built at all (this is the common case in production, where hbo
+        // optimization is enabled but nothing was injected)
+        if (!Env.getCurrentEnv().getHboPlanStatisticsManager().hasAnyPinnedStatistics()) {
+            return null;
+        }
+        // the relation key of the group is a necessary condition for a match and costs one step per
+        // group, while the fingerprint walks the whole memo sub tree: when no entry was recorded for
+        // a sub tree which reads exactly these tables, no fingerprint of this node can match
+        String relationKey = GroupStructInfo.relationKeyOfPlanNode(planNode, null);
+        if (relationKey != null && !Env.getCurrentEnv().getHboPlanStatisticsManager()
+                .mayHavePinnedEntryForRelations(relationKey)) {
+            return null;
+        }
         for (GroupStructInfo.LiteralMode mode : lookupModes) {
             Optional<GroupStructInfo> structInfoOpt = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
             if (!structInfoOpt.isPresent()) {
@@ -318,6 +333,11 @@ public class HboStatsCalculator extends StatsCalculator {
 
     private Statistics applyLearnedStats(AbstractPlan planNode, GroupStructInfo.LiteralMode mode,
             Statistics delegateStats) {
+        // same reasoning as in applyPinnedStats: the learned key contains the hbo fingerprint of the
+        // node, which is only worth building when the learned cache holds something at all
+        if (!hboPlanStatisticsProvider.hasAnyHboPlanStats()) {
+            return null;
+        }
         Optional<PlanNodeAndHash> planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(planNode, mode);
         if (!planNodeAndHashOpt.isPresent() || !planNodeAndHashOpt.get().getHash().isPresent()) {
             return null;

@@ -468,9 +468,12 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 }
             }
 
-            // hbo to adjust bc cost parameter to reduce bc cost
+            // hbo to adjust bc cost parameter to reduce bc cost. The lookup key contains the hbo
+            // fingerprint of this join, which is only worth building when some learned entry exists
+            // at all (this repository has no pinned fallback here: the skew ratios are measurements)
             if (context.getSessionVariable() != null
-                    && context.getSessionVariable().isEnableHboOptimization()) {
+                    && context.getSessionVariable().isEnableHboOptimization()
+                    && hboPlanStatisticsProvider.hasAnyHboPlanStats()) {
                 Optional<PlanNodeAndHash> planNodeAndHashOpt;
                 try {
                     // join keys are always constant agnostic: the read side and the publish path

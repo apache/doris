@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.hash.Hashing;
 import org.apache.logging.log4j.LogManager;
@@ -142,14 +143,27 @@ public class GroupStructInfo {
     private final String fingerprint;
     /** The scans of the sub tree, in the order their tokens appear in the canonical string. */
     private final List<HboScanDescriptor> scans;
+    /** Why no struct info was built, when it was refused by a limit instead of being unsupported. */
+    private final String skipReason;
 
     private GroupStructInfo(boolean valid, String canonicalString, String shapeString, String fingerprint,
             List<HboScanDescriptor> scans) {
+        this(valid, canonicalString, shapeString, fingerprint, scans, "");
+    }
+
+    private GroupStructInfo(boolean valid, String canonicalString, String shapeString, String fingerprint,
+            List<HboScanDescriptor> scans, String skipReason) {
         this.valid = valid;
         this.canonicalString = canonicalString;
         this.shapeString = shapeString;
         this.fingerprint = fingerprint;
         this.scans = scans;
+        this.skipReason = skipReason;
+    }
+
+    /** The reason the struct info was refused by a limit, or empty. Only for diagnostics. */
+    public String getSkipReason() {
+        return skipReason;
     }
 
     public boolean isValid() {
@@ -300,6 +314,16 @@ public class GroupStructInfo {
      * Compute the simplified struct info of a memo group in the given literal mode.
      */
     public static GroupStructInfo of(Group group, LiteralMode mode) {
+        HboStructSummary summary = group.getOrComputeHboStructSummary();
+        int maxScansPerGroup = hboMaxScansPerGroup();
+        if (maxScansPerGroup > 0 && summary.getScanCount() > maxScansPerGroup) {
+            // The canonical string of a group describes its whole sub tree, and for a chain of joins
+            // it is built once per group of that chain, so a cheap structural summary is used as a
+            // gate: a sub tree with more scan tokens than hbo_max_scans_per_group is not described at
+            // all (the read side falls back to the optimizer estimation and EXPLAIN reports why).
+            return new GroupStructInfo(false, "", "", "", INVALID_SCANS, "subtree scans="
+                    + summary.getScanCount() + " > hbo_max_scans_per_group=" + maxScansPerGroup);
+        }
         Ctx ctx = new Ctx(mode);
         try {
             Canonical out = new Canonical();
@@ -701,6 +725,131 @@ public class GroupStructInfo {
     }
 
     /** Traversal state; shared along the whole subtree so the visited set guards shared sub graphs. */
+    /**
+     * The default of {@code hbo_max_scans_per_group}, used when no session is available. 20 keeps
+     * every TPC-DS shape observed in this repository (the largest single sub tree is query64's
+     * 19 scan join group) while refusing trees which are pathologically wide.
+     */
+    public static final int DEFAULT_MAX_SCANS_PER_GROUP = 20;
+
+    private static int hboMaxScansPerGroup() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || connectContext.getSessionVariable() == null) {
+            return DEFAULT_MAX_SCANS_PER_GROUP;
+        }
+        return connectContext.getSessionVariable().getHboMaxScansPerGroup();
+    }
+
+    /**
+     * The structural summary of a memo group: how many scan tokens the struct info of its sub tree
+     * would contain, and which tables it reads.
+     *
+     * <p>It is aggregated bottom up from the children's summaries - no string is rendered and no
+     * catalog is read - and memoized per group (see {@code Group#getOrComputeHboStructSummary}), so
+     * it is the cheap gate in front of the canonical string: a group which is too large for
+     * {@code hbo_max_scans_per_group} never renders one, and a group whose relation key can not
+     * match any entry does not render one either (see {@code HboPlanStatisticsManager}).
+     */
+    public static final class HboStructSummary {
+        private final int scanCount;
+        /** The tables of the sub tree, in traversal order and with duplicates (a self join twice). */
+        private final List<String> relations;
+        private final String relationKey;
+
+        private HboStructSummary(int scanCount, List<String> relations) {
+            this.scanCount = scanCount;
+            this.relations = Collections.unmodifiableList(new ArrayList<>(relations));
+            List<String> sorted = new ArrayList<>(relations);
+            Collections.sort(sorted);
+            this.relationKey = String.join(",", sorted);
+        }
+
+        /** The number of scan tokens in the sub tree (a self join counts the table twice). */
+        public int getScanCount() {
+            return scanCount;
+        }
+
+        /**
+         * The tables of the sub tree as one order independent key (sorted, duplicates kept). A group
+         * whose struct info could equal another one's necessarily shares this key, so it is a safe
+         * necessary condition for an entry lookup; a group with no scan at all keys to "".
+         */
+        public String getRelationKey() {
+            return relationKey;
+        }
+
+        List<String> getRelations() {
+            return relations;
+        }
+    }
+
+    /** The summary of a group, computed from the (memoized) summaries of its child groups. */
+    public static HboStructSummary summaryOf(Group group) {
+        GroupExpression ge = group.getFirstLogicalExpression();
+        if (ge == null) {
+            return new HboStructSummary(0, Collections.emptyList());
+        }
+        Plan plan = ge.getPlan();
+        List<String> relations = new ArrayList<>();
+        int scanCount = 0;
+        if (plan instanceof LogicalOlapScan) {
+            scanCount = 1;
+            relations.add(((LogicalOlapScan) plan).getTable().getNameWithFullQualifiers());
+        }
+        for (int i = 0; i < ge.arity(); i++) {
+            Group child = ge.child(i);
+            if (child == null) {
+                continue;
+            }
+            HboStructSummary childSummary = child.getOrComputeHboStructSummary();
+            scanCount += childSummary.getScanCount();
+            relations.addAll(childSummary.getRelations());
+        }
+        return new HboStructSummary(scanCount, relations);
+    }
+
+    /**
+     * Why the struct info of the group of {@code planNode} was refused, if it was refused by a limit.
+     * Cheap: only the memoized structural summary is read, no canonical string is built.
+     */
+    public static Optional<String> limitSkipReasonOfPlanNode(AbstractPlan planNode,
+            Map<Integer, Group> groupsById) {
+        Group group = resolveGroup(planNode, groupsById);
+        if (group == null) {
+            return Optional.empty();
+        }
+        int maxScansPerGroup = hboMaxScansPerGroup();
+        int scans = group.getOrComputeHboStructSummary().getScanCount();
+        if (maxScansPerGroup > 0 && scans > maxScansPerGroup) {
+            return Optional.of("subtree scans=" + scans
+                    + " > hbo_max_scans_per_group=" + maxScansPerGroup);
+        }
+        return Optional.empty();
+    }
+
+    /** The relation key of the group of a plan node, or null when that group is not reachable. */
+    public static String relationKeyOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById) {
+        Group group = resolveGroup(planNode, groupsById);
+        return group == null ? null : group.getOrComputeHboStructSummary().getRelationKey();
+    }
+
+    /** The memo group a plan node belongs to: its back reference, or the post processed group id. */
+    private static Group resolveGroup(AbstractPlan planNode, Map<Integer, Group> groupsById) {
+        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
+        if (group != null) {
+            return group;
+        }
+        Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
+        if (groupState.isPresent() && groupsById != null) {
+            try {
+                return groupsById.get(Integer.valueOf(groupState.get().toString()));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private static class Ctx {
         private final LiteralMode mode;
         private boolean valid = true;

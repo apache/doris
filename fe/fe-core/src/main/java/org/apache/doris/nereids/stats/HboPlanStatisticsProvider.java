@@ -38,6 +38,15 @@ public interface HboPlanStatisticsProvider {
     Map<String, RecentRunsPlanStatistics> getAllHboPlanStats();
 
     /**
+     * Whether any learned entry is cached at all. The planning path needs the hbo fingerprint of a
+     * plan node to look an entry up; when the cache is empty no lookup can succeed, so the caller
+     * can skip computing a fingerprint it would only use to miss. Unlike
+     * {@link #getAllHboPlanStats()} this must not build a map wrapper, because it is asked once per
+     * candidate plan node.
+     */
+    boolean hasAnyHboPlanStats();
+
+    /**
      * Inject a learned entry keyed directly by fingerprint ({@code HBO SET LEARNED STATISTICS});
      * the injected entry carries no input table statistics and matches by fingerprint alone.
      */

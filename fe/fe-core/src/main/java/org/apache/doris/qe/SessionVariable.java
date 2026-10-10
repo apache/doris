@@ -430,6 +430,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HBO_RFSAFE_THRESHOLD = "hbo_rfsafe_threshold";
     public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
     public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
+    public static final String HBO_MAX_SCANS_PER_GROUP = "hbo_max_scans_per_group";
     public static final String SHOW_HBO_FINGERPRINT = "show_hbo_fingerprint";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
     public static final String REQUIRED_GROUP_IDS = "required_group_ids";
@@ -2062,6 +2063,10 @@ public class SessionVariable implements Serializable, Writable {
         return hboSkewRatioThreshold;
     }
 
+    public int getHboMaxScansPerGroup() {
+        return hboMaxScansPerGroup;
+    }
+
     @VarAttrDef.VarAttr(name = ENABLE_HBO_OPTIMIZATION)
     private boolean enableHboOptimization = false;
 
@@ -2087,6 +2092,17 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = HBO_SKEW_RATIO_THRESHOLD, needForward = true)
     private int hboSkewRatioThreshold = 5;
+
+    /**
+     * The largest number of scan tokens a memo group's sub tree may contain for hbo struct info (and
+     * therefore for a hbo fingerprint) to be generated for that group. The canonical string of a
+     * group describes its whole sub tree, and in a chain of joins every group of the chain describes
+     * its own prefix, so an unbounded tree is described O(n^2) times. 20 keeps every TPC-DS shape of
+     * this repository (the widest single sub tree is query64's 19 scan join group) while refusing
+     * pathologically wide trees; a value <= 0 disables the limit.
+     */
+    @VarAttrDef.VarAttr(name = HBO_MAX_SCANS_PER_GROUP, needForward = true)
+    private int hboMaxScansPerGroup = 20;
 
     public boolean isShowHboFingerprint() {
         return showHboFingerprint;
