@@ -50,6 +50,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "exec/common/stringop_substring.h"
+#include "exec/scan/task_executor/listenable_future.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
@@ -240,6 +241,13 @@ public:
     virtual bool current_split_uses_metadata_count() const {
         return _current_split_uses_metadata_count;
     }
+
+    // What the prepared split waits for before it can be read, if anything. A JNI reader whose split
+    // declared the JVM heap its Java scanner will hold opens that scanner only once the JNI heap gate
+    // admits it (util/jni_scan_heap_gate.h). Until the future is done the caller must not call
+    // get_block(): a scanner ends its turn instead, and runs again once it is. Readers that wrap
+    // others ask the child reading the current split.
+    virtual std::optional<SharedListenableFuture<Void>> waiting_for() const { return std::nullopt; }
 
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start

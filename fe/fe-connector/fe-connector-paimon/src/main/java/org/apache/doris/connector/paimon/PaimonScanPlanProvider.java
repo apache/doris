@@ -172,6 +172,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     //
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
     private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
+    // Session variable name (byte-identical to SessionVariable.ENABLE_JNI_HEAP_ADMISSION). When true each
+    // JNI DataSplit declares the JVM heap its reader will hold (PaimonJniHeapEstimate), so that BE admits
+    // the readers by it; default false, and then no range declares anything.
+    private static final String ENABLE_JNI_HEAP_ADMISSION = "enable_jni_heap_admission";
     private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
     private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
@@ -280,6 +284,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
+    }
+
+    static boolean isJniHeapAdmissionEnabled(ConnectorSession session) {
+        if (session == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(session.getSessionProperties().get(ENABLE_JNI_HEAP_ADMISSION));
     }
 
     static boolean isFileScannerV2Enabled(ConnectorSession session) {
@@ -906,6 +917,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // splits). Session-only, so compute once here (before any split is built). DISTINCT from the
         // file-splitting targetSplitSize below — named weightDenominator to make a positional swap impossible.
         long weightDenominator = resolveSplitWeightDenominator(session);
+        // Only a statement that asked for JNI heap admission has its JNI DataSplits declare their heap.
+        PaimonJniHeapEstimate jniHeapEstimate =
+                isJniHeapAdmissionEnabled(session) ? jniHeapEstimate(table, paimonHandle) : null;
 
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
@@ -917,7 +931,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 validateMetadataColumnReader(true, false);
             }
             ranges.add(buildJniScanRange(split, defaultFileFormat,
-                    Collections.emptyMap(), false, weightDenominator));
+                    Collections.emptyMap(), false, weightDenominator, 0));
         }
 
         // COUNT(*) pushdown (FIX-COUNT-PUSHDOWN): collapse every split whose merged (post-merge /
@@ -1000,7 +1014,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     validateMetadataColumnReader(true, false);
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
-                        partitionValues, true, weightDenominator));
+                        partitionValues, true, weightDenominator,
+                        jniHeapEstimate == null ? 0 : jniHeapEstimate.bytesOf(dataSplit)));
             }
         }
 
@@ -1619,7 +1634,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private PaimonScanRange buildJniScanRange(Split split, String defaultFileFormat,
-            Map<String, String> partitionValues, boolean isDataSplit, long weightDenominator) {
+            Map<String, String> partitionValues, boolean isDataSplit, long weightDenominator,
+            long jniHeapBytes) {
         long splitWeight = 0;
         if (isDataSplit) {
             splitWeight = computeSplitWeight((DataSplit) split);
@@ -1641,7 +1657,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .paimonSplit(serializedSplit)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(splitWeight)
-                .targetSplitSize(weightDenominator);
+                .targetSplitSize(weightDenominator)
+                .jniHeapBytes(jniHeapBytes);
         if (isDataSplit) {
             // Same bucket property as the native arm: which reader BE ends up using must not change
             // what a sibling connector can learn about the split (see PaimonScanRange's props).
@@ -1897,6 +1914,37 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return physicalVariantSchemaIds;
+    }
+
+    /**
+     * What the JNI DataSplits of {@code table} declare (PaimonJniHeapEstimate). A file holds row groups of
+     * the size set by the schema version it was written under, which an ALTER TABLE since leaves as it is,
+     * so the estimate reads the versions its files were written under. $ro reads its base table's files,
+     * under that table's schema ids, as {@link #physicalVariantSchemaIds} resolves it; the other system
+     * tables are estimated by the options they show.
+     */
+    private PaimonJniHeapEstimate jniHeapEstimate(Table table, PaimonTableHandle handle) {
+        Table physicalSchemaTable = resolveSchemaDictTable(table, handle);
+        if (!(physicalSchemaTable instanceof FileStoreTable)) {
+            return PaimonJniHeapEstimate.of(table);
+        }
+        FileStoreTable fileStoreTable = (FileStoreTable) physicalSchemaTable;
+        SchemaManager schemaManager = fileStoreTable.schemaManager();
+        return PaimonJniHeapEstimate.of(fileStoreTable, schemaId -> readSchema(schemaManager, schemaId));
+    }
+
+    // A schema file, read under the FE-injected authenticator as planSplits reads the manifests.
+    private TableSchema readSchema(SchemaManager schemaManager, long schemaId) {
+        if (context == null) {
+            return schemaManager.schema(schemaId);
+        }
+        try {
+            return context.executeAuthenticated(() -> schemaManager.schema(schemaId));
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read Paimon schema " + schemaId, e);
+        }
     }
 
     private static boolean containsVariant(DataType type) {

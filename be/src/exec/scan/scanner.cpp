@@ -104,7 +104,7 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
         const auto min_batch_size = std::max(state->batch_size() / 2, 1);
         const auto block_max_bytes = state->preferred_block_size_bytes();
         while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
-               !*eos) {
+               !*eos && !_waiting_for.has_value()) {
             RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
             if (*eos) {
                 // For the final block, merge any padding directly and return eos in this call.
@@ -192,7 +192,7 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 _shared_scan_limit->fetch_sub(block->rows(), std::memory_order_acq_rel);
             }
         } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
-                 _num_rows_read < rows_read_threshold);
+                 _num_rows_read < rows_read_threshold && !_waiting_for.has_value());
     }
 
     if (state->is_cancelled()) {

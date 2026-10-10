@@ -637,6 +637,66 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    /**
+     * With enable_jni_heap_admission a JNI split declares each of its files by the schema version it was
+     * written under: files written before an ALTER TABLE lowered the block size and added a column are
+     * declared by the row groups and the columns they were written with, not by today's options.
+     */
+    @Test
+    public void jniSplitDeclaresFilesWrittenBeforeAnAlterByTheirOwnSchema(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "altered");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            // The same key twice: two overlapping files, which the split merges and so reads through JNI.
+            Table written = catalog.getTable(id);
+            for (long val : new long[] {100L, 200L}) {
+                BatchWriteBuilder wb = written.newBatchWriteBuilder();
+                try (BatchTableWrite write = wb.newWrite()) {
+                    write.write(GenericRow.of(1, val));
+                    List<CommitMessage> messages = write.prepareCommit();
+                    try (BatchTableCommit commit = wb.newCommit()) {
+                        commit.commit(messages);
+                    }
+                }
+            }
+            catalog.alterTable(id, Arrays.asList(
+                    SchemaChange.setOption(CoreOptions.FILE_BLOCK_SIZE.key(), "1 b"),
+                    SchemaChange.addColumn("x", DataTypes.INT())), false);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = catalog.getTable(id);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "altered", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("enable_jni_heap_admission", "true")),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+
+            Assertions.assertEquals(1, ranges.size());
+            DataSplit split = (DataSplit) deserializeJniSplits(ranges).get(0);
+            Assertions.assertFalse(split.rawConvertible(), "the two files must be merged");
+            Assertions.assertEquals(2, split.dataFiles().size());
+            // Under version 0 a file has 128 MB row groups - all of a small file - and 5 columns, (id, val)
+            // keyed by id; version 1 would give it 2 bytes of 1-byte row groups and 6 columns.
+            long expected = 0;
+            for (DataFileMeta file : split.dataFiles()) {
+                Assertions.assertEquals(0L, file.schemaId());
+                expected += file.fileSize() + 5 * PaimonJniHeapEstimate.DICTIONARY_BYTES_PER_COLUMN;
+            }
+            Assertions.assertEquals(String.valueOf(expected),
+                    ranges.get(0).getProperties().get("paimon.jni_heap_bytes"));
+        }
+    }
+
     @Test
     public void formatTableLimitDoesNotTreatFilesAsRows(@TempDir Path warehouse)
             throws Exception {

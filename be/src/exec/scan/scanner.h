@@ -23,10 +23,12 @@
 #include <atomic>
 #include <functional>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exec/scan/task_executor/listenable_future.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/tablet/tablet.h"
@@ -92,6 +94,14 @@ public:
 
     // Try to stop scanner, and all running readers.
     virtual void try_stop() { _should_stop = true; };
+
+    // What the turn that just ended without a block waits for, if anything: get_block() returned no
+    // rows and no eof because the scanner cannot read on until this future is done - for now, the
+    // JNI heap gate admitting the Java scanner of the split it is on. The scheduler parks the scanner
+    // instead of keeping a worker meanwhile, and runs it again once the future is done.
+    std::optional<SharedListenableFuture<Void>> take_waiting_for() {
+        return std::exchange(_waiting_for, std::nullopt);
+    }
 
     virtual std::string get_name() { return ""; }
 
@@ -310,6 +320,10 @@ protected:
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+
+    // Set by _get_block_impl() when it returns without a block because the scanner has to wait; see
+    // take_waiting_for().
+    std::optional<SharedListenableFuture<Void>> _waiting_for;
 
     // Cached pointer to ScanOperator's remaining-limit counter. Null when
     // this scanner is on the topn path or the query has no LIMIT.

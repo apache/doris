@@ -53,6 +53,7 @@
 #include "util/countdown_latch.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/jni_scan_heap_gate.h"
 
 namespace doris {
 // A scanner that produces `blocks_per_scanner` one-row blocks and then reports EOS, without any
@@ -105,6 +106,62 @@ private:
     CountDownLatch* _overlap;
 };
 
+// Reads like a JNI reader whose split declared the JVM heap it will hold: it asks `gate` for
+// `bytes` before its first block and, while it is not admitted, ends its turns waiting for the
+// admission, as FileScannerV2 does, so that the scheduler parks it. Admitted, it produces
+// `blocks_per_scanner` one-row blocks, gives its share back (its Java scanner closes) and reports
+// EOS. `parked_turns` counts the turns it ended waiting. try_stop() marks what the gate polls, as
+// FileScannerV2's marks its IOContext.
+class HeapGatedMockScanner : public Scanner {
+public:
+    HeapGatedMockScanner(RuntimeState* state, ScanLocalStateBase* local_state,
+                         RuntimeProfile* profile, JniScanHeapGate* gate, int64_t bytes,
+                         int blocks_per_scanner, std::atomic<int>* parked_turns)
+            : Scanner(state, local_state, -1, profile),
+              _gate(gate),
+              _bytes(bytes),
+              _blocks_left(blocks_per_scanner),
+              _parked_turns(parked_turns) {}
+
+    void try_stop() override {
+        Scanner::try_stop();
+        _stopped->store(true);
+    }
+
+protected:
+    Status _get_block_impl(RuntimeState* /*state*/, Block* block, bool* eof) override {
+        if (_admission == nullptr) {
+            _admission = _gate->request(_bytes, [stopped = _stopped]() { return stopped->load(); });
+        }
+        if (_admission->waiting()) {
+            ++*_parked_turns;
+            _waiting_for = _admission->future();
+            return Status::OK();
+        }
+        DORIS_CHECK(_admission->admitted());
+        if (_blocks_left == 0) {
+            _admission.reset();
+            *eof = true;
+            return Status::OK();
+        }
+        --_blocks_left;
+        block->get_by_position(0).column->assert_mutable()->insert_default();
+        *eof = false;
+        return Status::OK();
+    }
+
+    // The local state in these tests has no profile counters.
+    void _collect_profile_before_close() override {}
+
+private:
+    JniScanHeapGate* const _gate;
+    const int64_t _bytes;
+    int _blocks_left;
+    std::atomic<int>* const _parked_turns;
+    const std::shared_ptr<std::atomic<bool>> _stopped = std::make_shared<std::atomic<bool>>(false);
+    std::unique_ptr<JniScanHeapGate::Admission> _admission;
+};
+
 class ScannerContextTest : public testing::Test {
 public:
     void SetUp() override {
@@ -139,6 +196,104 @@ public:
         state->set_task_execution_context(task_exec_ctx);
         output_tuple_desc = descs->get_tuple_descriptor(0);
     }
+
+    // Runs three scanners that each declare the whole budget of `gate`, so only one may read at a
+    // time, on `scheduler` (started by the caller), consuming their blocks as the scan operator
+    // does until every one reports EOS. Nothing is consumed until two of them have parked. With
+    // `busy_pool`, from then on the pool counts as busy whatever runs on it, so the context is held
+    // to its minimum of one task in flight - the admission a holder's next turn must pass.
+    void run_heap_gated_scanners(ScannerScheduler* scheduler, bool task_executor, bool busy_pool,
+                                 JniScanHeapGate* gate) {
+        const int parallel_tasks = 3;
+        const int scanner_count = 3;
+        const int blocks_per_scanner = 4;
+        auto scan_operator = std::make_unique<OlapScanOperatorX>(
+                obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+        auto olap_scan_local_state =
+                OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+        olap_scan_local_state->_parent = scan_operator.get();
+        olap_scan_local_state->_max_scan_concurrency = max_concurrency_counter.get();
+        olap_scan_local_state->_min_scan_concurrency = min_concurrency_counter.get();
+        scan_operator->_should_run_serial = false;
+        TQueryOptions query_options;
+        query_options.__set_max_column_reader_num(0);
+        state->set_query_options(query_options);
+
+        std::atomic<int> parked_turns {0};
+        std::list<std::shared_ptr<ScannerDelegate>> scanners;
+        for (int i = 0; i < scanner_count; ++i) {
+            std::shared_ptr<Scanner> scanner = std::make_shared<HeapGatedMockScanner>(
+                    state.get(), olap_scan_local_state.get(), profile.get(), gate, HEAP_GATE_BUDGET,
+                    blocks_per_scanner, &parked_turns);
+            scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+        }
+
+        // The worker's task_exec_ctx() must resolve, otherwise a scan attempt exits before running.
+        auto task_execution_context = std::make_shared<TaskExecutionContext>();
+        state->set_task_execution_context(task_execution_context);
+        auto scanner_context = ScannerContext::create_shared(
+                state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+                scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
+        scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
+        scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
+        scanner_context->_scanner_scheduler = scheduler;
+        // Until the test says the pool is busy, it is not: the Context may ramp to its maximum.
+        scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+        if (task_executor) {
+            // ScannerContext::init() creates the task handle only outside BE_TEST.
+            auto executor =
+                    static_cast<TaskExecutorSimplifiedScanScheduler*>(scheduler)->task_executor();
+            auto task_handle = executor->create_task(
+                    TaskId("heap_gated_scanners"), []() { return 0.0; }, parallel_tasks,
+                    std::chrono::milliseconds(100), std::nullopt);
+            ASSERT_TRUE(task_handle.has_value());
+            scanner_context->_task_executor = executor;
+            scanner_context->_task_handle = task_handle.value();
+        }
+        ASSERT_TRUE(scanner_context->init().ok());
+
+        // Two scanners are not admitted and park. Meanwhile the admitted one has produced one
+        // block and runs no further until the operator consumes it.
+        for (int i = 0; i < 500 && parked_turns.load() < 2; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        ASSERT_GE(parked_turns.load(), 2) << scanner_context->debug_string();
+        if (busy_pool) {
+            std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+            scanner_context->_min_scan_concurrency_of_scan_scheduler = 0;
+        }
+
+        int64_t rows = 0;
+        bool eos = false;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        while (!eos) {
+            ASSERT_LT(std::chrono::steady_clock::now(), deadline)
+                    << scanner_context->debug_string();
+            Block block;
+            Status st = scanner_context->get_block_from_queue(state.get(), &block, &eos, 0);
+            ASSERT_TRUE(st.ok()) << st.to_string();
+            rows += block.rows();
+            if (!eos && block.rows() == 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        EXPECT_EQ(rows, scanner_count * blocks_per_scanner);
+        // Every share came back and was passed on in turn: nobody had to wait out
+        // jni_scanner_heap_max_wait_ms, which a scanner waiting on a worker would have made the
+        // others do.
+        EXPECT_EQ(gate->admitted_after_wait_limit(), 0);
+        EXPECT_EQ(gate->holders(), 0);
+        EXPECT_EQ(gate->waiters(), 0);
+        std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+        EXPECT_EQ(scanner_context->_num_finished_scanners, scanner_count);
+        EXPECT_EQ(scanner_context->_in_flight_tasks_num, 0);
+        EXPECT_EQ(scanner_context->_parked_tasks_num, 0);
+        EXPECT_TRUE(scanner_context->_pending_tasks.empty());
+        EXPECT_TRUE(scanner_context->_process_status.ok());
+    }
+
+    static constexpr int64_t HEAP_GATE_BUDGET = 100L * 1024 * 1024;
 
 private:
     class MockBlock : public Block {
@@ -1131,13 +1286,15 @@ TEST_F(ScannerContextTest, debug_string_reports_distinguishable_fields) {
     // Every value is distinct so a misplaced placeholder is visible in the output.
     shared_limit.store(100);
     scanner_context->_in_flight_tasks_num = 2;
+    scanner_context->_parked_tasks_num = 4;
     scanner_context->_is_context_queued = true;
     scanner_context->_num_finished_scanners = 5;
 
     const std::string debug = scanner_context->debug_string();
     EXPECT_NE(debug.find("limit: 7, remaining_limit: 100, _in_flight_tasks_num: 2, "
-                         "_is_context_queued: true, _num_finished_scanners: 5, "
-                         "_max_scan_concurrency: 3, expected_scanners: -1,"),
+                         "_parked_tasks_num: 4, _is_context_queued: true, "
+                         "_num_finished_scanners: 5, _max_scan_concurrency: 3, "
+                         "expected_scanners: -1,"),
               std::string::npos)
             << debug;
 }
@@ -1344,6 +1501,118 @@ TEST_F(ScannerContextTest, thread_pool_context_chain_runs_all_scanners) {
     EXPECT_TRUE(scanner_context->_process_status.ok());
     // The successor runnable ramped concurrency to the per-Context limit, and never beyond it.
     EXPECT_EQ(peak_running.load(), parallel_tasks);
+}
+
+// A scanner that waits for its share of the JVM heap parks instead of keeping a worker. With one
+// worker, a wait inside the worker would leave the admitted scanner none for its second block until
+// jni_scanner_heap_max_wait_ms ran out, and then admit every waiter above the budget at once.
+TEST_F(ScannerContextTest, thread_pool_heap_waiters_park_and_leave_the_worker_to_the_holder) {
+    const int64_t saved_max_wait_ms = config::jni_scanner_heap_max_wait_ms;
+    config::jni_scanner_heap_max_wait_ms = 600000;
+    Defer restore_max_wait = [&] { config::jni_scanner_heap_max_wait_ms = saved_max_wait_ms; };
+    JniScanHeapGate gate([]() { return HEAP_GATE_BUDGET; });
+    ThreadPoolSimplifiedScanScheduler scheduler("heap_parking_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 16, 1).ok());
+    Defer cleanup = [&] { scheduler.stop(); };
+    run_heap_gated_scanners(&scheduler, false, false, &gate);
+}
+
+// The same on the TaskExecutor, which runs external-table scans by default.
+TEST_F(ScannerContextTest, task_executor_heap_waiters_park_and_leave_the_worker_to_the_holder) {
+    const int64_t saved_max_wait_ms = config::jni_scanner_heap_max_wait_ms;
+    config::jni_scanner_heap_max_wait_ms = 600000;
+    Defer restore_max_wait = [&] { config::jni_scanner_heap_max_wait_ms = saved_max_wait_ms; };
+    JniScanHeapGate gate([]() { return HEAP_GATE_BUDGET; });
+    TaskExecutorSimplifiedScanScheduler scheduler("heap_parking_task_executor_test",
+                                                  cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 16, 1).ok());
+    Defer cleanup = [&] { scheduler.stop(); };
+    run_heap_gated_scanners(&scheduler, true, false, &gate);
+}
+
+// Once the scan pool is busy, a Context keeps only its minimum of tasks in flight - one here - and
+// a task whose block the operator consumed waits for that slot. Parked scanners hold none of it, so
+// the admitted scanner's next turns pass with workers to spare; had the waiters counted as in
+// flight, the holder could not have run again until they were admitted, which needed its share.
+TEST_F(ScannerContextTest, thread_pool_heap_waiters_leave_the_busy_pools_slot_to_the_holder) {
+    const int64_t saved_max_wait_ms = config::jni_scanner_heap_max_wait_ms;
+    config::jni_scanner_heap_max_wait_ms = 600000;
+    Defer restore_max_wait = [&] { config::jni_scanner_heap_max_wait_ms = saved_max_wait_ms; };
+    JniScanHeapGate gate([]() { return HEAP_GATE_BUDGET; });
+    ThreadPoolSimplifiedScanScheduler scheduler("heap_parking_busy_pool_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(4, 4, 16, 1).ok());
+    Defer cleanup = [&] { scheduler.stop(); };
+    run_heap_gated_scanners(&scheduler, false, true, &gate);
+}
+
+// A context that stops - a cancelled query, a satisfied limit - while its scanners wait for heap:
+// the gate sees their scans stop, they leave its line without a share, and their parked tasks are
+// not scheduled again.
+TEST_F(ScannerContextTest, thread_pool_stopping_a_context_ends_its_parked_tasks) {
+    JniScanHeapGate gate([]() { return HEAP_GATE_BUDGET; });
+    // Another query's reader holds the whole budget throughout.
+    auto other_query = gate.request(HEAP_GATE_BUDGET, []() { return false; });
+    ASSERT_TRUE(other_query->admitted());
+
+    const int parallel_tasks = 3;
+    const int scanner_count = 3;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    olap_scan_local_state->_parent = scan_operator.get();
+    olap_scan_local_state->_max_scan_concurrency = max_concurrency_counter.get();
+    olap_scan_local_state->_min_scan_concurrency = min_concurrency_counter.get();
+    scan_operator->_should_run_serial = false;
+    TQueryOptions query_options;
+    query_options.__set_max_column_reader_num(0);
+    state->set_query_options(query_options);
+
+    std::atomic<int> parked_turns {0};
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    for (int i = 0; i < scanner_count; ++i) {
+        std::shared_ptr<Scanner> scanner = std::make_shared<HeapGatedMockScanner>(
+                state.get(), olap_scan_local_state.get(), profile.get(), &gate, HEAP_GATE_BUDGET, 4,
+                &parked_turns);
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    }
+    auto task_execution_context = std::make_shared<TaskExecutionContext>();
+    state->set_task_execution_context(task_execution_context);
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
+    scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
+    scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
+    ThreadPoolSimplifiedScanScheduler scheduler("heap_parking_stop_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(2, 2, 16, 1).ok());
+    Defer cleanup = [&] { scheduler.stop(); };
+    scanner_context->_scanner_scheduler = &scheduler;
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+    ASSERT_TRUE(scanner_context->init().ok());
+
+    auto parked = [&]() {
+        std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+        return scanner_context->_parked_tasks_num;
+    };
+    for (int i = 0; i < 500 && parked() < scanner_count; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_EQ(parked(), scanner_count) << scanner_context->debug_string();
+    EXPECT_EQ(gate.waiters(), scanner_count);
+
+    scanner_context->stop_scanners(state.get());
+    for (int i = 0; i < 500 && (gate.waiters() > 0 || parked() > 0); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_EQ(gate.waiters(), 0);
+    EXPECT_EQ(parked(), 0);
+    // Nobody took a share, and nothing ran again.
+    EXPECT_EQ(gate.holders(), 1);
+    EXPECT_EQ(parked_turns.load(), scanner_count);
+    std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, 0);
+    EXPECT_TRUE(scanner_context->_completed_tasks.empty());
+    EXPECT_EQ(scanner_context->_num_finished_scanners, 0);
 }
 
 TEST_F(ScannerContextTest, thread_pool_context_runnable_is_deduplicated) {

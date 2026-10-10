@@ -26,6 +26,7 @@
 #include <ctime>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <shared_mutex>
 #include <tuple>
@@ -362,6 +363,61 @@ void ScannerContext::push_completed_scan_task(std::shared_ptr<ScanTask> scan_tas
     _dependency->set_ready();
 }
 
+void ScannerContext::park_scan_task(std::shared_ptr<ScanTask> scan_task,
+                                    SharedListenableFuture<Void> waiting_for) {
+    {
+        std::unique_lock<std::mutex> l(_transfer_lock);
+        scan_task->set_state(ScanTask::State::PARKED);
+        _in_flight_tasks_num--;
+        ++_parked_tasks_num;
+        // The slot it held may now admit a pending scanner - one whose block the operator consumed
+        // while this context had no slot to spare, holding what this task waits for, among them.
+        // Nothing else would look: a parked task never completes a scan attempt to make the operator
+        // schedule again.
+        if (!done()) {
+            Status status = _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l);
+            if (!status.ok()) {
+                set_context_failure(status, l);
+            }
+        }
+    }
+    std::weak_ptr<ScannerContext> weak_ctx = shared_from_this();
+    // Runs on the thread that completes the future, or right here if it is done already.
+    waiting_for.add_callback([weak_ctx, scan_task](const Void&, const Status&) {
+        if (auto ctx = weak_ctx.lock()) {
+            ctx->_resume_parked_task(scan_task);
+        }
+    });
+}
+
+void ScannerContext::_resume_parked_task(const std::shared_ptr<ScanTask>& scan_task) {
+    auto task_execution_lock = task_exec_ctx();
+    if (task_execution_lock == nullptr) {
+        // The query has finished; nothing will read this task again.
+        return;
+    }
+#ifndef BE_TEST
+    // Scheduling allocates for the query, not for the gate's thread that completed the future. A
+    // future done before park_scan_task() added this callback runs it on the worker that parked
+    // the task, which is attached to this query already and must stay so.
+    std::optional<AttachTask> attach;
+    if (!thread_context()->is_attach_task()) {
+        attach.emplace(_state);
+    }
+#endif
+    std::unique_lock<std::mutex> l(_transfer_lock);
+    --_parked_tasks_num;
+    if (done()) {
+        return;
+    }
+    // Like a task whose block the operator just consumed: it may run again.
+    scan_task->set_state(ScanTask::State::PENDING);
+    Status status = _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l);
+    if (!status.ok()) {
+        set_context_failure(status, l);
+    }
+}
+
 Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, bool* eos, int id) {
     if (state->is_cancelled()) {
         _set_scanner_done();
@@ -545,14 +601,15 @@ std::string ScannerContext::debug_string() {
     return fmt::format(
             "_query_id: {}, id: {}, total scanners: {}, pending tasks: {}, completed tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, remaining_limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, "
-            "_num_finished_scanners: {}, _max_scan_concurrency: {}, expected_scanners: {},"
+            " limit: {}, remaining_limit: {}, _in_flight_tasks_num: {}, _parked_tasks_num: {}, "
+            "_is_context_queued: {}, _num_finished_scanners: {}, _max_scan_concurrency: {}, "
+            "expected_scanners: {},"
             " _max_bytes_in_queue: {}, _ins_idx: {}, _enable_adaptive_scanners: {}, "
             "_mem_share_arb: {}, _scanner_mem_limiter: {}",
             print_id(_query_id), ctx_id, _all_scanners.size(), _pending_tasks.size(),
             _completed_tasks.size(), _should_stop, _is_finished, _free_blocks.size_approx(), limit,
             _shared_scan_limit->load(std::memory_order_relaxed), _in_flight_tasks_num,
-            _is_context_queued, _num_finished_scanners, _max_scan_concurrency,
+            _parked_tasks_num, _is_context_queued, _num_finished_scanners, _max_scan_concurrency,
             _enable_adaptive_scanners ? _adaptive_processor->expected_scanners : -1,
             _max_bytes_in_queue, _ins_idx, _enable_adaptive_scanners,
             _enable_adaptive_scanners ? _mem_share_arb->debug_string() : "NULL",

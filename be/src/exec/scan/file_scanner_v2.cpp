@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <optional>
@@ -480,6 +481,15 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
         if (!_has_prepared_split) {
             RETURN_IF_ERROR(_prepare_next_split(eof));
             if (*eof) {
+                return Status::OK();
+            }
+        }
+        // A JNI reader whose split declared its heap opens its Java scanner only once the JNI heap
+        // gate admits it. Until then this turn ends without a block, and the scheduler runs the
+        // scanner again once the gate is done with it.
+        if (_current_range.__isset.jni_heap_bytes && _current_range.jni_heap_bytes > 0) {
+            if (auto waiting_for = _table_reader->waiting_for()) {
+                _waiting_for = std::move(waiting_for);
                 return Status::OK();
             }
         }
@@ -1171,7 +1181,8 @@ Status FileScannerV2::close(RuntimeState* state) {
 void FileScannerV2::try_stop() {
     Scanner::try_stop();
     if (_io_ctx) {
-        _io_ctx->should_stop = true;
+        // Atomically: the JNI heap gate's thread reads it while a JNI reader of this scan waits.
+        std::atomic_ref<bool>(_io_ctx->should_stop).store(true, std::memory_order_relaxed);
     }
 }
 
