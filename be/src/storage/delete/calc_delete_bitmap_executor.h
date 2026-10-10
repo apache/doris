@@ -51,6 +51,9 @@ public:
     explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token)
             : _thread_token(std::move(thread_token)), _status(Status::OK()) {}
 
+    // Drain callbacks before destroying the status and lock they access.
+    ~CalcDeleteBitmapToken() { cancel(); }
+
     // calculate delete bitmap of `cur_segment` to historical `target_rowsets`
     Status submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
@@ -69,10 +72,11 @@ public:
         {
             std::shared_lock rlock(_lock);
             RETURN_IF_ERROR(_status);
-            _resource_ctx = thread_context()->resource_ctx();
         }
-        return _thread_token->submit_func([this, func = std::forward<Func>(func)]() {
-            SCOPED_ATTACH_TASK(_resource_ctx);
+        // Each callback owns the context of its submitter, even when submissions overlap.
+        auto resource_ctx = thread_context()->resource_ctx();
+        return _thread_token->submit_func([this, resource_ctx, func = std::forward<Func>(func)]() {
+            SCOPED_ATTACH_TASK(resource_ctx);
             auto st = func();
             if (!st.ok()) {
                 std::lock_guard wlock(_lock);
@@ -95,7 +99,6 @@ private:
     // Records the current status of the calc delete bitmap job.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     Status _status;
-    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 // CalcDeleteBitmapExecutor is responsible for calc delete bitmap concurrently.
