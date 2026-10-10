@@ -176,7 +176,6 @@ TEST(FunctionVariantParseTest, PreservesSqlNullAndErrorToNull) {
 
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
     const std::string invalid_utf8(1, static_cast<char>(0xFF));
-    ScopedValue strict(config::variant_throw_exeception_on_invalid_json, true);
     ExecutionResult failure = execute_parse(
             "parse_to_variant", make_strings({R"({"before":1})", invalid_utf8, R"({"after":2})"}),
             string_type, 3);
@@ -247,15 +246,22 @@ TEST(FunctionVariantParseTest, ConfiguredVariantReturnTypeBuildsAndExecutes) {
 
 TEST(FunctionVariantParseTest, DistinguishesSqlNullJsonNullEmptyAndConst) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    ExecutionResult values = execute_parse(
-            "parse_to_variant", make_strings({R"({"a":1})", "null", ""}), string_type, 3);
+    ExecutionResult values =
+            execute_parse("parse_to_variant", make_strings({R"({"a":1})", "null"}), string_type, 2);
     ASSERT_TRUE(values.status.ok()) << values.status.to_string();
-    ASSERT_EQ(values.output->size(), 3);
+    ASSERT_EQ(values.output->size(), 2);
     EXPECT_FALSE(is_sql_null_at(values.output, 0));
     EXPECT_FALSE(is_sql_null_at(values.output, 1));
     EXPECT_EQ(variant_json_at(values.output, 0), R"({"a":1})");
     EXPECT_EQ(variant_json_at(values.output, 1), "null");
-    EXPECT_EQ(variant_json_at(values.output, 2), "{}");
+
+    // An empty string is not a JSON document.
+    ExecutionResult empty = execute_parse("parse_to_variant", make_strings({""}), string_type, 1);
+    EXPECT_EQ(empty.status.code(), ErrorCode::INVALID_ARGUMENT) << empty.status.to_string();
+    ExecutionResult empty_to_null =
+            execute_parse("try_parse_to_variant", make_strings({""}), string_type, 1);
+    ASSERT_TRUE(empty_to_null.status.ok()) << empty_to_null.status.to_string();
+    EXPECT_TRUE(is_sql_null_at(empty_to_null.output, 0));
 
     const DataTypePtr nullable_string_type = make_nullable(std::make_shared<DataTypeString>());
     ExecutionResult nullable = execute_parse(
@@ -278,7 +284,6 @@ TEST(FunctionVariantParseTest, DistinguishesSqlNullJsonNullEmptyAndConst) {
 }
 
 TEST(FunctionVariantParseTest, StrictFailureDoesNotPublishPartialBatch) {
-    ScopedValue strict(config::variant_throw_exeception_on_invalid_json, true);
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
     ExecutionResult result =
             execute_parse("parse_to_variant",
@@ -296,26 +301,17 @@ TEST(FunctionVariantParseTest, StrictFailureDoesNotPublishPartialBatch) {
 
 TEST(FunctionVariantParseTest, ErrorToNullOnlyNullsRecoverableFailures) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    {
-        ScopedValue strict(config::variant_throw_exeception_on_invalid_json, true);
-        ExecutionResult result = execute_parse(
-                "try_parse_to_variant",
-                make_strings({R"({"before":1})", "{", "null", R"({"after":2})"}), string_type, 4);
-        ASSERT_TRUE(result.status.ok()) << result.status.to_string();
-        EXPECT_FALSE(is_sql_null_at(result.output, 0));
-        EXPECT_TRUE(is_sql_null_at(result.output, 1));
-        EXPECT_FALSE(is_sql_null_at(result.output, 2));
-        EXPECT_EQ(variant_json_at(result.output, 2), "null");
-        EXPECT_EQ(variant_json_at(result.output, 3), R"({"after":2})");
-    }
-    {
-        ScopedValue permissive(config::variant_throw_exeception_on_invalid_json, false);
-        ExecutionResult result =
-                execute_parse("try_parse_to_variant", make_strings({"{"}), string_type, 1);
-        ASSERT_TRUE(result.status.ok()) << result.status.to_string();
-        EXPECT_FALSE(is_sql_null_at(result.output, 0));
-        EXPECT_EQ(variant_json_at(result.output, 0), R"("{")");
-    }
+    ExecutionResult result =
+            execute_parse("try_parse_to_variant",
+                          make_strings({R"({"before":1})", "{", "null", "hello", R"({"after":2})"}),
+                          string_type, 5);
+    ASSERT_TRUE(result.status.ok()) << result.status.to_string();
+    EXPECT_FALSE(is_sql_null_at(result.output, 0));
+    EXPECT_TRUE(is_sql_null_at(result.output, 1));
+    EXPECT_FALSE(is_sql_null_at(result.output, 2));
+    EXPECT_EQ(variant_json_at(result.output, 2), "null");
+    EXPECT_TRUE(is_sql_null_at(result.output, 3));
+    EXPECT_EQ(variant_json_at(result.output, 4), R"({"after":2})");
 }
 
 TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
@@ -332,7 +328,6 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
     }
     {
-        ScopedValue reject_duplicates(config::variant_enable_duplicate_json_path_check, false);
         ExecutionResult fail = execute_parse("parse_to_variant", make_strings({R"({"a":1,"a":2})"}),
                                              string_type, 1);
         EXPECT_FALSE(fail.status.ok());
@@ -342,21 +337,23 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
     }
     {
-        ScopedValue keep_first(config::variant_enable_duplicate_json_path_check, true);
-        ExecutionResult result = execute_parse("try_parse_to_variant",
-                                               make_strings({R"({"a":1,"a":2})"}), string_type, 1);
-        ASSERT_TRUE(result.status.ok()) << result.status.to_string();
-        EXPECT_FALSE(is_sql_null_at(result.output, 0));
-        EXPECT_EQ(variant_json_at(result.output, 0), R"({"a":1})");
-    }
-    {
-        ScopedValue permissive(config::variant_throw_exeception_on_invalid_json, false);
         const std::string invalid_utf8(1, static_cast<char>(0xFF));
         ExecutionResult fail =
                 execute_parse("parse_to_variant", make_strings({invalid_utf8}), string_type, 1);
         EXPECT_FALSE(fail.status.ok());
         ExecutionResult null =
                 execute_parse("try_parse_to_variant", make_strings({invalid_utf8}), string_type, 1);
+        ASSERT_TRUE(null.status.ok()) << null.status.to_string();
+        EXPECT_TRUE(is_sql_null_at(null.output, 0));
+    }
+    {
+        // The DOM parser cannot read an integer beyond 64 bits, so the document is invalid JSON.
+        ExecutionResult fail = execute_parse(
+                "parse_to_variant", make_strings({"18446744073709551616"}), string_type, 1);
+        EXPECT_FALSE(fail.status.ok());
+        ExecutionResult null =
+                execute_parse("try_parse_to_variant",
+                              make_strings({R"({"n":18446744073709551616})"}), string_type, 1);
         ASSERT_TRUE(null.status.ok()) << null.status.to_string();
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
     }

@@ -41,8 +41,10 @@ struct VariantJsonFormatOptions {
 
 struct JsonToVariantOptions {
     uint32_t max_json_key_length = 255;
-    bool throw_on_invalid_json = false;
-    bool check_duplicate_json_path = false;
+    // Text that is not a JSON document, including an empty string, fails the row. The Variant
+    // serde turns this off because it mostly re-reads JSON that a Variant serde wrote: a value the
+    // parser cannot read back, such as an integer beyond 64 bits, then keeps its text.
+    bool throw_on_invalid_json = true;
 
     // Takes a value snapshot. Later changes to mutable config do not affect an encoder.
     static JsonToVariantOptions current_config();

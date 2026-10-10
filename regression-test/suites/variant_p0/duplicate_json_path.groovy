@@ -16,110 +16,75 @@
 // under the License.
 
 suite("duplicate_json_path", "p0") {
-    def variantV2Function = "parse_to_variant"
-    def customBeConfig = [
-        variant_enable_duplicate_json_path_check: true
-    ]
-    setBeConfigTemporary(customBeConfig) {
-        sql "DROP TABLE IF EXISTS duplicate_json_path"
-        sql """
-            CREATE TABLE duplicate_json_path (
-                k int,
-                v variant
-            )
-            DUPLICATE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1",
-                "group_commit_interval_ms" = "2000",
-                "disable_auto_compaction" = "true"
-            );
-        """
+    sql "DROP TABLE IF EXISTS duplicate_json_path"
+    sql """
+        CREATE TABLE duplicate_json_path (
+            k int,
+            v variant
+        )
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
 
-        sql """insert into duplicate_json_path values (1, ${variantV2Function}('{"a":42,"a":{"b":42}}'))"""
-        sql """insert into duplicate_json_path values (2, ${variantV2Function}('{"a" : 123, "a" : "123"}'))"""
-        sql """insert into duplicate_json_path values (3, ${variantV2Function}('{"a.b":1,"a":{"b":2}}'))"""
-        sql """insert into duplicate_json_path values (4, ${variantV2Function}('{"a":{"b":3},"a.b":4}'))"""
-        sql """insert into duplicate_json_path values (5, ${variantV2Function}('{"a":{"b":5},"a":{"c":6}}'))"""
-        sql """insert into duplicate_json_path values (6, ${variantV2Function}('{"a":[1],"a":2}'))"""
-        sql """insert into duplicate_json_path values (7, ${variantV2Function}('{"a":2,"a":[1]}'))"""
-
-        streamLoad {
-            table "duplicate_json_path"
-            set 'read_json_by_line', 'true'
-            set 'format', 'json'
-            set 'group_commit', 'async_mode'
-            unset 'label'
-            file 'duplicate_json_path.json'
-            time 10000
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(7, json.NumberTotalRows)
-                assertEquals(7, json.NumberLoadedRows)
-            }
-        }
-
-        for (int i = 0; i < 30; i++) {
-            def count = sql "select count(*) from duplicate_json_path"
-            if (count[0][0] == 14) {
-                break
-            }
-            sleep(1000)
-        }
-        def totalRows = sql "select count(*) from duplicate_json_path"
-        assertEquals(14, totalRows[0][0])
-
-        // When duplicate path check is enabled, duplicate Variant paths keep the first value.
-        def expectedResultV1 = [
-                [1, "{\"b\":42}", "42", null],
-                [2, "123", null, null],
-                [3, "{\"b\":1}", "1", null],
-                [4, "{\"b\":3}", "3", null],
-                [5, "{\"b\":5,\"c\":6}", "5", "6"],
-                [6, "[1]", null, null],
-                [7, "2", null, null],
-                [8, "{\"b\":42}", "42", null],
-                [9, "123", null, null],
-                [10, "{\"b\":8}", "8", null],
-                [11, "{\"b\":10}", "10", null],
-                [12, "{\"b\":11,\"c\":12}", "11", "12"],
-                [13, "[13]", null, null],
-                [14, "14", null, null]
-        ]
-        def expectedResultV2 = [
-                [1, "42", null, null],
-                [2, "123", null, null],
-                [3, "{\"b\":2}", "2", null],
-                [4, "{\"b\":3}", "3", null],
-                [5, "{\"b\":5}", "5", null],
-                [6, "[1]", null, null],
-                [7, "2", null, null],
-                [8, "42", null, null],
-                [9, "123", null, null],
-                [10, "{\"b\":9}", "9", null],
-                [11, "{\"b\":10}", "10", null],
-                [12, "{\"b\":11}", "11", null],
-                [13, "[13]", null, null],
-                [14, "14", null, null]
-        ]
-        def expectedResult = true
-                ? expectedResultV2 : expectedResultV1
-
-        def queryResult = {
-            sql """
-            select k, cast(v['a'] as string), cast(v['a']['b'] as string), cast(v['a']['c'] as string)
-            from duplicate_json_path
-            order by k
-            """
-        }
-        assertEquals(expectedResult, queryResult())
-
-        trigger_and_wait_compaction("duplicate_json_path", "full")
-        assertEquals(expectedResult, queryResult())
+    // A key that repeats in one object is a parse error: parse_to_variant fails and
+    // try_parse_to_variant returns NULL.
+    test {
+        sql """insert into duplicate_json_path values (1, parse_to_variant('{"a":42,"a":{"b":42}}'))"""
+        exception "Duplicate Variant object key"
     }
+    sql """insert into duplicate_json_path values
+        (2, try_parse_to_variant('{"a" : 123, "a" : "123"}')),
+        (3, try_parse_to_variant('{"a":{"b":5},"a":{"c":6}}')),
+        (4, try_parse_to_variant('{"a":{"b":5},"c":6}'))"""
+
+    // A dotted key and a nested key are different keys of the parsed value, but they are the
+    // same path when the value is stored, so the write fails.
+    test {
+        sql """insert into duplicate_json_path values (5, parse_to_variant('{"a.b":1,"a":{"b":2}}'))"""
+        exception "may contains duplicated entry"
+    }
+
+    // Load jobs parse like try_parse_to_variant, so a row with duplicate keys loads NULL.
+    streamLoad {
+        table "duplicate_json_path"
+        set 'read_json_by_line', 'true'
+        set 'format', 'json'
+        file 'duplicate_json_path.json'
+        time 10000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(6, json.NumberTotalRows)
+            assertEquals(6, json.NumberLoadedRows)
+        }
+    }
+
+    // A dotted-key collision is found when the value is stored, not when it is parsed, so it
+    // fails the whole load instead of loading NULL.
+    streamLoad {
+        table "duplicate_json_path"
+        set 'read_json_by_line', 'true'
+        set 'format', 'json'
+        inputText '''{"k":16,"v":{"a":1}}
+{"k":17,"v":{"a.b":8,"a":{"b":9}}}'''
+        time 10000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("may contains duplicated entry"), json.Message)
+        }
+    }
+
+    order_qt_rows """select k, v, v is null from duplicate_json_path order by k"""
 }
