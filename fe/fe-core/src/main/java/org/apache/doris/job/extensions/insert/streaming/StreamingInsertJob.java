@@ -404,7 +404,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private SourceOffsetProvider createOffsetProvider(Map<String, String> jdbcSourceProps) {
         SourceOffsetProvider provider;
         if (tvfType != null) {
-            provider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+            provider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType, jobProperties);
         } else {
             provider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, jdbcSourceProps);
         }
@@ -555,6 +555,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void updateJobStatus(JobStatus status) throws JobException {
         lock.writeLock().lock();
         try {
+            if (isFinalStatus() && !getJobStatus().equals(status)) {
+                throw new JobException("Can't update final job status " + getJobStatus() + " to " + status);
+            }
             super.updateJobStatus(status);
             if (JobStatus.PAUSED.equals(getJobStatus())) {
                 clearRunningStreamTask(status);
@@ -563,6 +566,65 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
             log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Move the job to {@code newStatus} only if it is still in {@code expectedStatus}.
+     *
+     * <p>{@link #createStreamingTask()} hands the task to {@code StreamingTaskScheduler} before the
+     * caller has marked the job RUNNING, so that scheduler thread may already have failed the task
+     * and paused the job. Writing RUNNING unconditionally would drop that PAUSED, and the job would
+     * then sit in RUNNING with a canceled task forever: handleRunningState() never creates a task
+     * for a TVF source, and the auto resume handler only runs while PAUSED.
+     *
+     * @return true when the status was updated, false when another thread already moved the job
+     */
+    public boolean updateJobStatusIfCurrent(JobStatus expectedStatus, JobStatus newStatus) throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (!expectedStatus.equals(getJobStatus())) {
+                return false;
+            }
+            updateJobStatus(newStatus);
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean tryFinishJob() throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (!isActive()) {
+                return false;
+            }
+            if (runningStreamTask != null && TaskStatus.PENDING.equals(runningStreamTask.getStatus())) {
+                // Cancel the waiting task when a metadata scan detects the end of the source.
+                cancelAllTasks(false);
+            }
+            resetFailureInfo(null);
+            updateJobStatus(JobStatus.FINISHED);
+            logUpdateOperation();
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private boolean tryPauseJob(FailureReason reason) throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (!isActive()
+                    || (getFailureReason() != null
+                    && InternalErrorCode.MANUAL_PAUSE_ERR.equals(getFailureReason().getCode()))) {
+                return false;
+            }
+            updateJobStatus(JobStatus.PAUSED);
+            setFailureReason(reason);
+            return true;
         } finally {
             lock.writeLock().unlock();
         }
@@ -742,17 +804,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             offsetProvider.fetchRemoteMeta(props);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
-            if (this.getFailureReason() == null
-                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
-                // When a job is manually paused, it does not need to be set again,
-                // otherwise, it may be woken up by auto resume.
-                // Pause before setting the reason: updateJobStatus's writeLock orders this after any
-                // task-success callback that clears failureReason, so a success can't wipe the reason.
-                this.updateJobStatus(JobStatus.PAUSED);
-                this.setFailureReason(
-                        new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                                "Failed to fetch meta, " + ex.getMessage()));
-
+            if (tryPauseJob(new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to fetch meta, " + ex.getMessage()))) {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
                 }
@@ -790,24 +843,22 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         } catch (Exception ex) {
             log.warn("advance splits failed, job id: {}", getJobId(), ex);
-            if (this.getFailureReason() == null
-                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
-                this.setFailureReason(new FailureReason(
-                        InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                        "Failed to advance splits, " + ex.getMessage()));
-                this.updateJobStatus(JobStatus.PAUSED);
-            }
+            tryPauseJob(new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to advance splits, " + ex.getMessage()));
         }
     }
 
     public boolean needScheduleTask() {
         readLock();
         try {
-            return (getJobStatus().equals(JobStatus.RUNNING)
-                    || getJobStatus().equals(JobStatus.PENDING));
+            return isActive();
         } finally {
             readUnlock();
         }
+    }
+
+    private boolean isActive() {
+        return JobStatus.PENDING.equals(getJobStatus()) || JobStatus.RUNNING.equals(getJobStatus());
     }
 
     public void clearRunningStreamTask(JobStatus newJobStatus) {
@@ -948,6 +999,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileSize(attachment.getFileBytes());
         this.jobStatistic.setFilteredRows(attachment.getFilteredRows());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+        this.offsetProviderPersist = offsetProvider.getPersistInfo();
 
         //update metric
         if (MetricRepo.isInit && !isReplay) {
@@ -1212,7 +1264,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private static boolean checkPrivilege(ConnectContext ctx, String  sql) throws AnalysisException {
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
         if (!(logicalPlan instanceof InsertIntoTableCommand)) {
-            throw new AnalysisException("Only support insert command");
+            throw new AnalysisException("Streaming jobs only support INSERT statements");
         }
         LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
         List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
@@ -1381,6 +1433,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
+        if (!txnOperated) {
+            // Cloud commit failures (including unavailable TSO) have no transaction state.
+            // Release beforeCommitted's lock before the task retries, without advancing offsets.
+            writeUnlock();
+            return;
+        }
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
         StreamingTaskTxnCommitAttachment attachment =
                 (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
@@ -1458,6 +1516,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void gsonPostProcess() throws IOException {
+        if (jobProperties == null && properties != null) {
+            jobProperties = new StreamingJobProperties(properties);
+        }
         if (offsetProvider == null) {
             offsetProvider = createOffsetProvider(sourceProperties);
             if (tvfType != null) {
@@ -1465,9 +1526,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         }
 
-        if (jobProperties == null && properties != null) {
-            jobProperties = new StreamingJobProperties(properties);
-        }
         recomputeDerivedFields();
 
         if (null == getSucceedTaskCount()) {
@@ -1538,7 +1596,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     && runningMultiTask.isTimeout(status)) {
                 String timeoutReason = status == null ? "" : status.getFailReason();
                 if (StringUtils.isEmpty(timeoutReason)) {
-                    timeoutReason = "task failed cause timeout";
+                    timeoutReason = "Streaming task " + runningMultiTask.getTaskId()
+                            + " timed out because no progress was reported.";
                 }
                 runningMultiTask.onFail(timeoutReason);
                 // renew streaming task by auto resume
@@ -1636,7 +1695,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     getJobId(), ratio, maxFilterRatio, sampleWindowFilteredRows, sampleWindowScannedRows);
             log.error(msg);
             FailureReason failureReason = new FailureReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                    "too many filtered rows exceeded max_filter_ratio " + maxFilterRatio);
+                    String.format(
+                            "too many filtered rows: ratio %s exceeds load.max_filter_ratio %s. "
+                                    + "Fix the source data or adjust the limit, then run RESUME JOB.",
+                            ratio, maxFilterRatio));
             this.setFailureReason(failureReason);
             this.updateJobStatus(JobStatus.PAUSED);
             throw new JobException(failureReason.getMsg());

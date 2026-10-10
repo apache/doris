@@ -137,7 +137,8 @@ Status RowGroupReader::init(
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(
                 _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
-                max_buf_size, col_offsets, _state, false, _column_ids, _filter_column_ids));
+                max_buf_size, col_offsets, _state, false, _column_ids, _filter_column_ids,
+                _preserve_binary_uuid));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");

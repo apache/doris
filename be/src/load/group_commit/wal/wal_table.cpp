@@ -157,25 +157,24 @@ Status WalTable::replay_wals() {
 }
 
 bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
+#ifdef BE_TEST
+    return true;
+#endif
     if (config::group_commit_wait_replay_wal_finish) {
         return true;
     }
-#ifndef BE_TEST
     int64_t replay_interval = 0;
     if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
-        replay_interval =
-                int64_t(pow(2, config::group_commit_replay_wal_retry_num) *
-                                config::group_commit_replay_wal_retry_interval_seconds * 1000 +
-                        (wal_info->get_retry_num() - config::group_commit_replay_wal_retry_num) *
-                                config::group_commit_replay_wal_retry_interval_max_seconds * 1000);
+        replay_interval = int64_t(
+                pow(2, config::group_commit_replay_wal_retry_num) *
+                        config::group_commit_replay_wal_retry_interval_seconds * 1000 +
+                (int64_t(wal_info->get_retry_num()) - config::group_commit_replay_wal_retry_num) *
+                        config::group_commit_replay_wal_retry_interval_max_seconds * 1000);
     } else {
         replay_interval = int64_t(pow(2, wal_info->get_retry_num()) *
                                   config::group_commit_replay_wal_retry_interval_seconds * 1000);
     }
     return UnixMillis() - wal_info->get_start_time_ms() >= replay_interval;
-#else
-    return true;
-#endif
 }
 
 Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {

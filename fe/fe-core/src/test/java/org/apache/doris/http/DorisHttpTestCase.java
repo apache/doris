@@ -59,14 +59,13 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import junit.framework.AssertionFailedError;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.Mockito;
 
 import java.io.File;
@@ -236,7 +235,7 @@ public abstract class DorisHttpTestCase {
         Env.getCurrentSystemInfo().addBackend(backend3);
     }
 
-    @BeforeClass
+    @BeforeAll
     public static void initHttpServer() throws IllegalArgException, InterruptedException {
         ServerSocket socket = null;
         try {
@@ -267,13 +266,13 @@ public abstract class DorisHttpTestCase {
         httpServer.start();
     }
 
-    @AfterClass
+    @AfterAll
     public static void afterClass() {
         File file = new File(DORIS_HOME);
         file.delete();
     }
 
-    @Before
+    @BeforeEach
     public void setUp() {
         Env env = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
@@ -296,7 +295,7 @@ public abstract class DorisHttpTestCase {
         doSetUp();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (originalEnvInstance != null) {
             try {
@@ -339,7 +338,7 @@ public abstract class DorisHttpTestCase {
         try {
             runnable.run();
         } catch (Throwable e) {
-            throw new AssertionFailedError(e.getMessage());
+            throw new AssertionError(e.getMessage());
         }
     }
 
@@ -360,10 +359,10 @@ public abstract class DorisHttpTestCase {
             if (expectedType.isInstance(e)) {
                 return expectedType.cast(e);
             }
-            AssertionFailedError assertion = new AssertionFailedError("Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
+            AssertionError assertion = new AssertionError("Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
             assertion.initCause(e);
             throw assertion;
         }
-        throw new AssertionFailedError(noExceptionMessage);
+        throw new AssertionError(noExceptionMessage);
     }
 }

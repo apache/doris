@@ -191,6 +191,10 @@ protected:
         return Status::OK();
     }
 
+    static void _init_slot_value_range(
+            phmap::flat_hash_map<int, ColumnValueRangeType>& slot_id_to_value_range,
+            SlotDescriptor* slot, const DataTypePtr& type_desc);
+
     // Non-templated normalize methods, moved here to avoid re-compilation per Derived type.
     Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);
     Status _normalize_bloom_filter(VExprContext* expr_ctx, const VExprSPtr& root,
@@ -441,6 +445,7 @@ protected:
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
+    bool _enable_condition_cache = false;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
 

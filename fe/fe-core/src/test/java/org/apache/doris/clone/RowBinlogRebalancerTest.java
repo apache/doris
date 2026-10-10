@@ -36,10 +36,10 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -60,7 +60,7 @@ public class RowBinlogRebalancerTest {
     private boolean previousRunningUnitTest;
     private MockedStatic<Env> mockedEnvStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         previousRunningUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = true;
@@ -100,7 +100,7 @@ public class RowBinlogRebalancerTest {
         db.registerTable(ordinaryTable);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
         FeConstants.runningUnitTest = previousRunningUnitTest;
@@ -123,11 +123,11 @@ public class RowBinlogRebalancerTest {
         TabletMeta ordinaryBaseMeta = new TabletMeta(DB_ID, ORDINARY_TABLE_ID, ORDINARY_PARTITION_ID,
                 ORDINARY_BASE_INDEX_ID, 0, TStorageMedium.HDD, false /* isRowBinlog */);
         for (Rebalancer rebalancer : rebalancers) {
-            Assert.assertFalse(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(baseMeta));
-            Assert.assertFalse(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(rowBinlogMeta));
-            Assert.assertFalse(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(fastFilteredMeta));
-            Assert.assertTrue(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(rollupMeta));
-            Assert.assertTrue(rebalancer.getClass().getSimpleName(), rebalancer.canBalanceTablet(ordinaryBaseMeta));
+            Assertions.assertFalse(rebalancer.canBalanceTablet(baseMeta), rebalancer.getClass().getSimpleName());
+            Assertions.assertFalse(rebalancer.canBalanceTablet(rowBinlogMeta), rebalancer.getClass().getSimpleName());
+            Assertions.assertFalse(rebalancer.canBalanceTablet(fastFilteredMeta), rebalancer.getClass().getSimpleName());
+            Assertions.assertTrue(rebalancer.canBalanceTablet(rollupMeta), rebalancer.getClass().getSimpleName());
+            Assertions.assertTrue(rebalancer.canBalanceTablet(ordinaryBaseMeta), rebalancer.getClass().getSimpleName());
         }
     }
 

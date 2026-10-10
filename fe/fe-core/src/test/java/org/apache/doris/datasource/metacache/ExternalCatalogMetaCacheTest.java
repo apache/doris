@@ -27,8 +27,8 @@ import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -41,11 +41,11 @@ public class ExternalCatalogMetaCacheTest {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {
             TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
-            Assert.assertThrows(IllegalStateException.class, () -> cache.entry(
+            Assertions.assertThrows(IllegalStateException.class, () -> cache.entry(
                     1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class));
 
             cache.initCatalog(1L, Maps.newHashMap());
-            Assert.assertNotNull(cache.entry(1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class));
+            Assertions.assertNotNull(cache.entry(1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class));
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -59,14 +59,14 @@ public class ExternalCatalogMetaCacheTest {
             cache.initCatalog(1L, Maps.newHashMap());
             MetaCache<SchemaCacheKey, SchemaCacheValue> enabledEntry = cache.entry(
                     1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
-            Assert.assertTrue(enabledEntry.isEnabled());
+            Assertions.assertTrue(enabledEntry.isEnabled());
 
             Map<String, String> disabledProperties = Maps.newHashMap();
             disabledProperties.put("meta.cache.test_engine.schema.ttl-second", "0");
             cache.initCatalog(2L, disabledProperties);
             MetaCache<SchemaCacheKey, SchemaCacheValue> disabledEntry = cache.entry(
                     2L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
-            Assert.assertFalse(disabledEntry.isEnabled());
+            Assertions.assertFalse(disabledEntry.isEnabled());
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -77,7 +77,7 @@ public class ExternalCatalogMetaCacheTest {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {
             TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
-            Assert.assertThrows(IllegalStateException.class, () -> cache.checkCatalogInitialized(1L));
+            Assertions.assertThrows(IllegalStateException.class, () -> cache.checkCatalogInitialized(1L));
             cache.initCatalog(1L, Maps.newHashMap());
             cache.checkCatalogInitialized(1L);
         } finally {
@@ -95,10 +95,10 @@ public class ExternalCatalogMetaCacheTest {
             MetaCache<SchemaCacheKey, SchemaCacheValue> schemaEntry = cache.entry(
                     1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class);
 
-            IllegalArgumentException exception = Assert.assertThrows(
+            IllegalArgumentException exception = Assertions.assertThrows(
                     IllegalArgumentException.class,
                     () -> schemaEntry.get(new SchemaCacheKey(NameMapping.createForTest(1L, "db1", "tbl1"))));
-            Assert.assertTrue(exception.getMessage().contains("Duplicate column name found"));
+            Assertions.assertTrue(exception.getMessage().contains("Duplicate column name found"));
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -112,10 +112,10 @@ public class ExternalCatalogMetaCacheTest {
             cache.initCatalog(1L, Maps.newHashMap());
             cache.invalidateCatalog(1L);
 
-            IllegalStateException exception = Assert.assertThrows(IllegalStateException.class,
+            IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
                     () -> cache.entry(1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class));
-            Assert.assertTrue(exception.getMessage().contains("not initialized"));
-            Assert.assertFalse(cache.isCatalogInitialized(1L));
+            Assertions.assertTrue(exception.getMessage().contains("not initialized"));
+            Assertions.assertFalse(cache.isCatalogInitialized(1L));
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -137,9 +137,9 @@ public class ExternalCatalogMetaCacheTest {
 
             cache.invalidateTable(1L, "db1", "tbl1");
 
-            Assert.assertNull(schemaEntry.getIfPresent(matched));
-            Assert.assertNotNull(schemaEntry.getIfPresent(unmatched));
-            Assert.assertTrue(cache.isCatalogInitialized(1L));
+            Assertions.assertNull(schemaEntry.getIfPresent(matched));
+            Assertions.assertNotNull(schemaEntry.getIfPresent(unmatched));
+            Assertions.assertTrue(cache.isCatalogInitialized(1L));
         } finally {
             refreshExecutor.shutdownNow();
         }

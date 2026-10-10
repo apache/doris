@@ -233,17 +233,21 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             } catch (Exception abortTxnException) {
                 LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier(), abortTxnException);
             }
-        } else if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+        } else if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransactionWithRetry(
                 database, Lists.newArrayList((Table) table),
                 txnId,
                 TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
                 ctx.getSessionVariable().getInsertVisibleTimeoutMs(), txnCommitAttachment,
                 streamUpdateInfos)) {
             txnStatus = TransactionStatus.VISIBLE;
+            markCommitted();
         } else {
             // Keep the committed status so load accounting and insert result bookkeeping stay aligned.
             txnStatus = TransactionStatus.COMMITTED;
             publishTimedOutAfterCommit = true;
+            // Committed, visible later: the rows are durable even though the session's visibility-timeout
+            // mode may report the timeout as an error. See InsertCommandContext#setCommitted.
+            markCommitted();
         }
         if (Config.isCloudMode()) {
             String clusterName = ctx.getCloudCluster();

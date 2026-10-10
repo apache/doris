@@ -19,6 +19,16 @@ package org.apache.doris.mysql.privilege;
 
 import java.util.Map;
 
+/**
+ * Publishes a {@link CatalogAccessController}, the older shape of an authorization source.
+ *
+ * @deprecated implement {@link org.apache.doris.authorization.spi.AuthorizationPluginFactory} instead, and
+ *         ship the plugin as a subdirectory of {@code authorization_plugins_dir} with the authorization
+ *         plugin API version declared in its jar manifest. A factory found through this interface is still
+ *         loaded, and a name published both ways resolves to the newer one; but this channel carries no
+ *         declared API version, so a plugin built against an older Doris is admitted with no diagnosis.
+ */
+@Deprecated
 public interface AccessControllerFactory {
     /**
      * Returns the identifier for the factory, such as "range-doris".

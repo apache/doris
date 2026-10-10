@@ -19,16 +19,19 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -92,9 +95,15 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Tests for {@link PaimonScanPlanProvider#resolveTable}, pinning the transient-Table reload
@@ -109,6 +118,15 @@ import java.util.Optional;
  * {@link RecordingPaimonCatalogOps} fake and a {@code null} real catalog — entirely offline.
  */
 public class PaimonScanPlanProviderTest {
+
+    private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
+    private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
+
+    @Test
+    public void scanReuseNamespaceUsesConnectorType() {
+        String prefix = new PaimonConnectorProvider().getType() + ".";
+        Assertions.assertTrue(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
+    }
 
     private static RowType rowType(String... columnNames) {
         RowType.Builder builder = RowType.builder();
@@ -256,8 +274,9 @@ public class PaimonScanPlanProviderTest {
         // Kerberos filesystem catalog that read runs on the PLUGIN's UGI copy, which only the plugin doAs
         // logs in (iceberg fourth-locus parity; iceberg CI proof: SELECT after INSERT failing SASL at the
         // plan-time manifest read). So planScan must wrap the enumeration in executeAuthenticated IN
-        // ADDITION to resolveTable's load wrap. MUTATION: dropping the planSplits wrap -> authCount stays
-        // 1 (load only) -> red.
+        // ADDITION to resolveTable's load wrap. The generation lookup is also a remote read and the fake
+        // below rejects it unless it runs inside authentication. MUTATION: dropping either remote-read
+        // wrap makes this test fail.
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
             catalog.createDatabase("db", false);
@@ -281,19 +300,243 @@ public class PaimonScanPlanProviderTest {
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
             RecordingConnectorContext ctx = new RecordingConnectorContext();
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, ctx);
+            ops.latestSnapshotAuthentication = ctx::isAuthenticated;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops, ctx);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
 
-            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
-                    ConnectorScanRequest.builder(handle, Collections.emptyList())
-                    .build());
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
+            ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .filter(Optional.of(equalIdFilter(1)))
+                    .build();
+            ConnectorScanRequest secondRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .filter(Optional.of(equalIdFilter(1)))
+                    .build();
+            Assertions.assertNotSame(firstRequest.getFilter().get(), secondRequest.getFilter().get());
+            List<ConnectorScanRange> ranges = provider.planScan(session, firstRequest);
+            List<ConnectorScanRange> reused = provider.planScan(session, secondRequest);
 
             Assertions.assertFalse(ranges.isEmpty(), "one committed row must plan at least one split");
-            Assertions.assertEquals(2, ctx.authCount,
-                    "planScan must run BOTH the table load (resolveTable) AND the split enumeration "
-                            + "(scan.plan(), the remote manifest read) inside executeAuthenticated");
+            Assertions.assertSame(ranges, reused,
+                    "independently built but structurally equal filters must share one statement plan");
+            Assertions.assertEquals(4, ctx.authCount,
+                    "two scans must authenticate one memoized table load, two generation lookups, "
+                            + "and one memoized split enumeration");
         }
+    }
+
+    @Test
+    public void fixedSnapshotAliasesDoNotReReadLiveGeneration(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "fixed_reuse");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            long pinnedSnapshotId = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "fixed_reuse", Collections.emptyList(), Collections.emptyList())
+                    .withScanOptions(Collections.singletonMap(
+                            CoreOptions.SCAN_SNAPSHOT_ID.key(), Long.toString(pinnedSnapshotId)));
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+
+            ops.latestSnapshotId = OptionalLong.of(pinnedSnapshotId);
+            List<ConnectorScanRange> first = provider.planScan(session, request);
+            ops.latestSnapshotId = OptionalLong.of(pinnedSnapshotId + 1);
+            List<ConnectorScanRange> second = provider.planScan(session, request);
+
+            Assertions.assertSame(first, second,
+                    "aliases pinned to one snapshot must reuse even when live latest advances");
+            Assertions.assertFalse(ops.log.contains("latestSnapshotId"),
+                    "a fixed snapshot identity must not probe the live latest pointer");
+        }
+    }
+
+    @Test
+    public void latestDependentIncrementalScanStillFencesOnLiveGeneration(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "incremental_reuse");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            long latestSnapshotId = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "incremental_reuse", Collections.emptyList(), Collections.emptyList())
+                    .withScanOptions(Collections.singletonMap(
+                            "incremental-between-timestamp", "0," + Long.MAX_VALUE));
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+
+            ops.latestSnapshotId = OptionalLong.of(latestSnapshotId);
+            List<ConnectorScanRange> first = provider.planScan(session, request);
+            ops.latestSnapshotId = OptionalLong.of(latestSnapshotId + 1);
+            List<ConnectorScanRange> second = provider.planScan(session, request);
+
+            Assertions.assertNotSame(first, second,
+                    "an open-ended incremental scan must not reuse across a live generation change");
+            Assertions.assertEquals(2, ops.log.stream().filter("latestSnapshotId"::equals).count(),
+                    "latest-dependent scans must retain one live generation fence per alias");
+        }
+    }
+
+    @Test
+    public void pinnedEmptyAliasesDoNotProbeLatest(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "empty_reuse");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "empty_reuse", Collections.emptyList(), Collections.emptyList())
+                    .withScanOptions(PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L));
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+
+            List<ConnectorScanRange> first = provider.planScan(session, request);
+            ops.latestSnapshotId = OptionalLong.of(1L);
+            List<ConnectorScanRange> second = provider.planScan(session, request);
+
+            Assertions.assertSame(first, second, "the statement's pinned-empty plan must remain empty and reusable");
+            Assertions.assertTrue(first.isEmpty());
+            Assertions.assertFalse(ops.log.contains("latestSnapshotId"),
+                    "a pinned-empty identity must not probe the live latest pointer");
+        }
+    }
+
+    @Test
+    public void statementResolutionKeepsAliasesOnOnePhysicalGeneration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+        FakePaimonTable generationA = new FakePaimonTable(
+                "generation-a", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable generationB = new FakePaimonTable(
+                "generation-b", rowType("id", "new_column"),
+                Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle firstAlias = new PaimonTableHandle(
+                "db", "t", Collections.emptyList(), Collections.emptyList());
+        firstAlias.setPaimonTable(generationA);
+        PaimonTableHandle secondAlias = new PaimonTableHandle(
+                "db", "t", Collections.emptyList(), Collections.emptyList());
+        secondAlias.setPaimonTable(generationB);
+        ConnectorSession session = sessionWithProps(
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                new TestStatementScope());
+
+        Table first = provider.resolveScanTableConsistent(session, firstAlias);
+        Table second = provider.resolveScanTableConsistent(session, secondAlias);
+
+        Assertions.assertSame(generationA, first);
+        Assertions.assertSame(first, second,
+                "equal logical aliases must not mix generation-A ranges with generation-B properties");
+    }
+
+    @Test
+    public void systemTableResolutionKeepsWrapperAndSourceHandleLocal() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+        FakePaimonTable wrapperA = new FakePaimonTable(
+                "wrapper-a", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable wrapperB = new FakePaimonTable(
+                "wrapper-b", rowType("id", "new_column"),
+                Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable sourceA = new FakePaimonTable(
+                "source-a", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable sourceB = new FakePaimonTable(
+                "source-b", rowType("id", "new_column"),
+                Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle firstAlias = PaimonTableHandle.forSystemTable("db", "t", "ro", false);
+        firstAlias.setPaimonTable(wrapperA);
+        firstAlias.setSystemTableSource(sourceA);
+        PaimonTableHandle secondAlias = PaimonTableHandle.forSystemTable("db", "t", "ro", false);
+        secondAlias.setPaimonTable(wrapperB);
+        secondAlias.setSystemTableSource(sourceB);
+        ConnectorSession session = sessionWithProps(
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                new TestStatementScope());
+
+        Table first = provider.resolveScanTableConsistent(session, firstAlias);
+        Table second = provider.resolveScanTableConsistent(session, secondAlias);
+
+        Assertions.assertEquals(firstAlias, secondAlias,
+                "the regression requires aliases that would otherwise share the statement memo");
+        Assertions.assertSame(wrapperA, first);
+        Assertions.assertSame(wrapperB, second,
+                "system-table properties must use the same handle-local generation as split planning");
+        Assertions.assertSame(sourceA, firstAlias.getSystemTableSource());
+        Assertions.assertSame(sourceB, secondAlias.getSystemTableSource());
+    }
+
+    @Test
+    public void statementTableIdentityIncludesSystemTableBranchAndOptions() {
+        PaimonTableHandle base = new PaimonTableHandle(
+                "db", "t", Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle system = PaimonTableHandle.forSystemTable("db", "t", "snapshots", false);
+        PaimonTableHandle branch = base.withBranch("audit");
+        Map<String, String> pinnedOptions = Collections.singletonMap("scan.snapshot-id", "7");
+        PaimonTableHandle pinned = base.withScanOptions(pinnedOptions);
+
+        PaimonScanPlanProvider.PaimonTableResolutionKey baseKey =
+                new PaimonScanPlanProvider.PaimonTableResolutionKey(base, Collections.emptyMap());
+        Assertions.assertNotEquals(baseKey,
+                new PaimonScanPlanProvider.PaimonTableResolutionKey(system, Collections.emptyMap()));
+        Assertions.assertNotEquals(baseKey,
+                new PaimonScanPlanProvider.PaimonTableResolutionKey(branch, Collections.emptyMap()));
+        Assertions.assertNotEquals(baseKey,
+                new PaimonScanPlanProvider.PaimonTableResolutionKey(pinned, pinnedOptions));
     }
 
     @Test
@@ -326,7 +569,7 @@ public class PaimonScanPlanProviderTest {
                     PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "limited", Collections.emptyList(), Collections.emptyList());
-            ConnectorSession session = sessionWithProps(Collections.emptyMap());
+            ConnectorSession session = sessionWithProps(Collections.emptyMap(), new TestStatementScope());
 
             List<ConnectorScanRange> unlimited = provider.planScan(session,
                     ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
@@ -555,7 +798,7 @@ public class PaimonScanPlanProviderTest {
                 }
             }
 
-            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
             FileStoreTable decorated = PrivilegedFileStoreTable.wrap(
                     pair, new AllGrantedPrivilegeChecker(), mainId);
             for (Table planningTable : Arrays.asList(pair, decorated)) {
@@ -666,6 +909,151 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void statementReuseKeepsScansWithDifferentPlanningInputsApart(@TempDir Path warehouse) throws Exception {
+        // The memo caches the final range list (split, routed and COUNT-collapsed), so every fact those ranges
+        // depend on must be in the reuse key. LIMIT and COUNT pushdown change the ranges themselves: sharing the
+        // plan would hand LIMIT 1's single split or the COUNT range to a scan that must read every row.
+        // MUTATION: dropping any fact from PaimonScanReuseKey (or the catalog id from the memo key) makes that
+        // scan return an earlier plan -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "reuse_key");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.INT())
+                    .partitionKeys("pt")
+                    .option("bucket", "1")
+                    .option("bucket-key", "id")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            commitRows(table, GenericRow.of(1, 1), GenericRow.of(2, 2));
+            long s1 = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+            commitRows(table, GenericRow.of(3, 1));
+            long s2 = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            ops.latestSnapshotId = OptionalLong.of(s2);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            TestStatementScope scope = new TestStatementScope();
+            ConnectorSession session = reuseSession(scope, 0L);
+            PaimonTableHandle latest = new PaimonTableHandle(
+                    "db", "reuse_key", Collections.emptyList(), Collections.emptyList());
+
+            List<ConnectorScanRange> plain = provider.planScan(session, scanOf(latest).build());
+            Assertions.assertTrue(plain.size() >= 2, "fixture must plan one split for each partition");
+            Assertions.assertSame(plain, provider.planScan(session, scanOf(latest).build()));
+            List<ConnectorScanRange> atS1 = provider.planScan(session, scanOf(pinnedTo(latest, s1)).build());
+            List<ConnectorScanRange> atS2 = provider.planScan(session, scanOf(pinnedTo(latest, s2)).build());
+            Map<String, String> sinceS1 = new LinkedHashMap<>();
+            sinceS1.put("incremental-between", s1 + "," + s2);
+            sinceS1.put("incremental-between-scan-mode", "delta");
+            Map<String, String> sinceS1Reordered = new LinkedHashMap<>();
+            sinceS1Reordered.put("incremental-between-scan-mode", "delta");
+            sinceS1Reordered.put("incremental-between", s1 + "," + s2);
+            List<ConnectorScanRange> delta = provider.planScan(session,
+                    scanOf(latest.withScanOptions(sinceS1)).build());
+            Assertions.assertSame(delta, provider.planScan(session,
+                    scanOf(latest.withScanOptions(sinceS1Reordered)).build()),
+                    "the same bounded incremental range given in another option order must reuse");
+            List<ConnectorScanRange> filtered = provider.planScan(session,
+                    scanOf(latest).filter(Optional.of(equalIdFilter(1))).build());
+            List<ConnectorScanRange> otherFilter = provider.planScan(session,
+                    scanOf(latest).filter(Optional.of(equalIdFilter(2))).build());
+            List<ConnectorScanRange> projected = provider.planScan(session, ConnectorScanRequest.builder(
+                    latest, Collections.singletonList(new PaimonColumnHandle("id", 0))).build());
+            List<ConnectorScanRange> limited = provider.planScan(session, scanOf(latest).limit(1).build());
+            Assertions.assertEquals(1, limited.size(), "LIMIT 1 stops split planning after one split");
+            List<ConnectorScanRange> count = provider.planScan(session, scanOf(latest).countPushdown(true).build());
+            Assertions.assertEquals(1, count.size(), "COUNT pushdown collapses the splits into one range");
+            Assertions.assertEquals("3", count.get(0).getProperties().get("paimon.row_count"));
+            List<ConnectorScanRange> onBranch = provider.planScan(session,
+                    scanOf(latest.withBranch("audit")).build());
+            List<ConnectorScanRange> otherCatalog = provider.planScan(reuseSession(scope, 1L),
+                    scanOf(latest).build());
+
+            List<List<ConnectorScanRange>> plans = Arrays.asList(plain, atS1, atS2, delta, filtered, otherFilter,
+                    projected, limited, count, onBranch, otherCatalog);
+            Set<List<ConnectorScanRange>> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
+            distinct.addAll(plans);
+            Assertions.assertEquals(plans.size(), distinct.size(),
+                    "scans with different inputs must not share a plan");
+        }
+    }
+
+    @Test
+    public void statementReuseNeverMemoizesSystemTables(@TempDir Path warehouse) throws Exception {
+        // System tables resolve their snapshot on the BE and are never reused. MUTATION: dropping the
+        // system-table bypass in planScan -> the statement scope gains the reuse memo -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "system_reuse");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+            commitRows(table, GenericRow.of(1));
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db", "system_reuse", "ro", false);
+            handle.setPaimonTable(new ReadOptimizedTable(table));
+            handle.setSysBaseTable(table);
+            handle.setSystemTableSource(table);
+            TestStatementScope scope = new TestStatementScope();
+            ConnectorSession session = reuseSession(scope, 0L);
+            ConnectorScanRequest request = scanOf(handle).build();
+
+            List<ConnectorScanRange> first = provider.planScan(session, request);
+            List<ConnectorScanRange> second = provider.planScan(session, request);
+
+            Assertions.assertFalse(first.isEmpty(), "one committed row must plan at least one split");
+            Assertions.assertNotSame(first, second);
+            Assertions.assertFalse(scope.contains(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE + ":0:q"),
+                    "a system table must not be planned through the statement reuse memo");
+        }
+    }
+
+    private static void commitRows(Table table, GenericRow... rows) throws Exception {
+        BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = writeBuilder.newWrite()) {
+            for (GenericRow row : rows) {
+                write.write(row);
+            }
+            List<CommitMessage> messages = write.prepareCommit();
+            try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                commit.commit(messages);
+            }
+        }
+    }
+
+    private static PaimonTableHandle pinnedTo(PaimonTableHandle handle, long snapshotId) {
+        return handle.withScanOptions(Collections.singletonMap(
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), Long.toString(snapshotId)));
+    }
+
+    private static ConnectorSession reuseSession(TestStatementScope scope, long catalogId) {
+        return sessionWithProps(Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                scope, catalogId);
+    }
+
+    private static ConnectorScanRequest.Builder scanOf(PaimonTableHandle handle) {
+        return ConnectorScanRequest.builder(handle, Collections.emptyList());
+    }
+
+    private static ConnectorExpression equalIdFilter(long value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), value));
+    }
+
     /** Builds a native-eligible RawFile (parquet suffix). The numeric fields are irrelevant to the
      * native-vs-JNI routing decision under test, only the path suffix matters. */
     private static RawFile parquetRawFile(String path) {
@@ -736,16 +1124,19 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
-    public void variantProjectionOverridesOnlyTheSessionForceForParquet() {
+    public void variantProjectionHonorsJniForcingAndUsesNativeOnlyForCompatibleFiles() {
         Optional<List<RawFile>> rawFiles = Optional.of(
                 Arrays.asList(parquetRawFile("/data/part-0.parquet")));
 
         Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
                         true, false, true, rawFiles),
                 "system-table forceJni preserves semantics that the raw-file reader cannot reproduce");
-        Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
+        Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
                         false, true, true, rawFiles),
-                "Variant has no JNI carrier, so only the user session force may be overridden");
+                "force_jni_scanner must route Variant projections through the JNI carrier");
+        Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, false, true, rawFiles),
+                "physical Variant fields in Parquet use the native schema override");
 
         Optional<List<RawFile>> orcFiles = Optional.of(Arrays.asList(
                 new RawFile("/data/part-0.orc", 0L, 100L, 100L, "orc", 0L, 0L)));
@@ -890,6 +1281,98 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertEquals(Collections.singletonMap("scan.snapshot-id", "5"),
                 base.lastCopyOptions,
                 "the scan path must layer the handle's scanOptions via Table.copy(scanOptions)");
+    }
+
+    @Test
+    public void resolveScanTableKeepsCurrentSchemaForStatementSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long dataSnapshotId = firstGeneration.latestSnapshot()
+                    .orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(latestGeneration);
+            PaimonTableHandle pinned = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
+                    .applySnapshot(null, handle, ConnectorMvccSnapshot.builder()
+                            .snapshotId(dataSnapshotId)
+                            .build());
+
+            Table scanTable = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops).resolveScanTable(pinned);
+
+            Assertions.assertTrue(scanTable.rowType().getFieldNames().contains("added"),
+                    "pinning data visibility must not roll a normal query back to the snapshot's old schema");
+            Assertions.assertEquals(String.valueOf(dataSnapshotId),
+                    scanTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+        }
+    }
+
+    @Test
+    public void resolveScanTableKeepsCurrentSchemaForReaderOnlyOptions(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long dataSnapshotId = firstGeneration.latestSnapshot()
+                    .orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(latestGeneration);
+            Map<String, String> scanOptions = PaimonScanParams.markAsOptions(
+                    PaimonScanParams.pinOptionsToSnapshot(
+                            Collections.singletonMap("scan.plan-sort-partition", "true"),
+                            dataSnapshotId));
+
+            Table scanTable = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingPaimonCatalogOps())
+                    .resolveScanTable(handle.withScanOptions(scanOptions));
+
+            Assertions.assertTrue(scanTable.rowType().getFieldNames().contains("added"),
+                    "reader-only OPTIONS must retain the current bound schema while pinning data visibility");
+            Assertions.assertEquals("true", scanTable.options().get("scan.plan-sort-partition"));
+        }
     }
 
     @Test
@@ -1458,13 +1941,18 @@ public class PaimonScanPlanProviderTest {
                 "precondition: nativeBinaryEncode really is the paimon::Split::Deserialize format");
     }
 
-    /** A non-DataSplit Split (the only abstract method is rowCount(); Split is Serializable). */
+    /** A non-DataSplit Split used to verify the Java serialization route. */
     private static final class NonDataSplitStub implements Split {
         private static final long serialVersionUID = 1L;
 
         @Override
         public long rowCount() {
             return 0;
+        }
+
+        @Override
+        public OptionalLong mergedRowCount() {
+            return OptionalLong.empty();
         }
     }
 
@@ -1487,13 +1975,13 @@ public class PaimonScanPlanProviderTest {
         // (post-merge / post-deletion-vector) row count, so a COUNT(*) over it can be served from
         // metadata instead of materializing rows.
         DataSplit dataSplit = buildRealDataSplit(warehouse);
-        Assertions.assertTrue(dataSplit.mergedRowCountAvailable(),
+        Assertions.assertTrue(dataSplit.mergedRowCount().isPresent(),
                 "precondition: a freshly written PK split has a precomputed merged row count");
-        Assertions.assertEquals(2L, dataSplit.mergedRowCount(), "two rows were written");
+        Assertions.assertEquals(2L, dataSplit.mergedRowCount().getAsLong(), "two rows were written");
 
         // WHY: the count branch must fire ONLY when BOTH the agg is COUNT (countPushdown) AND the SDK
         // precomputed the post-merge count — mirrors legacy `applyCountPushdown &&
-        // dataSplit.mergedRowCountAvailable()`. MUTATION: dropping `countPushdown &&` (or hard-coding
+        // dataSplit.mergedRowCount().isPresent()`. MUTATION: dropping `countPushdown &&` (or hard-coding
         // the helper to false) -> one of these two assertions flips -> red.
         Assertions.assertTrue(PaimonScanPlanProvider.isCountPushdownSplit(true, dataSplit),
                 "a count query over a split with a precomputed merged count must push the count down");
@@ -2385,7 +2873,22 @@ public class PaimonScanPlanProviderTest {
     }
 
     private static ConnectorSession sessionWithProps(Map<String, String> sessionProps) {
+        return sessionWithProps(sessionProps, ConnectorStatementScope.NONE);
+    }
+
+    private static ConnectorSession sessionWithProps(
+            Map<String, String> sessionProps, ConnectorStatementScope statementScope) {
+        return sessionWithProps(sessionProps, statementScope, 0L);
+    }
+
+    private static ConnectorSession sessionWithProps(
+            Map<String, String> sessionProps, ConnectorStatementScope statementScope, long catalogId) {
         return new ConnectorSession() {
+            @Override
+            public ConnectorStatementScope getStatementScope() {
+                return statementScope;
+            }
+
             @Override
             public String getQueryId() {
                 return "q";
@@ -2408,7 +2911,7 @@ public class PaimonScanPlanProviderTest {
 
             @Override
             public long getCatalogId() {
-                return 0;
+                return catalogId;
             }
 
             @Override
@@ -2433,6 +2936,21 @@ public class PaimonScanPlanProviderTest {
         };
     }
 
+    private static final class TestStatementScope implements ConnectorStatementScope {
+        private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
+
+        /** Whether something was memoized under {@code key}, e.g. the statement reuse map. */
+        boolean contains(String key) {
+            return cache.containsKey(key);
+        }
+    }
+
     @Test
     public void isForceJniScannerEnabledReadsSessionProperty() {
         // FIX-FORCE-JNI-SCANNER (M-1): pins the EXACT session key ("force_jni_scanner", byte-identical to
@@ -2447,6 +2965,27 @@ public class PaimonScanPlanProviderTest {
                 sessionWithProps(Collections.emptyMap())), "absent flag must default to false");
         Assertions.assertFalse(PaimonScanPlanProvider.isForceJniScannerEnabled(null),
                 "a null session must default to false");
+    }
+
+    @Test
+    public void fileMetadataColumnsRequireFileScannerV2() {
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "true"))));
+        Assertions.assertFalse(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "false"))));
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.emptyMap())));
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(null));
+    }
+
+    @Test
+    public void disabledScanReuseDoesNotDisableSplitTypeFiltering() {
+        Map<String, String> sessionProperties = new HashMap<>();
+        sessionProperties.put("enable_external_scan_task_reuse", "false");
+        sessionProperties.put("ignore_split_type", "IGNORE_NATIVE");
+
+        Assertions.assertEquals("IGNORE_NATIVE", PaimonScanPlanProvider.resolveIgnoreSplitType(
+                sessionWithProps(sessionProperties)));
     }
 
     // ---------------------------------------------------------------------
@@ -3053,6 +3592,39 @@ public class PaimonScanPlanProviderTest {
                 .getRootField().getFields().get(0).getFieldPtr().getId());
         Assertions.assertEquals("new_a", params.getHistorySchemaInfo().get(2)
                 .getRootField().getFields().get(0).getFieldPtr().getName());
+    }
+
+    @Test
+    public void metadataColumnsAreExcludedFromSchemaEvolutionAndFenceBackendVersion(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            FileStoreTable base = createSingleSchemaTable(catalog);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = base;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = plainHandle();
+
+            List<ConnectorColumnHandle> metadataOnly = Collections.singletonList(
+                    new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1));
+            Map<String, String> metadataOnlyProps = provider.getScanNodeProperties(
+                    null, handle, metadataOnly, Optional.empty());
+            Assertions.assertEquals("Current Paimon metadata column semantics",
+                    metadataOnlyProps.get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+            Assertions.assertNotNull(metadataOnlyProps.get("paimon.schema_evolution"),
+                    "metadata-only scans must still carry a valid physical schema dictionary");
+
+            List<ConnectorColumnHandle> mixed = Arrays.asList(
+                    new PaimonColumnHandle("id", 0),
+                    new PaimonColumnHandle(PAIMON_ROW_POSITION_COL, -1));
+            Map<String, String> mixedProps = provider.getScanNodeProperties(
+                    null, handle, mixed, Optional.empty());
+            Assertions.assertEquals("Current Paimon metadata column semantics",
+                    mixedProps.get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+            Assertions.assertNotNull(mixedProps.get("paimon.schema_evolution"),
+                    "mixed scans must build the schema dictionary from physical columns only");
+        }
     }
 
     @Test

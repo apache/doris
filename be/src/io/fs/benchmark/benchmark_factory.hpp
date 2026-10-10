@@ -103,8 +103,10 @@ public:
         doris::CpuInfo::init();
         Status status = Status::OK();
         if (doris::config::enable_java_support) {
-            // Init jni
-            status = doris::Jni::Util::Init();
+            // Create the JVM up front, so that a broken Java setup shows up here instead
+            // of in the middle of a benchmark run.
+            JNIEnv* env = nullptr;
+            status = doris::Jni::Env::Get(&env);
             if (!status.ok()) {
                 LOG(WARNING) << "Failed to initialize JNI: " << status;
                 exit(1);

@@ -35,6 +35,8 @@ suite("nereids_scalar_fn_map") {
     order_qt_element_at_str_tint    """ select km_str_tint[kstr] from fn_test """
     order_qt_element_at_date_tint   """ select km_date_tint[kdt] from fn_test """
     order_qt_element_at_dtm_tint    """ select km_dtm_tint[kdtm] from fn_test """
+    order_qt_element_at_tsns_tint   """ select km_tsns_tint[ktsns] from fn_test """
+    order_qt_element_at_tint_tsns   """ select km_tint_tsns[ktint] from fn_test """
 
     order_qt_element_at_bool_tint_notnull   """ select km_bool_tint[kbool] from fn_test_not_nullable """
     order_qt_element_at_tint_tint_notnull   """ select km_tint_tint[ktint] from fn_test_not_nullable """
@@ -50,6 +52,8 @@ suite("nereids_scalar_fn_map") {
     order_qt_element_at_str_tint_notnull    """ select km_str_tint[kstr] from fn_test_not_nullable """
     order_qt_element_at_date_tint_notnull   """ select km_date_tint[kdt] from fn_test_not_nullable """
     order_qt_element_at_dtm_tint_notnull    """ select km_dtm_tint[kdtm] from fn_test_not_nullable """
+    order_qt_element_at_tsns_tint_notnull   """ select km_tsns_tint[ktsns] from fn_test_not_nullable """
+    order_qt_element_at_tint_tsns_notnull   """ select km_tint_tsns[ktint] from fn_test_not_nullable """
 
     // map size
     order_qt_map_size_bool_tint   """ select map_size(km_bool_tint) from fn_test """
@@ -66,6 +70,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_size_str_tint    """ select map_size(km_str_tint) from fn_test """
     order_qt_map_size_date_tint   """ select map_size(km_date_tint) from fn_test """
     order_qt_map_size_dtm_tint    """ select map_size(km_dtm_tint) from fn_test """
+    order_qt_map_size_tsns_tint   """ select map_size(km_tsns_tint) from fn_test """
     order_qt_map_size_tint_bool   """ select map_size(km_tint_bool) from fn_test """
     order_qt_map_size_int_int     """ select map_size(km_int_int) from fn_test """
     order_qt_map_size_tint_sint   """ select map_size(km_tint_sint) from fn_test """
@@ -80,6 +85,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_size_tint_str    """ select map_size(km_tint_str) from fn_test """
     order_qt_map_size_tint_date   """ select map_size(km_tint_date) from fn_test """
     order_qt_map_size_tint_dtm    """ select map_size(km_tint_dtm) from fn_test """
+    order_qt_map_size_tint_tsns   """ select map_size(km_tint_tsns) from fn_test """
     order_qt_map_size_bool_tint_notnull   """ select map_size(km_bool_tint) from fn_test_not_nullable """
     order_qt_map_size_tint_tint_notnull   """ select map_size(km_tint_tint) from fn_test_not_nullable """
     order_qt_map_size_sint_tint_notnull   """ select map_size(km_sint_tint) from fn_test_not_nullable """
@@ -94,6 +100,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_size_str_tint_notnull    """ select map_size(km_str_tint) from fn_test_not_nullable """
     order_qt_map_size_date_tint_notnull   """ select map_size(km_date_tint) from fn_test_not_nullable """
     order_qt_map_size_dtm_tint_notnull    """ select map_size(km_dtm_tint) from fn_test_not_nullable """
+    order_qt_map_size_tsns_tint_notnull   """ select map_size(km_tsns_tint) from fn_test_not_nullable """
     order_qt_map_size_tint_bool_notnull   """ select map_size(km_tint_bool) from fn_test_not_nullable """
     order_qt_map_size_int_int_notnull     """ select map_size(km_int_int) from fn_test_not_nullable """
     order_qt_map_size_tint_sint_notnull   """ select map_size(km_tint_sint) from fn_test_not_nullable """
@@ -108,6 +115,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_size_tint_str_notnull    """ select map_size(km_tint_str) from fn_test_not_nullable """
     order_qt_map_size_tint_date_notnull   """ select map_size(km_tint_date) from fn_test_not_nullable """
     order_qt_map_size_tint_dtm_notnull    """ select map_size(km_tint_dtm) from fn_test_not_nullable """
+    order_qt_map_size_tint_tsns_notnull   """ select map_size(km_tint_tsns) from fn_test_not_nullable """
 
     // size same with map_size
     order_qt_size_bool_tint   """ select size(km_bool_tint) from fn_test """
@@ -124,6 +132,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_size_str_tint    """ select size(km_str_tint) from fn_test """
     order_qt_size_date_tint   """ select size(km_date_tint) from fn_test """
     order_qt_size_dtm_tint    """ select size(km_dtm_tint) from fn_test """
+    order_qt_size_tsns_tint   """ select size(km_tsns_tint) from fn_test """
     order_qt_size_tint_bool   """ select size(km_tint_bool) from fn_test """
     order_qt_size_int_int     """ select size(km_int_int) from fn_test """
     order_qt_size_tint_sint   """ select size(km_tint_sint) from fn_test """
@@ -138,6 +147,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_size_tint_str    """ select size(km_tint_str) from fn_test """
     order_qt_size_tint_date   """ select size(km_tint_date) from fn_test """
     order_qt_size_tint_dtm    """ select size(km_tint_dtm) from fn_test """
+    order_qt_size_tint_tsns   """ select size(km_tint_tsns) from fn_test """
     order_qt_size_bool_tint_notnull   """ select size(km_bool_tint) from fn_test_not_nullable """
     order_qt_size_tint_tint_notnull   """ select size(km_tint_tint) from fn_test_not_nullable """
     order_qt_size_sint_tint_notnull   """ select size(km_sint_tint) from fn_test_not_nullable """
@@ -152,6 +162,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_size_str_tint_notnull    """ select size(km_str_tint) from fn_test_not_nullable """
     order_qt_size_date_tint_notnull   """ select size(km_date_tint) from fn_test_not_nullable """
     order_qt_size_dtm_tint_notnull    """ select size(km_dtm_tint) from fn_test_not_nullable """
+    order_qt_size_tsns_tint_notnull   """ select size(km_tsns_tint) from fn_test_not_nullable """
     order_qt_size_tint_bool_notnull   """ select size(km_tint_bool) from fn_test_not_nullable """
     order_qt_size_int_int_notnull     """ select size(km_int_int) from fn_test_not_nullable """
     order_qt_size_tint_sint_notnull   """ select size(km_tint_sint) from fn_test_not_nullable """
@@ -166,6 +177,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_size_tint_str_notnull    """ select size(km_tint_str) from fn_test_not_nullable """
     order_qt_size_tint_date_notnull   """ select size(km_tint_date) from fn_test_not_nullable """
     order_qt_size_tint_dtm_notnull    """ select size(km_tint_dtm) from fn_test_not_nullable """
+    order_qt_size_tint_tsns_notnull   """ select size(km_tint_tsns) from fn_test_not_nullable """
     
     // map_keys
     order_qt_map_keys_bool_tint   """ select map_keys(km_bool_tint) from fn_test """
@@ -182,6 +194,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_keys_str_tint    """ select map_keys(km_str_tint) from fn_test """
     order_qt_map_keys_date_tint   """ select map_keys(km_date_tint) from fn_test """
     order_qt_map_keys_dtm_tint    """ select map_keys(km_dtm_tint) from fn_test """
+    order_qt_map_keys_tsns_tint   """ select map_keys(km_tsns_tint) from fn_test """
     order_qt_map_keys_bool_tint_notnull   """ select map_keys(km_bool_tint) from fn_test_not_nullable """
     order_qt_map_keys_tint_tint_notnull   """ select map_keys(km_tint_tint) from fn_test_not_nullable """
     order_qt_map_keys_sint_tint_notnull   """ select map_keys(km_sint_tint) from fn_test_not_nullable """
@@ -196,6 +209,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_keys_str_tint_notnull    """ select map_keys(km_str_tint) from fn_test_not_nullable """
     order_qt_map_keys_date_tint_notnull   """ select map_keys(km_date_tint) from fn_test_not_nullable """
     order_qt_map_keys_dtm_tint_notnull    """ select map_keys(km_dtm_tint) from fn_test_not_nullable """
+    order_qt_map_keys_tsns_tint_notnull   """ select map_keys(km_tsns_tint) from fn_test_not_nullable """
 
     // map_values
     order_qt_map_values_tint_bool   """ select map_values(km_tint_bool) from fn_test """
@@ -212,6 +226,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_values_tint_str    """ select map_values(km_tint_str) from fn_test """
     order_qt_map_values_tint_date   """ select map_values(km_tint_date) from fn_test """
     order_qt_map_values_tint_dtm    """ select map_values(km_tint_dtm) from fn_test """
+    order_qt_map_values_tint_tsns   """ select map_values(km_tint_tsns) from fn_test """
     order_qt_map_values_tint_bool_notnull   """ select map_values(km_tint_bool) from fn_test_not_nullable """
     order_qt_map_values_int_int_notnull     """ select map_values(km_int_int) from fn_test_not_nullable """
     order_qt_map_values_tint_sint_notnull   """ select map_values(km_tint_sint) from fn_test_not_nullable """
@@ -226,6 +241,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_values_tint_str_notnull    """ select map_values(km_tint_str) from fn_test_not_nullable """
     order_qt_map_values_tint_date_notnull   """ select map_values(km_tint_date) from fn_test_not_nullable """
     order_qt_map_values_tint_dtm_notnull    """ select map_values(km_tint_dtm) from fn_test_not_nullable """
+    order_qt_map_values_tint_tsns_notnull   """ select map_values(km_tint_tsns) from fn_test_not_nullable """
 
     // map_contains_key
     order_qt_map_contains_key_bool_tint   """ select map_contains_key(km_bool_tint, kbool) from fn_test """
@@ -242,6 +258,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_contains_key_str_tint    """ select map_contains_key(km_str_tint, kstr) from fn_test """
     order_qt_map_contains_key_date_tint   """ select map_contains_key(km_date_tint, kdt) from fn_test """
     order_qt_map_contains_key_dtm_tint    """ select map_contains_key(km_dtm_tint, kdtm) from fn_test """
+    order_qt_map_contains_key_tsns_tint   """ select map_contains_key(km_tsns_tint, ktsns) from fn_test """
     order_qt_map_contains_key_bool_tint_notnull   """ select map_contains_key(km_bool_tint, kbool) from fn_test_not_nullable """
     order_qt_map_contains_key_tint_tint_notnull   """ select map_contains_key(km_tint_tint, ktint) from fn_test_not_nullable """
     order_qt_map_contains_key_sint_tint_notnull   """ select map_contains_key(km_sint_tint, ksint) from fn_test_not_nullable """
@@ -256,6 +273,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_contains_key_str_tint_notnull    """ select map_contains_key(km_str_tint, kstr) from fn_test_not_nullable """
     order_qt_map_contains_key_date_tint_notnull   """ select map_contains_key(km_date_tint, kdt) from fn_test_not_nullable """
     order_qt_map_contains_key_dtm_tint_notnull    """ select map_contains_key(km_dtm_tint, kdtm) from fn_test_not_nullable """
+    order_qt_map_contains_key_tsns_tint_notnull   """ select map_contains_key(km_tsns_tint, ktsns) from fn_test_not_nullable """
 
     // map_contains_value
     order_qt_map_contains_value_tint_bool   """ select map_contains_value(km_tint_bool, kbool) from fn_test """
@@ -272,6 +290,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_contains_value_tint_str    """ select map_contains_value(km_tint_str, kstr) from fn_test """
     order_qt_map_contains_value_tint_date   """ select map_contains_value(km_tint_date, kdt) from fn_test """
     order_qt_map_contains_value_tint_dtm    """ select map_contains_value(km_tint_dtm, kdtm) from fn_test """
+    order_qt_map_contains_value_tint_tsns   """ select map_contains_value(km_tint_tsns, ktsns) from fn_test """
     order_qt_map_contains_value_tint_bool_notnull   """ select map_contains_value(km_tint_bool, kbool) from fn_test_not_nullable """
     order_qt_map_contains_value_int_int_notnull     """ select map_contains_value(km_int_int, ktint) from fn_test_not_nullable """
     order_qt_map_contains_value_tint_sint_notnull   """ select map_contains_value(km_tint_sint, ksint) from fn_test_not_nullable """
@@ -286,6 +305,7 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_contains_value_tint_str_notnull    """ select map_contains_value(km_tint_str, kstr) from fn_test_not_nullable """
     order_qt_map_contains_value_tint_date_notnull   """ select map_contains_value(km_tint_date, kdt) from fn_test_not_nullable """
     order_qt_map_contains_value_tint_dtm_notnull    """ select map_contains_value(km_tint_dtm, kdtm) from fn_test_not_nullable """
+    order_qt_map_contains_value_tint_tsns_notnull   """ select map_contains_value(km_tint_tsns, ktsns) from fn_test_not_nullable """
 
     // map constructor function tests - bugfix for CreateMap with args not deducible
     sql """ set enable_fold_constant_by_be=true;"""

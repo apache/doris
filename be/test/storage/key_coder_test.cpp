@@ -174,6 +174,7 @@ TEST_F(KeyCoderTest, test_int) {
     test_integer_encode<FieldType::OLAP_FIELD_TYPE_LARGEINT>();
 
     test_integer_encode<FieldType::OLAP_FIELD_TYPE_DATETIME>();
+    test_integer_encode<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS>();
 }
 
 TEST_F(KeyCoderTest, test_date) {
@@ -284,32 +285,34 @@ TEST_F(KeyCoderTest, test_decimal) {
 }
 
 // Encode an ascending sequence of compute-layer values via
-// full_encode_field_as_key<PT> -- the same helper RowCursor::encode_key and
+// full_encode_field_as_key<FT> -- the same helper RowCursor::encode_key and
 // the BKD inverted-index reader use -- and assert the byte order matches.
 //
-// Locks in the contract that PrimitiveTypeConvertor<PT> + KeyCoder together
-// preserve the compute-layer ordering for every (PrimitiveType, FieldType)
-// pair used as a sortable key.
+// Locks in the contract that StorageLayout<FT>::to_storage + KeyCoder together
+// preserve the compute-layer ordering for every FieldType used as a sortable
+// key.
 //
 // Why no `scale` or `frac` parameter? The contract under test is exactly
 // "the encode path does not read scale/frac". They live on TabletColumn
 // metadata (`_precision`, `_frac`) one layer above and never reach
-// `Field::create_field<PT>`, `PrimitiveTypeConvertor<PT>`, or `KeyCoder`.
+// `Field::create_field<PT>`, `StorageLayout<FT>`, or `KeyCoder`.
 // So each subgroup below picks raw ints that *would* arise from a column at
 // some hypothetical scale, labels the subgroup `scale=N` to make the human
 // interpretation explicit, and asserts ordering -- the encode result is by
 // construction identical regardless of which scale the column declared.
-template <PrimitiveType PT, typename ComputeT>
-static void check_full_encode_preserves_order(FieldType ft, const std::vector<ComputeT>& ascending,
-                                              const char* label) {
-    const KeyCoder* coder = get_key_coder(ft);
+template <FieldType FT>
+static void check_full_encode_preserves_order(
+        const std::vector<typename PrimitiveTypeTraits<
+                storage_field_type_to_primitive_type(FT)>::CppType>& ascending,
+        const char* label) {
+    const KeyCoder* coder = get_key_coder(FT);
     ASSERT_NE(coder, nullptr) << label;
     std::vector<std::string> encoded;
     encoded.reserve(ascending.size());
     for (const auto& v : ascending) {
-        Field f = Field::create_field<PT>(v);
+        Field f = Field::create_field<storage_field_type_to_primitive_type(FT)>(v);
         std::string buf;
-        full_encode_field_as_key<PT>(f, coder, &buf);
+        full_encode_field_as_key<FT>(f, coder, &buf);
         encoded.push_back(std::move(buf));
     }
     for (size_t i = 0; i + 1 < encoded.size(); ++i) {
@@ -346,8 +349,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
 
     // -------- DECIMAL32 (compute=Decimal32, storage=Int32) --------
     // scale=0 (DECIMAL(9,0)): whole int32 range
-    check_full_encode_preserves_order<TYPE_DECIMAL32, Decimal32>(
-            FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(
             {Decimal32(std::numeric_limits<int32_t>::min()),  //  INT32_MIN
              Decimal32(int32_t(-99999)),                      //  -99999
              Decimal32(int32_t(-1)),                          //      -1
@@ -359,8 +361,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     // scale=2 (DECIMAL(9,2)): raw = whole * 100 + frac
     {
         const int32_t s = pow10_i32(2);
-        check_full_encode_preserves_order<TYPE_DECIMAL32, Decimal32>(
-                FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+        check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(
                 {Decimal32(-123456 * s),      // -123456.00
                  Decimal32(-12 * s - 34),     //     -12.34
                  Decimal32(-1),               //      -0.01
@@ -373,8 +374,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     // scale=9 (DECIMAL(9,9)): -0.999999999 .. +0.999999999 (whole always 0)
     {
         const int32_t s = pow10_i32(9);
-        check_full_encode_preserves_order<TYPE_DECIMAL32, Decimal32>(
-                FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+        check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(
                 {Decimal32(-(s - 1)), // -0.999999999
                  Decimal32(-1),       // -0.000000001
                  Decimal32(0),        //  0
@@ -385,8 +385,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
 
     // -------- DECIMAL64 (compute=Decimal64, storage=Int64) --------
     // scale=0: whole int64 range
-    check_full_encode_preserves_order<TYPE_DECIMAL64, Decimal64>(
-            FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(
             {Decimal64(std::numeric_limits<int64_t>::min()), //  INT64_MIN
              Decimal64(int64_t(-1'000'000'000LL)),           //   -1 000 000 000
              Decimal64(int64_t(-1)), Decimal64(int64_t(0)), Decimal64(int64_t(1)),
@@ -396,8 +395,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     // scale=4 (DECIMAL(18,4))
     {
         const int64_t s = pow10_i64(4);
-        check_full_encode_preserves_order<TYPE_DECIMAL64, Decimal64>(
-                FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+        check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(
                 {Decimal64(-123456 * s - 7890),                  // -123456.7890
                  Decimal64(-int64_t(1)),                         //      -0.0001
                  Decimal64(int64_t(0)),                          //       0.0000
@@ -408,8 +406,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     // scale=18 (DECIMAL(18,18)): whole always 0, full fractional range
     {
         const int64_t s = pow10_i64(18);
-        check_full_encode_preserves_order<TYPE_DECIMAL64, Decimal64>(
-                FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+        check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(
                 {Decimal64(-(s - 1)), // -0.999999999999999999
                  Decimal64(int64_t(-1)), Decimal64(int64_t(0)), Decimal64(int64_t(1)),
                  Decimal64(s - 1)}, //  0.999999999999999999
@@ -418,8 +415,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
 
     // -------- DECIMAL128I (compute=Decimal128V3, storage=Int128) --------
     // scale=0: span ±2^100 to exercise both halves of int128.
-    check_full_encode_preserves_order<TYPE_DECIMAL128I, Decimal128V3>(
-            FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(
             {Decimal128V3(-(static_cast<int128_t>(1) << 100)), // -2^100
              Decimal128V3(int128_t(-1)), Decimal128V3(int128_t(0)), Decimal128V3(int128_t(1)),
              Decimal128V3(static_cast<int128_t>(1) << 100)}, //  2^100
@@ -427,8 +423,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     // scale=10 (DECIMAL(38,10))
     {
         const int128_t s = pow10_i128(10);
-        check_full_encode_preserves_order<TYPE_DECIMAL128I, Decimal128V3>(
-                FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+        check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(
                 {Decimal128V3(-int128_t(100) * s), // -100.0000000000
                  Decimal128V3(int128_t(-1)),       //   -0.0000000001
                  Decimal128V3(int128_t(0)),
@@ -441,8 +436,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
 
     // -------- DECIMAL256 (compute=Decimal256, storage=wide::Int256) --------
     // scale=0: span beyond int128 to exercise the upper halves of int256.
-    check_full_encode_preserves_order<TYPE_DECIMAL256, Decimal256>(
-            FieldType::OLAP_FIELD_TYPE_DECIMAL256,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(
             {Decimal256(wide::Int256(-1'000'000'000'000LL)), //  -10^12
              Decimal256(wide::Int256(-1)), Decimal256(wide::Int256(0)), Decimal256(wide::Int256(1)),
              Decimal256(wide::Int256(1'000'000'000'000'000'000LL))}, //  10^18
@@ -451,8 +445,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     {
         const wide::Int256 s = pow10_i256(20);
         const wide::Int256 big = pow10_i256(36); // far beyond int128
-        check_full_encode_preserves_order<TYPE_DECIMAL256, Decimal256>(
-                FieldType::OLAP_FIELD_TYPE_DECIMAL256,
+        check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(
                 {Decimal256(-big),             // -10^36
                  Decimal256(-s),               //     -1.0
                  Decimal256(wide::Int256(-1)), //     -1e-20
@@ -468,8 +461,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     // splits the int128 into {int_part, frac_part} where frac is the lower
     // 9 digits (DecimalV2Value's `frac_value()` * 10^-9). Caller passes the
     // two parts with matching sign.
-    check_full_encode_preserves_order<TYPE_DECIMALV2, DecimalV2Value>(
-            FieldType::OLAP_FIELD_TYPE_DECIMAL,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
             {DecimalV2Value::get_min_decimal(),                  // -999999999999999999.999999999
              DecimalV2Value(int64_t(-100), int64_t(0)),          // -100.000000000
              DecimalV2Value(int64_t(-1), int64_t(-500'000'000)), //   -1.500000000
@@ -481,8 +473,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
 
     // -------- DATEV2 (compute=DateV2Value<DateV2ValueType>, storage=uint32) --------
     auto pack_d = [](int y, int m, int d) -> uint32_t { return uint32_t((y << 9) | (m << 5) | d); };
-    check_full_encode_preserves_order<TYPE_DATEV2, DateV2Value<DateV2ValueType>>(
-            FieldType::OLAP_FIELD_TYPE_DATEV2,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DATEV2>(
             {DateV2Value<DateV2ValueType>(pack_d(0001, 1, 1)),
              DateV2Value<DateV2ValueType>(pack_d(1970, 1, 1)),
              DateV2Value<DateV2ValueType>(pack_d(2024, 12, 31)),
@@ -502,14 +493,12 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     };
     using DTV2 = DateV2Value<DateTimeV2ValueType>;
     // scale=0: microsecond always zero
-    check_full_encode_preserves_order<TYPE_DATETIMEV2, DTV2>(
-            FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(
             {DTV2(pack_dt(2020, 1, 1, 12, 0, 0)), DTV2(pack_dt(2024, 3, 10, 9, 30, 0)),
              DTV2(pack_dt(2024, 12, 31, 23, 59, 59))},
             "DATETIMEV2 scale=0");
     // scale=3: microsecond multiples of 1000
-    check_full_encode_preserves_order<TYPE_DATETIMEV2, DTV2>(
-            FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(
             {DTV2(pack_dt(2024, 3, 10, 9, 30, 0, 1'000)),
              DTV2(pack_dt(2024, 3, 10, 9, 30, 0, 123'000)),
              DTV2(pack_dt(2024, 3, 10, 9, 30, 0, 999'000)),
@@ -517,8 +506,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
             "DATETIMEV2 scale=3");
     // scale=6: full microsecond resolution; verifies ordering is byte-stable
     // even at the boundary between us=999999 and the next-second carry.
-    check_full_encode_preserves_order<TYPE_DATETIMEV2, DTV2>(
-            FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(
             {DTV2(pack_dt(2024, 3, 10, 9, 30, 0, 0)), DTV2(pack_dt(2024, 3, 10, 9, 30, 0, 1)),
              DTV2(pack_dt(2024, 3, 10, 9, 30, 0, 999'998)),
              DTV2(pack_dt(2024, 3, 10, 9, 30, 0, 999'999)),
@@ -526,40 +514,34 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
             "DATETIMEV2 scale=6");
 
     // -------- TIMESTAMPTZ (same packing as DATETIMEV2) --------
-    check_full_encode_preserves_order<TYPE_TIMESTAMPTZ, TimestampTzValue>(
-            FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(
             {TimestampTzValue(pack_dt(2020, 1, 1, 12, 0, 0)),
              TimestampTzValue(pack_dt(2024, 3, 10, 9, 30, 0, 123'456)),
              TimestampTzValue(pack_dt(2024, 12, 31, 23, 59, 59, 999'999))},
             "TIMESTAMPTZ");
 
     // -------- BOOLEAN (compute=storage=UInt8, only {0, 1}) --------
-    check_full_encode_preserves_order<TYPE_BOOLEAN, UInt8>(FieldType::OLAP_FIELD_TYPE_BOOL,
-                                                           {UInt8(0), UInt8(1)}, "BOOLEAN");
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_BOOL>({UInt8(0), UInt8(1)},
+                                                                       "BOOLEAN");
 
     // -------- Plain integer keys (compute=storage) --------
-    check_full_encode_preserves_order<TYPE_TINYINT, int8_t>(
-            FieldType::OLAP_FIELD_TYPE_TINYINT,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_TINYINT>(
             {std::numeric_limits<int8_t>::min(), int8_t(-1), int8_t(0), int8_t(1),
              std::numeric_limits<int8_t>::max()},
             "TINYINT");
-    check_full_encode_preserves_order<TYPE_SMALLINT, int16_t>(
-            FieldType::OLAP_FIELD_TYPE_SMALLINT,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_SMALLINT>(
             {std::numeric_limits<int16_t>::min(), int16_t(-1), int16_t(0), int16_t(1),
              std::numeric_limits<int16_t>::max()},
             "SMALLINT");
-    check_full_encode_preserves_order<TYPE_INT, int32_t>(
-            FieldType::OLAP_FIELD_TYPE_INT,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_INT>(
             {std::numeric_limits<int32_t>::min(), int32_t(-1), int32_t(0), int32_t(1),
              std::numeric_limits<int32_t>::max()},
             "INT");
-    check_full_encode_preserves_order<TYPE_BIGINT, int64_t>(
-            FieldType::OLAP_FIELD_TYPE_BIGINT,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_BIGINT>(
             {std::numeric_limits<int64_t>::min(), int64_t(-1), int64_t(0), int64_t(1),
              std::numeric_limits<int64_t>::max()},
             "BIGINT");
-    check_full_encode_preserves_order<TYPE_LARGEINT, int128_t>(
-            FieldType::OLAP_FIELD_TYPE_LARGEINT,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_LARGEINT>(
             {-(static_cast<int128_t>(1) << 100), int128_t(-1), int128_t(0), int128_t(1),
              static_cast<int128_t>(1) << 100},
             "LARGEINT");
@@ -568,23 +550,20 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     // KeyCoderTraitsForFloat byte-encodes finite values byte-comparably; NaN and
     // signed-zero ambiguity have their own dedicated tests above (FloatOrdering /
     // FloatComprehensiveOrdering), so here we just exercise the typical path.
-    check_full_encode_preserves_order<TYPE_FLOAT, float>(
-            FieldType::OLAP_FIELD_TYPE_FLOAT,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_FLOAT>(
             {-std::numeric_limits<float>::infinity(), -1e10f, -1.0f, -1e-10f, 0.0f, 1e-10f, 1.0f,
              1e10f, std::numeric_limits<float>::infinity()},
             "FLOAT");
-    check_full_encode_preserves_order<TYPE_DOUBLE, double>(
-            FieldType::OLAP_FIELD_TYPE_DOUBLE,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DOUBLE>(
             {-std::numeric_limits<double>::infinity(), -1e100, -1.0, -1e-100, 0.0, 1e-100, 1.0,
              1e100, std::numeric_limits<double>::infinity()},
             "DOUBLE");
 
     // -------- DATE V1 (compute=VecDateTimeValue, storage=uint24_t packed) --------
     // Storage = (year << 9) | (month << 5) | day, same packing as DATEV2 just
-    // narrower. The PrimitiveTypeConvertor specialisation runs to_olap_date()
+    // narrower. StorageLayout<DATE>::to_storage runs to_olap_date()
     // to project compute -> storage.
-    check_full_encode_preserves_order<TYPE_DATE, VecDateTimeValue>(
-            FieldType::OLAP_FIELD_TYPE_DATE,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DATE>(
             {VecDateTimeValue::create_from_olap_date(pack_d(1900, 1, 1)),
              VecDateTimeValue::create_from_olap_date(pack_d(1970, 1, 1)),
              VecDateTimeValue::create_from_olap_date(pack_d(2024, 12, 31)),
@@ -594,8 +573,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     // -------- DATETIME V1 (compute=VecDateTimeValue, storage=int64 decimal-packed) --------
     // Storage = YYYYMMDDhhmmss interpreted as int64 (sparse compared to V2 bit
     // packing but still chronologically ordered as integers).
-    check_full_encode_preserves_order<TYPE_DATETIME, VecDateTimeValue>(
-            FieldType::OLAP_FIELD_TYPE_DATETIME,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_DATETIME>(
             {VecDateTimeValue::create_from_olap_datetime(uint64_t(19700101000000ULL)),
              VecDateTimeValue::create_from_olap_datetime(uint64_t(20240310093000ULL)),
              VecDateTimeValue::create_from_olap_datetime(uint64_t(20241231235959ULL)),
@@ -606,8 +584,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     auto ip4 = [](uint8_t a, uint8_t b, uint8_t c, uint8_t d) -> uint32_t {
         return (uint32_t(a) << 24) | (uint32_t(b) << 16) | (uint32_t(c) << 8) | uint32_t(d);
     };
-    check_full_encode_preserves_order<TYPE_IPV4, uint32_t>(
-            FieldType::OLAP_FIELD_TYPE_IPV4,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_IPV4>(
             {ip4(0, 0, 0, 1),          // 0.0.0.1
              ip4(10, 0, 0, 1),         // 10.0.0.1
              ip4(127, 0, 0, 1),        // 127.0.0.1
@@ -619,8 +596,7 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
     auto ip6 = [](uint64_t hi, uint64_t lo) -> uint128_t {
         return (static_cast<uint128_t>(hi) << 64) | lo;
     };
-    check_full_encode_preserves_order<TYPE_IPV6, uint128_t>(
-            FieldType::OLAP_FIELD_TYPE_IPV6,
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_IPV6>(
             {ip6(0, 1),                     // ::1
              ip6(0, 0x0000FFFF7F000001ULL), // ::ffff:127.0.0.1
              ip6(0x20010DB800000000ULL, 1), // 2001:db8::1
@@ -628,6 +604,12 @@ TEST_F(KeyCoderTest, full_encode_field_as_key_preserves_compute_layer_ordering) 
              ip6(0xFFFFFFFFFFFFFFFFULL,
                  0xFFFFFFFFFFFFFFFEULL)}, // ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe
             "IPV6");
+
+    // -------- UUID (uint128_t, canonical unsigned order) --------
+    check_full_encode_preserves_order<FieldType::OLAP_FIELD_TYPE_UUID>(
+            {ip6(0, 0), ip6(0, 1), ip6(0, 0xFFFFFFFFFFFFFFFFULL), ip6(1, 0),
+             ip6(0x8000000000000000ULL, 0), ip6(0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL)},
+            "UUID");
 }
 
 TEST_F(KeyCoderTest, test_char) {

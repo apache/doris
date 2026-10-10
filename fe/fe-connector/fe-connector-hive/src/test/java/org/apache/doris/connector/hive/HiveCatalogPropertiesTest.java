@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.hms.HmsClientConfig;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -171,6 +173,15 @@ class HiveCatalogPropertiesTest {
                 () -> HiveTestProperties.with(HiveCatalogProperties.HMS_EVENTS_BATCH_SIZE_PER_RPC, "abc"));
     }
 
+    @Test
+    void partitionBatchSizeAcceptsSurroundingWhitespace() {
+        Map<String, String> m = HiveTestProperties.mapWith(
+                HmsClientConfig.PARTITION_BATCH_SIZE_KEY, " 5000 ");
+        HiveCatalogProperties p = HiveCatalogProperties.of(m);
+        HmsClientConfig config = new HmsClientConfig(p.getHmsClientProperties(), p.getHmsClientPoolSize());
+        Assertions.assertEquals(5000, config.getPartitionBatchSize());
+    }
+
     /** Booleans never throw on either side of the migration: both spell out to {@code parseBoolean}. */
     @Test
     void malformedBooleanStaysTolerantAndReadsFalse() {
@@ -213,6 +224,25 @@ class HiveCatalogPropertiesTest {
         Map<String, String> m = HiveTestProperties.mapWith("partition.cache.ttl-second", "-2");
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> HiveCatalogProperties.of(m).checkCreateTimeOnlyRules());
+    }
+
+    @Test
+    void icebergSiblingWeightsAreValidatedAtTheHmsCreateTimeDoor() {
+        Map<String, String> invalidWeight = HiveTestProperties.mapWith(
+                "meta.cache.iceberg.manifest.max-weight", "invalid");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HiveCatalogProperties.of(invalidWeight).checkCreateTimeOnlyRules());
+
+        Map<String, String> unknownEntry = HiveTestProperties.mapWith(
+                "meta.cache.iceberg.manfiest.max-weight", "64MB");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HiveCatalogProperties.of(unknownEntry).checkCreateTimeOnlyRules());
+        HiveConnectorProvider provider = new HiveConnectorProvider();
+        Assertions.assertDoesNotThrow(() -> HiveCatalogProperties.of(unknownEntry));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(unknownEntry,
+                java.util.Collections.singletonMap("comment", "updated")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                HiveTestProperties.mapWith(), unknownEntry));
     }
 
     @Test

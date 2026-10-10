@@ -19,8 +19,8 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.AnalysisException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -46,7 +46,7 @@ public class ConsistencyCheckInfoTest {
 
         ConsistencyCheckInfo consistencyCheckInfo2 = ConsistencyCheckInfo.read(in);
 
-        Assert.assertEquals(consistencyCheckInfo1.getDbId(), consistencyCheckInfo2.getDbId());
+        Assertions.assertEquals(consistencyCheckInfo1.getDbId(), consistencyCheckInfo2.getDbId());
 
         // 3. delete files
         in.close();

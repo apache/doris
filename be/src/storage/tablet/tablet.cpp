@@ -1019,8 +1019,7 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION &&
-        (!config::enable_feature_binlog || !is_row_binlog_tablet())) {
+    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION && !is_row_binlog_tablet()) {
         return false;
     }
 

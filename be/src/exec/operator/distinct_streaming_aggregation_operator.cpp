@@ -23,8 +23,12 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "exec/operator/streaming_agg_memory_limit.h"
 #include "exec/operator/streaming_agg_min_reduction.h"
 #include "exprs/vectorized_agg_fn.h"
+#include "runtime/query_context.h"
+#include "runtime/workload_management/memory_context.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 class ExecNode;
@@ -52,6 +56,7 @@ Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo&
     _hash_table_input_counter =
             ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
     _hash_table_size_counter = ADD_COUNTER(custom_profile(), "HashTableSize", TUnit::UNIT);
+    _memory_use_limit = ADD_COUNTER(custom_profile(), "MemoryUseLimit", TUnit::BYTES);
     _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
 
     return Status::OK();
@@ -67,7 +72,21 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
     }
     RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
+    COUNTER_SET(_memory_use_limit, static_cast<int64_t>(p._memory_limit(state)));
     return Status::OK();
+}
+
+size_t DistinctStreamingAggLocalState::_memory_usage() const {
+    size_t usage = _arena.size();
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto& agg_method) {
+                             usage += agg_method.hash_table->get_buffer_size_in_bytes();
+                         }},
+               _agg_data->method_variant);
+    return usage;
 }
 
 bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
@@ -176,8 +195,15 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     const uint32_t rows = (uint32_t)in_block->rows();
     _distinct_row.clear();
 
-    if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg && low_memory_mode()) {
-        _stop_emplace_flag = true;
+    auto& parent = _parent->cast<DistinctStreamingAggOperatorX>();
+    if (parent._is_streaming_preagg) {
+        const auto memory_limit = parent._memory_limit(state());
+        COUNTER_SET(_memory_use_limit, static_cast<int64_t>(memory_limit));
+        // Latching is safe under a pushed-down LIMIT as well: push() stops truncating raw rows
+        // once the flag is set and the global stage applies the limit again.
+        if (low_memory_mode() || (memory_limit > 0 && _memory_usage() > memory_limit)) {
+            _stop_emplace_flag = true;
+        }
     }
 
     if (!_stop_emplace_flag) {
@@ -327,6 +353,9 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
 
 Status DistinctStreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::init(tnode, state));
+    _spill_streaming_agg_mem_limit = state->query_options().__isset.spill_streaming_agg_mem_limit
+                                             ? state->query_options().spill_streaming_agg_mem_limit
+                                             : 0;
     // ignore return status for now , so we need to introduce ExecNode::init()
     RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
 
@@ -341,6 +370,18 @@ Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
     init_make_nullable(state);
     return Status::OK();
+}
+
+size_t DistinctStreamingAggOperatorX::_memory_limit(RuntimeState* state) const {
+    if (!_is_streaming_preagg) {
+        return 0;
+    }
+    // Same rule as StreamingAggOperatorX: the fixed bound only applies when spilling is enabled.
+    const int64_t fixed_limit =
+            state->enable_spill() ? static_cast<int64_t>(_spill_streaming_agg_mem_limit) : 0;
+    return streaming_agg_memory_limit(
+            state->get_query_ctx()->resource_ctx()->memory_context()->mem_limit(), parallel_tasks(),
+            fixed_limit);
 }
 
 void DistinctStreamingAggOperatorX::init_make_nullable(RuntimeState* state) {
@@ -366,7 +407,10 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, Block* in_block,
     RETURN_IF_ERROR(local_state._distinct_pre_agg_with_serialized_key(
             in_block, local_state._aggregated_block.get()));
     // Prevents exceeding the row limit when the aggregated block reaches or equals the threshold.
-    if (_limit != -1 &&
+    // Pass-through rows are not deduplicated; counting them against a pushed-down limit would let
+    // duplicates consume the allowance and stop the child before enough distinct keys reached the
+    // global stage (which applies the limit again).
+    if (_limit != -1 && !local_state._stop_emplace_flag &&
         (local_state._num_rows_returned + local_state._aggregated_block->rows()) >= _limit) {
         auto limit_rows = _limit - local_state._num_rows_returned;
         local_state._aggregated_block->set_num_rows(limit_rows);

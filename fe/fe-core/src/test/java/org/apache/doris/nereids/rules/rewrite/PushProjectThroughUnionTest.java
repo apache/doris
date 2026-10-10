@@ -27,10 +27,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -138,6 +140,21 @@ public class PushProjectThroughUnionTest {
         LogicalUnion unionDistinctWithUnsafeCast = new LogicalUnion(Qualifier.DISTINCT,
                 ImmutableList.of(dateTimeOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
         Assertions.assertFalse(PushProjectThroughUnion.canPushProject(unsafeProjects, unionDistinctWithUnsafeCast));
+
+        SlotReference arrayOutput = new SlotReference(new ExprId(12), "a",
+                ArrayType.of(StringType.INSTANCE), true, ImmutableList.of());
+        Alias arrayToStringProject = new Alias(new ExprId(102),
+                new Cast(arrayOutput, StringType.INSTANCE), "s");
+        ImmutableList<NamedExpression> arrayProjects = ImmutableList.of(arrayToStringProject);
+        LogicalUnion arrayUnionAll = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(arrayOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertTrue(PushProjectThroughUnion.canPushProject(arrayProjects, arrayUnionAll));
+
+        // ARRAY text serialization is ambiguous: ARRAY('a", "b') and ARRAY('a', 'b') both
+        // produce ["a", "b"]. Pushing this cast below DISTINCT would collapse two input rows.
+        LogicalUnion arrayUnionDistinct = new LogicalUnion(Qualifier.DISTINCT,
+                ImmutableList.of(arrayOutput), ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
+        Assertions.assertFalse(PushProjectThroughUnion.canPushProject(arrayProjects, arrayUnionDistinct));
     }
 
     @Test

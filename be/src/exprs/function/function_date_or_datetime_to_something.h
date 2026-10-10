@@ -49,7 +49,8 @@ struct Transformer {
 #endif
 
             auto res = Transform::execute(vec_from[i]);
-            if constexpr (is_date_type(ToPType) || ToPType == TYPE_TIMESTAMPTZ) {
+            if constexpr (is_date_type(ToPType) || ToPType == TYPE_TIMESTAMP_NS ||
+                          ToPType == TYPE_TIMESTAMPTZ) {
                 vec_to[i] = res;
             } else {
                 using RESULT_TYPE = std::decay_t<decltype(res)>;
@@ -109,7 +110,8 @@ public:
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() == 1) {
             if (!is_date_or_datetime(arguments[0].type->get_primitive_type()) &&
-                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type())) {
+                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type()) &&
+                arguments[0].type->get_primitive_type() != TYPE_TIMESTAMP_NS) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "Illegal type {} of argument of function {}. Should be a "
                                        "date or a date with time",
@@ -117,7 +119,8 @@ public:
             }
         } else if (arguments.size() == 2) {
             if (!is_date_or_datetime(arguments[0].type->get_primitive_type()) &&
-                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type())) {
+                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type()) &&
+                arguments[0].type->get_primitive_type() != TYPE_TIMESTAMP_NS) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "Illegal type {} of argument of function {}. Should be a "
                                        "date or a date with time",

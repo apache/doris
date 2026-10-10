@@ -25,6 +25,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -39,11 +40,27 @@ import java.util.jar.JarFile;
  * might override or replace standard library classes.
  * <p>
  * Key features:
- * - Child-First loading mechanism.
+ * - Child-First loading mechanism, except for {@link #PARENT_FIRST_PACKAGES}.
  * - Support for loading classes from multiple JAR files.
  * - Efficient caching of JAR file resources to avoid repeated file access.
  */
 public class ChildFirstClassLoader extends URLClassLoader {
+
+    /**
+     * Taken from the parent whatever the plugin jar carries.
+     *
+     * <p>This is the vocabulary an authorization plugin answers in - a row filter, a column mask, the
+     * resource being asked about. A plugin loaded here that packages {@code fe-authorization-api} would
+     * otherwise define a second copy of those types, and the engine refuses an answer carrying the second
+     * copy with a message that names the same class twice: fail-closed, but on a message a plugin author
+     * cannot act on. Third-party sources still implementing the deprecated {@code AccessControllerFactory}
+     * are exactly the ones asked to recompile against these types, so this is the channel that needs it.
+     *
+     * <p>Nothing else is on the list. The classes a plugin publishes have to come from the plugin, which is
+     * what child-first is here for.
+     */
+    private static final List<String> PARENT_FIRST_PACKAGES =
+            Collections.singletonList("org.apache.doris.authorization.");
 
     // A list of URLs pointing to JAR files
     private final List<URL> jarURLs;
@@ -79,6 +96,10 @@ public class ChildFirstClassLoader extends URLClassLoader {
      */
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+        // The few names that must be the parent's, for the reason PARENT_FIRST_PACKAGES gives.
+        if (isParentFirst(name)) {
+            return super.loadClass(name, resolve);
+        }
         // Child-First mechanism: try to find the class locally first
         try {
             return findClass(name);
@@ -86,6 +107,15 @@ public class ChildFirstClassLoader extends URLClassLoader {
             // If the class is not found locally, delegate to the parent class loader
             return super.loadClass(name, resolve);
         }
+    }
+
+    private static boolean isParentFirst(String className) {
+        for (String prefix : PARENT_FIRST_PACKAGES) {
+            if (className.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

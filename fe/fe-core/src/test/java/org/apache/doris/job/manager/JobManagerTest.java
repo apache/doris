@@ -28,8 +28,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -52,8 +52,8 @@ public class JobManagerTest {
                 manager.checkJobAuth("ctl1", "db1", tableNames);
                 throw new RuntimeException("should exception");
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
-                Assert.assertTrue(e.getMessage().contains("db1"));
+                Assertions.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
+                Assertions.assertTrue(e.getMessage().contains("db1"));
             }
             tableNames.add("table1");
             try {
@@ -61,8 +61,8 @@ public class JobManagerTest {
                 manager.checkJobAuth("ctl1", "db1", tableNames);
                 throw new RuntimeException("should exception");
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
-                Assert.assertTrue(e.getMessage().contains("table1"));
+                Assertions.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
+                Assertions.assertTrue(e.getMessage().contains("table1"));
             }
         }
     }
@@ -94,9 +94,9 @@ public class JobManagerTest {
         // Cancelling the streaming job itself still rejected.
         try {
             manager.cancelTaskById("streaming_job", 100L);
-            Assert.fail("expected JobException for streaming job");
+            Assertions.fail("expected JobException for streaming job");
         } catch (JobException e) {
-            Assert.assertTrue(e.getMessage().contains("streaming job not support"));
+            Assertions.assertTrue(e.getMessage().contains("streaming job not support"));
         }
     }
 }

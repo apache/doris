@@ -117,8 +117,10 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
                 currentTrinoHandle = filterResult.get().getHandle();
             }
 
-            // Apply limit pushdown
-            if (limit > 0) {
+            // A TupleDomain may be a widened approximation of the Doris predicate, and the embedded
+            // connector may retain part of it. Applying LIMIT before Doris evaluates the residual can
+            // permanently discard matching rows. With no filter, the ordering is unambiguous and safe.
+            if (shouldApplyLimit(limit, filter)) {
                 Optional<LimitApplicationResult<io.trino.spi.connector.ConnectorTableHandle>>
                         limitResult = metadata.applyLimit(connSession, currentTrinoHandle, limit);
                 if (limitResult.isPresent()) {
@@ -258,6 +260,10 @@ public class TrinoScanPlanProvider implements ConnectorScanPlanProvider {
                 trinoHandle.getColumnMetadataMap());
         TupleDomain<ColumnHandle> tupleDomain = converter.convert(filter.get());
         return new Constraint(tupleDomain);
+    }
+
+    static boolean shouldApplyLimit(long limit, Optional<ConnectorExpression> filter) {
+        return limit > 0 && !filter.isPresent();
     }
 
     // Serialize only the projected columns, in the same order (and with the same filter)

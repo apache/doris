@@ -288,33 +288,11 @@ TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_ide
     stats1->snii_stats.prx_plaintext_bytes = 10;
     stats1->snii_stats.prx_decode_ns = 100;
     stats1->snii_stats.phrase_candidate_docs = 3;
-    stats1->snii_stats.common_grams_gram_plans = 1;
-    stats1->snii_stats.common_grams_fallback_kill_switch = 5;
-    stats1->snii_stats.common_grams_plain_posting_bytes = 10;
-    stats1->snii_stats.common_grams_gram_posting_bytes = 20;
-    stats1->snii_stats.common_grams_plain_estimated_candidate_df = 30;
-    stats1->snii_stats.common_grams_gram_estimated_candidate_df = 40;
-    stats1->snii_stats.common_grams_plain_estimated_cost = 50;
-    stats1->snii_stats.common_grams_gram_estimated_cost = 60;
-    stats1->snii_stats.common_grams_fallback_base_analyzer_mismatch = 61;
-    stats1->snii_stats.common_grams_fallback_prefix_tail_empty = 62;
-    stats1->snii_stats.common_grams_planning_ns = 65;
     auto* stats2 = scanner2->_tablet_reader->mutable_stats();
     stats2->snii_stats.prx_raw_frames = 2;
     stats2->snii_stats.prx_plaintext_bytes = 20;
     stats2->snii_stats.prx_decode_ns = 200;
     stats2->snii_stats.phrase_candidate_docs = 4;
-    stats2->snii_stats.common_grams_gram_plans = 2;
-    stats2->snii_stats.common_grams_fallback_kill_switch = 6;
-    stats2->snii_stats.common_grams_plain_posting_bytes = 1;
-    stats2->snii_stats.common_grams_gram_posting_bytes = 2;
-    stats2->snii_stats.common_grams_plain_estimated_candidate_df = 3;
-    stats2->snii_stats.common_grams_gram_estimated_candidate_df = 4;
-    stats2->snii_stats.common_grams_plain_estimated_cost = 5;
-    stats2->snii_stats.common_grams_gram_estimated_cost = 6;
-    stats2->snii_stats.common_grams_fallback_base_analyzer_mismatch = 7;
-    stats2->snii_stats.common_grams_fallback_prefix_tail_empty = 8;
-    stats2->snii_stats.common_grams_planning_ns = 11;
 
     RuntimeProfile* index_filter = local_state->_index_filter_profile.get();
     ASSERT_NE(index_filter, nullptr);
@@ -322,90 +300,32 @@ TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_ide
     auto* plaintext_bytes = index_filter->get_counter("SniiPrxPlaintextBytes");
     auto* decode_time = index_filter->get_counter("SniiPrxInclusiveDecodeTime");
     auto* phrase_candidate_docs = index_filter->get_counter("SniiPhraseCandidateDocs");
-    auto* common_grams_gram_plans = index_filter->get_counter("SniiCommonGramsGramPlans");
-    auto* common_grams_fallback_kill_switch =
-            index_filter->get_counter("SniiCommonGramsFallbackKillSwitch");
-    struct ExpectedSniiCounter {
-        const char* name;
-        RuntimeProfile::Counter* counter;
-        int64_t scanner1_value;
-        int64_t combined_value;
-    };
-    const ExpectedSniiCounter snii_counters[] = {
-            {"SniiCommonGramsPlainPostingBytes",
-             index_filter->get_counter("SniiCommonGramsPlainPostingBytes"), 10, 11},
-            {"SniiCommonGramsGramPostingBytes",
-             index_filter->get_counter("SniiCommonGramsGramPostingBytes"), 20, 22},
-            {"SniiCommonGramsPlainEstimatedCandidateDf",
-             index_filter->get_counter("SniiCommonGramsPlainEstimatedCandidateDf"), 30, 33},
-            {"SniiCommonGramsGramEstimatedCandidateDf",
-             index_filter->get_counter("SniiCommonGramsGramEstimatedCandidateDf"), 40, 44},
-            {"SniiCommonGramsPlainEstimatedCost",
-             index_filter->get_counter("SniiCommonGramsPlainEstimatedCost"), 50, 55},
-            {"SniiCommonGramsGramEstimatedCost",
-             index_filter->get_counter("SniiCommonGramsGramEstimatedCost"), 60, 66},
-            {"SniiCommonGramsFallbackBaseAnalyzerMismatch",
-             index_filter->get_counter("SniiCommonGramsFallbackBaseAnalyzerMismatch"), 61, 68},
-            {"SniiCommonGramsFallbackPrefixTailEmpty",
-             index_filter->get_counter("SniiCommonGramsFallbackPrefixTailEmpty"), 62, 70},
-            {"SniiCommonGramsPlanningTime",
-             index_filter->get_counter("SniiCommonGramsPlanningTime"), 65, 76},
-    };
 
     std::vector<TRuntimeProfileNode> zero_nodes;
     index_filter->to_thrift(&zero_nodes);
     ASSERT_EQ(zero_nodes.size(), 1U);
-    for (const auto& expected : snii_counters) {
-        bool serialized = false;
-        for (const auto& thrift_counter : zero_nodes.front().counters) {
-            serialized |= thrift_counter.name == expected.name;
-        }
-        EXPECT_FALSE(serialized) << expected.name;
-    }
     ASSERT_NE(raw_frames, nullptr);
     ASSERT_NE(plaintext_bytes, nullptr);
     ASSERT_NE(decode_time, nullptr);
     ASSERT_NE(phrase_candidate_docs, nullptr);
-    ASSERT_NE(common_grams_gram_plans, nullptr);
-    ASSERT_NE(common_grams_fallback_kill_switch, nullptr);
-    for (const auto& expected : snii_counters) {
-        ASSERT_NE(expected.counter, nullptr) << expected.name;
-        EXPECT_NE(dynamic_cast<RuntimeProfile::NonZeroCounter*>(expected.counter), nullptr)
-                << expected.name;
-    }
 
     scanner1->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 1);
     EXPECT_EQ(plaintext_bytes->value(), 10);
     EXPECT_EQ(decode_time->value(), 100);
     EXPECT_EQ(phrase_candidate_docs->value(), 3);
-    EXPECT_EQ(common_grams_gram_plans->value(), 1);
-    EXPECT_EQ(common_grams_fallback_kill_switch->value(), 5);
-    for (const auto& expected : snii_counters) {
-        EXPECT_EQ(expected.counter->value(), expected.scanner1_value) << expected.name;
-    }
 
     scanner1->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 1);
     EXPECT_EQ(plaintext_bytes->value(), 10);
     EXPECT_EQ(decode_time->value(), 100);
     EXPECT_EQ(phrase_candidate_docs->value(), 3);
-    EXPECT_EQ(common_grams_gram_plans->value(), 1);
-    EXPECT_EQ(common_grams_fallback_kill_switch->value(), 5);
-    for (const auto& expected : snii_counters) {
-        EXPECT_EQ(expected.counter->value(), expected.scanner1_value) << expected.name;
-    }
 
     scanner2->_collect_profile_before_close();
     EXPECT_EQ(raw_frames->value(), 3);
     EXPECT_EQ(plaintext_bytes->value(), 30);
     EXPECT_EQ(decode_time->value(), 300);
     EXPECT_EQ(phrase_candidate_docs->value(), 7);
-    EXPECT_EQ(common_grams_gram_plans->value(), 3);
-    EXPECT_EQ(common_grams_fallback_kill_switch->value(), 11);
-    for (const auto& expected : snii_counters) {
-        EXPECT_EQ(expected.counter->value(), expected.combined_value) << expected.name;
-    }
 }
 
 TEST_F(ScannerContextTest, test_serial_run) {
@@ -906,6 +826,206 @@ TEST_F(ScannerContextTest, thread_pool_admission_keeps_zero_adaptive_allocation)
     // _max_scan_concurrency.
     EXPECT_FALSE(scanner_context->can_admit_scan_task(transfer_lock));
     EXPECT_EQ(scanner_context->try_get_next_scan_task(transfer_lock), nullptr);
+}
+
+TEST_F(ScannerContextTest, thread_pool_admission_follows_memory_ceiling) {
+    const int parallel_tasks = 4;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    OlapScanner::Params scanner_params;
+    scanner_params.state = state.get();
+    scanner_params.profile = profile.get();
+    scanner_params.limit = -1;
+    scanner_params.key_ranges = std::vector<OlapScanRange*>();
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    for (int i = 0; i < 6; ++i) {
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    }
+
+    TUniqueId query_id = state->get_query_ctx()->query_id();
+    const int64_t query_mem_limit = 1024LL * 1024 * 1024;
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, parallel_tasks, false,
+                                             static_cast<int64_t>(query_mem_limit * 0.3));
+    // 1GB budget with 1MB estimated blocks: 1024 scanners across four instances, far more than the
+    // four this Context may run. ins_idx = 1 keeps _available_pickup_scanner_count() away from the
+    // arbitrator-driven limit adjustment, which would overwrite the budgets set below.
+    limiter->update_open_tasks_count(1);
+    limiter->update_mem_limit(1024LL * 1024 * 1024);
+    limiter->reestimated_block_mem_bytes(1024LL * 1024);
+
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+            scan_dependency, &shared_limit, arbitrator, limiter, 1, true, parallel_tasks);
+    std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
+            std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
+    EXPECT_CALL(*scheduler, get_active_threads()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*scheduler, get_queue_size()).WillRepeatedly(testing::Return(0));
+    scanner_context->_scanner_scheduler = scheduler.get();
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+    scanner_context->_min_scan_concurrency = 1;
+
+    std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+    ASSERT_EQ(scanner_context->_max_scan_concurrency, parallel_tasks);
+
+    // Memory allows more than the minimum, so admission runs up to _max_scan_concurrency instead
+    // of stopping at the single scanner the minimum asks for.
+    for (int i = 0; i < parallel_tasks; ++i) {
+        ASSERT_NE(scanner_context->try_get_next_scan_task(transfer_lock), nullptr) << i;
+    }
+    EXPECT_EQ(scanner_context->_adaptive_processor->expected_scanners, parallel_tasks);
+    EXPECT_FALSE(scanner_context->can_admit_scan_task(transfer_lock));
+
+    // A smaller budget lowers the ceiling at the next refresh: 8MB / 1MB = 8 scanners, two per
+    // instance. With two of the four still in flight, nothing more is admitted.
+    limiter->update_mem_limit(8LL * 1024 * 1024);
+    scanner_context->_adaptive_processor->adjust_scanners_last_timestamp = 0;
+    scanner_context->_in_flight_tasks_num = 2;
+    EXPECT_EQ(scanner_context->try_get_next_scan_task(transfer_lock), nullptr);
+    EXPECT_EQ(scanner_context->_adaptive_processor->expected_scanners, 2);
+
+    // The ceiling grows back with the budget.
+    limiter->update_mem_limit(1024LL * 1024 * 1024);
+    scanner_context->_adaptive_processor->adjust_scanners_last_timestamp = 0;
+    EXPECT_NE(scanner_context->try_get_next_scan_task(transfer_lock), nullptr);
+    EXPECT_EQ(scanner_context->_adaptive_processor->expected_scanners, parallel_tasks);
+}
+
+TEST_F(ScannerContextTest, adaptive_margin_takes_memory_ceiling) {
+    const int parallel_tasks = 4;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    OlapScanner::Params scanner_params;
+    scanner_params.state = state.get();
+    scanner_params.profile = profile.get();
+    scanner_params.limit = -1;
+    scanner_params.key_ranges = std::vector<OlapScanRange*>();
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    for (int i = 0; i < 6; ++i) {
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    }
+
+    TUniqueId query_id = state->get_query_ctx()->query_id();
+    const int64_t query_mem_limit = 1024LL * 1024 * 1024;
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, parallel_tasks, false,
+                                             static_cast<int64_t>(query_mem_limit * 0.3));
+    // Same budget as above: memory allows far more scanners than _max_scan_concurrency.
+    limiter->update_open_tasks_count(1);
+    limiter->update_mem_limit(1024LL * 1024 * 1024);
+    limiter->reestimated_block_mem_bytes(1024LL * 1024);
+
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+            scan_dependency, &shared_limit, arbitrator, limiter, 1, true, parallel_tasks);
+    std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
+            std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
+    EXPECT_CALL(*scheduler, get_active_threads()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*scheduler, get_queue_size()).WillRepeatedly(testing::Return(0));
+    scanner_context->_scanner_scheduler = scheduler.get();
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+    scanner_context->_min_scan_concurrency = 1;
+
+    std::mutex transfer_mutex;
+    std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
+    std::shared_mutex scheduler_mutex;
+    std::unique_lock<std::shared_mutex> scheduler_lock(scheduler_mutex);
+
+    // The scheduler has slack and memory allows four scanners, so the TaskExecutor path submits
+    // the whole ceiling at once rather than the single scanner the minimum asks for.
+    EXPECT_EQ(scanner_context->_get_margin(transfer_lock, scheduler_lock), parallel_tasks);
+    EXPECT_EQ(scanner_context->_adaptive_processor->expected_scanners, parallel_tasks);
+    // _pull_next_scan_task() stops at the same ceiling.
+    EXPECT_NE(scanner_context->_pull_next_scan_task(nullptr, parallel_tasks - 1), nullptr);
+    EXPECT_EQ(scanner_context->_pull_next_scan_task(nullptr, parallel_tasks), nullptr);
+}
+
+TEST_F(ScannerContextTest, task_executor_keeps_zero_adaptive_allocation) {
+    const int parallel_tasks = 2;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+
+    OlapScanner::Params scanner_params;
+    scanner_params.state = state.get();
+    scanner_params.profile = profile.get();
+    scanner_params.limit = -1;
+    scanner_params.key_ranges = std::vector<OlapScanRange*>();
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    for (int i = 0; i < 5; ++i) {
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    }
+
+    TUniqueId query_id = state->get_query_ctx()->query_id();
+    const int64_t query_mem_limit = 1024LL * 1024 * 1024;
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, parallel_tasks, false,
+                                             static_cast<int64_t>(query_mem_limit * 0.3));
+    // 1GB budget with 1MB estimated blocks: instance 1 may run both scanners this Context allows.
+    // ins_idx = 1 keeps _available_pickup_scanner_count() away from the arbitrator-driven limit
+    // adjustment, which would overwrite the budgets set below.
+    limiter->update_open_tasks_count(1);
+    limiter->update_mem_limit(1024LL * 1024 * 1024);
+    limiter->reestimated_block_mem_bytes(1024LL * 1024);
+
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+            scan_dependency, &shared_limit, arbitrator, limiter, 1, true, parallel_tasks);
+    std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
+            std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
+    EXPECT_CALL(*scheduler, get_active_threads()).WillRepeatedly(testing::Return(0));
+    EXPECT_CALL(*scheduler, get_queue_size()).WillRepeatedly(testing::Return(0));
+    scanner_context->_scanner_scheduler = scheduler.get();
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+    scanner_context->_min_scan_concurrency = 1;
+
+    std::mutex transfer_mutex;
+    std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
+    std::shared_mutex scheduler_mutex;
+    std::unique_lock<std::shared_mutex> scheduler_lock(scheduler_mutex);
+
+    // Memory allows both scanners, and the TaskExecutor path starts both.
+    ASSERT_TRUE(scanner_context->schedule_scan_task(nullptr, transfer_lock, scheduler_lock).ok());
+    EXPECT_EQ(scanner_context->_adaptive_processor->expected_scanners, parallel_tasks);
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, parallel_tasks);
+
+    // Larger blocks leave room for one scanner in the whole node: it goes to instance 0, and this
+    // instance is allocated none.
+    limiter->update_mem_limit(1024LL * 1024);
+    scanner_context->_adaptive_processor->adjust_scanners_last_timestamp = 0;
+
+    // The operator consumes one scanner's block while the other scanner is still in flight. The
+    // margin still asks for a task, but zero is the ceiling: the consumed scanner goes back to
+    // pending instead of being resubmitted.
+    scanner_context->_in_flight_tasks_num = 1;
+    const size_t pending_tasks = scanner_context->_pending_tasks.size();
+    auto consumed_task = std::make_shared<ScanTask>(scanners.back());
+    ASSERT_TRUE(
+            scanner_context->schedule_scan_task(consumed_task, transfer_lock, scheduler_lock).ok());
+    EXPECT_EQ(scanner_context->_adaptive_processor->expected_scanners, 0);
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, 1);
+    EXPECT_EQ(scanner_context->_pending_tasks.size(), pending_tasks + 1);
+
+    // With nothing occupied, one scanner still runs so the scan keeps moving.
+    scanner_context->_in_flight_tasks_num = 0;
+    ASSERT_TRUE(scanner_context->schedule_scan_task(nullptr, transfer_lock, scheduler_lock).ok());
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, 1);
 }
 
 TEST_F(ScannerContextTest, thread_pool_admission_holds_minimum_when_pool_saturated) {

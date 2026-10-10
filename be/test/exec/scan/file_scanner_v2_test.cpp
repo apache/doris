@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <typeinfo>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -48,6 +49,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/expr/cast.h"
+#include "format_v2/table/fluss_hybrid_reader.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -317,6 +319,11 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"iceberg", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"paimon", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
+            // A fluss range that does not say it is a lake split is a range of fluss's own log,
+            // and those are read through JNI alone; see FlussRangesAreSupportedByTheirRangeKind
+            // for the lake shapes.
+            {"fluss", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
+            {"fluss", TFileFormatType::FORMAT_JNI, std::nullopt, true},
             {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
@@ -340,7 +347,6 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_TEXT, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_JSON, true},
-            {"tvf", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_NATIVE, true},
             {"remote_doris", TFileFormatType::FORMAT_ARROW, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
@@ -471,6 +477,51 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    params.format_type = TFileFormatType::FORMAT_PARQUET;
+    params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    // An intermediate FE's explicit field 36 also needs a reader that can honor its timezone.
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__isset.hive_parquet_time_zone = false;
+    params.__set_parquet_timestamp_semantics_version(1);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+    // Paimon keeps FORMAT_JNI at scan level even when its ranges are native Parquet files.
+    params.format_type = TFileFormatType::FORMAT_JNI;
+    params.__set_paimon_predicate("encoded-predicate");
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_history_schema_info({schema::external::TSchema {}});
+    // Native ORC has history schemas too; that metadata alone must not override the session.
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_contains_native_parquet(false);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_contains_native_parquet(true);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_parquet_timestamp_semantics_version(0);
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_hive_parquet_time_zone("");
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.format_type = TFileFormatType::FORMAT_ORC;
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+}
+
+TEST(FileScannerV2Test, IcebergOrcDefaultCannotHideDeferredParquetRanges) {
+    TQueryOptions options;
+    options.__set_enable_file_scanner_v2(false);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    params.__set_iceberg_scan_semantics_version(2);
+    params.__set_parquet_timestamp_semantics_version(1);
+    // Scanner construction precedes remote split delivery; the default says nothing about
+    // retained Parquet files after changing write.format.default to ORC.
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    params.__isset.parquet_timestamp_semantics_version = false;
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
+    params.__set_hive_parquet_time_zone("");
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
+    params.__isset.iceberg_scan_semantics_version = false;
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
 }
 
 TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
@@ -505,6 +556,87 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+// Scenario: every range of a fluss scan carries the one table format "fluss", and which side reads
+// it - fluss's own JNI scanner, or the paimon sibling's stack - is named per range in
+// fluss.range_type. Support therefore follows that key: a lake split is supported exactly where the
+// paimon payload it carries is, not by a separate rule that could start disagreeing with paimon's
+// after the sibling changes how it plans a split.
+TEST(FileScannerV2Test, FlussRangesAreSupportedByTheirRangeKind) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+
+    auto serialized_split = legacy_paimon_jni_range_without_reader_type();
+    serialized_split.table_format_params.__set_table_format_type("fluss");
+    serialized_split.table_format_params.__set_fluss_params(
+            {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", ":0:0:9"}});
+    EXPECT_TRUE(FileScannerV2::is_supported(params, serialized_split));
+
+    auto native_file_as_jni = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
+    native_file_as_jni.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_file_format("orc");
+    native_file_as_jni.table_format_params.__set_paimon_params(paimon_params);
+    EXPECT_TRUE(FileScannerV2::is_supported(params, native_file_as_jni));
+
+    // A plain native lake split, in both physical formats the sibling plans.
+    for (const auto native_format :
+         {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC}) {
+        auto native_split = range_with_format("fluss", native_format);
+        native_split.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
+        EXPECT_TRUE(FileScannerV2::is_supported(params, native_split))
+                << "native_format=" << static_cast<int>(native_format);
+    }
+
+    // No paimon payload at all is not a split the fluss reader can hand to the sibling.
+    auto lake_without_payload = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
+    lake_without_payload.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
+    EXPECT_FALSE(FileScannerV2::is_supported(params, lake_without_payload));
+
+    // A suppressed lake split requires the Java Paimon payload the union wrapper understands.
+    // Refuse any other reader cleanly rather than reading a lake half without its suppression.
+    auto non_java_split = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
+    non_java_split.table_format_params.__set_fluss_params(
+            {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", ":0:0:9"}});
+    TPaimonFileDesc native_reader_params;
+    native_reader_params.__set_reader_type(TPaimonReaderType::PAIMON_NATIVE);
+    native_reader_params.__set_file_format("parquet");
+    non_java_split.table_format_params.__set_paimon_params(std::move(native_reader_params));
+    EXPECT_FALSE(FileScannerV2::is_supported(params, non_java_split));
+}
+
+// The scanner builds ONE reader from the first range and keeps it for its whole life, so the one
+// "fluss" format must map to the hybrid dispatcher whichever range kind happens to arrive first --
+// and the retired per-range format "fluss_union" must not resolve to a reader at all.
+TEST(FileScannerV2Test, EveryFlussRangeGetsTheOneHybridReader) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("file_scanner_v2_fluss_reader");
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._params = &params;
+
+    auto log_range = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
+    log_range.table_format_params.__set_fluss_params({{"fluss.range_type", "LOG"}});
+    auto lake_range = range_with_format("fluss", TFileFormatType::FORMAT_PARQUET);
+    lake_range.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
+
+    std::unique_ptr<format::TableReader> from_log_range;
+    std::unique_ptr<format::TableReader> from_lake_range;
+    ASSERT_TRUE(scanner._create_table_reader_for_format(log_range, &from_log_range).ok());
+    ASSERT_TRUE(scanner._create_table_reader_for_format(lake_range, &from_lake_range).ok());
+    const format::TableReader& log_reader = *from_log_range;
+    const format::TableReader& lake_reader = *from_lake_range;
+    EXPECT_TRUE(typeid(log_reader) == typeid(format::fluss::FlussHybridReader));
+    EXPECT_TRUE(typeid(lake_reader) == typeid(format::fluss::FlussHybridReader));
+
+    std::unique_ptr<format::TableReader> from_retired_format;
+    const auto retired = scanner._create_table_reader_for_format(
+            range_with_format("fluss_union", TFileFormatType::FORMAT_PARQUET),
+            &from_retired_format);
+    EXPECT_TRUE(retired.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << retired;
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
@@ -655,7 +787,6 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_PROTO, format::FileFormat::CSV},
             {TFileFormatType::FORMAT_TEXT, format::FileFormat::TEXT},
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
-            {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
             {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
@@ -857,8 +988,9 @@ TEST(FileScannerV2Test, OrcScannerResidualFilterRetainsNextBatchContext) {
 }
 
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
-// from the legacy is_file_slot flag. Scanner-generated rowid columns must never be treated as
-// partition columns even if FE marks them as non-file slots.
+// from the legacy is_file_slot flag. Only pre-existing row-id columns use the name-based legacy
+// fallback. New connector metadata columns require an explicit category so an old FE can still scan
+// unrelated physical fields that share a metadata spelling.
 TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
     TFileScanSlotInfo legacy_partition;
     legacy_partition.__set_is_file_slot(false);
@@ -877,11 +1009,29 @@ TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
     categorized_regular.__set_is_file_slot(false);
     categorized_regular.__set_category(TColumnCategory::REGULAR);
     EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(categorized_regular, "regular_col"));
+    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(categorized_regular, "_FILE"));
 
     EXPECT_FALSE(
             FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::GLOBAL_ROWID_COL));
     EXPECT_FALSE(
             FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::ICEBERG_ROWID_COL));
+
+    TFileScanSlotInfo synthesized;
+    synthesized.__set_is_file_slot(true);
+    synthesized.__set_category(TColumnCategory::SYNTHESIZED);
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_partition_slot(synthesized, BeConsts::ICEBERG_FILE_PATH_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_partition_slot(synthesized, BeConsts::ICEBERG_ROW_POSITION_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_partition_slot(synthesized, BeConsts::PAIMON_FILE_PATH_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_partition_slot(synthesized, BeConsts::PAIMON_ROW_POSITION_COL));
+
+    EXPECT_TRUE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "_FILE"));
+    EXPECT_TRUE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "_POS"));
+    EXPECT_TRUE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "__PAIMON_FILE_PATH"));
+    EXPECT_TRUE(FileScannerV2::TEST_is_partition_slot(legacy_partition, "__PAIMON_ROW_INDEX"));
 }
 
 // Scenario: data-file slots are the complement of partition/default/synthesized columns for
@@ -900,6 +1050,7 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
     categorized_regular.__set_is_file_slot(false);
     categorized_regular.__set_category(TColumnCategory::REGULAR);
     EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(categorized_regular, "regular_col"));
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(categorized_regular, "_POS"));
 
     TFileScanSlotInfo categorized_generated;
     categorized_generated.__set_is_file_slot(false);
@@ -918,6 +1069,23 @@ TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
 
     EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::GLOBAL_ROWID_COL));
     EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::ICEBERG_ROWID_COL));
+
+    TFileScanSlotInfo synthesized;
+    synthesized.__set_is_file_slot(true);
+    synthesized.__set_category(TColumnCategory::SYNTHESIZED);
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_data_file_slot(synthesized, BeConsts::ICEBERG_FILE_PATH_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_data_file_slot(synthesized, BeConsts::ICEBERG_ROW_POSITION_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_data_file_slot(synthesized, BeConsts::PAIMON_FILE_PATH_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_data_file_slot(synthesized, BeConsts::PAIMON_ROW_POSITION_COL));
+
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "_FILE"));
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "_POS"));
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "__PAIMON_FILE_PATH"));
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "__PAIMON_ROW_INDEX"));
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to

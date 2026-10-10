@@ -34,7 +34,8 @@ import java.util.List;
  * AggregateFunction 'Kurt'.
  */
 public class Kurt extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)

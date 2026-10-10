@@ -102,8 +102,15 @@ private:
 // Example:
 //  std::unique_ptr<AutoReleaseClosure> a(b);
 //  brpc_call(a.release());
-// the closure doesn't own the callback, so the callback MUST be kept alive outside.
-// closure only keep a weak ref. if outside owner destroyed (like query finish), the callback will be ignored.
+// The closure does not own the callback, so the callback MUST be kept alive by its external owner
+// while its result is still needed. A callback may indirectly retain large query-scoped objects,
+// such as QueryContext and operator state. Holding it strongly from an in-flight RPC would extend
+// all of those objects' lifetimes until the RPC finishes, preventing a cancelled query from
+// releasing its memory promptly.
+//
+// Keep only a weak reference here. If query cancellation or teardown destroys the external owner
+// before a late RPC completion arrives, Run() still releases the request/controller/response owned
+// by this closure, but skips callback business logic because that query no longer needs the result.
 template <typename Request, typename Callback>
 class AutoReleaseClosure : public google::protobuf::Closure {
     using ResponseType = typename Callback::ResponseType;
@@ -118,9 +125,21 @@ public:
 
     ~AutoReleaseClosure() override = default;
 
-    // Will delete itself. all operations should be done in callback's call(). Run() only do one thing.
+    // Releases per-RPC resources, invokes the callback if it is still alive, and then deletes itself.
     void Run() override {
         Defer defer {[&]() { delete this; }};
+
+        // The request attachment is no longer needed after brpc finishes the RPC. It can contain a
+        // large serialized runtime filter, especially a Bloom filter. Since the callback owner may
+        // retain cntl_ after this closure is deleted (and some callbacks may also reuse it), keeping
+        // the attachment here would retain that memory until the next Controller::Reset() or until
+        // the callback is destroyed.
+        //
+        // This must be cleared before call(): a callback may synchronously start the next RPC and
+        // reuse the same Controller, in which case clearing it after call() could erase the new
+        // RPC's request attachment.
+        cntl_->request_attachment().clear();
+
         if (auto tmp = callback_.lock()) {
             tmp->call();
         }

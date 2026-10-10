@@ -25,7 +25,6 @@
 #include <zconf.h>
 #include <zlib.h>
 
-#include <cmath>
 #include <cstring>
 #include <memory>
 #include <regex>
@@ -34,10 +33,12 @@
 #include <string>
 #include <vector>
 
+#include "common/check.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
+#include "core/value/uuid_value.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -227,9 +228,13 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
 }
 
 bool valid_datetime(const std::string& value_str, const uint32_t scale) {
+    constexpr uint32_t max_datetime_scale = 6;
+    constexpr uint32_t max_timestamp_scale = 9;
+    DORIS_CHECK_LE(scale, max_timestamp_scale);
+
     const char* datetime_pattern =
             "((?:\\d){4})-((?:\\d){2})-((?:\\d){2})[ ]*"
-            "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2})([.]*((?:\\d){0,6})))?"
+            "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2})([.]*((?:\\d){0,9})))?"
             "[ ]*([+-](?:\\d){2}:(?:\\d){2})?";
 
     std::regex e(datetime_pattern);
@@ -273,16 +278,18 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale) {
                 return false;
             }
             if (what[8].length()) {
-                if (what[9].str().size() > 6) {
-                    LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str() << "]";
+                const auto fractional_second = what[9].str();
+                const auto max_fractional_digits =
+                        scale > max_datetime_scale ? scale : max_datetime_scale;
+                if (fractional_second.size() > max_fractional_digits) {
+                    LOG(WARNING) << "invalid fractional second. [fractional_second="
+                                 << fractional_second << "]";
                     return false;
                 }
-                auto s9 = what[9].str();
-                s9.resize(6, '0');
-                if (const long ms = strtol(s9.c_str(), nullptr, 10);
-                    ms % static_cast<long>(std::pow(10, 6 - scale)) != 0) {
-                    LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str()
-                                 << ", scale = " << scale << "]";
+                if (fractional_second.size() > scale &&
+                    fractional_second.find_first_not_of('0', scale) != std::string::npos) {
+                    LOG(WARNING) << "invalid fractional second. [fractional_second="
+                                 << fractional_second << ", scale = " << scale << "]";
                     return false;
                 }
             }
@@ -310,5 +317,9 @@ bool valid_ipv4(const std::string& value_str) {
 
 bool valid_ipv6(const std::string& value_str) {
     return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
+}
+
+bool valid_uuid(const std::string& value_str) {
+    return UUIDValue::is_valid_string(value_str.c_str(), value_str.size());
 }
 } // namespace doris
