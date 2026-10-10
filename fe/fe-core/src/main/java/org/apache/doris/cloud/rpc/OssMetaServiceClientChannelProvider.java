@@ -36,9 +36,4 @@ public class OssMetaServiceClientChannelProvider implements MetaServiceClientCha
                 .usePlaintext()
                 .build();
     }
-
-    @Override
-    public long currentConfigVersion() {
-        return 0L;
-    }
 }

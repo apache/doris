@@ -45,9 +45,4 @@ public class OssBackendServiceClientChannelProvider implements BackendServiceCli
         }
         return channelBuilder.build();
     }
-
-    @Override
-    public long currentConfigVersion() {
-        return 0L;
-    }
 }
