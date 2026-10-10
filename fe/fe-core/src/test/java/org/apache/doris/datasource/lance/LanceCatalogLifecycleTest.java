@@ -25,7 +25,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.persist.EditLog;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -288,25 +287,6 @@ public class LanceCatalogLifecycleTest {
             Mockito.verify(client).invalidateTableAccessCache();
         } finally {
             catalog.onClose();
-        }
-    }
-
-    @Test
-    public void testIndexJobLocatorBypassesQueryAccessCache() throws Exception {
-        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
-        Mockito.when(namespace.describeTable(Mockito.any())).thenReturn(
-                new DescribeTableResponse().tableUri("file:///warehouse/original.lance"),
-                new DescribeTableResponse().tableUri("file:///warehouse/replacement.lance"));
-        try (LanceCatalogClient client = new LanceCatalogClient(namespace, Mockito.mock(BufferAllocator.class),
-                Mockito.mock(Session.class), "filesystem", "default", Collections.emptyList(),
-                Collections.emptyList(), Collections.emptyMap(), Collections.emptyList())) {
-            Field field = LanceCatalogClient.class.getDeclaredField("namespaceClient");
-            field.setAccessible(true);
-            LanceNamespaceClient namespaceClient = (LanceNamespaceClient) field.get(client);
-            namespaceClient.resolveTableAccess("default", "items");
-            Assertions.assertEquals(LanceIndexDatasetLocator.normalize("file:///warehouse/replacement.lance"),
-                    client.resolveCurrentIndexJobLocator("default", "items"));
-            Mockito.verify(namespace, Mockito.times(2)).describeTable(Mockito.any());
         }
     }
 

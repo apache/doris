@@ -24,7 +24,6 @@ import org.apache.doris.datasource.lance.index.LanceIndexInspection;
 import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
 import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
-import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceReadOptions;
 import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
@@ -840,11 +839,6 @@ final class LanceCatalogClient implements AutoCloseable {
             String dbName, String tableName) {
         return inspectTableIndexes(dbName, tableName,
                 (dataset, uri) -> LanceIndexInspection.readPhysicalEntries(dataset));
-    }
-
-    String resolveCurrentIndexJobLocator(String dbName, String tableName) {
-        return LanceIndexDatasetLocator.normalize(
-                namespaceClient.resolveTableAccessUncached(dbName, tableName).getDatasetUri());
     }
 
     public LanceIndexAdmissionSnapshot loadTableIndexAdmissionSnapshot(String dbName, String tableName) {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.lance;
 
-import org.apache.doris.datasource.lance.job.LanceIndexNameNormalizer;
 
 import com.google.common.collect.ImmutableSet;
 

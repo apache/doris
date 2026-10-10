@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -77,15 +76,11 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldO
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowResultSet;
-import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -554,43 +549,21 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             Preconditions.checkState(lanceIndexOps.size() == 1,
                     "a top-level Lance index statement must carry exactly one operation");
             AlterTableOp op = lanceIndexOps.get(0);
-            LanceIndexAdmission.Outcome outcome;
             if (op instanceof CreateIndexOp) {
                 IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
-                outcome = LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
+                LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf, indexDef,
                         indexDef.isIfNotExists());
             } else {
                 DropIndexOp dropIndexOp = (DropIndexOp) op;
-                outcome = LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,
+                LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf,
                         dropIndexOp.getIndexName(), dropIndexOp.isSetIfExists());
             }
-            sendJobIdResult(executor, outcome);
+            // An IF preflight no-op returns normally and completes with the default OK packet;
+            // any mutation that would be admitted rejects inside admission.
             return;
         }
         ctx.getEnv().alterTable(this);
-    }
-
-    /**
-     * Answers the admission with a single-column JobId result set (WarmUpClusterCommand
-     * pattern): one row carrying the durable job id, or zero rows for an IF no-op — "no job was
-     * created" is self-evident from the empty set, and sendResultSet's trailing setEof()
-     * suppresses the default OK packet on both the direct and the forwarded (proxy) link.
-     */
-    private void sendJobIdResult(StmtExecutor executor, LanceIndexAdmission.Outcome outcome)
-            throws IOException {
-        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        builder.addColumn(new Column("JobId", ScalarType.createVarchar(30)));
-        List<List<String>> rows = new ArrayList<>();
-        if (outcome.getJobId() != null) {
-            rows.add(Collections.singletonList(String.valueOf(outcome.getJobId())));
-        }
-        ShowResultSet resultSet = new ShowResultSet(builder.build(), rows);
-        if (executor.isProxy()) {
-            executor.setProxyShowResultSet(resultSet);
-            return;
-        }
-        executor.sendResultSet(resultSet);
     }
 }
