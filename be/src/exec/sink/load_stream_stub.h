@@ -163,6 +163,12 @@ public:
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                        int32_t segment_id, const SegmentStatistics& segment_stat);
 
+    // ADD_POINT_QUERY_INDEX
+    // Sends one partial GLOBAL_POINT bloom: `part` in the header, `body` as the attachment. Does
+    // nothing (returns OK) if the receiver did not advertise support when the stream opened.
+    Status add_point_query_index(int64_t partition_id, int64_t index_id, int64_t tablet_id,
+                                 const PGlobalPointIndexPart& part, std::span<const Slice> body);
+
     // CLOSE_LOAD
     Status close_load(const std::vector<PTabletID>& tablets_to_commit, int num_incremental_streams);
 
@@ -274,6 +280,8 @@ private:
 protected:
     std::atomic<bool> _is_init;
     std::atomic<bool> _is_open;
+    // Whether the receiver understands ADD_POINT_QUERY_INDEX, from the open response.
+    std::atomic<bool> _supports_point_query_index {false};
     std::atomic<bool> _is_closing;
     std::atomic<bool> _is_closed;
     std::atomic<bool> _is_cancelled;

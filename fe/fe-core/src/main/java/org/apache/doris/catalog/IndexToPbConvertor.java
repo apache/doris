@@ -57,6 +57,10 @@ public class IndexToPbConvertor {
                 builder.setIndexType(OlapFile.IndexType.ANN);
                 break;
 
+            case GLOBAL_POINT:
+                builder.setIndexType(OlapFile.IndexType.GLOBAL_POINT);
+                break;
+
             default:
                 throw new RuntimeException("indexType " + index.getIndexType() + " is not processed in toPb");
         }

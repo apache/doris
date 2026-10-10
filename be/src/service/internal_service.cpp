@@ -50,6 +50,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_global_point_index.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
@@ -485,6 +486,9 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
                                                                      tablet_load_infos);
             }
         }
+
+        // This BE understands ADD_POINT_QUERY_INDEX, see LoadStreamStub::add_point_query_index().
+        response->set_supports_point_query_index(true);
 
         LoadStream* load_stream = nullptr;
         auto st = _exec_env->load_stream_mgr()->open_load_stream(request, load_stream);
@@ -2306,6 +2310,47 @@ void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* contr
         *response->mutable_delete_bitmap() = std::move(diffset);
     }
     Status::OK().to_protobuf(response->mutable_status());
+}
+
+void PInternalService::prune_global_point_index(google::protobuf::RpcController* controller,
+                                                const PGlobalPointIndexPruneRequest* request,
+                                                PGlobalPointIndexPruneResponse* response,
+                                                google::protobuf::Closure* done) {
+    bool offered = _light_work_pool.try_offer([request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        // Reading .gpidx files needs a thread context.
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        if (!config::is_cloud_mode()) {
+            Status::NotSupported("GLOBAL_POINT index pruning is only supported in cloud mode")
+                    .to_protobuf(response->mutable_status());
+            return;
+        }
+        handle_global_point_index_prune(ExecEnv::GetInstance()->storage_engine().to_cloud(),
+                                        *request, response);
+    });
+    if (!offered) {
+        offer_failed(response, done, _light_work_pool);
+    }
+}
+
+void PInternalService::warm_up_global_point_index(google::protobuf::RpcController* controller,
+                                                  const PGpIdxWarmUpRequest* request,
+                                                  PGpIdxWarmUpResponse* response,
+                                                  google::protobuf::Closure* done) {
+    // Only queues the work, so the light pool is fine.
+    bool offered = _light_work_pool.try_offer([request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        if (!config::is_cloud_mode()) {
+            Status::NotSupported("GLOBAL_POINT index warm-up is only supported in cloud mode")
+                    .to_protobuf(response->mutable_status());
+            return;
+        }
+        handle_global_point_index_warm_up(ExecEnv::GetInstance()->storage_engine().to_cloud(),
+                                          *request, response);
+    });
+    if (!offered) {
+        offer_failed(response, done, _light_work_pool);
+    }
 }
 
 void PInternalService::request_cdc_client(google::protobuf::RpcController* controller,

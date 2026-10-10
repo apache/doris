@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "brpc/stream.h"
@@ -52,6 +53,8 @@ public:
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
+    // Accepts one sender's partial GLOBAL_POINT bloom.
+    Status add_point_query_index(const PStreamHeader& header, butil::IOBuf* data);
     void add_num_segments(int64_t num_segments) { _num_segments += num_segments; }
     void disable_num_segments_check() { _check_num_segments = false; }
     // Wait for all pending flush tasks to complete and shut down the flush token.
@@ -70,6 +73,9 @@ private:
     LoadStreamWriterSharedPtr _load_stream_writer;
     std::unique_ptr<ThreadPoolToken> _flush_token;
     std::unordered_map<int64_t, std::unique_ptr<SegIdMapping>> _segids_mapping;
+    // src_ids whose GLOBAL_POINT part was queued for merging. pre_close() requires every src_id
+    // that wrote a segment to be here; otherwise the merged bloom would miss some rows.
+    std::unordered_set<int64_t> _point_query_index_srcs;
     std::atomic<uint32_t> _next_segid;
     int64_t _num_segments = 0;
     bool _check_num_segments = true;

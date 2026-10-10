@@ -25,6 +25,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 #include "common/factory_creator.h"
 #include "core/block/block.h"
@@ -151,6 +152,17 @@ public:
     virtual Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
         return Status::NotSupported("RowsetWriter does not support add_segment");
     }
+
+    // Accepts one sender's partial GLOBAL_POINT bloom for one column (memtable-on-sink-node
+    // receiver). `body` is the raw bloom buffer; it is ORed into the column's accumulator.
+    virtual Status add_point_query_index(const PGlobalPointIndexPart& part, std::string_view body) {
+        return Status::NotSupported("RowsetWriter does not support add_point_query_index");
+    }
+
+    // Discards every received GLOBAL_POINT part, so the rowset carries no descriptor. Called when
+    // it cannot be proven that every sender contributed: a partial bloom would give false
+    // negatives, while a missing descriptor only means the rowset is scanned.
+    virtual void drop_point_query_indexes() {}
 
     // finish building and set rowset pointer to the built rowset (guaranteed to be inited).
     // rowset is invalid if returned Status is not OK

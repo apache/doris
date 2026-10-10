@@ -1032,6 +1032,9 @@ message POpenLoadStreamResponse {
     optional PStatus status = 1;
     repeated PTabletSchemaWithIndex tablet_schemas = 2;
     repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 3;
+    // Set by a receiver that understands ADD_POINT_QUERY_INDEX. A sender must not send that
+    // opcode otherwise: an older receiver would read it as APPEND_DATA.
+    optional bool supports_point_query_index = 4;
 }
 
 message PFailedTablet {
@@ -1049,12 +1052,31 @@ message PLoadStreamResponse {
     repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 7;
 }
 
+// A partial GLOBAL_POINT bloom, built by one sender for one indexed column of one tablet. A rowset
+// can be written by several senders, each seeing only part of the rows, so the receiver ORs the
+// parts of all senders before writing the .gpidx file. The bloom body is the message attachment.
+message PGlobalPointIndexPart {
+    optional int32  column_unique_id = 1;
+    optional int64  index_id         = 2;
+    optional double fpp              = 3;
+    optional int32  hash_strategy    = 4;
+    // Must be the same for all senders of one rowset and column, or the parts cannot be ORed.
+    optional uint64 num_bits         = 5;
+    // Size of the attachment: num_bits / 8 + 1 (the last byte is the has-null flag).
+    optional int64  body_size        = 6;
+    // Non-null values inserted by this sender; the receiver sums them.
+    optional int64  total_rows       = 7;
+    optional uint32 body_crc32       = 8;
+}
+
 message PStreamHeader {
     enum Opcode {
         APPEND_DATA = 1;
         CLOSE_LOAD = 2;
         ADD_SEGMENT = 3;
         GET_SCHEMA = 4;
+        // One PGlobalPointIndexPart in the header, its bloom body as the attachment.
+        ADD_POINT_QUERY_INDEX = 5;
     }
     optional PUniqueId load_id = 1;
     optional int64 partition_id = 2;
@@ -1070,6 +1092,8 @@ message PStreamHeader {
     optional uint64 offset = 12;
     optional FileType file_type = 13;
     optional int64 num_incremental_streams = 14;
+    // Set only when opcode == ADD_POINT_QUERY_INDEX.
+    optional PGlobalPointIndexPart point_query_index = 15;
 }
 
 message PGetWalQueueSizeRequest{
@@ -1290,4 +1314,66 @@ service PBackendService {
     rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
+    // Plan-time tablet pruning with GLOBAL_POINT indexes. FE sends one request per BE.
+    rpc prune_global_point_index(PGlobalPointIndexPruneRequest) returns (PGlobalPointIndexPruneResponse);
+    // Asks a BE to bring these tablets' GLOBAL_POINT index files into its file cache.
+    rpc warm_up_global_point_index(PGpIdxWarmUpRequest) returns (PGpIdxWarmUpResponse);
 };
+
+// One tablet to probe, at the snapshot version FE pinned for the query. BE must probe the rowsets
+// visible at exactly this version; if its local view has not reached it, the tablet is kept.
+message PGpPruneTablet {
+    optional int64 tablet_id = 1;
+    optional int64 snapshot_version = 2;
+}
+
+message PGlobalPointIndexPruneRequest {
+    optional int64 table_id = 1;
+    optional int32 column_unique_id = 2;
+    // Probe values, encoded by FE exactly as the write path inserts them into the bloom filter.
+    repeated bytes probe_values = 3;
+    repeated PGpPruneTablet tablets = 4;
+}
+
+message PGlobalPointIndexPruneResponse {
+    optional PStatus status = 1;
+    // Tablets that must be kept: every tablet that is not a definite miss. The response lists what
+    // to keep rather than what to drop, so an omission on BE side can only cause extra scanning.
+    repeated int64 candidate_tablet_ids = 2;
+    optional int64 probed_blooms = 3;
+    // Tablets kept only because they could not be checked (no local tablet, version not synced,
+    // missing or unreadable bloom, ...).
+    optional int64 degraded_tablets = 4;
+}
+
+// The BE answers as soon as one task per tablet is queued; the reads happen in the background.
+// Warm-up is best effort: a tablet that is not warmed is read from remote storage when needed.
+message PGpIdxWarmUpRequest {
+    repeated int64 tablet_ids = 1;
+    // false: first warm-up after the BE started; rowsets are synced from the meta service first.
+    // true: periodic repair sweep of an already warmed BE; uses the cached rowsets only, which is
+    // much cheaper and may miss rowsets written since the last sync until the next sweep.
+    optional bool is_repair_sweep = 2 [default = false];
+}
+
+message PGpIdxWarmUpResponse {
+    optional PStatus status = 1;
+    // Tablets queued, and tablets rejected because the queue was full (retry them later).
+    optional int64 accepted_tablets = 2;
+    optional int64 rejected_tablets = 3;
+    // Totals of the previous sweep this BE completed; this request's own work has not run yet.
+    // Absent if no sweep completed since the BE started.
+    optional int64 prev_sweep_checked = 4;   // cacheable index files looked at
+    optional int64 prev_sweep_resident = 5;  // already fully cached in the INDEX queue
+    optional int64 prev_sweep_repaired = 6;  // read into the cache, or moved to the INDEX queue
+    optional int64 prev_sweep_failed = 7;
+    // Bloom sizing self-check over every descriptor walked. undersized: far fewer bits per key
+    // than the bloom's own fpp needs (it saturates and stops pruning; results stay correct).
+    // empty: no value recorded, either a bloom that was never fed or an all-NULL column.
+    optional int64 prev_sweep_blooms_seen = 8;
+    optional int64 prev_sweep_blooms_undersized = 9;
+    optional int64 prev_sweep_blooms_empty = 10;
+    // Non-empty rowsets without a descriptor for an index in the tablet's current schema. Normal
+    // after ADD INDEX until the historical rowsets are rewritten; should trend to zero.
+    optional int64 prev_sweep_blooms_missing = 11;
+}

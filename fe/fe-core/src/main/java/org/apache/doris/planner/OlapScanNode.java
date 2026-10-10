@@ -55,6 +55,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -111,6 +112,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -187,6 +189,10 @@ public class OlapScanNode extends ScanNode {
     private OlapTable olapTable = null;
     private String tableNameInPlan = null;
     private long totalTabletsNum = 0;
+    // Result of GLOBAL_POINT plan-time pruning: partitionId -> tablets to keep. Null when pruning did
+    // not run for this scan; a partition without an entry is not pruned. Set by
+    // applyGlobalPointIndexPrune() and only read by computeTabletInfo().
+    private GlobalPointIndexPruner.Result globalPointPruneResult = null;
     private long selectedIndexId = -1;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private Map<Long, String> selectedPartitionNames = Collections.emptyMap();
@@ -1031,6 +1037,19 @@ public class OlapScanNode extends ScanNode {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", prunedTabletIds);
             }
+            // Must run before the sample intersection below, which may make prunedTabletIds point at
+            // the sampleTabletIds field itself; retainAll() on it after that would corrupt the field.
+            Set<Long> globalPointCandidates = globalPointPruneResult == null
+                    ? null : globalPointPruneResult.candidatesByPartition.get(partitionId);
+            if (globalPointCandidates != null) {
+                if (prunedTabletIds == null) {
+                    prunedTabletIds = new ArrayList<>(selectedTable.getTabletIdsInOrder());
+                }
+                prunedTabletIds.retainAll(globalPointCandidates);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("global point index prune tablets: {}", prunedTabletIds);
+                }
+            }
             if (!sampleTabletIds.isEmpty()) {
                 if (prunedTabletIds != null) {
                     prunedTabletIds.retainAll(sampleTabletIds);
@@ -1083,6 +1102,105 @@ public class OlapScanNode extends ScanNode {
                     ? getBackendAlivePathHashes(allBackends, tablets) : backendAlivePathHashes;
             addScanRangeLocations(partition, tablets, currentBackendAlivePathHashes);
         }
+    }
+
+    /**
+     * Prunes tablets with GLOBAL_POINT indexes, then rebuilds the scan ranges if anything was pruned.
+     *
+     * <p>Called from {@link ScanNode#setVisibleVersionForOlapScanNodes} for two reasons. The
+     * conjuncts are only attached to the scan node after {@link #init}, when the whole plan has been
+     * translated. And the probe must use the snapshot versions the query will scan, which are only
+     * pinned there (cloud mode).
+     *
+     * <p>Never throws: any failure only means no pruning.
+     */
+    public void applyGlobalPointIndexPrune(Map<Long, Long> visibleVersionMap) {
+        try {
+            doApplyGlobalPointIndexPrune(visibleVersionMap);
+        } catch (Throwable t) {
+            LOG.warn("global point index prune failed, scanning all selected tablets", t);
+        }
+    }
+
+    private void doApplyGlobalPointIndexPrune(Map<Long, Long> visibleVersionMap) throws UserException {
+        ConnectContext connectContext = ConnectContext.get();
+        if (!Config.enable_global_point_index_prune || connectContext == null
+                || !connectContext.getSessionVariable().enableGlobalPointIndexPrune) {
+            return;
+        }
+        if (conjuncts.isEmpty() || selectedPartitionIds.isEmpty()) {
+            return;
+        }
+        // Rollup tablets never carry the base table's indexes, and wrapper tables redirect the
+        // scan to other tablets: an RPC round trip would only return "keep everything".
+        if (selectedIndexId != olapTable.getBaseIndexId() || olapTable instanceof OlapTableWrapper) {
+            return;
+        }
+        // Rebuilding the scan ranges would sample the tablets again.
+        if (tableSample != null) {
+            return;
+        }
+        // Short-circuit point queries already prune to a single tablet by the key.
+        if (connectContext.getStatementContext() != null
+                && connectContext.getStatementContext().isShortCircuitQuery()) {
+            return;
+        }
+        // The query cache digest is computed before this point and covers the scanned tablets.
+        if (connectContext.getSessionVariable().getEnableQueryCache()) {
+            return;
+        }
+        List<Column> indexedColumns = new ArrayList<>();
+        for (Index index : olapTable.getIndexes()) {
+            if (index.getIndexType() == IndexType.GLOBAL_POINT && index.getColumns() != null
+                    && !index.getColumns().isEmpty()) {
+                Column column = olapTable.getColumn(index.getColumns().get(0));
+                if (column != null) {
+                    indexedColumns.add(column);
+                }
+            }
+        }
+        if (indexedColumns.isEmpty()) {
+            return;
+        }
+        // columnFilters is only filled for the partition/distribution columns during translation;
+        // fill it for the indexed columns too.
+        computeColumnsFilter(indexedColumns, olapTable.getPartitionInfo());
+        Column target = GlobalPointIndexPruner.findTargetColumn(olapTable, columnFilters);
+        if (target == null) {
+            return;
+        }
+        List<ByteString> probeValues =
+                GlobalPointIndexPruner.extractProbeValues(columnFilters.get(target.getName()), target);
+        if (probeValues == null) {
+            return;
+        }
+
+        globalPointPruneResult = GlobalPointIndexPruner.probe(olapTable, selectedIndexId, selectedPartitionIds,
+                target, probeValues, visibleVersionMap);
+        if (globalPointPruneResult.tabletsAfter < globalPointPruneResult.tabletsBefore) {
+            resetScanRangeStateForRebuild();
+            createScanRangeLocations();
+            computeNumNodes();
+        }
+    }
+
+    // Clears the state that computeTabletInfo() and addScanRangeLocations() fill, so that
+    // createScanRangeLocations() can run a second time. Mirrors lazyEvaluateRangeLocations().
+    // sampleTabletIds is not cleared: pruning does not run with TABLESAMPLE, so it is empty.
+    private void resetScanRangeStateForRebuild() {
+        scanBackendIds.clear();
+        selectionHint = null;
+        scanBackendOrderBySelection = false;
+        scanTabletIds.clear();
+        tabletId2BucketInfo.clear();
+        bucketSeq2locations.clear();
+        bucketSeq2Bytes.clear();
+        scanReplicaIds.clear();
+        tabletBytes.clear();
+        totalTabletsNum = 0;
+        selectedSplitNum = 0;
+        totalBytes = 0;
+        maxVersion = -1L;
     }
 
     private static Map<Long, Set<Long>> getBackendAlivePathHashes(Collection<Backend> backends) {
@@ -1330,6 +1448,17 @@ public class OlapScanNode extends ScanNode {
             output.append(String.format(", tabletList=%s", Joiner.on(",").join(scanTabletIds)));
         }
         output.append("\n");
+        if (globalPointPruneResult != null) {
+            GlobalPointIndexPruner.Result r = globalPointPruneResult;
+            output.append(prefix).append("globalPointIndex: ").append(r.columnName).append(" -> ");
+            if (r.tabletsAfter >= r.tabletsBefore && r.degradedTablets >= r.tabletsBefore) {
+                output.append(String.format("not applied (%d tablets could not be checked)", r.degradedTablets));
+            } else {
+                output.append(String.format("%d/%d tablets (probes=%d, unchecked=%d)", r.tabletsAfter,
+                        r.tabletsBefore, r.probeValueCount, r.degradedTablets));
+            }
+            output.append("\n");
+        }
 
         output.append(prefix).append(String.format("cardinality=%s", cardinality))
                 .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));

@@ -2640,9 +2640,13 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                         // Inverted index supports light schema change in both cloud and local mode.
                         // NGRAM_BF and BfIndex support it only in cloud mode.
+                        // GLOBAL_POINT supports it in both modes, the same way Index.isLightAddIndexSupported()
+                        // allows the light add.
                         boolean supportLightIndexChange = false;
                         if (found != null) {
-                            if (Config.isCloudMode()) {
+                            if (found.getIndexType() == IndexType.GLOBAL_POINT) {
+                                supportLightIndexChange = enableAddIndexForNewData;
+                            } else if (Config.isCloudMode()) {
                                 supportLightIndexChange = enableAddIndexForNewData
                                         && (found.getIndexType() == IndexType.NGRAM_BF
                                         || found.getIndexType() == IndexType.BLOOMFILTER

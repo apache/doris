@@ -221,10 +221,20 @@ Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,
         DCHECK(_index_file_writer != nullptr);
     }
 
+    // The GLOBAL_POINT builder of the column, if any, is owned by the rowset writer and covers
+    // every segment of the rowset.
+    if (_opts.rowset_ctx != nullptr) {
+        auto it = _opts.rowset_ctx->global_point_index_builders.find(column.unique_id());
+        if (it != _opts.rowset_ctx->global_point_index_builders.end()) {
+            opts.point_query_index_builder = it->second;
+        }
+    }
+
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE)                     \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \
         opts.need_bloom_filter = false;                       \
+        opts.point_query_index_builder = nullptr;             \
     }
 
     DISABLE_INDEX_IF_FIELD_TYPE(STRUCT)

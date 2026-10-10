@@ -54,6 +54,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     out->set_data_disk_size(in.data_disk_size());
     out->set_index_disk_size(in.index_disk_size());
     out->mutable_zone_maps()->CopyFrom(in.zone_maps());
+    out->mutable_point_query_indexes()->CopyFrom(in.point_query_indexes());
     if (in.has_delete_predicate()) {
         out->mutable_delete_predicate()->CopyFrom(in.delete_predicate());
     }
@@ -153,6 +154,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->set_data_disk_size(in.data_disk_size());
     out->set_index_disk_size(in.index_disk_size());
     out->mutable_zone_maps()->Swap(in.mutable_zone_maps());
+    out->mutable_point_query_indexes()->Swap(in.mutable_point_query_indexes());
     if (in.has_delete_predicate()) {
         out->mutable_delete_predicate()->Swap(in.mutable_delete_predicate());
     }
@@ -266,6 +268,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     out->set_data_disk_size(in.data_disk_size());
     out->set_index_disk_size(in.index_disk_size());
     out->mutable_zone_maps()->CopyFrom(in.zone_maps());
+    out->mutable_point_query_indexes()->CopyFrom(in.point_query_indexes());
     if (in.has_delete_predicate()) {
         out->mutable_delete_predicate()->CopyFrom(in.delete_predicate());
     }
@@ -365,6 +368,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     out->set_data_disk_size(in.data_disk_size());
     out->set_index_disk_size(in.index_disk_size());
     out->mutable_zone_maps()->Swap(in.mutable_zone_maps());
+    out->mutable_point_query_indexes()->Swap(in.mutable_point_query_indexes());
     if (in.has_delete_predicate()) {
         out->mutable_delete_predicate()->Swap(in.mutable_delete_predicate());
     }

@@ -3894,4 +3894,42 @@ public class Config extends ConfigBase {
             + "random-distribution tables. Covers all load types " + "uniformly.")
     public static boolean enable_adaptive_random_bucket_load = true;
 
+    @ConfField(mutable = true, description = "Default target false-positive rate of a GLOBAL_POINT index, used when "
+            + "the index is created without the fpp property. It is the budget for a whole tablet: each rowset "
+            + "bloom gets a share of it, so that probing all blooms of one tablet stays within this rate.")
+    public static double global_point_index_default_fpp = 0.01;
+
+    @ConfField(mutable = true, description = "Whether FE uses GLOBAL_POINT indexes to prune tablets at planning "
+            + "time. This is the cluster-wide switch; the session variable enable_global_point_index_prune can "
+            + "turn it off per query.")
+    public static boolean enable_global_point_index_prune = true;
+
+    @ConfField(mutable = true, description = "If an IN predicate on a GLOBAL_POINT column has more values than "
+            + "this, plan-time pruning is skipped for the query.")
+    public static int global_point_index_max_probe_values = 32;
+
+    @ConfField(mutable = true, description = "Timeout in milliseconds of the plan-time prune RPC. The RPC is on "
+            + "the planning path of every query that can use the index. A BE that does not answer in time has "
+            + "all its tablets kept, so a timeout only costs pruning, never correctness. Lower it once blooms "
+            + "are reliably in the BE file cache; a healthy cluster answers well within 500 ms.")
+    public static int global_point_index_prune_timeout_ms = 3000;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Whether the master FE keeps the GLOBAL_POINT index "
+            + "files of every alive BE in its file cache: all files after the BE starts, then periodic repair sweeps "
+            + "(see enable_global_point_index_repair). Cloud mode only.")
+    public static boolean enable_global_point_index_warmup = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Number of tablets in one GLOBAL_POINT warm-up "
+            + "request to a BE.")
+    public static int global_point_index_warmup_batch_size = 1000;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to run periodic GLOBAL_POINT repair sweeps "
+            + "on already warmed BEs. A sweep brings back index files evicted from the file cache and runs the bloom "
+            + "sizing self-check. Only takes effect when enable_global_point_index_warmup is on.")
+    public static boolean enable_global_point_index_repair = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Seconds between two GLOBAL_POINT repair sweeps of "
+            + "the same BE.")
+    public static int global_point_index_repair_interval_sec = 600;
+
 }

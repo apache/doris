@@ -3938,6 +3938,11 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
                     &file_paths);
         }
     }
+    for (const auto& gp : rs_meta_pb.point_query_indexes()) {
+        add_file_to_delete_if_not_packed(
+                rs_meta_pb, global_point_index_path(tablet_id, rowset_id, gp.column_unique_id()),
+                &file_paths);
+    }
 
     // Process delete bitmap - check where it's stored.
     DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
@@ -4718,6 +4723,11 @@ int InstanceRecycler::delete_rowset_data(
                 add_file_to_delete_if_not_packed(
                         rs, inverted_index_path_v2(tablet_id, rowset_id, segment_id), &file_paths);
             }
+        }
+        for (const auto& gp : rs.point_query_indexes()) {
+            add_file_to_delete_if_not_packed(
+                    rs, global_point_index_path(tablet_id, rowset_id, gp.column_unique_id()),
+                    &file_paths);
         }
     }
 

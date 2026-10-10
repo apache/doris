@@ -558,6 +558,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
             case TIndexType::NGRAM_BF:
                 index_pb->set_index_type(IndexType::NGRAM_BF);
                 break;
+            case TIndexType::GLOBAL_POINT:
+                index_pb->set_index_type(IndexType::GLOBAL_POINT);
+                break;
             }
 
             if (index.__isset.properties) {

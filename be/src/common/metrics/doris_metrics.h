@@ -55,6 +55,18 @@ public:
     IntCounter* query_scan_bytes_from_remote = nullptr;
     IntCounter* query_scan_rows = nullptr;
 
+    // GLOBAL_POINT index warm-up sweeps, cumulative. A healthy repair sweep keeps repaired and
+    // failed flat. blooms_undersized rising means some rowset got a bloom far too small for its
+    // fpp, so pruning is silently lost for it. blooms_empty is ambiguous (a bloom never fed, or an
+    // all-NULL column); blooms_missing is normal after ADD INDEX and should trend to zero.
+    IntCounter* global_point_index_warmup_checked_total = nullptr;
+    IntCounter* global_point_index_warmup_resident_total = nullptr;
+    IntCounter* global_point_index_warmup_repaired_total = nullptr;
+    IntCounter* global_point_index_warmup_failed_total = nullptr;
+    IntCounter* global_point_index_blooms_undersized_total = nullptr;
+    IntCounter* global_point_index_blooms_empty_total = nullptr;
+    IntCounter* global_point_index_blooms_missing_total = nullptr;
+
     // Query cache incremental merge (see runtime/query_cache/query_cache.h):
     // how many instance decisions reused a stale entry incrementally, how many
     // could have but fell back to a full recompute, and how many entries were

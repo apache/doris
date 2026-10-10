@@ -87,6 +87,8 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
             .table_schema_param = schema,
             // TODO(plat1ko): write_file_cache
             .storage_vault_id {},
+            // The receiver never sees column values; it merges the senders' GLOBAL_POINT parts.
+            .point_query_index_from_sender = true,
     };
 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
@@ -109,6 +111,9 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     // dispatch add_segment request
     if (header.opcode() == PStreamHeader::ADD_SEGMENT) {
         return add_segment(header, data);
+    }
+    if (header.opcode() == PStreamHeader::ADD_POINT_QUERY_INDEX) {
+        return add_point_query_index(header, data);
     }
 
     SCOPED_TIMER(_append_data_timer);
@@ -268,6 +273,41 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     return _status.status();
 }
 
+Status TabletStream::add_point_query_index(const PStreamHeader& header, butil::IOBuf* data) {
+    if (!_status.ok()) {
+        return _status.status();
+    }
+    if (!header.has_point_query_index()) {
+        LOG(WARNING) << "ADD_POINT_QUERY_INDEX without a part, " << *this;
+        return Status::OK();
+    }
+
+    const int64_t src_id = header.src_id();
+    PGlobalPointIndexPart part = header.point_query_index();
+    butil::IOBuf body = *data;
+    auto merge_func = [this, part = std::move(part), body = std::move(body)]() {
+        signal::set_signal_task_id(_load_id);
+        auto st = _load_stream_writer->add_point_query_index(part, body);
+        if (!st.ok()) {
+            // A bad part only costs pruning; the load goes on.
+            LOG(WARNING) << "failed to merge GLOBAL_POINT part of column "
+                         << part.column_unique_id() << ", " << *this << ": " << st;
+        }
+    };
+
+    // Same flush token as the segments, so pre_close() waits for the merge too.
+    auto st = _flush_token->submit_func(merge_func);
+    if (!st.ok()) {
+        // The merge will never run, so this sender must count as missing in pre_close().
+        LOG(WARNING) << "failed to submit GLOBAL_POINT merge task, " << *this << ": " << st;
+        return Status::OK();
+    }
+
+    std::lock_guard lock_guard(_lock);
+    _point_query_index_srcs.insert(src_id);
+    return Status::OK();
+}
+
 Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
     bthread::Mutex mu;
     std::unique_lock<bthread::Mutex> lock(mu);
@@ -329,6 +369,27 @@ void TabletStream::pre_close() {
                 "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
                 _num_segments, _next_segid.load(), print_id(_load_id)));
         return;
+    }
+
+    // GLOBAL_POINT blooms are all or nothing: if any sender that wrote a segment sent no part,
+    // the merged bloom would miss its rows and give false negatives, so the rowset gets no
+    // descriptor at all and is simply scanned.
+    {
+        std::lock_guard lock_guard(_lock);
+        size_t missing = 0;
+        for (const auto& [src_id, _] : _segids_mapping) {
+            if (!_point_query_index_srcs.contains(src_id)) {
+                missing++;
+            }
+        }
+        if (missing > 0) {
+            if (!_point_query_index_srcs.empty()) {
+                LOG(WARNING) << "dropping GLOBAL_POINT indexes of this rowset, " << missing
+                             << " of " << _segids_mapping.size() << " senders sent no bloom, "
+                             << *this;
+            }
+            _load_stream_writer->drop_point_query_indexes();
+        }
     }
 
     _status.update(_run_in_heavy_work_pool([this]() { return _load_stream_writer->pre_close(); }));
@@ -785,6 +846,12 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         }
     } break;
     case PStreamHeader::APPEND_DATA: {
+        auto st = _append_data(hdr, data);
+        if (!st.ok()) {
+            _report_failure(id, st, hdr);
+        }
+    } break;
+    case PStreamHeader::ADD_POINT_QUERY_INDEX: {
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
             _report_failure(id, st, hdr);

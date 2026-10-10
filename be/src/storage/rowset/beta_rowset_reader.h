@@ -132,6 +132,11 @@ private:
     [[nodiscard]] Status _init_iterator();
     bool _should_push_down_value_predicates() const;
 
+    // Tests the rowset's GLOBAL_POINT blooms against the EQ/IN predicates on indexed columns.
+    // Sets *skip when one of them is a definite miss; the caller then reads nothing from this
+    // rowset. Missing, unreadable or unusable blooms leave *skip false.
+    [[nodiscard]] Status _global_point_index_gate(bool* skip);
+
     int64_t _get_segment_num() const {
         auto [seg_start, seg_end] = _segment_offsets;
         if (seg_start == seg_end) {

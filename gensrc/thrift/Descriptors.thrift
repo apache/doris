@@ -249,7 +249,8 @@ enum TIndexType {
   INVERTED = 1,
   BLOOMFILTER = 2,
   NGRAM_BF = 3,
-  ANN = 4
+  ANN = 4,
+  GLOBAL_POINT = 5
 }
 
 enum TPartialUpdateNewRowPolicy {

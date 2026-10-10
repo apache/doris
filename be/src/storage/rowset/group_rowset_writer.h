@@ -83,6 +83,18 @@ public:
 
     Version version() override { return _context.version; }
 
+    // GLOBAL_POINT parts belong to the data rowset, not the binlog rowset.
+    Status add_point_query_index(const PGlobalPointIndexPart& part,
+                                 std::string_view body) override {
+        DCHECK(_txn_rowset_writer != nullptr);
+        return _txn_rowset_writer->add_point_query_index(part, body);
+    }
+
+    void drop_point_query_indexes() override {
+        DCHECK(_txn_rowset_writer != nullptr);
+        _txn_rowset_writer->drop_point_query_indexes();
+    }
+
     int64_t num_rows() const override { return _txn_rowset_writer->num_rows(); }
 
     int64_t num_rows_updated() const override { return _txn_rowset_writer->num_rows_updated(); }

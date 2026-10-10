@@ -304,6 +304,14 @@ struct OlapReaderStatistics {
     int64_t generate_row_ranges_by_zonemap_ns = 0;
     int64_t generate_row_ranges_by_dict_ns = 0;
 
+    // GLOBAL_POINT index scan-time gate.
+    int64_t global_point_index_gate_ns = 0;
+    int64_t rowsets_global_point_index_filtered = 0;
+    int64_t rowsets_global_point_index_probed = 0;
+    int64_t global_point_index_bytes_read = 0;
+    // Checks that could not be done (missing or unusable bloom), so the rowset was scanned.
+    int64_t global_point_index_degraded = 0;
+
     int64_t index_load_ns = 0;
 
     int64_t total_pages_num = 0;

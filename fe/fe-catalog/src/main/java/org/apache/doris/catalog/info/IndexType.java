@@ -25,5 +25,6 @@ public enum IndexType {
     INVERTED,
     BLOOMFILTER,
     NGRAM_BF,
-    ANN
+    ANN,
+    GLOBAL_POINT
 }

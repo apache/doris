@@ -105,6 +105,13 @@ static inline std::string local_segment_path(std::string_view tablet_path,
     return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id, seg_id);
 }
 
+// One GLOBAL_POINT index file per rowset and indexed column, covering all segments of the rowset.
+static inline std::string local_global_point_index_path(std::string_view tablet_path,
+                                                        std::string_view rowset_id,
+                                                        int32_t col_unique_id) {
+    return fmt::format("{}/{}_{}.gpidx", tablet_path, rowset_id, col_unique_id);
+}
+
 static inline std::string cooldown_tablet_meta_filename(int64_t cooldown_replica_id,
                                                         int64_t cooldown_term) {
     return fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);

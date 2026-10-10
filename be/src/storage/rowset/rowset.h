@@ -325,6 +325,13 @@ public:
     void clear_cache();
 
     MOCK_FUNCTION Result<std::string> segment_path(int64_t seg_id);
+
+    // Path of this rowset's GLOBAL_POINT index file for one column.
+    MOCK_FUNCTION Result<std::string> global_point_index_path(int32_t col_unique_id);
+
+    // Reader options for this rowset's .gpidx file described by `desc`. All readers use this, so
+    // they all use the file cache the same way.
+    io::FileReaderOptions global_point_index_reader_options(const ColumnPointIndexPB& desc);
     RowsetSegmentView segment(size_t pos);
     RowsetSegmentRange segments();
 

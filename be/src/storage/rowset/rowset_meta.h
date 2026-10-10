@@ -246,6 +246,22 @@ public:
         }
     }
 
+    // GLOBAL_POINT index descriptors, one per indexed column. The bloom itself is in a .gpidx file.
+    const google::protobuf::RepeatedPtrField<ColumnPointIndexPB>& point_query_indexes() const {
+        return _rowset_meta_pb.point_query_indexes();
+    }
+
+    void set_point_query_indexes(const std::vector<ColumnPointIndexPB>& point_query_indexes) {
+        _rowset_meta_pb.clear_point_query_indexes();
+        for (const ColumnPointIndexPB& index : point_query_indexes) {
+            *_rowset_meta_pb.add_point_query_indexes() = index;
+        }
+    }
+
+    void add_point_query_index(const ColumnPointIndexPB& point_query_index) {
+        *_rowset_meta_pb.add_point_query_indexes() = point_query_index;
+    }
+
     void add_zone_map(const ::doris::ZoneMap& zone_map) {
         ::doris::ZoneMap* new_zone_map = _rowset_meta_pb.add_zone_maps();
         *new_zone_map = zone_map;
