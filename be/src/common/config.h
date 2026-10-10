@@ -1439,8 +1439,10 @@ DECLARE_mInt32(snii_target_dict_block_bytes);
 DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
 // Minimum reclaimable posting-arena size for a forced spill. Requests below this floor remain pending until the arena grows enough.
 DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
-// Maximum spill runs held by one SNII writer. Runs are merged when this cap is exceeded to bound merge fan-in and open file descriptors; zero disables the cap.
+// Maximum active inputs per spill-run merge. Zero leaves fan-in to workspace and file-descriptor limits.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
+// Shared posting-workspace budget for spill, merge, and encoding.
+DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

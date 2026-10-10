@@ -47,12 +47,11 @@ class GlobalMemoryLimiter; // G09 process-wide build-RAM registry (see below)
 // positions are enabled) a single FLAT positions buffer.
 //
 // positions_flat holds every position for the term in document order, partitioned
-// by freqs: doc i owns the next freqs[i] entries. This is the SAME layout the
-// accumulator stores natively, so no per-doc vector-of-vectors is ever built on
-// the build/merge hot path (that vector-of-vectors was the dominant peak-RSS
-// driver for high-df terms). doc_positions(i) returns a non-owning span view of
-// doc i's positions for consumers that want per-doc access (e.g. the prx window
-// builder, tests). positions_flat is empty when positions are disabled.
+// by freqs: doc i owns the next freqs[i] entries. This materialized convenience
+// type is used by callers and fixtures; the production accumulator stores a
+// compact byte stream and drains it through TermPostingSource. doc_positions(i)
+// borrows a span from this caller-owned representation. positions_flat is empty
+// when positions are disabled.
 struct TermPostings {
     std::string term;
     std::vector<uint32_t> docids; // absolute docids
@@ -103,7 +102,8 @@ struct TermPostings {
     }
 };
 
-// Accumulates postings by integer term ID and emits terms in lexical order. It can borrow a caller vocabulary or intern owned terms; with a spill limit, it writes sorted runs and merges them one term at a time. Per-term tagged-varint postings live in a shared segmented arena; vocabulary strings must be unique.
+// Accumulates postings by term ID and emits them in lexical order. It can borrow
+// or own a vocabulary, spills into bounded runs, and requires unique term strings.
 class SpimiTermBuffer {
 public:
     // BORROWED-vocab constructor: `vocab` maps term-id -> term string and is
@@ -177,7 +177,7 @@ public:
     void set_forced_spill_min_arena_bytes(uint64_t bytes) { forced_spill_min_arena_bytes_ = bytes; }
     uint64_t forced_spill_min_arena_bytes() const { return forced_spill_min_arena_bytes_; }
 
-    // Merge existing spill runs before their count exceeds the configured cap. Zero disables the cap.
+    // Cap active merge inputs; zero leaves fan-in to workspace and file-descriptor limits.
     static constexpr size_t kDefaultMaxRunFilesPerBuffer = 64;
     void set_max_run_files(size_t cap) { max_run_files_ = cap; }
     size_t max_run_files() const { return max_run_files_; }
@@ -193,12 +193,9 @@ public:
     // this after draining to surface input-side validation errors.
     [[nodiscard]] Status status() const { return spill_status_; }
 
-    // TEST-ONLY: number of spill run files currently HELD (== 0 in pure
-    // in-memory mode). Lets tests assert that a gate-2 spill actually fired
-    // once the REAL resident size crossed the configured cap. NOTE: a G09
-    // run-cap merge-compaction (see set_max_run_files) collapses the list to
-    // ONE file, so the count is not monotonic. Not part of the production API.
-    size_t run_count_for_test() const { return run_paths_.size(); }
+    // Logical sealed runs, as opposed to physical ingestion spool files.
+    size_t run_count_for_test() const { return run_count_; }
+    size_t spill_file_count_for_test() const { return run_spool_path_.empty() ? 0 : 1; }
 
     // TEST-ONLY: the REAL resident accumulator bytes the gate-2 trigger and the
     // MemoryReporter see (resident_bytes()). Lets the G08 accounting tests assert
@@ -266,26 +263,6 @@ private:
                   "SliceWriter must stay 8 bytes to keep Term compact");
     static_assert(sizeof(Term) == 28, "Term must stay compact for high-cardinality imports");
 
-    struct TrackedTermPostings {
-        explicit TrackedTermPostings(MemoryReporter* reporter)
-                : docids_reservation(reporter == nullptr ? MemoryReporter::Reservation()
-                                                         : reporter->make_reservation()),
-                  freqs_reservation(reporter == nullptr ? MemoryReporter::Reservation()
-                                                        : reporter->make_reservation()),
-                  positions_reservation(reporter == nullptr ? MemoryReporter::Reservation()
-                                                            : reporter->make_reservation()) {}
-
-        TrackedTermPostings(const TrackedTermPostings&) = delete;
-        TrackedTermPostings& operator=(const TrackedTermPostings&) = delete;
-
-        // Reservations precede the posting vectors so physical allocations are
-        // destroyed before their charges are released.
-        MemoryReporter::Reservation docids_reservation;
-        MemoryReporter::Reservation freqs_reservation;
-        MemoryReporter::Reservation positions_reservation;
-        TermPostings postings;
-    };
-
     // The active vocabulary (term-id -> string): either the borrowed pointer or,
     // in owned mode, &owned_vocab_. Always non-null after construction.
     const std::vector<std::string>& vocab() const { return *vocab_; }
@@ -305,7 +282,6 @@ private:
     // limit. Every public add path invokes this gate once.
     void maybe_spill_after_token();
 
-    Status to_postings(std::string term, Term&& t, TrackedTermPostings* tracked) const;
     class ArenaTermPostingSource;
 
     // Returns the touched term-ids sorted by their vocab string (lexicographic).
@@ -320,14 +296,8 @@ private:
     Status drain_sorted_streamed(const StreamedTermConsumer& fn);
     // Spills the current buffer to a fresh sorted run file and clears memory.
     Status spill_to_run();
-    // G09 run-file cap enforcement (see set_max_run_files): merge-compacts the
-    // current run files into ONE fresh run (same term stream, ids ordered by
-    // the current string rank), deletes the old
-    // files and replaces run_paths_ with the compacted one. Called by
-    // spill_to_run before opening a new run once the cap is reached.
-    Status compact_runs();
     // Writes all current terms (sorted) to an already-open RunWriter, draining.
-    Status drain_to_writer(class RunWriter* w);
+    Status drain_to_writer(class EncodedRunWriter* w);
     // REAL resident accumulator bytes -- the single source of truth for the gate-2
     // spill trigger and every MemoryReporter delta. G08: sums EVERY live input-side
     // structure -- the posting arena (docs+prx payload)
@@ -453,12 +423,15 @@ private:
     // (so an untouched term costs no arena bytes).
     void put_varint(Term* t, uint64_t v);
 
-    std::vector<std::string> run_paths_; // spilled run temp files (deleted in dtor)
-    Status spill_status_;                // first spill / range error, at finalize
-    bool drained_ = false;               // set once finalize_sorted/for_each_term_sorted has run;
-                                         // a second drain would (spilled path) re-merge the run
-                                         // files and re-emit every term, or (in-memory path) emit
-                                         // nothing -- both wrong. Guard against the double-drain.
+    MemoryReporter::Reservation run_path_reservation_;
+    std::string run_spool_path_;
+    PostingByteBuffer run_ends_;
+    size_t run_count_ = 0;
+    Status spill_status_;  // first spill / range error, at finalize
+    bool drained_ = false; // set once finalize_sorted/for_each_term_sorted has run;
+                           // a second drain would (spilled path) re-merge the run
+                           // files and re-emit every term, or (in-memory path) emit
+                           // nothing -- both wrong. Guard against the double-drain.
 
     // Lazily-built vocab-sized map: term-id -> its lexicographic rank among all
     // vocab strings. `size() == vocab().size()` means the rank is current; a
@@ -495,12 +468,7 @@ void reset_vocab_string_materialization_count();
 uint64_t global_forced_spills();
 void reset_global_forced_spills();
 
-// G09 run-file cap seam: merge-compactions of a buffer's accumulated spill
-// runs (each collapses the whole run list into one file). Always-on relaxed
-// atomic (a compaction is rare -- at most once per cap-many spills -- so
-// contention is a non-issue, unlike the per-token seams above). Deterministic
-// on the single-threaded build path; reset between tests. Not part of the
-// production API.
+// Successful bounded run merge groups, including intermediate reductions.
 uint64_t run_compactions();
 void reset_run_compactions();
 
