@@ -920,6 +920,7 @@ struct TInitExternalCtlMetaResult {
 }
 
 enum TSchemaTableName {
+  // Wire ids must stay consistent across maintained branches. Do not renumber or reuse ids.
   // BACKENDS = 0,
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
@@ -934,11 +935,11 @@ enum TSchemaTableName {
   PARTITIONS = 10,
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
-  DATABASE_PROPERTIES = 13,
-  AUTHENTICATION_INTEGRATIONS = 14,
+  AUTHENTICATION_INTEGRATIONS = 13,
+  ROLE_MAPPINGS = 14,
   TABLE_STREAMS = 15,
   TABLE_STREAM_CONSUMPTION = 16,
-  ROLE_MAPPINGS = 17,
+  DATABASE_PROPERTIES = 17,
   EXTENSIONS = 18,
   TSO_STATUS = 19,
   STATISTICS = 20,
