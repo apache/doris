@@ -326,9 +326,17 @@ public class MysqlSerializer {
             case VARBINARY: {
                 return type.getLength();
             }
-            // todo:It needs to be obtained according to the field length set during the actual creation,
-            // todo:which is not supported for the time being.default is 255
-            // CHAR,VARCHAR:
+            // The MySQL column-definition packet advertises the display length of the column and
+            // clients (e.g. ODBC) size their buffers from it. CHAR/VARCHAR must report the length
+            // declared in the DDL instead of a hardcoded 255, otherwise longer values are silently
+            // truncated by the client (e.g. Connector/ODBC allocates ColumnSize = 255 / wide-char).
+            case CHAR:
+            case VARCHAR:
+            case STRING: {
+                // STRING is unbounded (up to 2GB); advertising the raw length would overflow the
+                // 4-byte length field, so cap it at the VARCHAR maximum like MySQL TEXT(65535).
+                return Math.min(type.getLength(), ScalarType.MAX_VARCHAR_LENGTH);
+            }
             default:
                 return 255;
         }
