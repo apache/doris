@@ -18,18 +18,26 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.qe.BatchPointQueryExecutor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -53,13 +61,60 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     }
 
     private boolean filterMatchShortCircuitCondition(LogicalFilter<LogicalOlapScan> filter) {
-        return filter.getConjuncts().stream().allMatch(
+        return batchFilterMatchShortCircuitCondition(filter) || filter.getConjuncts().stream().allMatch(
                 // all conjuncts match with pattern `key = ?`
                 expression -> (expression instanceof EqualTo)
                         && (removeCast(expression.child(0)).isKeyColumnFromTable()
                         || (expression.child(0) instanceof SlotReference
                         && ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN)))
                         && expression.child(1).isLiteral());
+    }
+
+    private boolean batchFilterMatchShortCircuitCondition(LogicalFilter<LogicalOlapScan> filter) {
+        // Limit the first batch implementation to literal lookups on one VARCHAR hash key.
+        // Prepared statements must not cache an IN plan in the equality-only parameter updater.
+        if (!ConnectContext.get().getSessionVariable().isEnableBatchPointQuery()
+                || ConnectContext.get().getCommand() != MysqlCommand.COM_QUERY
+                || ConnectContext.get().getSessionVariable().isInDebugMode()
+                || filter.child().getTableSample().isPresent()) {
+            // Debug scans can skip versions/deletes, and sampling must keep the normal scan semantics.
+            return false;
+        }
+        OlapTable table = filter.child().getTable();
+        List<Column> keys = table.getBaseSchemaKeyColumns();
+        if (keys.size() != 1 || !keys.get(0).getType().isVarchar() || keys.get(0).isAllowNull()
+                || table.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
+                || !(table.getDefaultDistributionInfo() instanceof HashDistributionInfo)
+                || table.getTableProperty().getCopiedRowStoreColumns() != null) {
+            return false;
+        }
+        List<Column> distributionColumns = ((HashDistributionInfo) table.getDefaultDistributionInfo())
+                .getDistributionColumns();
+        if (distributionColumns.size() != 1 || !distributionColumns.get(0).equals(keys.get(0))) {
+            return false;
+        }
+        int inCount = 0;
+        for (Expression expression : filter.getConjuncts()) {
+            if (expression instanceof InPredicate) {
+                InPredicate in = (InPredicate) expression;
+                if (!(in.getCompareExpr() instanceof SlotReference)
+                        || !in.getCompareExpr().isKeyColumnFromTable()
+                        || in.getOptions().isEmpty()
+                        || in.getOptions().size() > BatchPointQueryExecutor.MAX_KEYS
+                        || !in.getOptions().stream().allMatch(option -> option instanceof StringLikeLiteral)) {
+                    return false;
+                }
+                ++inCount;
+            } else if (!(expression instanceof EqualTo)
+                    || !(expression.child(0) instanceof SlotReference)
+                    || !((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN)
+                    || !expression.child(1).isLiteral()
+                    || !expression.child(1).toSql().equals("0")) {
+                // Additional predicates need the normal scan's filter evaluation.
+                return false;
+            }
+        }
+        return inCount == 1;
     }
 
     @VisibleForTesting
@@ -98,6 +153,15 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     // set short circuit flag and return the original plan
     private Plan shortCircuit(Plan root, OlapTable olapTable,
                 Set<Expression> conjuncts, StatementContext statementContext) {
+        if (conjuncts.stream().anyMatch(expression -> expression instanceof InPredicate)
+                && root.child(0) instanceof LogicalProject) {
+            LogicalProject<?> project = (LogicalProject<?>) root.child(0);
+            // Scalar functions can have different evaluation boundaries in the point-query executor.
+            if (!project.getProjects().stream().allMatch(expression -> expression instanceof SlotReference
+                    || (expression instanceof Alias && expression.child(0) instanceof SlotReference))) {
+                return root;
+            }
+        }
         // All key columns in conjuncts
         Set<String> colNames = Sets.newHashSet();
         for (Expression expr : conjuncts) {
