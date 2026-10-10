@@ -354,16 +354,13 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_binary(const VExprSPtr&
         return nullptr;
     }
 
-    if (expr->op() == TExprOpcode::EQ_FOR_NULL) {
-        return _take(paimon_predicate_is_null(_table, column));
-    }
-
     // `holder` is a local, so its storage stays put for the duration of the call.
     _bind_datum_storage(&holder->datum, holder->storage);
     const paimon_datum& datum = holder->datum;
 
     switch (expr->op()) {
     case TExprOpcode::EQ:
+    case TExprOpcode::EQ_FOR_NULL:
         return _take(paimon_predicate_equal(_table, column, datum));
     case TExprOpcode::NE:
         return _take(paimon_predicate_not_equal(_table, column, datum));

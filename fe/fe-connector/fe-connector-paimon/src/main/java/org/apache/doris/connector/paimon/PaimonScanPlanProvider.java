@@ -571,9 +571,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveScanTableConsistent(session, paimonHandle);
         long generation = resolvePaimonGeneration(paimonHandle, table);
         // Statement-scoped reuse: within one statement the identical scan (same table, same
-        // branch/options pin, same generation, same projection, same filter, same limit, same COUNT
-        // pushdown) plans once and every duplicated relation shares the result. Session variables
-        // are constant within a statement and deliberately absent from the key.
+        // branch/options pin, same generation, same projection shape, same backend Rust eligibility,
+        // same filter, same limit, same COUNT pushdown) plans once and every duplicated relation shares
+        // the result. Session variables are constant within a statement and deliberately absent from the key.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
@@ -2719,9 +2719,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * selectors), the projected columns in order, the pushed filter, the limit and the COUNT
      * pushdown flag. The generation fences latest-dependent scans against same-path table
      * recreation or schema change between two aliases: without it, alias A's ranges (from
-     * generation A) could be paired with alias B's serialized table (from generation B). System
-     * tables are excluded upstream, and session variables are statement-constant, so both stay out
-     * of the key.
+     * generation A) could be paired with alias B's serialized table (from generation B). Nested
+     * projection shape and the common BE Rust capability are included because both change JNI/Rust
+     * routing even when the projected root-column names are identical. System tables are excluded
+     * upstream, and session variables are statement-constant, so both stay out of the key.
      */
     private static final class PaimonScanReuseKey {
         private final String databaseName;
@@ -2730,6 +2731,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         private final Map<String, String> scanOptions;
         private final long generation;
         private final List<String> columnNames;
+        private final List<Boolean> nestedProjections;
+        private final boolean rustBackendCapable;
         private final Optional<ConnectorExpression> filter;
         private final long limit;
         private final boolean countPushdown;
@@ -2749,17 +2752,30 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             this.columnNames = request.getColumns().stream()
                     .map(PaimonScanReuseKey::toPaimonColumnName)
                     .collect(Collectors.toList());
+            this.nestedProjections = request.getColumns().stream()
+                    .map(PaimonScanReuseKey::hasNestedProjection)
+                    .collect(Collectors.toList());
+            this.rustBackendCapable = request.allBackendsSupport(
+                    PaimonRustReaderSelector.BACKEND_CAPABILITY);
             this.filter = request.getFilter();
             this.limit = request.getLimit();
             this.countPushdown = request.isCountPushdown();
         }
 
         private static String toPaimonColumnName(ConnectorColumnHandle column) {
-            if (!(column instanceof PaimonColumnHandle)) {
-                throw new IllegalArgumentException(
-                        "Paimon scan reuse key requires PaimonColumnHandle, got: " + column.getClass().getName());
+            return asPaimonColumn(column).getName().toLowerCase(Locale.ROOT);
+        }
+
+        private static boolean hasNestedProjection(ConnectorColumnHandle column) {
+            return asPaimonColumn(column).hasNestedProjection();
+        }
+
+        private static PaimonColumnHandle asPaimonColumn(ConnectorColumnHandle column) {
+            if (column instanceof PaimonColumnHandle) {
+                return (PaimonColumnHandle) column;
             }
-            return ((PaimonColumnHandle) column).getName().toLowerCase(Locale.ROOT);
+            throw new IllegalArgumentException(
+                    "Paimon scan reuse key requires PaimonColumnHandle, got: " + column.getClass().getName());
         }
 
         @Override
@@ -2774,18 +2790,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return generation == that.generation
                     && limit == that.limit
                     && countPushdown == that.countPushdown
+                    && rustBackendCapable == that.rustBackendCapable
                     && Objects.equals(databaseName, that.databaseName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(branchName, that.branchName)
                     && Objects.equals(scanOptions, that.scanOptions)
                     && Objects.equals(columnNames, that.columnNames)
+                    && Objects.equals(nestedProjections, that.nestedProjections)
                     && Objects.equals(filter, that.filter);
         }
 
         @Override
         public int hashCode() {
             return Objects.hash(databaseName, tableName, branchName,
-                    scanOptions, generation, columnNames, filter, limit, countPushdown);
+                    scanOptions, generation, columnNames, nestedProjections,
+                    rustBackendCapable, filter, limit, countPushdown);
         }
 
         @Override

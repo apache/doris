@@ -963,8 +963,18 @@ public class PaimonScanPlanProviderTest {
                     scanOf(latest).filter(Optional.of(equalIdFilter(1))).build());
             List<ConnectorScanRange> otherFilter = provider.planScan(session,
                     scanOf(latest).filter(Optional.of(equalIdFilter(2))).build());
+            PaimonColumnHandle fullColumn = new PaimonColumnHandle("id", 0);
+            PaimonColumnHandle nestedColumn = (PaimonColumnHandle) fullColumn
+                    .withProjectedFieldIds(Collections.emptySet());
             List<ConnectorScanRange> projected = provider.planScan(session, ConnectorScanRequest.builder(
-                    latest, Collections.singletonList(new PaimonColumnHandle("id", 0))).build());
+                    latest, Collections.singletonList(fullColumn)).build());
+            List<ConnectorScanRange> nestedProjected = provider.planScan(session, ConnectorScanRequest.builder(
+                    latest, Collections.singletonList(nestedColumn)).build());
+            List<ConnectorScanRange> rustBackendProjected = provider.planScan(session,
+                    ConnectorScanRequest.builder(latest, Collections.singletonList(fullColumn))
+                            .backendCapabilities(Collections.singleton(
+                                    PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                            .build());
             List<ConnectorScanRange> limited = provider.planScan(session, scanOf(latest).limit(1).build());
             Assertions.assertEquals(1, limited.size(), "LIMIT 1 stops split planning after one split");
             List<ConnectorScanRange> count = provider.planScan(session, scanOf(latest).countPushdown(true).build());
@@ -976,7 +986,7 @@ public class PaimonScanPlanProviderTest {
                     scanOf(latest).build());
 
             List<List<ConnectorScanRange>> plans = Arrays.asList(plain, atS1, atS2, delta, filtered, otherFilter,
-                    projected, limited, count, onBranch, otherCatalog);
+                    projected, nestedProjected, rustBackendProjected, limited, count, onBranch, otherCatalog);
             Set<List<ConnectorScanRange>> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
             distinct.addAll(plans);
             Assertions.assertEquals(plans.size(), distinct.size(),

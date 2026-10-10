@@ -19,10 +19,9 @@
 // The rust predicate converter must NOT push `a <=> b` down as `a IS NULL`:
 // with rows (NULL, NULL), (1, 1), (1, 2) that would wrongly drop (1, 1), and
 // rows dropped by the pushed filter cannot be recovered by the residual
-// conjunct. FE rewrites the literal forms (`a <=> 1` -> `a = 1`,
-// `a <=> NULL` -> `a IS NULL`) before they reach the BE, so only the
-// column-to-column form exercises EQ_FOR_NULL here; the literal forms still
-// guard the rewrite + pushdown chain end to end.
+// conjunct. FE normally rewrites the literal forms (`a <=> 1` -> `a = 1`,
+// `a <=> NULL` -> `a IS NULL`), and this suite also disables that rewrite to
+// verify the BE converter preserves a non-null literal as equality.
 //
 // Both differential legs run with force_jni_scanner=true: these parquet
 // append tables convert to raw native splits, which getSplits() would
@@ -199,6 +198,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     def originalRfType = sql("select @@runtime_filter_type")[0][0]
     def originalRfPrune = sql("select @@enable_runtime_filter_prune")[0][0]
     def originalRfMaxIn = sql("select @@runtime_filter_max_in_num")[0][0]
+    def originalDisabledRules = sql("select @@disable_nereids_expression_rules")[0][0]
 
     try {
         sql """switch ${catalogName}"""
@@ -241,6 +241,23 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
             def matches = (profile =~ /${name}: ([0-9]+)/).collect { it[1] as long }
             assertFalse(matches.isEmpty(), "missing ${name} in profile")
             matches
+        }
+
+        // Force the literal form to reach BE as EQ_FOR_NULL. The old Rust
+        // converter incorrectly pushed this as `a IS NULL`, permanently
+        // removing both rows with a=1 before the Doris residual could run.
+        String nonRewrittenEqForNull = "select * from t_eq_null where a <=> 1 order by a, b"
+        sql "set disable_nereids_expression_rules='NULL_SAFE_EQUAL_TO_EQUAL'"
+        try {
+            sql "set enable_paimon_rust_reader=false"
+            def expected = sql(nonRewrittenEqForNull)
+            sql "set enable_paimon_rust_reader=true"
+            def actual = sql(nonRewrittenEqForNull)
+            assertEquals([[1, 1], [1, 2]].toString(), actual.toString())
+            assertEquals(expected.toString(), actual.toString())
+            assertTrue(profileTextOf(nonRewrittenEqForNull).contains("PaimonRustReader"))
+        } finally {
+            sql "set disable_nereids_expression_rules='${originalDisabledRules}'"
         }
 
         // The join must generate an IN runtime filter onto the probe ts. The
@@ -550,6 +567,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         sql """set runtime_filter_type=${rfTypeMask(originalRfType)}"""
         sql "set runtime_filter_max_in_num=${originalRfMaxIn}"
         sql "set enable_runtime_filter_prune=${originalRfPrune}"
+        sql "set disable_nereids_expression_rules='${originalDisabledRules}'"
         sql """unset variable time_zone;"""
         sql """drop catalog if exists ${catalogName}"""
     }
