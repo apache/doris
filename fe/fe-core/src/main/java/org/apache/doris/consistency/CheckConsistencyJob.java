@@ -134,6 +134,10 @@ public class CheckConsistencyJob {
         table.readLock();
         try {
             OlapTable olapTable = (OlapTable) table;
+            if (olapTable.hasRowTtl()) {
+                LOG.info("tablet[{}] belongs to a row ttl table. skip consistency check", tabletId);
+                return false;
+            }
 
             Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
             if (partition == null) {

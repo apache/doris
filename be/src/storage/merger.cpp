@@ -144,7 +144,12 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
-    if (reader_params.read_row_binlog) {
+    // Earlier TTL compaction can remove the latest expired row while an older live row
+    // remains in the base rowset. Full compaction must honor its delete bitmap entry;
+    // key deduplication alone cannot hide a version whose successor no longer exists.
+    if (reader_params.read_row_binlog ||
+        (reader_type == ReaderType::READER_FULL_COMPACTION && cur_tablet_schema.has_ttl_col() &&
+         tablet->enable_unique_key_merge_on_write())) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
@@ -267,6 +272,20 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
             }
         }
     }
+    if (tablet_schema.has_ttl_col()) {
+        int32_t ttl_col_idx = tablet_schema.ttl_col_idx();
+        if (key_columns.end() == std::ranges::find(key_columns, ttl_col_idx)) {
+            auto delete_sign_position = std::ranges::find(key_columns, delete_sign_idx);
+            const auto ttl_group_position =
+                    cast_set<uint32_t>(std::distance(key_columns.begin(), delete_sign_position));
+            key_columns.insert(delete_sign_position, ttl_col_idx);
+            for (auto& cluster_key_position : *key_group_cluster_key_idxes) {
+                if (cluster_key_position >= ttl_group_position) {
+                    ++cluster_key_position;
+                }
+            }
+        }
+    }
     VLOG_NOTICE << "sequence_col_idx=" << sequence_col_idx
                 << ", delete_sign_idx=" << delete_sign_idx;
     // for duplicate no keys
@@ -340,7 +359,11 @@ Status Merger::vertical_compact_one_group(
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
         has_cluster_key = true;
     }
-    if (reader_params.read_row_binlog) {
+    // Apply the same snapshot-bounded bitmap in every column group, including values,
+    // so rows hidden before TTL reclamation cannot reappear during full compaction.
+    if (reader_params.read_row_binlog ||
+        (reader_type == ReaderType::READER_FULL_COMPACTION && tablet_schema.has_ttl_col() &&
+         tablet->enable_unique_key_merge_on_write())) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
@@ -430,7 +453,8 @@ Status Merger::vertical_compact_one_group(
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet_id));
         if (!block.rows()) {
-            break;
+            block.clear_column_data();
+            continue;
         }
         RETURN_NOT_OK_STATUS_WITH_WARN(dst_segment_writer.append_block(&block, 0, block.rows()),
                                        "failed to write block when merging rowsets of tablet " +

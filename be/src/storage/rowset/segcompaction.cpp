@@ -131,6 +131,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     reader_params.tablet_schema = ctx.tablet_schema;
     reader_params.tablet = tablet;
     reader_params.read_schema = std::move(read_schema);
+    reader_params.reader_type = ReaderType::READER_SEGMENT_COMPACTION;
     reader_params.is_key_column_group = is_key;
     reader_params.use_page_cache = false;
     reader_params.record_rowids = record_rowids;
@@ -230,17 +231,13 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
     }
 
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_merged_rows", { merged_rows++; });
-    if ((output_rows + merged_rows) != raw_rows_read) {
-        return Status::Error<CHECK_LINES_ERROR>(
-                "segcompaction total row num does not match after merge. expect total row:{},  "
-                "actual total row:{}, (output_rows:{},merged_rows:{})",
-                raw_rows_read, output_rows + merged_rows, output_rows, merged_rows);
-    }
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_filtered_rows",
                     { filtered_rows++; });
-    if (filtered_rows != 0) {
+    if ((output_rows + merged_rows + filtered_rows) != raw_rows_read) {
         return Status::Error<CHECK_LINES_ERROR>(
-                "segcompaction should not have filtered rows but actual filtered rows:{}",
+                "segcompaction total row num does not match after merge. expect total row:{},  "
+                "actual total row:{}, (output_rows:{},merged_rows:{},filtered_rows:{})",
+                raw_rows_read, output_rows + merged_rows + filtered_rows, output_rows, merged_rows,
                 filtered_rows);
     }
     return Status::OK();

@@ -2352,7 +2352,8 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
         txn_info_pb.set_db_id(db_id);
         txn_info_pb.set_label(label);
         txn_info_pb.add_table_ids(t1);
-        txn_info_pb.set_timeout_ms(36000);
+        // This test prepares 500 rounds of sub-transactions before checking the commit.
+        txn_info_pb.set_timeout_ms(120'000);
         req.mutable_txn_info()->CopyFrom(txn_info_pb);
         BeginTxnResponse res;
         meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,

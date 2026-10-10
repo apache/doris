@@ -20,6 +20,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
@@ -73,6 +76,21 @@ public class RenameColumnOp extends AlterTableOp {
 
         if (!columnPath.isNested() && colName.startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
             throw new AnalysisException("Do not support rename hidden column");
+        }
+
+        if (!columnPath.isNested()) {
+            TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrDdlException(tableName.getCtl())
+                    .getDbOrDdlException(tableName.getDb())
+                    .getTableOrDdlException(tableName.getTbl());
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                if (olapTable.hasRowTtl()
+                        && colName.equalsIgnoreCase(olapTable.getRowTtlCol())) {
+                    throw new AnalysisException(
+                            "Can not rename a row ttl source column");
+                }
+            }
         }
 
         if (columnPath.isNested()) {

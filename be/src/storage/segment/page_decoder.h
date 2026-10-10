@@ -89,7 +89,8 @@ public:
     }
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(PageDecoder);
+    PageDecoder(const PageDecoder&) = delete;
+    PageDecoder& operator=(const PageDecoder&) = delete;
 };
 
 } // namespace segment_v2
