@@ -23,6 +23,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadProgress;
+import org.apache.doris.thrift.TKinesisChildShardInfo;
 import org.apache.doris.thrift.TKinesisRLTaskProgress;
 
 import com.google.common.base.Joiner;
@@ -78,8 +79,13 @@ public class KinesisProgress extends RoutineLoadProgress {
     private ConcurrentMap<String, Long> shardIdToMillsBehindLatest = Maps.newConcurrentMap();
 
     // Set of shard IDs that have been closed (split/merge) during consumption.
-    // Not persisted — only used during task commit to remove closed shards from tracking.
+    // Persisted in the transaction attachment so COMMITTED/VISIBLE replay sees the same EOF.
+    @SerializedName("closedShardIds")
     private java.util.Set<String> closedShardIds = new java.util.HashSet<>();
+
+    // Child shard -> parent shard IDs observed when a parent reaches its end.
+    @SerializedName("childShardParents")
+    private Map<String, java.util.Set<String>> childShardParentIds = Maps.newHashMap();
 
     private transient ReentrantLock lock = new ReentrantLock(true);
 
@@ -99,6 +105,12 @@ public class KinesisProgress extends RoutineLoadProgress {
         }
         if (tKinesisRLTaskProgress.isSetClosedShardIds()) {
             this.closedShardIds = new java.util.HashSet<>(tKinesisRLTaskProgress.getClosedShardIds());
+        }
+        if (tKinesisRLTaskProgress.isSetChildShardInfos()) {
+            for (TKinesisChildShardInfo childShardInfo : tKinesisRLTaskProgress.getChildShardInfos()) {
+                childShardParentIds.put(childShardInfo.getShardId(),
+                        new java.util.HashSet<>(childShardInfo.getParentShardIds()));
+            }
         }
     }
 
@@ -167,6 +179,10 @@ public class KinesisProgress extends RoutineLoadProgress {
      */
     public java.util.Set<String> getClosedShardIds() {
         return closedShardIds;
+    }
+
+    public Map<String, java.util.Set<String>> getChildShardParentIds() {
+        return childShardParentIds;
     }
 
     /**
@@ -302,8 +318,6 @@ public class KinesisProgress extends RoutineLoadProgress {
                     this.shardIdToMillsBehindLatest.remove(closedShardId);
                     LOG.info("Removed closed shard from progress: {}", closedShardId);
                 }
-                // Store closed shard IDs for Job to clean up consumingClosedShards
-                this.closedShardIds.addAll(newProgress.getClosedShardIds());
             }
         } finally {
             progressLock.unlock();
