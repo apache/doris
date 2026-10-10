@@ -77,9 +77,10 @@ public interface ConnectorWriteHandle {
     }
 
     /**
-     * The static partition values cast to the types of their columns, the cast a written row gets, in the
-     * string form of the cast value and keyed like {@link #getStaticPartitionSpec}, which keeps each literal as
-     * written: {@code PARTITION (p = true)} on an INT column is {@code "true"} there and {@code "1"} here. The
+     * The static partition values cast to the types of their columns, as the written rows carry them (a string
+     * longer than its CHAR / VARCHAR column is cut as the INSERT cuts it), in the string form of the cast value
+     * and keyed like {@link #getStaticPartitionSpec}, which keeps each literal as written:
+     * {@code PARTITION (p = true)} on an INT column is {@code "true"} there and {@code "1"} here. The
      * {@link #getStaticPartitionNullKeys null keys} are absent, and a key that names no column (an Iceberg
      * partition field) keeps its literal. A value that cannot be cast to its column type fails the call. The
      * default, for a handle that does not cast, is the spec as written without its null keys.

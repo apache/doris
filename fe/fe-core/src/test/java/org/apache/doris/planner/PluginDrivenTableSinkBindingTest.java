@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
@@ -52,6 +53,7 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -158,6 +160,46 @@ public class PluginDrivenTableSinkBindingTest {
     }
 
     @Test
+    public void staticPartitionStringValueIsCutLikeTheWrittenRows() throws AnalysisException {
+        // BindSink writes a string into a shorter CHAR / VARCHAR column cut to the column length in code points,
+        // not cast: a cast rejects the CHAR value and splits the emoji's surrogate pair, so the overwrite would
+        // fail or name another partition. MUTATION: casting string values like the others -> red.
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            // One code point, two UTF-16 units.
+            String emoji = new String(Character.toChars(0x1F600));
+            Map<String, Expression> partition = new LinkedHashMap<>();
+            partition.put("c", new VarcharLiteral("abcd"));
+            partition.put("v", new VarcharLiteral(emoji + "x"));
+            partition.put("s", new VarcharLiteral("abcd"));
+            List<Column> schema = Arrays.asList(new Column("c", ScalarType.createCharType(2)),
+                    new Column("v", ScalarType.createVarcharType(1)), new Column("s", Type.STRING));
+
+            Map<String, String> expected = new LinkedHashMap<>();
+            expected.put("c", "ab");
+            expected.put("v", emoji);
+            expected.put("s", "abcd");
+            Assertions.assertEquals(expected, castStaticPartitionSpec(partition, schema));
+
+            // A session that does not truncate writes the strings as they are, and they stay so here.
+            context.getSessionVariable().enableInsertValueAutoCast = false;
+            Map<String, String> asWritten = new LinkedHashMap<>();
+            asWritten.put("c", "abcd");
+            asWritten.put("v", emoji + "x");
+            asWritten.put("s", "abcd");
+            Assertions.assertEquals(asWritten, castStaticPartitionSpec(partition, schema));
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void staticPartitionValueThatDoesNotFitItsTypeFailsOnlyWhenCast() throws AnalysisException {
         // Only a connector that reads the cast values may fail on them; the others keep reading the literal.
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
@@ -220,6 +262,17 @@ public class PluginDrivenTableSinkBindingTest {
         }
 
         Assertions.assertSame(pinnedHandle, provider.capturedHandle.getTableHandle());
+    }
+
+    private static Map<String, String> castStaticPartitionSpec(Map<String, Expression> partition,
+            List<Column> boundTargetSchema) throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
+        PluginDrivenTableSink sink = newPlanProviderSink(provider);
+        PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
+        ctx.setStaticPartitionSpecFromExpressions(partition);
+        ctx.setBoundTargetSchema(boundTargetSchema);
+        sink.bindDataSink(Optional.of(ctx));
+        return provider.capturedHandle.getCastStaticPartitionSpec();
     }
 
     private static PluginDrivenTableSink newPlanProviderSink(ConnectorWritePlanProvider provider) {

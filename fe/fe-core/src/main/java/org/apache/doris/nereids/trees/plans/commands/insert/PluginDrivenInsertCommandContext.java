@@ -19,11 +19,16 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
+import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.StringArithmetic;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.base.Preconditions;
 
@@ -106,9 +111,9 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
 
     /**
      * Casts the static partition values to the types of their columns in the bound target schema; see
-     * {@code ConnectorWriteHandle#getCastStaticPartitionSpec}. The cast is the one constant folding applies to
-     * the value BindSink materializes into each row, but a value that does not fit its type fails here instead
-     * of becoming NULL.
+     * {@code ConnectorWriteHandle#getCastStaticPartitionSpec}. Each value is the one BindSink materializes into
+     * the rows, after constant folding, but a value that does not fit its type fails here instead of becoming
+     * NULL.
      */
     public Map<String, String> castStaticPartitionSpec() {
         Preconditions.checkState(staticPartitionLiterals.isEmpty() || !boundTargetSchema.isEmpty(),
@@ -123,13 +128,29 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
                     .filter(candidate -> candidate.getName().equalsIgnoreCase(entry.getKey()))
                     .findFirst();
             if (column.isPresent()) {
-                Expression cast = value.checkedCastTo(DataType.fromCatalogType(column.get().getType()));
-                Preconditions.checkState(cast instanceof Literal, "cast of literal %s is not a literal", value);
-                value = (Literal) cast;
+                value = writtenValue(value, DataType.fromCatalogType(column.get().getType()));
             }
             spec.put(entry.getKey(), value.getStringValue());
         }
         return spec;
+    }
+
+    private static Literal writtenValue(Literal value, DataType columnType) {
+        if (!value.getDataType().isStringLikeType() || !columnType.isStringLikeType()) {
+            Expression cast = value.checkedCastTo(columnType);
+            Preconditions.checkState(cast instanceof Literal, "cast of literal %s is not a literal", value);
+            return (Literal) cast;
+        }
+        // BindSink does not cast a string written into a string column. It keeps the value, cut to the length of
+        // a CHAR / VARCHAR column in code points when the session truncates strings on insert; a cast would cut
+        // UTF-16 units instead, or reject a CHAR value that is too long.
+        int length = ((CharacterType) columnType).getLen();
+        if (length < 0 || !BindSink.truncatesStringOnInsert()) {
+            return value;
+        }
+        Preconditions.checkState(value instanceof StringLikeLiteral, "string literal %s has no string value", value);
+        return (Literal) StringArithmetic.substringVarcharIntInt((StringLikeLiteral) value,
+                new IntegerLiteral(1), new IntegerLiteral(length));
     }
 
     public Optional<String> getBranchName() {

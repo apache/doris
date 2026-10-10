@@ -39,6 +39,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -139,6 +140,71 @@ public class PaimonWriteBindingTest {
     }
 
     @Test
+    public void staticLtzOverwriteRejectsAnInstantTheSdkZoneRepeats(@TempDir Path warehouse) {
+        // 2023-11-05 08:30Z and 09:30Z are both 01:30 in Los Angeles, the JVM zone here. Either value would name
+        // the same partition, which Paimon reads as the earlier instant. MUTATION: dropping the check -> red.
+        FileStoreTable table = partitionedTable(warehouse, Collections.emptyMap(),
+                new DataField(1, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+        for (String instant : Arrays.asList("2023-11-05 08:30:00.123456+00:00",
+                "2023-11-05 09:30:00.123456+00:00")) {
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> PaimonWriteBinding.resolveStaticPartition(table,
+                            write(true, "part", instant, instant, ConnectorType.of("TIMESTAMPTZ", 6, 0)), "UTC"));
+            Assertions.assertTrue(error.getMessage().contains("ambiguous"), error.getMessage());
+            Assertions.assertTrue(error.getMessage().contains("America/Los_Angeles"), error.getMessage());
+
+            // An INSERT does not overwrite anything, so it keeps the value.
+            Assertions.assertEquals("2023-11-05 01:30:00.123456", PaimonWriteBinding.resolveStaticPartition(table,
+                    write(false, "part", instant, instant, ConnectorType.of("TIMESTAMPTZ", 6, 0)), "UTC")
+                    .get("part"));
+        }
+
+        // A session-local DATETIMEV2 value lands in the same overlap: 09:30:45 UTC is the second 01:30:45.
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> PaimonWriteBinding.resolveStaticPartition(table,
+                        write(true, "part", "2024-11-03 09:30:45", "2024-11-03 09:30:45",
+                                ConnectorType.of("DATETIMEV2", 0, 0)), "UTC"));
+        Assertions.assertTrue(error.getMessage().contains("ambiguous"), error.getMessage());
+    }
+
+    @Test
+    public void staticLtzPartitionOutsideAnOverlapRoundTripsThroughPaimon(@TempDir Path warehouse) {
+        // Both instants that overlap in Los Angeles are distinct in UTC, and an instant after the overlap is
+        // distinct in Los Angeles. MUTATION: rejecting every instant near a DST change -> red.
+        FileStoreTable table = partitionedTable(warehouse, Collections.emptyMap(),
+                new DataField(1, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        for (String instant : Arrays.asList("2023-11-05 08:30:00.123456+00:00",
+                "2023-11-05 09:30:00.123456+00:00")) {
+            assertStaticTimestampTzRoundTrip(table, instant);
+        }
+        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"));
+        assertStaticTimestampTzRoundTrip(table, "2023-11-05 10:30:00.123456+00:00");
+    }
+
+    @Test
+    public void staticLtzOverwriteRejectsASessionTimeADstChangeSkips(@TempDir Path warehouse) {
+        // 02:30:45 on 2024-03-10 does not exist in Los Angeles. Java moves it to 03:30:45, while the BE writes the
+        // rows at the instant of the change (cctz), so no overwrite value names the rows' partition.
+        // MUTATION: dropping the check -> red.
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        FileStoreTable table = partitionedTable(warehouse, Collections.emptyMap(),
+                new DataField(1, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> PaimonWriteBinding.resolveStaticPartition(table,
+                        write(true, "part", "2024-03-10 02:30:45", "2024-03-10 02:30:45",
+                                ConnectorType.of("DATETIMEV2", 0, 0)), "America/Los_Angeles"));
+        Assertions.assertTrue(error.getMessage().contains("does not exist"), error.getMessage());
+        Assertions.assertTrue(error.getMessage().contains("America/Los_Angeles"), error.getMessage());
+
+        // An INSERT does not overwrite anything, so it keeps the value.
+        Assertions.assertNotNull(PaimonWriteBinding.resolveStaticPartition(table,
+                write(false, "part", "2024-03-10 02:30:45", "2024-03-10 02:30:45",
+                        ConnectorType.of("DATETIMEV2", 0, 0)), "America/Los_Angeles").get("part"));
+    }
+
+    @Test
     public void staticPartitionNullUsesTheDefaultPartitionName(@TempDir Path warehouse) {
         FileStoreTable table = partitionedTable(warehouse,
                 Collections.singletonMap("partition.default-name", DEFAULT_NAME),
@@ -149,6 +215,13 @@ public class PaimonWriteBindingTest {
 
         Assertions.assertEquals(DEFAULT_NAME,
                 PaimonWriteBinding.resolveStaticPartition(table, write, "UTC").get("part"));
+    }
+
+    private static void assertStaticTimestampTzRoundTrip(FileStoreTable table, String instant) {
+        String value = PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", instant, instant, ConnectorType.of("TIMESTAMPTZ", 6, 0)), "UTC").get("part");
+        Assertions.assertEquals(OffsetDateTime.parse(instant.replace(' ', 'T')).toInstant(),
+                parsedByPaimon(table, value), instant);
     }
 
     private static Instant parsedByPaimon(FileStoreTable table, String value) {
