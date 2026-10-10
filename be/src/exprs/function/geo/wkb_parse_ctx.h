@@ -33,6 +33,8 @@ struct WkbParseContext {
 
     int srid;
 
+    bool allow_ewkb_srid = false;
+
     std::unique_ptr<doris::GeoShape> shape = nullptr;
     doris::GeoParseStatus parse_status = doris::GEO_PARSE_OK;
 };

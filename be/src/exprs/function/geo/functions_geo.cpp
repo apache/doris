@@ -41,6 +41,7 @@
 #include "core/string_ref.h"
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/geo_types.h"
+#include "exprs/function/geo/wkb_parse.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function/string_hex_util.h"
 
@@ -100,8 +101,14 @@ Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& argu
             if (column->is_null_at(row)) {
                 continue;
             }
+            const auto value = column->get_data_at(row);
             GeoParseStatus parse_status;
-            if (decode_geo_shape(column->get_data_at(row), type, &parse_status) == nullptr) {
+            if (remove_nullable(type)->get_primitive_type() == TYPE_GEOMETRY) {
+                parse_status = WkbParse::validate_wkb_bytes(value.data, value.size);
+            } else {
+                decode_geo_shape(value, type, &parse_status);
+            }
+            if (parse_status != GEO_PARSE_OK) {
                 return Status::InvalidArgument("Invalid WKB in spatial input at row {}: {}", row,
                                                to_string(parse_status));
             }

@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <iosfwd>
 #include <memory>
+#include <string>
 
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/wkt_parse_type.h"
@@ -47,6 +49,7 @@ constexpr uint32_t WKB_TYPE_MASK = 0xFF;
 class WkbParse {
 public:
     static GeoParseStatus parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape);
+    static GeoParseStatus validate_wkb_bytes(const char* data, size_t size);
 
 private:
     static void read_hex(std::istream& is, WkbParseContext& ctx);
@@ -66,6 +69,8 @@ private:
     static GeoParseStatus minMemSize(int wkbType, uint64_t size, WkbParseContext& ctx);
 
     static bool readCoordinate(WkbParseContext& ctx);
+    static bool validate_geometry(WkbParseContext& ctx);
+    static bool validate_coordinates(uint32_t size, WkbParseContext& ctx);
 };
 
 } // namespace doris

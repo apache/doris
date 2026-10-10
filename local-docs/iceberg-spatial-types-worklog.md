@@ -329,3 +329,18 @@ Iceberg V3 schema
 - BE 完整编译和 BE 空间函数单测尚未通过；当前仍被 submodule 准备阶段的 apache-orc/clucene 依赖目录与下载问题阻塞。
 - Iceberg writer/Arrow 双向读写、WKB/EWKB/SRID 校验、内部表 DDL 约束、嵌套类型限制和端到端回归仍未完成。
 - C++ clang-format 检查仍受环境 clang-format 版本不是 v16 影响；不能宣称格式检查通过。
+
+## 执行记录：阶段 3/4（当前轮次）
+
+- 已完成内部 Doris 表边界：Nereids `ColumnDefinition` 在类型校验前拒绝 Geometry、Geography 及嵌套空间类型；`ColumnDefinitionTest` 定向测试 8/8 通过。
+- 已完成空间列二进制通路：Arrow/Parquet 的通用 binary SerDe 改为使用 `IColumn` 接口，使 `ColumnSpatial` 可以复用 Varbinary SerDe；ORC 专用路径仍保持原有 Varbinary 前置条件。
+- 已完成 BE 原始 WKB 输入：空间函数和 Iceberg writer 使用 `ColumnSpatial` 中的原始 WKB 字节；构造函数支持十六进制文本并写入原始 WKB。
+- 已完成 Iceberg Parquet writer 适配：Geometry/Geography 顶层字段写出 BYTE_ARRAY logical annotation，保留 CRS、Geography algorithm 和 field id；嵌套空间字段明确返回 NotImplemented；writer 在写入前执行空间 WKB 校验。
+- 已补充严格 WKB 校验层：Geometry 输入检查字节序、类型、坐标数量、尾随字节及 Z/M/SRID 元数据；Geography 保留现有带 SRID 的兼容解析路径。该部分待 BE 编译和单测验证。
+- 新增 C++ writer/schema 测试覆盖 Geometry EPSG:3857 与 Geography vincenty annotation；待 BE 依赖准备完成后执行。
+
+## 当前验证与阻塞
+
+- FE 构建成功；空间构造函数单测 6/6、内部表列定义单测 8/8、Iceberg 类型映射单测 13/13 通过。
+- BE 构建目前仍停在 `build.sh --be` 的第三方子模块准备阶段：apache-orc 目录已存在导致 clone 重试，随后进入 clucene clone，尚未进入 CMake/ninja 编译；因此不能把 BE 源码或 C++ 新测试标记为通过。
+- 当前 C++ 修改尚未提交，待完成编译/单测后按模块拆分提交；datasketches 子模块的工作树改写仍视为构建噪声，不纳入提交。
