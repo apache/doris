@@ -158,7 +158,8 @@ public class VariableMgr {
             "enable_nereids_trace",
             "nereids_trace_event_mode",
             "shuffled_agg_node_ids",
-            "plan_nereids_dump");
+            "plan_nereids_dump",
+            "enable_variant_schema_auto_cast");
 
     private static boolean isRemovedSessionVar(String varName) {
         return varName != null && REMOVED_SESSION_VAR_NAMES.contains(varName.toLowerCase());
