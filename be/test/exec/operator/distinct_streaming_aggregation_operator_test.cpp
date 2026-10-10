@@ -295,4 +295,72 @@ TEST_F(DistinctStreamingAggOperatorTest, pass_through_does_not_consume_pushed_li
     EXPECT_EQ(local_state->_aggregated_block->rows(), 4);
 }
 
+struct DistinctStreamingAggRepeatedKeyTest : public DistinctStreamingAggOperatorTest,
+                                             public ::testing::WithParamInterface<bool> {
+    void SetUp() override {
+        DistinctStreamingAggOperatorTest::SetUp();
+        op->_is_streaming_preagg = true;
+        auto input_type = std::make_shared<DataTypeInt64>();
+        auto output_type = GetParam() ? make_nullable(input_type) : input_type;
+        create_op({input_type, input_type, input_type, input_type},
+                  {output_type, output_type, output_type, output_type});
+        local_state->_probe_expr_ctxs = {MockSlotRef::create_mock_context(0, input_type),
+                                         MockSlotRef::create_mock_context(1, input_type),
+                                         MockSlotRef::create_mock_context(0, input_type),
+                                         MockSlotRef::create_mock_context(0, input_type)};
+    }
+
+    Block expected_block(const std::vector<Int64>& first, const std::vector<Int64>& second) {
+        auto block = ColumnHelper::create_block<DataTypeInt64>(first, second);
+        block.insert(block.get_by_position(0));
+        block.insert(block.get_by_position(0));
+        if (GetParam()) {
+            for (size_t i = 0; i < block.columns(); ++i) {
+                auto& column = block.get_by_position(i);
+                column.column = make_nullable(column.column);
+                column.type = make_nullable(column.type);
+            }
+        }
+        return block;
+    }
+};
+
+TEST_P(DistinctStreamingAggRepeatedKeyTest, pass_through) {
+    local_state->_stop_emplace_flag = true;
+    auto input = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2}, {10, 10, 20});
+    ASSERT_TRUE(op->push(state.get(), &input, false));
+
+    auto output = expected_block({}, {});
+    bool eos = false;
+    ASSERT_TRUE(op->pull(state.get(), &output, &eos));
+    EXPECT_TRUE(ColumnHelper::block_equal(output, expected_block({1, 1, 2}, {10, 10, 20})));
+
+    // The output schema is now reused. Keep the previous output alive to check its ownership.
+    input = ColumnHelper::create_block<DataTypeInt64>({3, 4, 4}, {30, 40, 40});
+    ASSERT_TRUE(op->push(state.get(), &input, false));
+    auto next_output = expected_block({}, {});
+    ASSERT_TRUE(op->pull(state.get(), &next_output, &eos));
+    EXPECT_TRUE(ColumnHelper::block_equal(next_output, expected_block({3, 4, 4}, {30, 40, 40})));
+    EXPECT_TRUE(ColumnHelper::block_equal(output, expected_block({1, 1, 2}, {10, 10, 20})));
+}
+
+TEST_P(DistinctStreamingAggRepeatedKeyTest, pass_through_after_deduplication) {
+    auto input = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2}, {10, 10, 20});
+    ASSERT_TRUE(op->push(state.get(), &input, false));
+    EXPECT_EQ(local_state->_aggregated_block->rows(), 2);
+    auto deduplicated_output = expected_block({}, {});
+    bool eos = false;
+    ASSERT_TRUE(op->pull(state.get(), &deduplicated_output, &eos));
+    EXPECT_TRUE(ColumnHelper::block_equal(deduplicated_output, expected_block({1, 2}, {10, 20})));
+
+    local_state->_stop_emplace_flag = true;
+    input = ColumnHelper::create_block<DataTypeInt64>({3, 3, 4}, {30, 30, 40});
+    ASSERT_TRUE(op->push(state.get(), &input, false));
+    auto output = expected_block({}, {});
+    ASSERT_TRUE(op->pull(state.get(), &output, &eos));
+    EXPECT_TRUE(ColumnHelper::block_equal(output, expected_block({3, 3, 4}, {30, 30, 40})));
+}
+
+INSTANTIATE_TEST_SUITE_P(NullableOutput, DistinctStreamingAggRepeatedKeyTest, ::testing::Bool());
+
 } // namespace doris
