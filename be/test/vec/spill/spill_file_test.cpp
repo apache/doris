@@ -91,12 +91,12 @@ protected:
 
         _spill_dir = "./ut_dir/spill_file_test";
         _second_spill_dir = "./ut_dir/spill_file_test_second";
-        auto spill_data_dir =
-                std::make_unique<SpillDataDir>(_spill_dir, 1024L * 1024 * 128, TStorageMedium::SSD);
+        auto spill_data_dir = std::make_unique<LocalSpillDataDir>(_spill_dir, 1024L * 1024 * 128,
+                                                                  TStorageMedium::SSD);
         auto st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
         ASSERT_TRUE(st.ok()) << "create directory failed: " << st.to_string();
-        auto second_spill_data_dir = std::make_unique<SpillDataDir>(
-                _second_spill_dir, 1024L * 1024 * 128, TStorageMedium::SSD);
+        auto second_spill_data_dir = std::make_unique<LocalSpillDataDir>(
+                _second_spill_dir, 1024L * 1024 * 128, TStorageMedium::HDD);
         st = io::global_local_filesystem()->create_directory(second_spill_data_dir->path(), false);
         ASSERT_TRUE(st.ok()) << "create directory failed: " << st.to_string();
 
@@ -134,7 +134,8 @@ protected:
     }
 
     void _write_and_release_spill_file(const TUniqueId& query_id, QueryContext* query_ctx,
-                                       SpillDataDir* data_dir, const std::string& relative_path) {
+                                       LocalSpillDataDir* data_dir,
+                                       const std::string& relative_path) {
         TQueryGlobals query_globals;
         auto runtime_state = std::make_unique<MockRuntimeState>(
                 query_id, 0, query_ctx->query_options(), query_globals, ExecEnv::GetInstance(),
@@ -166,7 +167,7 @@ protected:
         ASSERT_TRUE(st.ok()) << st.to_string();
     }
 
-    std::set<std::string> _gc_subdirectories(SpillDataDir* data_dir) {
+    std::set<std::string> _gc_subdirectories(LocalSpillDataDir* data_dir) {
         std::set<std::string> subdirectories;
         for (const auto& entry :
              std::filesystem::directory_iterator(data_dir->get_spill_data_gc_path())) {
@@ -183,8 +184,8 @@ protected:
     std::unique_ptr<RuntimeProfile> _common_profile;
     std::string _spill_dir;
     std::string _second_spill_dir;
-    SpillDataDir* _data_dir_ptr = nullptr;
-    SpillDataDir* _second_data_dir_ptr = nullptr;
+    LocalSpillDataDir* _data_dir_ptr = nullptr;
+    LocalSpillDataDir* _second_data_dir_ptr = nullptr;
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1296,7 +1297,7 @@ TEST_F(SpillFileTest, RetryPreservesDirectoryQueuedAfterPendingDrain) {
     constexpr auto delete_debug_point_name =
             "fault_inject::spill_file_manager::delete_query_spill_directory";
     constexpr auto after_drain_debug_point_name =
-            "fault_inject::spill_file_manager::retry_pending_query_spill_directories_after_drain";
+            "fault_inject::spill_file_manager::retry_pending_spill_directories_after_drain";
     Defer restore_debug_points([&] {
         DebugPoints::instance()->remove(after_drain_debug_point_name);
         DebugPoints::instance()->remove(delete_debug_point_name);
@@ -1530,6 +1531,9 @@ TEST_F(SpillFileTest, ManagerAllocatesExternalSpillSessionOnManagedRoot) {
             selected_data_dir == _data_dir_ptr ? _second_data_dir_ptr : _data_dir_ptr;
     ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 1024);
     ASSERT_EQ(unselected_data_dir->get_spill_data_bytes(), 0);
+    st = spill_session->reserve(channel, selected_data_dir->get_spill_data_limit());
+    ASSERT_FALSE(st.ok());
+    ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 1024);
     spill_session->update_accounting(channel, -256, 0, 0);
     ASSERT_EQ(selected_data_dir->get_spill_data_bytes(), 768);
     _create_residual_file(channel);
@@ -1637,12 +1641,13 @@ TEST_F(SpillFileTest, ExternalSpillSessionIsLazyWhenNoRootAvailable) {
     query_id.lo = 26;
     auto query_ctx = MockQueryContext::create(query_id);
 
-    _data_dir_ptr->update_spill_data_usage(_data_dir_ptr->get_spill_data_limit());
-    _second_data_dir_ptr->update_spill_data_usage(_second_data_dir_ptr->get_spill_data_limit());
+    const int64_t first_unavailable_bytes = _data_dir_ptr->get_spill_data_limit() + 1;
+    const int64_t second_unavailable_bytes = _second_data_dir_ptr->get_spill_data_limit() + 1;
+    _data_dir_ptr->update_spill_data_usage(first_unavailable_bytes);
+    _second_data_dir_ptr->update_spill_data_usage(second_unavailable_bytes);
     Defer release_full_roots([&]() {
-        _data_dir_ptr->update_spill_data_usage(-_data_dir_ptr->get_spill_data_limit());
-        _second_data_dir_ptr->update_spill_data_usage(
-                -_second_data_dir_ptr->get_spill_data_limit());
+        _data_dir_ptr->update_spill_data_usage(-first_unavailable_bytes);
+        _second_data_dir_ptr->update_spill_data_usage(-second_unavailable_bytes);
     });
 
     std::unique_ptr<ExternalSpillSession> spill_session;
@@ -1650,6 +1655,11 @@ TEST_F(SpillFileTest, ExternalSpillSessionIsLazyWhenNoRootAvailable) {
             "paimon", query_ctx.get(), &spill_session);
     ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_NE(spill_session, nullptr);
+
+    std::vector<std::string> paths;
+    st = spill_session->get_paths(&paths);
+    ASSERT_FALSE(st.ok());
+    ASSERT_TRUE(paths.empty());
 }
 
 TEST_F(SpillFileTest, ManagerCreateMultipleFiles) {

@@ -53,6 +53,10 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
             io_context_->spill_write_bytes_to_local_storage());
     statistics->__set_spill_read_bytes_from_local_storage(
             io_context_->spill_read_bytes_from_local_storage());
+    statistics->__set_spill_write_bytes_to_remote_storage(
+            io_context_->spill_write_bytes_to_remote_storage());
+    statistics->__set_spill_read_bytes_from_remote_storage(
+            io_context_->spill_read_bytes_from_remote_storage());
 
     if (auto* query_task_controller = dynamic_cast<QueryTaskController*>(task_controller())) {
         // Fill query task-level progress directly from task controller.

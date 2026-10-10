@@ -139,7 +139,8 @@ public:
      * @param is_vault_mode output param, true for pure vault mode, false for legacy mode
      * @return status
      */
-    Status get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode);
+    Status get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode,
+                                  std::string* default_vault_id = nullptr);
 
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 

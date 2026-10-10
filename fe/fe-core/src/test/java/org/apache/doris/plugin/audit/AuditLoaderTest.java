@@ -18,13 +18,17 @@
 package org.apache.doris.plugin.audit;
 
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
+import org.apache.doris.catalog.TokenManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
 
 import com.google.common.base.Splitter;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +37,67 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class AuditLoaderTest {
+
+    @Test
+    public void testFailedStreamLoadKeepsBatchForRetry() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        StringBuilder batch = new StringBuilder("audit row");
+        Deencapsulation.setField(loader, "auditLogBuffer", batch);
+        Deencapsulation.setField(loader, "auditLogNum", 1);
+        AuditStreamLoader streamLoader = Mockito.mock(AuditStreamLoader.class);
+        Deencapsulation.setField(loader, "streamLoader", streamLoader);
+        Mockito.when(streamLoader.genLabel()).thenReturn("label-1", "label-2");
+        Mockito.when(streamLoader.loadBatch(Mockito.same(batch), Mockito.eq("token"), Mockito.anyString()))
+                .thenReturn(new AuditStreamLoader.LoadResponse(200, "OK", "{\"Status\":\"Fail\"}"),
+                        new AuditStreamLoader.LoadResponse(200, "OK",
+                                "{\"Status\":\"Success\",\"NumberLoadedRows\":1,"
+                                        + "\"NumberFilteredRows\":0}"));
+        Env env = Mockito.mock(Env.class);
+        TokenManager tokenManager = Mockito.mock(TokenManager.class);
+        Mockito.when(env.getTokenManager()).thenReturn(tokenManager);
+        Mockito.when(tokenManager.acquireToken()).thenReturn("token");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            loader.loadIfNecessary(true);
+            Assertions.assertSame(batch, Deencapsulation.getField(loader, "auditLogBuffer"));
+            Assertions.assertEquals(1, (int) Deencapsulation.getField(loader, "auditLogNum"));
+            loader.loadIfNecessary(true);
+        }
+        Assertions.assertEquals("", getAuditLogBuffer(loader));
+        Mockito.verify(streamLoader).loadBatch(Mockito.same(batch), Mockito.eq("token"), Mockito.eq("label-1"));
+        Mockito.verify(streamLoader).loadBatch(Mockito.same(batch), Mockito.eq("token"), Mockito.eq("label-2"));
+    }
+
+    @Test
+    public void testAmbiguousStreamLoadRetryKeepsLabel() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        StringBuilder batch = new StringBuilder("audit row");
+        Deencapsulation.setField(loader, "auditLogBuffer", batch);
+        Deencapsulation.setField(loader, "auditLogNum", 1);
+        AuditStreamLoader streamLoader = Mockito.mock(AuditStreamLoader.class);
+        Deencapsulation.setField(loader, "streamLoader", streamLoader);
+        Mockito.when(streamLoader.genLabel()).thenReturn("stable-label");
+        Mockito.when(streamLoader.loadBatch(Mockito.same(batch), Mockito.eq("token"), Mockito.eq("stable-label")))
+                .thenReturn(new AuditStreamLoader.LoadResponse(-1, "timeout", ""),
+                        new AuditStreamLoader.LoadResponse(200, "OK",
+                                "{\"Status\":\"Label Already Exists\",\"ExistingJobStatus\":\"FINISHED\"}"));
+        Env env = Mockito.mock(Env.class);
+        TokenManager tokenManager = Mockito.mock(TokenManager.class);
+        Mockito.when(env.getTokenManager()).thenReturn(tokenManager);
+        Mockito.when(tokenManager.acquireToken()).thenReturn("token");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            loader.loadIfNecessary(true);
+            Assertions.assertSame(batch, Deencapsulation.getField(loader, "auditLogBuffer"));
+            loader.loadIfNecessary(true);
+        }
+        Assertions.assertEquals("", getAuditLogBuffer(loader));
+        Mockito.verify(streamLoader, Mockito.times(2)).loadBatch(Mockito.same(batch), Mockito.eq("token"),
+                Mockito.eq("stable-label"));
+        Mockito.verify(streamLoader, Mockito.times(1)).genLabel();
+    }
 
     @Test
     public void testAssembleAuditIsSerializedWithLoadLock() throws Exception {
@@ -145,6 +210,10 @@ public class AuditLoaderTest {
         Deencapsulation.invoke(auditLoader, "fillLogBuffer",
                 new AuditEvent.AuditEventBuilder()
                         .setUser("alice").setCloudCluster("cg1").setProtocol("ArrowFlightSQL")
+                        .setSpillWriteBytesToLocalStorage(11L)
+                        .setSpillReadBytesFromLocalStorage(12L)
+                        .setSpillWriteBytesToRemoteStorage(13L)
+                        .setSpillReadBytesFromRemoteStorage(14L)
                         .setStmt("select 1").build(),
                 buffer);
         String row = buffer.toString();
@@ -157,6 +226,10 @@ public class AuditLoaderTest {
         Assertions.assertEquals("alice", columns.get(names.indexOf("user")));
         Assertions.assertEquals("cg1", columns.get(names.indexOf("compute_group")));
         Assertions.assertEquals("ArrowFlightSQL", columns.get(names.indexOf("protocol")));
+        Assertions.assertEquals("11", columns.get(names.indexOf("spill_write_bytes_from_local_storage")));
+        Assertions.assertEquals("12", columns.get(names.indexOf("spill_read_bytes_from_local_storage")));
+        Assertions.assertEquals("13", columns.get(names.indexOf("spill_write_bytes_to_remote_storage")));
+        Assertions.assertEquals("14", columns.get(names.indexOf("spill_read_bytes_from_remote_storage")));
         Assertions.assertEquals("select 1", columns.get(names.indexOf("stmt")));
         Assertions.assertEquals(names.size() - 1, names.indexOf("stmt"));
     }

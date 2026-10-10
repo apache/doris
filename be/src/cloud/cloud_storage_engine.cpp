@@ -452,11 +452,17 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
 void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
+    std::string default_vault_id;
 
-    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault,
+                                                &default_vault_id);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get storage vault info. err=" << st;
         return;
+    }
+    {
+        std::lock_guard lock(_latest_fs_mtx);
+        _default_vault_id = std::move(default_vault_id);
     }
 
     if (vault_infos.empty()) {

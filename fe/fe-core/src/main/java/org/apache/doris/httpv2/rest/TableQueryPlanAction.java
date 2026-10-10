@@ -373,6 +373,8 @@ public class TableQueryPlanAction extends RestBaseController {
                 .setReturnRows(ctx.getReturnRows())
                 .setSpillWriteBytesToLocalStorage(0)
                 .setSpillReadBytesFromLocalStorage(0)
+                .setSpillWriteBytesToRemoteStorage(0)
+                .setSpillReadBytesFromRemoteStorage(0)
                 .setScanBytesFromLocalStorage(0)
                 .setScanBytesFromRemoteStorage(0)
                 .setFuzzyVariables("")

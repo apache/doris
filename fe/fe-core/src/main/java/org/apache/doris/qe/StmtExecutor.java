@@ -161,6 +161,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
@@ -206,6 +207,21 @@ public class StmtExecutor {
     // retain their existing cancellation contracts.
     private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
     private volatile Coordinator externalDmlAuditCoordinator = null;
+    // The coordinator may be cleared after a post-dispatch exception or closed before audit.
+    // Pair the snapshot with its query id atomically so a retried attempt cannot inherit
+    // stale BEs even when audit and query retry run on different threads.
+    private volatile AuditBackendSnapshot dispatchedAuditBackends;
+
+    private static final class AuditBackendSnapshot {
+        private final TUniqueId queryId;
+        private final Set<Long> backendIds;
+
+        private AuditBackendSnapshot(TUniqueId queryId, Set<Long> backendIds) {
+            this.queryId = queryId;
+            this.backendIds = backendIds;
+        }
+    }
+
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped. From that moment the executor is a closed object (see FlightProtocolAdapter): it
@@ -561,6 +577,29 @@ public class StmtExecutor {
         }
         return externalDmlAuditCoordinator == null
                 ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
+    }
+
+    public Set<Long> getAuditStatisticsBackendIds() {
+        if (masterOpExecutor != null) {
+            return masterOpExecutor.getAuditStatisticsBackendIds();
+        }
+        Set<Long> backendIds = Sets.newHashSet(getExternalDmlAuditBackendIds());
+        AuditBackendSnapshot snapshot = dispatchedAuditBackends;
+        if (snapshot != null && Objects.equals(snapshot.queryId, context.queryId())) {
+            backendIds.addAll(snapshot.backendIds);
+        }
+        if (coord != null) {
+            backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
+        }
+        return backendIds;
+    }
+
+    private void rememberDispatchedAuditBackends(Coordinator executedCoordinator) {
+        Set<Long> backendIds = executedCoordinator.getDispatchedBackendIdsForAudit();
+        if (!backendIds.isEmpty()) {
+            dispatchedAuditBackends = new AuditBackendSnapshot(context.queryId().deepCopy(),
+                    Set.copyOf(backendIds));
+        }
     }
 
     public ShowResultSet getProxyShowResultSet() {
@@ -1847,6 +1886,9 @@ public class StmtExecutor {
             setCoord(null);
             throw e;
         } finally {
+            if (coordBase instanceof Coordinator) {
+                rememberDispatchedAuditBackends((Coordinator) coordBase);
+            }
             // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
             // (next query / connection teardown), so the BE can still fetch splits during DoGet.
             // See #62259.
