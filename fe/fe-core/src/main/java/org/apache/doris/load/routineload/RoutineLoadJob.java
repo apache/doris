@@ -621,11 +621,14 @@ public abstract class RoutineLoadJob
     }
 
     public byte getEnclose() {
-        return enclose;
+        // The cached parser bytes are not persisted or refreshed by ALTER ROUTINE LOAD.
+        String value = jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE);
+        return Strings.isNullOrEmpty(value) ? 0 : (byte) value.charAt(0);
     }
 
     public byte getEscape() {
-        return escape;
+        String value = jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE);
+        return Strings.isNullOrEmpty(value) ? 0 : value.getBytes()[0];
     }
 
     public boolean getEmptyFieldAsNull() {

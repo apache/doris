@@ -30,8 +30,10 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -40,11 +42,18 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
 
@@ -58,6 +67,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -66,6 +76,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class KafkaRoutineLoadJobTest {
@@ -270,6 +281,100 @@ public class KafkaRoutineLoadJobTest {
 
         String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
         Assertions.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testMultiTableCsvTaskIncludesParserProperties() throws Exception {
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.when(connectContext.getDatabase()).thenReturn("db1");
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+            Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(internalCatalog);
+            Mockito.when(internalCatalog.getDbOrMetaException(1L)).thenReturn(database);
+            Mockito.when(internalCatalog.getDbOrAnalysisException("db1")).thenReturn(database);
+            Mockito.when(internalCatalog.getDb(1L)).thenReturn(Optional.of(database));
+            Mockito.when(internalCatalog.getDb("db1")).thenReturn(Optional.of(database));
+            Mockito.when(database.getFullName()).thenReturn("db1");
+            Mockito.when(database.getName()).thenReturn("db1");
+
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "multi_table_job", 1L,
+                    "127.0.0.1:9020", "topic1", UserIdentity.ADMIN, true);
+            Mockito.when(routineLoadManager.getJob("db1", "multi_table_job")).thenReturn(job);
+            assertMultiTableCsvParserProperties(routineLoadManager, job, (byte) 0, (byte) 0, false);
+
+            String createSql = "CREATE ROUTINE LOAD db1.multi_table_job "
+                    + "PROPERTIES (\"format\"=\"csv\", \"enclose\"=\"^\", \"escape\"=\"?\", "
+                    + "\"empty_field_as_null\"=\"true\") FROM KAFKA "
+                    + "(\"kafka_broker_list\"=\"127.0.0.1:9020\", \"kafka_topic\"=\"topic1\")";
+            CreateRoutineLoadInfo info = ((CreateRoutineLoadCommand) new NereidsParser()
+                    .parseSingle(createSql)).getCreateRoutineLoadInfo();
+            info.validate(connectContext);
+            ((RoutineLoadJob) job).setOptional(info);
+            job.setOrigStmt(new OriginStatement(createSql, 0));
+            ((RoutineLoadJob) job).state = RoutineLoadJob.JobState.PAUSED;
+            assertMultiTableCsvParserProperties(routineLoadManager, job, (byte) '^', (byte) '?', true);
+
+            // Exercise the production Gson adapter, including gsonPostProcess after FE restart.
+            KafkaRoutineLoadJob restored = (KafkaRoutineLoadJob) GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(job), RoutineLoadJob.class);
+            Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
+            assertMultiTableCsvParserProperties(routineLoadManager, restored, (byte) '^', (byte) '?', true);
+
+            Map<String, String> alteredProperties = Map.of(
+                    CsvFileFormatProperties.PROP_ENCLOSE, "#",
+                    CsvFileFormatProperties.PROP_ESCAPE, "!",
+                    CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, "false");
+            AlterRoutineLoadCommand alter = new AlterRoutineLoadCommand(
+                    new LabelNameInfo("db1", "multi_table_job"), alteredProperties, Maps.newHashMap());
+            alter.validate(connectContext);
+            job.modifyProperties(alter);
+            assertMultiTableCsvParserProperties(routineLoadManager, job, (byte) '#', (byte) '!', false);
+
+            ArgumentCaptor<AlterRoutineLoadJobOperationLog> log = ArgumentCaptor.forClass(
+                    AlterRoutineLoadJobOperationLog.class);
+            Mockito.verify(editLog).logAlterRoutineLoadJob(log.capture());
+            restored.replayModifyProperties(GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(log.getValue()), AlterRoutineLoadJobOperationLog.class));
+            assertMultiTableCsvParserProperties(routineLoadManager, restored, (byte) '#', (byte) '!', false);
+
+            KafkaRoutineLoadJob restoredAfterAlter = (KafkaRoutineLoadJob) GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(job), RoutineLoadJob.class);
+            Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, restoredAfterAlter.getState());
+            assertMultiTableCsvParserProperties(routineLoadManager, restoredAfterAlter, (byte) '#', (byte) '!', false);
+
+            AlterRoutineLoadCommand clear = new AlterRoutineLoadCommand(
+                    new LabelNameInfo("db1", "multi_table_job"), Map.of(
+                            CsvFileFormatProperties.PROP_ENCLOSE, "", CsvFileFormatProperties.PROP_ESCAPE, ""),
+                    Maps.newHashMap());
+            clear.validate(connectContext);
+            job.modifyProperties(clear);
+            assertMultiTableCsvParserProperties(routineLoadManager, job, (byte) 0, (byte) 0, false);
+        }
+    }
+
+    private void assertMultiTableCsvParserProperties(RoutineLoadManager manager, KafkaRoutineLoadJob job,
+            byte enclose, byte escape, boolean emptyFieldAsNull) throws Exception {
+        Mockito.when(manager.getJob(1L)).thenReturn(job);
+        KafkaTaskInfo taskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                Maps.newHashMap(), true, 1000, false);
+        TRoutineLoadTask task = taskInfo.createRoutineLoadTask();
+        Assertions.assertTrue(task.isSetEnclose());
+        Assertions.assertEquals(enclose, task.getEnclose());
+        Assertions.assertTrue(task.isSetEscape());
+        Assertions.assertEquals(escape, task.getEscape());
+        Assertions.assertTrue(task.isSetEmptyFieldAsNull());
+        Assertions.assertEquals(emptyFieldAsNull, task.isEmptyFieldAsNull());
     }
 
     @Test
