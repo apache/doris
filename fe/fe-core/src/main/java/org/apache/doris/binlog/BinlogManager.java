@@ -19,6 +19,7 @@ package org.apache.doris.binlog;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.IndexChangeJob;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -444,6 +445,8 @@ public class BinlogManager {
             return;
         }
 
+        cacheReplacedTableBinlogConfig(info);
+
         long dbId = info.getDbId();
         List<Long> tableIds = Lists.newArrayList();
         tableIds.add(info.getOrigTblId());
@@ -452,6 +455,14 @@ public class BinlogManager {
         String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    private void cacheReplacedTableBinlogConfig(ReplaceTableOperationLog info) {
+        BinlogConfig binlogConfig = info.getOrigTblBinlogConfig();
+        // Old edit logs do not contain the config snapshot. Keep their legacy lookup behavior.
+        if (!info.isSwapTable() && binlogConfig != null) {
+            binlogConfigCache.putTableBinlogConfig(info.getOrigTblId(), binlogConfig);
+        }
     }
 
     public void addModifyDistributionNum(ModifyTableDefaultDistributionBucketNumOperationLog info, long commitSeq) {
@@ -797,64 +808,94 @@ public class BinlogManager {
         int size = dis.readInt();
         LOG.info("read binlogs length: {}", size);
 
-        // Step 2: read all binlogs from dis
+        // Keep the disabled-feature path streaming so an image does not retain binlogs that will be discarded.
+        if (!Config.enable_feature_binlog) {
+            try {
+                for (int i = 0; i < size; i++) {
+                    readTBinlogFromStream(dis);
+                }
+            } catch (TException e) {
+                throw new IOException("failed to read binlog from TMemoryBuffer", e);
+            }
+            return checksum;
+        }
+
+        // Images are grouped by database. Buffer one existing-database region so snapshots stored after table
+        // dummies can be restored first. Missing-database regions remain streaming and are discarded.
         long currentDbId = -1;
-        boolean currentDbBinlogEnable = false;
-        List<TBinlog> tableDummies = Lists.newArrayList();
+        Database currentDb = null;
+        List<TBinlog> dbBinlogs = Lists.newArrayList();
         try {
             for (int i = 0; i < size; i++) {
-                // Step 2.1: read a binlog
                 TBinlog binlog = readTBinlogFromStream(dis);
-
-                if (!Config.enable_feature_binlog) {
-                    continue;
-                }
-
-                long dbId = binlog.getDbId();
-                if (binlog.getType().getValue() >= TBinlogType.MIN_UNKNOWN.getValue()) {
-                    LOG.warn("skip unknown binlog, type: {}, db: {}", binlog.getType().getValue(), dbId);
-                    continue;
-                }
-
-                // Step 2.2: check if there is in next db Binlogs region
-                if (dbId != currentDbId) {
-                    // if there is in next db Binlogs region, check and update metadata
-                    Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-                    if (db == null) {
-                        LOG.warn("db not found. dbId: {}", dbId);
-                        continue;
+                if (currentDbId != -1 && currentDbId != binlog.getDbId()) {
+                    if (currentDb != null) {
+                        recoverDbBinlogs(currentDb, dbBinlogs);
                     }
-                    currentDbId = dbId;
-                    currentDbBinlogEnable = db.getBinlogConfig().isEnableForCCR();
-                    tableDummies = Lists.newArrayList();
+                    dbBinlogs = Lists.newArrayList();
                 }
-
-                // step 2.3: recover binlog
-                if (binlog.getType() == TBinlogType.DUMMY) {
-                    // collect tableDummyBinlogs and dbDummyBinlog to recover DBBinlog and TableBinlog
-                    if (binlog.getBelong() == -1) {
-                        DBBinlog dbBinlog = DBBinlog.recoverDbBinlog(binlogConfigCache, binlog, tableDummies,
-                                currentDbBinlogEnable);
-                        dbBinlogMap.put(dbId, dbBinlog);
-                    } else {
-                        tableDummies.add(binlog);
+                if (currentDbId != binlog.getDbId()) {
+                    currentDbId = binlog.getDbId();
+                    currentDb = Env.getCurrentInternalCatalog().getDbNullable(currentDbId);
+                    if (currentDb == null) {
+                        LOG.warn("db not found. dbId: {}", currentDbId);
                     }
-                } else {
-                    // recover common binlogs
-                    DBBinlog dbBinlog = dbBinlogMap.get(dbId);
-                    if (dbBinlog == null) {
-                        LOG.warn("dbBinlog recover fail! binlog {} is before dummy. dbId: {}", binlog, dbId);
-                        continue;
-                    }
-                    binlog.setTableRef(0);
-                    dbBinlog.recoverBinlog(binlog, currentDbBinlogEnable);
+                }
+                if (currentDb != null) {
+                    dbBinlogs.add(binlog);
                 }
             }
         } catch (TException e) {
             throw new IOException("failed to read binlog from TMemoryBuffer", e);
         }
+        if (currentDb != null) {
+            recoverDbBinlogs(currentDb, dbBinlogs);
+        }
 
         return checksum;
+    }
+
+    private void recoverDbBinlogs(Database db, List<TBinlog> binlogs) {
+        if (binlogs.isEmpty()) {
+            return;
+        }
+
+        long dbId = binlogs.get(0).getDbId();
+        // Config snapshots are stored after table dummies, so restore them in a first pass.
+        for (TBinlog binlog : binlogs) {
+            if (binlog.getType() == TBinlogType.REPLACE_TABLE) {
+                cacheReplacedTableBinlogConfig(ReplaceTableOperationLog.fromJson(binlog.getData()));
+            }
+        }
+
+        boolean dbBinlogEnable = db.getBinlogConfig().isEnableForCCR();
+        List<TBinlog> tableDummies = Lists.newArrayList();
+        for (TBinlog binlog : binlogs) {
+            if (binlog.getType().getValue() >= TBinlogType.MIN_UNKNOWN.getValue()) {
+                LOG.warn("skip unknown binlog, type: {}, db: {}", binlog.getType().getValue(), dbId);
+                continue;
+            }
+
+            if (binlog.getType() == TBinlogType.DUMMY) {
+                // collect tableDummyBinlogs and dbDummyBinlog to recover DBBinlog and TableBinlog
+                if (binlog.getBelong() == -1) {
+                    DBBinlog dbBinlog = DBBinlog.recoverDbBinlog(binlogConfigCache, binlog, tableDummies,
+                            dbBinlogEnable);
+                    dbBinlogMap.put(dbId, dbBinlog);
+                } else {
+                    tableDummies.add(binlog);
+                }
+            } else {
+                // recover common binlogs
+                DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+                if (dbBinlog == null) {
+                    LOG.warn("dbBinlog recover fail! binlog {} is before dummy. dbId: {}", binlog, dbId);
+                    continue;
+                }
+                binlog.setTableRef(0);
+                dbBinlog.recoverBinlog(binlog, dbBinlogEnable);
+            }
+        }
     }
 
     public ProcResult getBinlogInfo() {
