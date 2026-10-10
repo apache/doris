@@ -174,8 +174,7 @@ Status build(const std::vector<Point>& points, const BkdBuilderOptions& options,
     return ::testing::AssertionSuccess();
 }
 
-// The split array is what a query binary-searches, so its contract -- split i is the
-// FIRST value of leaf i + 1 (design 6.4) -- is checked against the leaves themselves.
+// Each split must equal the first value of the following leaf.
 ::testing::AssertionResult splits_match_leaf_heads(const BkdIndexBlockReader& reader,
                                                    const std::vector<Point>& ordered) {
     uint32_t first_point = 0;
@@ -200,8 +199,7 @@ Status build(const std::vector<Point>& points, const BkdBuilderOptions& options,
 
 ::testing::AssertionResult bounds_match(const BkdIndexBlockReader& reader,
                                         const std::vector<Point>& ordered) {
-    // An empty index has no bounds to ask for at all (design 5.3), so report that as
-    // a failed expectation rather than tripping the reader's DORIS_CHECK.
+    // Skip bound checks for an empty index because it has no bounds.
     if (reader.empty()) {
         return ::testing::AssertionFailure() << "index is empty, it has no bounds";
     }
@@ -261,21 +259,13 @@ TEST(BkdBuilderTest, RoundTripRebuildsEveryPointInOrder) {
     EXPECT_TRUE(splits_match_leaf_heads(reader, expected));
 }
 
-// A caller that fills only the two REQUIRED options (design doc 6.1) must get
-// the documented leaf capacity. Nothing else covers this: default_options()
-// always assigns points_per_leaf explicitly, so it would keep passing even if
-// the default member initializer were deleted -- at which point create()'s
-// DORIS_CHECK_GT would turn every such caller into a crash. Asserting the
-// struct's default in isolation cannot catch that either; only building through
-// it can.
+// Building with only required options must use the default leaf capacity.
 TEST(BkdBuilderTest, UntouchedOptionsUseTheDocumentedLeafCapacity) {
-    BkdBuilderOptions options; // points_per_leaf / build_buffer_bytes untouched
+    BkdBuilderOptions options;
     options.bytes_per_dim = kBytesPerDim;
     options.field_type = kFieldType;
 
-    // Two full leaves plus a one-point remainder, so the observed leaf count
-    // pins the capacity from both sides: 1023 or 1025 would give a different
-    // answer.
+    // The final point makes a wrong leaf capacity change the leaf count.
     std::vector<Point> points;
     for (uint32_t i = 0; i < 2 * kDefaultPointsPerLeaf + 1; ++i) {
         points.push_back(Point {static_cast<int64_t>(i), i});
@@ -295,9 +285,7 @@ TEST(BkdBuilderTest, UntouchedOptionsUseTheDocumentedLeafCapacity) {
     EXPECT_EQ(reader.leaf(2).count, 1U);
 }
 
-// ---------------------------------------------------------------------------
-// Bounded build (design 6.2 / 12.5)
-// ---------------------------------------------------------------------------
+// Bounded build and spill tests.
 
 // The property that makes spilling safe to turn on: a build that had to spill
 // must produce the SAME BYTES as one that never did. Anything else -- including
@@ -449,8 +437,7 @@ TEST(BkdBuilderTest, EmptyIndexIsHeaderOnlyAndDataIsZeroLength) {
     BuiltIndex built;
     ASSERT_TRUE(build({}, default_options(), &built).ok());
 
-    // Design 5.3: emptiness is STATED (leaf_count == 0), not implied by a sentinel
-    // offset, and a zero-length bkd_data is legal rather than corruption.
+    // An empty index has no leaves or bkd_data.
     EXPECT_EQ(built.stats.point_count, 0U);
     EXPECT_EQ(built.stats.doc_count, 0U);
     EXPECT_EQ(built.stats.leaf_count, 0U);
@@ -536,9 +523,7 @@ TEST(BkdBuilderTest, LastLeafIsShortAndLeafCountIsNotRoundedToAPowerOfTwo) {
     BkdIndexBlockReader reader;
     std::vector<Point> decoded;
     ASSERT_TRUE(read_back(built, &reader, &decoded));
-    // Design 6.4: an ordered split array has no complete-binary-tree requirement, so
-    // 9 points at 4 per leaf are 4 + 4 + 1 and NOT four leaves of ~3 diluted by
-    // rounding the leaf count up to a power of two.
+    // Nine points at four per leaf produce leaves of 4, 4, and 1 points.
     ASSERT_EQ(reader.leaf_count(), 3U);
     EXPECT_EQ(reader.leaf(0).count, 4U);
     EXPECT_EQ(reader.leaf(1).count, 4U);
@@ -670,13 +655,7 @@ TEST(BkdBuilderTest, ArrayColumnRepeatsOneDocIdAndDocCountStaysDistinct) {
 // Bounded memory
 // ---------------------------------------------------------------------------
 
-// The ceiling is a SPILL TRIGGER, not a refusal (design 6.2). Phase 1 returned
-// MEM_LIMIT_EXCEEDED here as a deliberate placeholder -- being told beat the old
-// implementation, which had no offline sort at all and just kept allocating until
-// the process died -- and Phase 2 replaces the refusal with a run.
-//
-// What must NOT come back is the unbounded growth: crossing the ceiling many
-// times over still has to succeed and still has to count every point.
+// Crossing the resident buffer limit spills points while preserving every point and a bounded buffer.
 TEST(BkdBuilderTest, CrossingTheResidentCeilingSpillsInsteadOfRefusing) {
     BkdBuilderOptions options = default_options(4);
     options.build_buffer_bytes = 10 * kRecordSize; // ten points resident

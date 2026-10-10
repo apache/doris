@@ -41,17 +41,7 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
 
-// T12 -- writer fused freqs statistics (single pass total), reused for the
-// has_prx position-count check and stats_.sum_total_term_freq. This suite guards:
-//   * the deterministic op-count: exactly ONE term-level freqs scan per term
-//     (was 3N docs-only / 4N with positions) via the term_freq_scans() seam;
-//   * value bit-identity: sum_total_term_freq read back equals an independent
-//     reference across windowed + slim(pod_ref/inline) terms;
-//   * the fused pure helper on boundary inputs (empty/single/zeros/equal/u32max/
-//     large random) vs a naive reference;
-//   * the validate_term error paths preserved after dropping its internal
-//     freqs-sum loop (length / position-count / strict-ascending), and that the
-//     has_prx position-count check now consumes the FUSED total.
+// Checks one frequency scan per term, persisted frequency totals, and position-count validation against independent references.
 namespace doris::snii::writer {
 namespace {
 

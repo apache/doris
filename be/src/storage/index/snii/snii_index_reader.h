@@ -153,28 +153,7 @@ private:
                                  std::string_view search_str, std::vector<std::string>* terms,
                                  int32_t max_expansions, std::shared_ptr<roaring::Roaring>* out);
 #endif
-    // G02 count-only fast path. Only called when the caller (SegmentIterator)
-    // set context->count_on_index_fastpath, i.e. the match count alone decides
-    // the scan result. On *handled = true, *out is a bitmap of cardinality df
-    // (row ids NOT real) built from a single exact term's dict-entry df WITHOUT
-    // decoding postings. On a segment without a null bitmap the fabricated ids
-    // are the dense range [0, df); on a segment WITH one they are the first df
-    // NON-NULL row ids (see
-    // fabricate_null_disjoint_count_bitmap) so that the unconditional
-    // FunctionMatchBase -> mask_out_null subtraction of the real null bitmap
-    // is a no-op and the cardinality stays df -- which is already the exact
-    // match count, because postings never contain null docs. Falls through
-    // (*handled = false) for every other shape: every multi-term query
-    // (including phrase and OR/AND), prefix/regexp/wildcard/phrase-prefix
-    // expansion, and an ARRAY column on a segment that has nulls, whose df is
-    // NOT null-free (see the guard in the .cpp). Multi-term sloppy phrases fall
-    // through with every other multi-term shape; a single-term phrase remains
-    // exactly one posting df. Rejects the index outright, with
-    // INVERTED_INDEX_FILE_CORRUPTED, when df or the index's document domain
-    // falls outside the segment's real row space.
-    // On *handled = true, query() also raises
-    // context->count_on_index_fastpath_hit (G03) so the SegmentIterator may
-    // short-circuit row emission for the count-shaped bitmap.
+    // Returns a count-sized bitmap from a single term's df when SegmentIterator requests count-only evaluation. Fabricated IDs avoid null rows; all other query shapes fall back to normal posting decode.
     Status _try_count_only_fastpath(
             const IndexQueryContextPtr& context, InvertedIndexQueryType query_type,
             const InvertedIndexQueryInfo& query_info, const std::vector<std::string>& terms,

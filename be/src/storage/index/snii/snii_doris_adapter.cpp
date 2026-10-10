@@ -168,10 +168,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         return Status::OK();
     }
 
-    // ----- Phase 1: plan (serial, lock-free) -----
-    // No section-classification lock exists on this reader, so the whole plan is
-    // a plain in-memory scan; the NO-IO-UNDER-LOCK red line holds trivially (no
-    // lock is taken anywhere in read_batch).
+    // Plan section reads from in-memory metadata.
     struct IndexedRange {
         uint64_t offset = 0;
         size_t len = 0;
@@ -261,7 +258,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         read_bytes += cast_set<int64_t>(seg.len);
     }
 
-    // ----- Phase 2: physical reads (lock-free; concurrent when a pool exists) -----
+    // Run the planned physical reads, concurrently when a pool is available.
     auto run_segment = [&](size_t s) {
         seg_status[s] = _read_at(segs[s].offset, segs[s].len, targets[s], &seg_io_ctx[s]);
     };
@@ -306,10 +303,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         }
     }
 
-    // ----- Phase 3: merge stats, first-error, scatter, account (serial) -----
-    // Fold every segment's private stats back FIRST: physical IO that already
-    // happened (including partial work inside a segment that then failed) must
-    // reach the query profile even when another segment of this batch errors.
+    // Merge per-segment statistics before returning any read error so completed I/O remains visible.
     if (base_io_ctx->file_cache_stats != nullptr) {
         for (size_t s = 0; s < num_segs; ++s) {
             _merge_file_cache_statistics(base_io_ctx->file_cache_stats, seg_stats[s]);

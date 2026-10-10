@@ -15,25 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// P1-6, design 12.3: the golden byte digests of the on-disk format.
-//
-// Every other test in this directory asserts BEHAVIOUR, and behaviour survives a
-// format change: rename a field, reorder two varints, switch a leaf from kRle to
-// kRaw, and every round trip still passes because the same code writes and reads.
-// What that cannot catch is FORMAT DRIFT -- a change that silently makes this
-// binary unable to read what the previous one wrote.
-//
-// So a fixed input is pinned to a fixed SHA256 of each sub-file. The digests
-// below are DERIVED, not designed: they are whatever the builder emitted for the
-// documented inputs. A change to them is not a test failure to paper over -- it
-// is the statement "v1 files written before this change no longer decode", and
-// the only legitimate ways to make it are (a) the emitted bytes are genuinely
-// unchanged and the digest was mis-transcribed, or (b) kFormatVersion is bumped
-// and a compatibility policy is written down (design 3).
-//
-// The digests are stable because the build is: the sort key (value, doc_id) is
-// total over the fixed-width record, so the same point multiset always produces
-// the same bytes (asserted independently in bkd_property_test.cpp).
+// Pins each BKD sub-file's bytes to a digest for fixed inputs. A digest change requires explicit format compatibility review.
 
 #include <gtest/gtest.h>
 
@@ -143,10 +125,7 @@ Slice to_slice(const Bytes& bytes) {
 }
 
 std::string sha256_hex(const std::vector<uint8_t>& bytes) {
-    // SHA256_Update over a zero-length buffer returns immediately, but a null
-    // pointer never reaches it either way: an empty sub-file (the legal empty
-    // index, design 5.3) hashes as the empty string, which is a value worth
-    // pinning rather than skipping.
+    // Hash a zero-length bkd_data file as the empty string.
     static constexpr uint8_t kNothing = 0;
     SHA256Digest digest;
     digest.reset(bytes.empty() ? &kNothing : bytes.data(), bytes.size());
@@ -285,14 +264,9 @@ std::vector<Point> no_points() {
     return {};
 }
 
-// The counts are the case's INTENT and are derivable by hand (leaf_count is
-// ceil(point_count / points_per_leaf) -- the leaf count is never rounded up to a
-// power of two, design 6.4). The sizes and digests are OBSERVATIONS of what the
-// builder emits; they are transcribed from a run and must only ever change
-// deliberately.
+// Point and leaf counts follow the input; sizes and digests pin emitted bytes.
 const GoldenCase kGoldenCases[] = {
-        // The empty index is header only (design 5.3): 18 framed bytes and a
-        // zero-length bkd_data, whose digest is SHA256 of the empty string.
+        // An empty index has a framed header and an empty bkd_data digest.
         {"empty", &no_points, FieldType::OLAP_FIELD_TYPE_BIGINT, 16, 0, 0, 0, 18, 0,
          "d114909a532f1ff5da6ac94e98c1897be39a3b7dfa317bb82223cdd5b0fc2690",
          "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
@@ -420,10 +394,7 @@ std::vector<uint8_t> reframe(const std::vector<uint8_t>& payload) {
     return sink.take();
 }
 
-// The payload is fixed32 magic followed by the format_version varint32
-// (design 5.1), so version 1 is the single byte right after the magic. Asserted,
-// not assumed: if the layout ever moves, this test must fail loudly instead of
-// patching an unrelated field.
+// The version varint follows the fixed32 magic in the payload.
 constexpr size_t kFormatVersionOffset = 4;
 
 TEST(BkdGoldenFormatTest, AFutureFormatVersionIsNotSupportedRatherThanCorrupted) {
@@ -442,9 +413,7 @@ TEST(BkdGoldenFormatTest, AFutureFormatVersionIsNotSupportedRatherThanCorrupted)
         EXPECT_EQ(opened.reader->point_count(), 200U);
     }
 
-    // A version this binary does not know is NOT damage: the caller has to
-    // report "index unavailable" and fall back to a scan, which is a different
-    // decision from "this segment is corrupt" (design 3 / 8).
+    // An unknown version reports index unavailable so the caller can scan.
     for (const uint8_t version : {uint8_t {2}, uint8_t {3}, uint8_t {127}}) {
         SCOPED_TRACE("format_version=" + std::to_string(version));
         std::vector<uint8_t> future = payload;

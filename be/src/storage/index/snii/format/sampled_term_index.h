@@ -28,25 +28,7 @@
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/format/format_constants.h"
 
-// SampledTermIndex -- resident metadata for locating a query term to a candidate DICT block.
-//
-// Sampling granularity is per DICT block (not a fixed term count): each time the writer produces a DICT block,
-// it writes the block's first_term into this index. Size grows proportionally to block count. At read time it is
-// loaded into the searcher cache together with SniiLogicalIndexReader. See design spec "Sampled Term Index".
-//
-// On-disk layout (framed by SectionFramer, uniform type+len+crc32c):
-//   [u8 type=kSampledTermIndex][varint64 payload_len][payload][fixed32 crc32c]
-//   payload =
-//     n_blocks       varint32
-//     min_term        len(varint32) + bytes        # == sample_terms[0], omitted when n_blocks=0
-//     max_term        len(varint32) + bytes        # == sample_terms[n-1], omitted when n_blocks=0
-//     sample_terms[n_blocks]:                       # first_term of each block, in ascending order
-//       prefix_len   varint32                       # shared prefix length with the previous sample_term
-//       suffix_len   varint32
-//       suffix       u8[suffix_len]
-//
-// Term bytes are compared as unsigned byte order (UTF-8 friendly, binary-safe). Front coding reuses
-// the same prefix/suffix primitives as DictEntry; do not reimplement.
+// Stores the first term of each DICT block in a framed, front-coded array. The reader keeps these samples resident to locate a candidate block; terms use unsigned byte order.
 namespace doris::snii::format {
 
 // SSO-aware heap-byte accounting for a std::string. libstdc++ keeps up to 15

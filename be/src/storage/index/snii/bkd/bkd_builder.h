@@ -31,24 +31,10 @@
 #include "storage/index/snii/io/file_writer.h"
 #include "storage/index/snii/writer/memory_reporter.h"
 
-// Write-side orchestration for the SNII-native BKD index (design 6): buffer the
-// points, order them, cut leaves, emit bkd_data and bkd_index.
-//
-// This header pulls in NOTHING from the read side (design 4). The old writer TU
-// transitively included the entire reader through docids_writer.h, because that
-// type declared both directions at once; here the two directions meet only in
-// bkd_format.h's constants.
+// Builds sorted BKD leaves and writes bkd_data and bkd_index.
 namespace doris::snii::bkd {
 
-// One-shot builder: create -> add* -> finish.
-//
-// PHASE 1 -- FAST PATH ONLY. Every point stays resident, is sorted once in
-// finish(), and is cut into leaves directly. Crossing
-// BkdBuilderOptions::build_buffer_bytes makes add() return a MEM_LIMIT_EXCEEDED
-// Status. That refusal IS the improvement over the old implementation, which had
-// no offline sort at all and silently held every point until finish(), i.e. grew
-// unbounded until the process died. Phase 2 replaces the refusal with a spill by
-// adding a PointSource implementation; the leaf-cutting loop below does not change.
+// One-shot builder: create, add points, then finish. Points spill to sorted runs when the resident buffer reaches build_buffer_bytes.
 class BkdBuilder {
 public:
     // The ONLY way to obtain a builder. Options are checked BEFORE the object
@@ -62,20 +48,7 @@ public:
     BkdBuilder(const BkdBuilder&) = delete;
     BkdBuilder& operator=(const BkdBuilder&) = delete;
 
-    // Appends one point. `sortable_value` is exactly bytes_per_dim unsigned
-    // big-endian sortable bytes from KeyCoder::full_encode_ascending (INV-1/INV-2);
-    // a wrong length is a caller bug and trips DORIS_CHECK, not a Status.
-    //
-    // NULL rows do not call this at all -- they live in the SNII-native null bitmap
-    // section (design 9 / D9).
-    //
-    // doc_count is counted HERE, from doc_id changing between consecutive calls
-    // (Doris calls in ascending row order; an array column calls several times for
-    // one row). It is an implementation detail, not the undocumented "push
-    // docs_seen_ in before finish()" contract the old writer relied on.
-    //
-    // Returns MEM_LIMIT_EXCEEDED once the resident buffer is full (see the class
-    // comment) or once the shared MemoryReporter cap refuses the growth.
+    // Appends a KeyCoder-encoded value and its ascending doc ID; NULL rows use the separate bitmap. Counts distinct consecutive doc IDs and returns MEM_LIMIT_EXCEEDED if memory growth is refused.
     Status add(uint32_t doc_id, Slice sortable_value);
 
     // Orders the points, cuts leaves, APPENDS the leaf blocks to `data_out` and the
@@ -125,9 +98,7 @@ private:
     // reported in BkdStats cannot drift from the one actually configured.
     size_t records_per_cursor(size_t run_count) const;
 
-    // The leaf-cutting loop of design 6.4, shared by every build mode: it sees only
-    // an ordered PointSource and never learns whether the points came from RAM or
-    // from a merge of spilled runs.
+    // Writes leaves from either a resident or merged ordered point stream.
     Status write_index(PointSource* source, io::FileWriter* data_out, ByteSink* index_out,
                        BkdStats* stats);
 
@@ -136,8 +107,7 @@ private:
     void release_records();
 
     const BkdBuilderOptions options_;
-    // bytes_per_dim + kPointDocIdBytes: the fixed record width whose whole-record
-    // memcmp is (value, doc_id) order (design 6.2).
+    // Whole-record byte order is (value, doc_id) order.
     const size_t record_size_;
     // build_buffer_bytes expressed in whole records -- the resident ceiling add()
     // enforces. Rounded DOWN, so the buffer never exceeds the configured bound.
