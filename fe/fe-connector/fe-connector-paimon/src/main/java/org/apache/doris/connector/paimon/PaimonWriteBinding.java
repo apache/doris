@@ -112,7 +112,8 @@ final class PaimonWriteBinding {
                     () -> "missing the cast value of static partition column " + key);
             if (table.rowType().getField(canonicalName).type().getTypeRoot()
                     == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
-                value = toSdkLocalTime(value, isTimestampTz(writeHandle, canonicalName), sessionTimeZone);
+                value = toSdkLocalTime(canonicalName, value, isTimestampTz(writeHandle, canonicalName),
+                        sessionTimeZone, writeHandle.isOverwrite());
             }
             if (writeHandle.isOverwrite() && defaultPartitionName.equals(value)) {
                 // Paimon's static overwrite reads this string as the NULL partition of any partition type, so
@@ -141,16 +142,36 @@ final class PaimonWriteBinding {
      * JVM's default zone, so the value is moved there from the zone it was written in: the session zone for a
      * DATETIMEV2 value, UTC for a TIMESTAMPTZ value, which carries its offset. Paimon's parser takes a space,
      * not ISO's 'T', between the date and the time.
+     *
+     * <p>An overwrite rejects a value that names no single instant on one side of that move. A session-local
+     * time that a DST change skips: Java moves it past the gap, while the BE writes the rows at the instant of
+     * the change. An instant whose local time a DST change repeats in the JVM zone: both instants of the overlap
+     * format to the same value, which Paimon reads as the earlier one.
      */
-    private static String toSdkLocalTime(String value, boolean timestampTz, String sessionTimeZone) {
+    private static String toSdkLocalTime(String column, String value, boolean timestampTz, String sessionTimeZone,
+            boolean overwrite) {
         String isoValue = value.replace(' ', 'T');
-        ZonedDateTime instant = timestampTz
-                ? OffsetDateTime.parse(isoValue, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toZonedDateTime()
-                : LocalDateTime.parse(isoValue, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                        .atZone(ZoneId.of(sessionTimeZone, PaimonConnectorMetadata.SESSION_TIME_ZONE_ALIASES));
-        return instant.withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime()
-                .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                .replace('T', ' ');
+        ZonedDateTime instant;
+        if (timestampTz) {
+            instant = OffsetDateTime.parse(isoValue, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toZonedDateTime();
+        } else {
+            LocalDateTime sessionLocal = LocalDateTime.parse(isoValue, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            ZoneId sessionZone = ZoneId.of(sessionTimeZone, PaimonConnectorMetadata.SESSION_TIME_ZONE_ALIASES);
+            if (overwrite && sessionZone.getRules().getValidOffsets(sessionLocal).isEmpty()) {
+                throw new DorisConnectorException("Static LTZ partition value for column '" + column
+                        + "' does not exist in session time zone " + sessionZone
+                        + " and cannot be represented in a static overwrite");
+            }
+            instant = sessionLocal.atZone(sessionZone);
+        }
+        ZoneId sdkZone = ZoneId.systemDefault();
+        LocalDateTime sdkLocal = instant.withZoneSameInstant(sdkZone).toLocalDateTime();
+        if (overwrite && sdkZone.getRules().getValidOffsets(sdkLocal).size() > 1) {
+            throw new DorisConnectorException("Static LTZ partition value for column '" + column
+                    + "' is ambiguous in FE JVM time zone " + sdkZone
+                    + " and cannot be represented in a static overwrite");
+        }
+        return sdkLocal.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
     }
 
     private static String serialize(FileStoreTable table) {
