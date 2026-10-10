@@ -59,11 +59,23 @@ suite("test_recycler_with_internal_copy") {
         DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
     """
 
-    def result = sql " copy into ${tableName} from @~('${fileName}') properties ('file.type' = 'csv', 'file.column_separator' = '|', 'copy.async' = 'false'); "
-    logger.info("copy result: " + result)
-    assertTrue(result.size() == 1)
-    assertTrue(result[0].size() == 8)
-    assertTrue(result[0][1].equals("FINISHED"), "Finish copy into, state=" + result[0][1] + ", expected state=FINISHED")
+    int retry = 15
+    boolean success = false
+    def result
+    do {
+        result = sql " copy into ${tableName} from @~('${fileName}') properties ('file.type' = 'csv', 'file.column_separator' = '|', 'copy.async' = 'false'); "
+        logger.info("copy result: " + result)
+        assertTrue(result.size() == 1)
+        assertTrue(result[0].size() == 8)
+        if (result[0][1].equals("FINISHED")) {
+            success = true
+            break
+        }
+        assertTrue(result[0][1].equals("CANCELLED") && result[0][3].contains("No files can be copied"),
+                "Finish copy into, state=" + result[0][1] + ", expected state=FINISHED")
+        Thread.sleep(20000) // wait uploaded file visible to copy
+    } while (retry--)
+    assertTrue(success)
     qt_sql " SELECT COUNT(*) FROM ${tableName}; "
 
     result = sql " copy into ${tableName} from @~('${fileName}') properties ('file.type' = 'csv', 'file.column_separator' = '|', 'copy.async' = 'false'); "
@@ -74,8 +86,8 @@ suite("test_recycler_with_internal_copy") {
     qt_sql " SELECT COUNT(*) FROM ${tableName}; "
 
 
-    int retry = 15
-    boolean success = false
+    retry = 15
+    success = false
     // recycle data
     do {
         triggerRecycle(token, instanceId)
