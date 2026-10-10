@@ -774,6 +774,21 @@ message PTabletWriteSlaveDoneResult {
     optional PStatus status = 1;
 };
 
+// One logical index in a snapshot resolved by the FE. Version zero (latest) is invalid.
+message PLanceIndexPrewarmRequest {
+    optional string dataset_uri = 1;
+    optional uint64 dataset_version = 2;
+    optional string index_name = 3;
+    map<string, string> storage_options = 4;
+    optional int64 timeout_ms = 5;
+}
+
+message PLanceIndexPrewarmResponse {
+    optional PStatus status = 1;
+    // Required by the FE before accepting success, including during rolling upgrades.
+    optional uint64 dataset_version = 2;
+}
+
 message PFetchTableSchemaRequest {
   optional bytes file_scan_range = 1;
 };
@@ -1266,6 +1281,7 @@ service PBackendService {
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
     rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
+    rpc prewarm_lance_index(PLanceIndexPrewarmRequest) returns (PLanceIndexPrewarmResponse);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc multiget_data_v2(PMultiGetRequestV2) returns (PMultiGetResponseV2);

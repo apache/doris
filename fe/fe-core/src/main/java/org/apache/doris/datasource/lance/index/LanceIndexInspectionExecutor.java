@@ -31,8 +31,9 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
 
-/** Bounds JNI reads for SHOW INDEX and lance_index_entries(); ordinary query planning does not use this pool. */
+/** Bounds administrative JNI metadata reads; ordinary query planning does not use this pool. */
 public final class LanceIndexInspectionExecutor {
     private static final int DEFAULT_TIMEOUT_SECONDS = 60;
     private static final int MAX_CONCURRENT_READS = 4;
@@ -54,6 +55,60 @@ public final class LanceIndexInspectionExecutor {
         int timeoutSeconds = queryTimeoutSeconds > 0
                 ? Math.min(queryTimeoutSeconds, DEFAULT_TIMEOUT_SECONDS) : DEFAULT_TIMEOUT_SECONDS;
         return execute(task, EXECUTOR, timeoutSeconds, TimeUnit.SECONDS);
+    }
+
+    /** Uses the caller's original statement deadline, including catalog initialization. */
+    public static <T> T execute(Callable<T> task, long deadlineNanos, BooleanSupplier cancelled) throws Exception {
+        checkActive(deadlineNanos, cancelled);
+        Future<T> future;
+        try {
+            future = EXECUTOR.submit(() -> {
+                // A cancelled or expired queued request must not start remote/native IO.
+                checkActive(deadlineNanos, cancelled);
+                return task.call();
+            });
+        } catch (RejectedExecutionException e) {
+            throw new MetadataReadCapacityException("Lance metadata read capacity is exhausted");
+        }
+        try {
+            while (true) {
+                checkActive(deadlineNanos, cancelled);
+                try {
+                    T result = future.get(Math.min(remainingNanos(deadlineNanos), TimeUnit.MILLISECONDS.toNanos(100)),
+                            TimeUnit.NANOSECONDS);
+                    checkActive(deadlineNanos, cancelled);
+                    return result;
+                } catch (TimeoutException e) {
+                    // Poll cancellation without renewing the statement deadline.
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new MetadataReadInterruptedException("Interrupted while waiting for Lance metadata read");
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof Exception) {
+                throw (Exception) cause;
+            }
+            if (cause instanceof Error) {
+                throw (Error) cause;
+            }
+            throw new RuntimeException(cause);
+        }
+        // Do not cancel/interrupt the Future: JNI retains sole ownership of its Dataset and
+        // allocator until it returns. The shared pool bounds abandoned work and queued requests.
+    }
+
+    private static void checkActive(long deadlineNanos, BooleanSupplier cancelled) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new MetadataReadInterruptedException("Interrupted while waiting for Lance metadata read");
+        }
+        if (cancelled.getAsBoolean()) {
+            throw new MetadataReadInterruptedException("Lance metadata read cancelled");
+        }
+        if (remainingNanos(deadlineNanos) <= 0) {
+            throw new MetadataReadTimeoutException("Lance metadata read timed out");
+        }
     }
 
     @VisibleForTesting

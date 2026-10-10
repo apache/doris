@@ -22,12 +22,14 @@
 
 #include <chrono>
 #include <filesystem>
+#include <lance/lance.hpp>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
+#include "util/defer_op.h"
 
 namespace doris::format::lance {
 namespace {
@@ -97,6 +99,59 @@ TEST(LanceSessionManagerTest, PublishesSessionCacheMetrics) {
     EXPECT_NE(entity->get_metric("lance_session_index_cache_misses_total"), nullptr);
     EXPECT_NE(entity->get_metric("lance_session_metadata_cache_hits_total"), nullptr);
     EXPECT_NE(entity->get_metric("lance_session_metadata_cache_misses_total"), nullptr);
+}
+
+TEST(LanceSessionManagerTest, PrewarmRequiresPinnedVersionAndIndex) {
+    LanceSessionManager manager(
+            {.lance_index_cache_size_bytes = 8 * 1024 * 1024, .lance_data_cache_path = ""});
+    EXPECT_FALSE(manager.prewarm_index(nullptr, nullptr, 1, "idx").ok());
+    EXPECT_FALSE(manager.prewarm_index("dataset.lance", nullptr, 0, "idx").ok());
+    EXPECT_FALSE(manager.prewarm_index("dataset.lance", nullptr, 1, nullptr).ok());
+    EXPECT_FALSE(manager.prewarm_index("dataset.lance", nullptr, 1, "").ok());
+}
+
+TEST(LanceSessionManagerTest, PrewarmErrorsDoNotExposeStorageDetails) {
+    LanceSessionManager manager(
+            {.lance_index_cache_size_bytes = 8 * 1024 * 1024, .lance_data_cache_path = ""});
+    const auto status =
+            manager.prewarm_index("/nonexistent/private-dataset.lance", nullptr, 1, "idx");
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(std::string::npos, status.to_string().find("private-dataset"));
+    EXPECT_FALSE(
+            manager.prewarm_index(lance_fixture_path().c_str(), nullptr, 1, "missing_idx").ok());
+}
+
+TEST(LanceSessionManagerTest, PrewarmUsesTheQuerySessionAndFixedSnapshot) {
+    const auto path = unique_cache_path();
+    std::filesystem::copy(lance_fixture_path(), path, std::filesystem::copy_options::recursive);
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(path, error);
+    }};
+    auto writer = ::lance::Dataset::open(path.string());
+    writer.create_scalar_index("row_id", LANCE_SCALAR_BTREE, "value_idx");
+    const uint64_t version = writer.version();
+    LanceSessionManager manager({.lance_index_cache_size_bytes = 8 * 1024 * 1024,
+                                 .lance_metadata_cache_size_bytes = 4 * 1024 * 1024,
+                                 .lance_data_cache_path = ""});
+    ASSERT_TRUE(manager.prewarm_index(path.c_str(), nullptr, version, "value_idx").ok());
+    auto* entity = DorisMetrics::instance()->server_entity();
+    entity->trigger_hook_unlocked(true);
+    auto* hits =
+            static_cast<IntCounter*>(entity->get_metric("lance_session_index_cache_hits_total"));
+    const auto before = hits->value();
+
+    // A separate query handle must see the cache populated by the completed prewarm call.
+    LanceDataset* raw_dataset = nullptr;
+    ASSERT_TRUE(manager.open_dataset(path.c_str(), nullptr, version, &raw_dataset).ok());
+    LanceDatasetPtr query(raw_dataset, lance_dataset_close);
+    ASSERT_EQ(0, lance_dataset_prewarm_index(query.get(), "value_idx"));
+    entity->trigger_hook_unlocked(true);
+    EXPECT_GT(hits->value(), before);
+
+    writer.drop_index("value_idx");
+    EXPECT_FALSE(manager.prewarm_index(path.c_str(), nullptr, writer.version(), "value_idx").ok());
+    EXPECT_TRUE(manager.prewarm_index(path.c_str(), nullptr, version, "value_idx").ok());
 }
 
 TEST(LanceSessionManagerTest, CreatesFoyerBackedSession) {
