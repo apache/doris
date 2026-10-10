@@ -896,7 +896,8 @@ final class IcebergPartitionUtils {
             if (fieldType.typeId() == Type.TypeID.BINARY || fieldType.typeId() == Type.TypeID.FIXED) {
                 fieldValue = serializePartitionValue(fieldType, o, ZoneOffset.UTC);
             } else if (fieldType.typeId() == Type.TypeID.UUID && o != null) {
-                fieldValue = "0x" + o.toString().replace("-", "");
+                // FE parses this typed value as UUID; binary hex would silently drop the partition.
+                fieldValue = serializePartitionValue(fieldType, o, ZoneOffset.UTC);
             }
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
             // Resolve the partition field's SOURCE column name (case-preserved), matching the generic

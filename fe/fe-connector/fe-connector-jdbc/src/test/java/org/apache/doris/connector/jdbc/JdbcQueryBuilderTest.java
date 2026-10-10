@@ -623,6 +623,34 @@ class JdbcQueryBuilderTest {
     }
 
     @Test
+    void trinoAndPrestoUuidPredicatesUseTypedLiterals() {
+        ConnectorType type = ConnectorType.of("UUID");
+        ConnectorColumnRef column = new ConnectorColumnRef("u", type);
+        String value = "00112233-4455-6677-8899-aabbccddeeff";
+        ConnectorLiteral literal = new ConnectorLiteral(type, value);
+        String typed = "CAST('" + value + "' AS UUID)";
+        for (JdbcDbType db : Arrays.asList(JdbcDbType.TRINO, JdbcDbType.PRESTO)) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(db);
+            for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                    ConnectorComparison.Operator.NE, ConnectorComparison.Operator.LT, ConnectorComparison.Operator.LE,
+                    ConnectorComparison.Operator.GT, ConnectorComparison.Operator.GE)) {
+                String sql = builder.buildQuery(DB, TABLE, columns("u"), Optional.of(
+                        new ConnectorComparison(op, column, literal)), 1);
+                Assertions.assertTrue(sql.contains("\"u\" " + op.getSymbol() + " " + typed), sql);
+                sql = builder.buildQuery(DB, TABLE, columns("u"), Optional.of(
+                        new ConnectorComparison(op, literal, column)), 1);
+                Assertions.assertTrue(sql.contains(typed + " " + op.getSymbol() + " \"u\""), sql);
+            }
+            String sql = builder.buildQuery(DB, TABLE, columns("u"), Optional.of(
+                    new ConnectorIn(column, Arrays.asList(literal, literal), false)), 1);
+            Assertions.assertTrue(sql.contains("IN (" + typed + ", " + typed + ")"), sql);
+            sql = builder.buildQuery(DB, TABLE, columns("u"), Optional.of(
+                    new ConnectorBetween(column, literal, literal)), 1);
+            Assertions.assertTrue(sql.contains("BETWEEN " + typed + " AND " + typed), sql);
+        }
+    }
+
+    @Test
     void sqlServerUuidRangesUseDorisOrdering() {
         JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.SQLSERVER);
         ConnectorType type = ConnectorType.of("UUID");

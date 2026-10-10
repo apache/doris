@@ -59,6 +59,9 @@ id	int	Yes	false	\N	NONE
 items	array<uuid>	Yes	false	\N	NONE
 record	struct<u:uuid,text:text>	Yes	false	\N	NONE
 
+-- !uuid_nested_parquet_volatile_struct --
+64	64
+
 -- !uuid_maps_parquet --
 1	{"00112233-4455-6677-8899-aabbccddeeff":"00112233-4455-6677-8899-aabbccddeeff"}	[{"k":"00112233-4455-6677-8899-aabbccddeeff"}]	{"m":{"00112233-4455-6677-8899-aabbccddeeff":"00112233-4455-6677-8899-aabbccddeeff"}}
 2	{"00112233-4455-6677-8899-aabbccddeeff":null}	[]	{"m":{}}
@@ -132,6 +135,9 @@ record	struct<u:uuid,text:text>	Yes	false	\N	NONE
 id	int	Yes	false	\N	NONE
 items	array<uuid>	Yes	false	\N	NONE
 record	struct<u:uuid,text:text>	Yes	false	\N	NONE
+
+-- !uuid_nested_orc_volatile_struct --
+64	64
 
 -- !uuid_maps_orc --
 1	{"00112233-4455-6677-8899-aabbccddeeff":"00112233-4455-6677-8899-aabbccddeeff"}	[{"k":"00112233-4455-6677-8899-aabbccddeeff"}]	{"m":{"00112233-4455-6677-8899-aabbccddeeff":"00112233-4455-6677-8899-aabbccddeeff"}}

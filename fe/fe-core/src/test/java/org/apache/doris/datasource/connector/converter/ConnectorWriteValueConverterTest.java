@@ -23,8 +23,13 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -33,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.UuidType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -131,6 +137,27 @@ class ConnectorWriteValueConverterTest {
         Assertions.assertSame(nativeMap, ConnectorWriteValueConverter.convert(column, nativeMap));
         Expression nativeUuid = SlotReference.of("u", UuidType.INSTANCE);
         Assertions.assertSame(nativeUuid, ConnectorWriteValueConverter.convert(uuidColumn(), nativeUuid));
+    }
+
+    @Test
+    void volatileStructInputOccursOnceIncludingNullCheck() {
+        ConnectorType type = ConnectorType.structOf(java.util.Arrays.asList("u", "text"),
+                java.util.Arrays.asList(ConnectorType.of("UUID"), ConnectorType.of("STRING")));
+        Column column = ConnectorColumnConverter.convertColumn(new ConnectorColumn("s", type, "", true, null)
+                .withStringWriteType(type));
+        Expression record = TypeCoercionUtils.processBoundFunction(new CreateNamedStruct(
+                new StringLiteral("u"), new StringLiteral("00112233-4455-6677-8899-aabbccddeeff"),
+                new StringLiteral("text"), new StringLiteral("first")));
+        Expression source = TypeCoercionUtils.processBoundFunction(new If(
+                new LessThan(new Random(), new DoubleLiteral(0.5)), record, new NullLiteral(record.getDataType())));
+        Expression result = ConnectorWriteValueConverter.convert(column, source);
+        Assertions.assertEquals(1, countRandom(result), "Null testing and field extraction must share one evaluation");
+        Assertions.assertTrue(result.nullable());
+    }
+
+    private int countRandom(Expression expression) {
+        return (expression instanceof Random ? 1 : 0)
+                + expression.children().stream().mapToInt(this::countRandom).sum();
     }
 
 }

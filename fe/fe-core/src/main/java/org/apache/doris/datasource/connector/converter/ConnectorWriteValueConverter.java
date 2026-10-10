@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
@@ -98,6 +100,13 @@ public final class ConnectorWriteValueConverter {
                     convert(entries, mapEntryArrayType(semantics), mapEntryArrayType(target))));
         }
         if (semanticType instanceof StructType) {
+            if (!(input instanceof SlotReference) && !(input instanceof StructLiteral)) {
+                // Bind the record once before null testing and field extraction; VALUES inputs may
+                // be volatile and have no source slot yet. The singleton array supplies that binding.
+                Expression singleton = TypeCoercionUtils.processBoundFunction(new Array(input));
+                Expression converted = convert(singleton, ArrayType.of(semanticType), ArrayType.of(targetType));
+                return TypeCoercionUtils.processBoundFunction(new ElementAt(converted, new IntegerLiteral(1)));
+            }
             List<StructField> semanticFields = ((StructType) semanticType).getFields();
             List<StructField> targetFields = ((StructType) targetType).getFields();
             List<Expression> fields = new ArrayList<>();

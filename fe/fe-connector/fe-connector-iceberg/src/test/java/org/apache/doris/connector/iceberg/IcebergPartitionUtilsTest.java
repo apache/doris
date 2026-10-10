@@ -124,6 +124,38 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
+    public void listUuidIdentityPartitionsUsesTypedCanonicalValues() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "u", Types.UUIDType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("u").build();
+        Table table = tableWith(schema, spec);
+        List<UUID> values = Arrays.asList(UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"),
+                UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff"), null);
+        for (int i = 0; i < values.size(); i++) {
+            PartitionData data = new PartitionData(spec.partitionType());
+            data.set(0, values.get(i));
+            table.newAppend().appendFile(DataFiles.builder(spec).withPath("uuid-" + i + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withPartition(data).withFileSizeInBytes(100)
+                    .withRecordCount(1).build()).commit();
+        }
+        List<ConnectorPartitionInfo> partitions = IcebergPartitionUtils.listPartitions(table);
+        Assertions.assertEquals(3, partitions.size());
+        Set<UUID> actual = new HashSet<>();
+        for (ConnectorPartitionInfo partition : partitions) {
+            Assertions.assertEquals(Collections.singletonList(org.apache.doris.connector.spi.ConnectorType.of("UUID")),
+                    partition.getPartitionValueTypes());
+            if (partition.getPartitionValueNullFlags().get(0)) {
+                actual.add(null);
+            } else {
+                String value = partition.getPartitionValues().get("u");
+                Assertions.assertFalse(value.startsWith("0x"), "UUID partition values must be parseable UUID text");
+                actual.add(UUID.fromString(value));
+                Assertions.assertEquals("u=" + value, partition.getPartitionName());
+            }
+        }
+        Assertions.assertEquals(new HashSet<>(values), actual);
+    }
+
+    @Test
     public void uuidIdentityPartitionRetainsCanonicalText() {
         Schema schema = new Schema(Types.NestedField.optional(1, "key", Types.UUIDType.get()));
         PartitionSpec spec = PartitionSpec.builderFor(schema).identity("key").build();

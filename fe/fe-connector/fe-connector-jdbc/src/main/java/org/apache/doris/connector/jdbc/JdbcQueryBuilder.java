@@ -815,6 +815,11 @@ public final class JdbcQueryBuilder {
             return "NULL";
         }
         Object val = lit.getValue();
+        if ("UUID".equalsIgnoreCase(lit.getType().getTypeName())
+                && (dbType == JdbcDbType.TRINO || dbType == JdbcDbType.PRESTO)) {
+            // These engines do not implicitly coerce VARCHAR literals when comparing UUID columns.
+            return "CAST('" + escapeSql((String) val) + "' AS UUID)";
+        }
         if ("VARBINARY".equalsIgnoreCase(lit.getType().getTypeName())) {
             // Legacy literals cross the SPI as a lossless Latin-1 carrier, not remote character data.
             String hex = java.util.HexFormat.of().formatHex(

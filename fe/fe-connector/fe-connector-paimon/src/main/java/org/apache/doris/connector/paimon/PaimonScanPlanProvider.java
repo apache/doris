@@ -1990,11 +1990,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE)) {
             return false;
         }
-        // Only decoded fields require SDK timezone conversion. Unread LTZ columns must not disable
-        // native splitting or metadata columns; stable field IDs also scope historical schemas after renames.
-        if (readsTimestampLtz(table.rowType(), readFieldIds)) {
-            return true;
-        }
+        // Only fields present in a file require SDK timezone conversion. A newly added nullable LTZ
+        // column reads as NULL in older files and must not disable their native metadata scans.
         FileStoreTable fileStoreTable = (FileStoreTable) table;
         for (RawFile file : rawFiles.get()) {
             if (file.path().endsWith(".orc") && schemaTimestamps.computeIfAbsent(file.schemaId(),

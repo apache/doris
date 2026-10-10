@@ -94,6 +94,11 @@ suite("test_iceberg_write_uuid_inputs", "p0,external,iceberg,external_docker,ext
                 }
                 "qt_${table}" "SELECT id, u FROM ${table} ORDER BY id"
                 if (partitioned) {
+                    // Both the UUID and NULL identity partitions must survive FE partition parsing.
+                    explain {
+                        sql "SELECT id, u FROM ${table}"
+                        contains "partition=2/2"
+                    }
                     sql "INSERT OVERWRITE TABLE ${table} PARTITION(u='${compact}') VALUES (31)"
                     "qt_${table}_overwrite" "SELECT id, u FROM ${table} ORDER BY id"
                 }
@@ -142,6 +147,18 @@ suite("test_iceberg_write_uuid_inputs", "p0,external,iceberg,external_docker,ext
                     's3.access_key'='admin', 's3.secret_key'='password', 's3.region'='us-east-1',
                     'use_path_style'='true' ${mapping})"""
             }
+            // VALUES has no source slot: each random choice must supply all fields of one record.
+            String otherUuid = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+            String volatileRows = (100..<164).collect { id ->
+                "(${id}, NULL, IF(RAND() < 0.5, " +
+                        "named_struct('u', '${canonical}', 'text', 'first'), " +
+                        "named_struct('u', '${otherUuid}', 'text', 'second')))"
+            }.join(",")
+            sql "INSERT INTO ${nested} VALUES ${volatileRows}"
+            "qt_${nested}_volatile_struct" """SELECT COUNT(*), SUM(
+                (record.u = CAST('${canonical}' AS UUID) AND record.text = 'first') OR
+                (record.u = CAST('${otherUuid}' AS UUID) AND record.text = 'second'))
+                FROM ${nested} WHERE id >= 100"""
             String maps = "uuid_maps_${format}"
             sql "DROP TABLE IF EXISTS ${maps}"
             sql """CREATE TABLE ${maps} (id INT, m MAP<UUID,UUID>, a ARRAY<MAP<STRING,UUID>>,
