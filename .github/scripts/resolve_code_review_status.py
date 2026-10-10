@@ -13,6 +13,9 @@ from pathlib import Path
 SOURCE_CONTEXT_RE = re.compile(
     r"code-review/source/(?:automated|local|skip)/pr-(\d+)/base-([0-9a-fA-F]{40})"
 )
+MANUAL_CONTEXT_RE = re.compile(
+    r"code-review/source/manual/pr-(\d+)/head-([0-9a-fA-F]{40})"
+)
 SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
 
 
@@ -24,6 +27,7 @@ class ResolutionError(ValueError):
 class Resolution:
     state: str
     description: str
+    publish: bool = True
 
 
 def resolve_status(
@@ -53,7 +57,8 @@ def resolve_status(
 
     if not open_contexts:
         return Resolution(
-            "pending", f"No open pull request currently uses {head_sha[:12]}."
+            "pending", f"No open pull request currently uses {head_sha[:12]}.",
+            publish=False,
         )
 
     latest_by_context: dict[str, dict[str, object]] = {}
@@ -74,6 +79,14 @@ def resolve_status(
     approved_contexts: set[tuple[int, str]] = set()
     blocked_contexts: set[tuple[int, str]] = set()
     for context, item in latest_by_context.items():
+        manual = MANUAL_CONTEXT_RE.fullmatch(context)
+        if (manual is not None and item["state"] == "success"
+                and manual.group(2).casefold() == head_sha.casefold()):
+            # Manual acceptance is PR/head-specific and survives base movement.
+            # Never turn it into approval for another PR sharing this commit.
+            approved_contexts.update(
+                pair for pair in open_contexts if pair[0] == int(manual.group(1))
+            )
         match = SOURCE_CONTEXT_RE.fullmatch(context)
         if match is not None and item["state"] == "success":
             approved_contexts.add((int(match.group(1)), match.group(2).casefold()))
@@ -127,6 +140,7 @@ def main() -> int:
         load_list(args.statuses_file, "statuses"),
         head_sha=args.head_sha,
     )
+    print(f"publish={str(resolution.publish).lower()}")
     print(f"state={resolution.state}")
     print(f"description={resolution.description}")
     return 0

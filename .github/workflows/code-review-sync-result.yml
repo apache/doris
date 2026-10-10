@@ -12,6 +12,65 @@ permissions:
   statuses: write
 
 jobs:
+  accept-manual-pass:
+    name: Accept manual code review pass
+    runs-on: ubuntu-latest
+    outputs:
+      accepted: ${{ steps.record.outputs.accepted }}
+      head_sha: ${{ steps.record.outputs.head_sha }}
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request != null &&
+      startsWith(github.event.comment.body, '/force-pass code-review ')
+    steps:
+      - name: Checkout trusted manual pass validator
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/validate_manual_review_pass.py
+          sparse-checkout-cone-mode: false
+
+      - name: Validate and record manual pass
+        id: record
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
+        run: |
+          permission_file="$RUNNER_TEMP/manual-pass-permission.json"
+          pull_file="$RUNNER_TEMP/manual-pass-pull.json"
+          gh api "repos/${REPO}/collaborators/${COMMENT_AUTHOR}/permission" > "$permission_file"
+          gh api "repos/${REPO}/pulls/${PR_NUMBER}" > "$pull_file"
+          head_sha="$(python3 .github/scripts/validate_manual_review_pass.py \
+            --event-file "$GITHUB_EVENT_PATH" \
+            --pull-file "$pull_file" \
+            --permission-file "$permission_file")"
+
+          # The explicit SHA cannot follow a push that races with validation.
+          # Keep this source separate from automated results and the final status.
+          gh api "repos/${REPO}/statuses/${head_sha}" \
+            -X POST \
+            -f state='success' \
+            -f context="code-review/source/manual/pr-${PR_NUMBER}/head-${head_sha}" \
+            -f description="Manual pass by ${COMMENT_AUTHOR} for PR #${PR_NUMBER}." \
+            -f target_url="$COMMENT_URL"
+          echo "accepted=true" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+  aggregate-after-manual-pass:
+    needs: accept-manual-pass
+    if: needs.accept-manual-pass.outputs.accepted == 'true'
+    uses: ./.github/workflows/code-review-aggregate-status.yml
+    with:
+      head_sha: ${{ needs.accept-manual-pass.outputs.head_sha }}
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+
   accept-skill-review:
     name: Accept local skill review PASS
     runs-on: ubuntu-latest
@@ -150,13 +209,6 @@ jobs:
           source_context="code-review/source/local/pr-${PR_NUMBER}/base-${BASE_SHA}"
           gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
-            -f state='pending' \
-            -f context='code-review' \
-            -f description="Recalculating code review for PR #${PR_NUMBER}." \
-            -f target_url="$COMMENT_URL"
-
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
-            -X POST \
             -f state='success' \
             -f context="$source_context" \
             -f description="Local review passed for PR #${PR_NUMBER} at ${BASE_SHA:0:12}." \
@@ -221,13 +273,6 @@ jobs:
 
           echo "COMMENT_USER_ID ${COMMENT_USER_ID} is allowed to skip code review for ${TARGET_BRANCH}."
           source_context="code-review/source/skip/pr-${PR_NUMBER}/base-${BASE_SHA}"
-          gh api repos/${REPO}/statuses/${HEAD_SHA} \
-            -X POST \
-            -f state="pending" \
-            -f context='code-review' \
-            -f description="Recalculating code review for PR #${PR_NUMBER}." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
           gh api repos/${REPO}/statuses/${HEAD_SHA} \
             -X POST \
             -f state="success" \

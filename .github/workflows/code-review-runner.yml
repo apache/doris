@@ -278,7 +278,7 @@ jobs:
             echo "${focus_delimiter}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Mark Code Review status as pending
+      - name: Mark automated review source as pending
         if: ${{ steps.review_inputs.outputs.manage_status == 'true' }}
         timeout-minutes: 2
         env:
@@ -288,13 +288,6 @@ jobs:
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           REPO: ${{ github.repository }}
         run: |
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
-            -X POST \
-            -f state='pending' \
-            -f context='code-review' \
-            -f description="Automated review is running for PR #${PR_NUMBER}." \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
           source_context="code-review/source/automated/pr-${PR_NUMBER}/base-${BASE_SHA}"
           gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
