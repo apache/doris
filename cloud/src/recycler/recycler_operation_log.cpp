@@ -249,7 +249,6 @@ int OperationLogRecycler::recycle_drop_index_log(const DropIndexLogPB& drop_inde
         recycle_index_pb.set_expiration(drop_index_log.expiration());
         recycle_index_pb.set_state(RecycleIndexPB::DROPPED);
         recycle_index_pb.set_object_type(drop_index_log.object_type());
-        recycle_index_pb.set_is_drop_table(drop_index_log.is_drop_table());
         if (drop_index_log.has_stream_db_id()) {
             recycle_index_pb.set_stream_db_id(drop_index_log.stream_db_id());
         }

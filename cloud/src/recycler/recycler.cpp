@@ -3054,14 +3054,6 @@ int InstanceRecycler::recycle_indexes() {
             versioned_remove_all(txn.get(), meta_key);
             txn->remove(index_key);
             txn->remove(index_inverted_key);
-            if (index_pb.is_drop_table()) {
-                // An empty table may never have had partition-version or partition-inverted
-                // keys. Reclaim its versions from the durable whole-table drop marker instead.
-                txn->remove(
-                        table_version_key({instance_id_, index_pb.db_id(), index_pb.table_id()}));
-                versioned_remove_all(txn.get(), versioned::table_version_key(
-                                                        {instance_id_, index_pb.table_id()}));
-            }
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
                 LOG_WARNING("failed to commit txn").tag("err", err);

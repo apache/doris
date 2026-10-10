@@ -1318,7 +1318,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         indexRequestBuilder.addAllIndexIds(indexIds);
         indexRequestBuilder.setTableId(tableId);
         indexRequestBuilder.setDbId(dbId);
-        indexRequestBuilder.setIsDropTable(dropTable);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         executeMetaServiceRpc("drop materialized index",
