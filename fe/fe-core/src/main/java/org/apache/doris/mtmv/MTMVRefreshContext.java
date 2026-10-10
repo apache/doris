@@ -65,6 +65,17 @@ public class MTMVRefreshContext {
         return partitionMappings;
     }
 
+    /**
+     * The MV partitions no base partition describes: ones an alignment has yet to catch up with, whose
+     * descriptor is one the base partitions no longer produce. A refresh reads no rows over them, which would
+     * write that nothing over the rows they hold; see MTMV#calculatePartitionMappings.
+     */
+    private Set<String> undescribedMvPartitions = new LinkedHashSet<>();
+
+    public Set<String> getUndescribedMvPartitions() {
+        return undescribedMvPartitions;
+    }
+
     public Map<MTMVRelatedTableIf, Set<String>> getByPartitionName(String partitionName) {
         return partitionMappings.getOrDefault(partitionName, Maps.newHashMap());
     }
@@ -164,7 +175,10 @@ public class MTMVRefreshContext {
             Map<List<String>, Set<String>> queryUsedPartitions,
             Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
         MTMVRefreshContext context = new MTMVRefreshContext(mtmv, pinnedSnapshots);
-        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions, pinnedSnapshots);
+        Set<String> undescribedMvPartitions = new LinkedHashSet<>();
+        context.partitionMappings = mtmv.calculatePartitionMappings(queryUsedPartitions, pinnedSnapshots,
+                undescribedMvPartitions);
+        context.undescribedMvPartitions = undescribedMvPartitions;
         context.baseVersions = MTMVPartitionUtil.getBaseVersions(mtmv, context.partitionMappings);
         return context;
     }

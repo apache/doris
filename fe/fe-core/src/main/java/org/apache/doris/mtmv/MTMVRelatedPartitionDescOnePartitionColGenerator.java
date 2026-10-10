@@ -60,18 +60,14 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
         for (Entry<MTMVRelatedTableIf, Map<String, PartitionItem>> entry : relatedPartitionItems.entrySet()) {
             int relatedColPos = mvPartitionInfo.getPctColPos(entry.getKey());
             Map<PartitionKeyDesc, Set<String>> onePctRes = Maps.newHashMap();
-            Set<String> queryUsedPartitions = queryUsedPartitionMap.get(entry.getKey().getFullQualifiers());
             for (Entry<String, PartitionItem> onePctEntry : entry.getValue().entrySet()) {
-                if (queryUsedPartitions != null && !queryUsedPartitions.contains(onePctEntry.getKey())) {
-                    continue;
-                }
                 PartitionKeyDesc partitionKeyDesc = onePctEntry.getValue().toPartitionKeyDesc(relatedColPos);
-                if (onePctRes.containsKey(partitionKeyDesc)) {
-                    onePctRes.get(partitionKeyDesc).add(onePctEntry.getKey());
-                } else {
-                    onePctRes.put(partitionKeyDesc, Sets.newHashSet(onePctEntry.getKey()));
-                }
+                onePctRes.computeIfAbsent(partitionKeyDesc, k -> Sets.newHashSet()).add(onePctEntry.getKey());
             }
+            // Every partition is described, and the query's partitions are filtered out of the grouped descs
+            // in MTMVRelatedPartitionDescTransferGenerator instead: a partition whose keys meet another
+            // table's belongs to the MV partition this query is answered from even where the query does not
+            // read it, and dropping it here would leave that desc short of its keys.
             res.put(entry.getKey(), onePctRes);
         }
 

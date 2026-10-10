@@ -1498,7 +1498,8 @@ public class MTMVTaskTest {
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(Mockito.eq(mtmv), Mockito.anyList()))
                     .thenReturn(mtmvCtx);
             updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
-                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class)))
+                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class),
+                    Mockito.any()))
                     .thenAnswer(new Answer<UpdateMvByPartitionCommand>() {
                         @Override
                         public UpdateMvByPartitionCommand answer(InvocationOnMock invocation) {
@@ -1523,7 +1524,7 @@ public class MTMVTaskTest {
                     });
 
             Deencapsulation.invoke(task, "refreshPartitions", Sets.newHashSet(poneName), Collections.emptyMap(),
-                    Optional.empty(), RefreshMode.PARTITIONS);
+                    Collections.emptyMap(), Optional.empty(), RefreshMode.PARTITIONS);
         } finally {
             ConnectContext.remove();
         }
@@ -1911,7 +1912,8 @@ public class MTMVTaskTest {
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(
                     Mockito.eq(mtmv), Mockito.anyList())).thenReturn(mtmvCtx);
             updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
-                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class)))
+                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class),
+                    Mockito.any()))
                     .thenReturn(command);
 
             AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
@@ -2012,7 +2014,8 @@ public class MTMVTaskTest {
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(Mockito.eq(mtmv), Mockito.anyList()))
                     .thenReturn(mtmvCtx);
             updateMvStatic.when(() -> UpdateMvByPartitionCommand.from(
-                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class)))
+                    Mockito.eq(mtmv), Mockito.anySet(), Mockito.anyMap(), Mockito.any(StatementContext.class),
+                    Mockito.any()))
                     .thenReturn(command);
             // Build nested mocks before starting the static stubbing chain.
             List<StmtExecutor> batchExecutors = Lists.newArrayList(

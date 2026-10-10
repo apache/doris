@@ -84,7 +84,7 @@ public class ListPartitionItem extends PartitionItem {
     public PartitionKeyDesc toPartitionKeyDesc() {
         List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
                 .collect(Collectors.toList());
-        return PartitionKeyDesc.createIn(inValues);
+        return PartitionKeyDesc.createIn(PartitionKeyDesc.sortedInValues(inValues));
     }
 
     @Override
@@ -100,7 +100,7 @@ public class ListPartitionItem extends PartitionItem {
             }
             res.add(Lists.newArrayList(values.get(pos)));
         }
-        return PartitionKeyDesc.createIn(Lists.newArrayList(res));
+        return PartitionKeyDesc.createIn(PartitionKeyDesc.sortedInValues(res));
     }
 
     @Override

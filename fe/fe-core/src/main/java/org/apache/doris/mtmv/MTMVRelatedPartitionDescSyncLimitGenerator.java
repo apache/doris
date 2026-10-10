@@ -58,6 +58,21 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
         Optional<String> dateFormat = config.getDateFormat();
         Map<MTMVRelatedTableIf, Map<String, PartitionItem>> res = Maps.newHashMap();
         for (Entry<MTMVRelatedTableIf, Map<String, PartitionItem>> entry : partitionItems.entrySet()) {
+            if (hasDefaultListPartition(entry.getValue())) {
+                // The window is what makes a refresh read fewer base partitions than the MV partition's own
+                // key range covers. It cannot be applied to a table whose list partitions have a default
+                // one: that partition takes the rows no other partition of the table claims, and which of
+                // those rows belong to an MV partition is decided by their own key rather than by the
+                // partition they were placed in -- ADD PARTITION can claim a key without moving the rows the
+                // default partition already holds under it, so which side of the window a row is on is not
+                // something a predicate on the partition columns can say. A read that is to keep only part of
+                // the MV partition's key range cannot be written for such a table, so the key range is kept
+                // whole and the mapping names every partition it covers, which is what the refresh reads for
+                // it. What is given up is the window for this table, not the correspondence between the read
+                // and the record.
+                res.put(entry.getKey(), entry.getValue());
+                continue;
+            }
             Map<String, PartitionItem> onePctRes = Maps.newHashMap();
             int relatedColPos = mvPartitionInfo.getPctColPos(entry.getKey());
             for (Entry<String, PartitionItem> onePctEntry : entry.getValue().entrySet()) {
@@ -69,6 +84,21 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
         }
 
         lastResult.setItems(res);
+    }
+
+    /**
+     * Whether these partitions include a list partition's default one, the partition that takes the rows no
+     * other partition of the table claims. Read from the items rather than from the table: the caller
+     * already holds every partition of it, and this is a fact about the item rather than about metadata
+     * that could change under a lock not held here.
+     */
+    private static boolean hasDefaultListPartition(Map<String, PartitionItem> partitionItems) {
+        for (PartitionItem item : partitionItems.values()) {
+            if (item.isDefaultPartition()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

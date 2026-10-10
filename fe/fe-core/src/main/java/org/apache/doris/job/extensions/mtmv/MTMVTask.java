@@ -1290,6 +1290,13 @@ public class MTMVTask extends AbstractTask {
             int end = start + refreshPartitionNum;
             Set<String> execPartitionNames = Sets.newHashSet(partitions
                     .subList(start, Math.min(end, partitions.size())));
+            // What this batch reads and what it records are the same set, both decided here from the one
+            // mapping the snapshots below are generated from; see MTMVPartitionUtil#mappedBasePartitions.
+            Map<BaseTableInfo, Set<String>> readableBasePartitions = mtmv.isIvm()
+                    ? null : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey, context, execPartitionNames);
+            if (!mtmv.isIvm()) {
+                requireDescribedPartitions(context, execPartitionNames);
+            }
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
                     ? collectPctResetPartitionIds(context, execPartitionNames) : Maps.newHashMap();
             Optional<IvmRewriteContext> rewriteContext = Optional.empty();
@@ -1310,7 +1317,8 @@ public class MTMVTask extends AbstractTask {
                             execPartitionNames);
             try {
                 IvmPlanSignature batchPlanSignature = refreshPartitionsWithRetry(
-                        execPartitionNames, tableWithPartKey, rewriteContext, refreshMode);
+                        execPartitionNames, tableWithPartKey, readableBasePartitions, rewriteContext,
+                        refreshMode);
                 if (capturePlanSignature) {
                     batchPlanSignature = Objects.requireNonNull(batchPlanSignature,
                             "IVM COMPLETE refresh did not produce a plan signature");
@@ -1493,6 +1501,43 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
+    /**
+     * The base partitions the mapping of these MV partitions keeps, per base table: the set this batch may
+     * read from each of them, and the set the snapshots taken next to the read describe.
+     *
+     * <p>A base table with an empty set is one no partition of it feeds these MV partitions, and it is read
+     * as nothing rather than in full; a table left out of the map is read through the MV partitions' own key
+     * ranges, as it always was. Only olap tables are scoped, because the changes that need this are olap
+     * DDL: DROP, TRUNCATE, REPLACE and RECOVER PARTITION are the silent base partition changes this reads
+     * for, and they exist for olap tables.
+     *
+     * <p>An IVM MV is not scoped. A silent base table change invalidates its baseline instead, which reaches
+     * every MV partition that reads the changed one, and the partitions its delta may read are scoped by the
+     * IVM rewrite.
+     *
+     * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
+     * by the tables the MV's partition info holds and this reads them by the name it is given, so what
+     * identifies a table here is the table it names, not which of the two objects it was read from.
+     */
+    /**
+     * Whether each MV partition of this batch is one the mapping describes, i.e. one that some base partition's
+     * keys name. A partition nothing describes is one the alignment has not caught up with: a base `ADD
+     * PARTITION` widens the keys an MV partition covers, which replaces it with an empty partition of the new
+     * keys, and if that lands between the alignment and this mapping the partition is read as no table feeding
+     * it and the batch writes no rows over the rows it holds. The batch is not read at all then: the task tries
+     * again, and trying again realigns.
+     */
+    private void requireDescribedPartitions(MTMVRefreshContext context, Set<String> execPartitionNames)
+            throws AnalysisException {
+        for (String mvPartitionName : execPartitionNames) {
+            if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
+                throw new AnalysisException("MV partition " + mvPartitionName + " of " + mtmv.getName()
+                        + " is described by no base partition: the alignment has not caught up with a base "
+                        + "table change. Refreshing it would write no rows over the rows it holds.");
+            }
+        }
+    }
+
     private Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMVRefreshContext context,
             Set<String> execPartitionNames) throws AnalysisException {
         Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();
@@ -1514,11 +1559,11 @@ public class MTMVTask extends AbstractTask {
     }
 
     private IvmPlanSignature refreshPartitionsWithRetry(Set<String> execPartitionNames,
-            Map<TableIf, String> tableWithPartKey,
+            Map<TableIf, String> tableWithPartKey, Map<BaseTableInfo, Set<String>> readableBasePartitions,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         return executeWithRetry(() -> refreshPartitions(execPartitionNames, tableWithPartKey,
-                        rewriteContext, refreshMode),
+                        readableBasePartitions, rewriteContext, refreshMode),
                 "partition refresh, execPartitionNames=" + execPartitionNames);
     }
 
@@ -1574,7 +1619,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     private IvmPlanSignature refreshPartitions(Set<String> refreshPartitionNames,
-            Map<TableIf, String> tableWithPartKey,
+            Map<TableIf, String> tableWithPartKey, Map<BaseTableInfo, Set<String>> readableBasePartitions,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         // Create the MTMV context before parsing the MV definition SQL so SET_VAR hints
@@ -1598,7 +1643,8 @@ public class MTMVTask extends AbstractTask {
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
-                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
+                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext,
+                        readableBasePartitions);
         setupComputeGroup(mtmvCtx);
         AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
         try {

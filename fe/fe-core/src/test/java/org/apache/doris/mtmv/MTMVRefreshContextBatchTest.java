@@ -222,7 +222,7 @@ public class MTMVRefreshContextBatchTest {
 
         PreparedPartitionSnapshots prepared = context.preparePartitionSnapshots(mappings.keySet());
 
-        Mockito.verify(mtmv).calculatePartitionMappings(Mockito.anyMap(), Mockito.eq(pins));
+        Mockito.verify(mtmv).calculatePartitionMappings(Mockito.anyMap(), Mockito.eq(pins), Mockito.anySet());
         Mockito.verify(table).getPartitionSnapshots(Mockito.eq(new LinkedHashSet<>(Arrays.asList("p1", "p2"))),
                 Mockito.same(context),
                 Mockito.eq(Optional.of(pin)));
@@ -288,7 +288,7 @@ public class MTMVRefreshContextBatchTest {
             MTMVRefreshSnapshot refreshSnapshot,
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> mappings) throws AnalysisException {
         MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
-        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.nullable(Map.class)))
+        Mockito.when(mtmv.calculatePartitionMappings(Mockito.anyMap(), Mockito.nullable(Map.class), Mockito.anySet()))
                 .thenReturn(mappings);
         Mockito.when(mtmv.getRelation()).thenReturn(null);
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);

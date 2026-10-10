@@ -480,11 +480,14 @@ public class PartitionCompensatorTest extends TestWithFeService {
                         PartitionCompensator.calcInvalidPartitions(
                                 queryUsedPartitions, rewrittenPlan, matCtx, cascadesCtx));
 
-        // The uncovered partitions from both tables should be merged into one unified set
+        // Each table keeps its own partitions: a name means the keys of the table it belongs to, and the
+        // tables of a multi-table MV can reuse a name for different keys, so merging the sets would make one
+        // table's base branch read the other's partitions. A table with a query-used partition the mapping
+        // does not name is read for the query's own partitions, since the MV partitions the plan uses answer
+        // none of them.
         Assertions.assertNotNull(result);
-        Set<String> expectedUnion = ImmutableSet.of("t1_p2", "t2_p1");
-        result.value().values()
-                .forEach(v -> Assertions.assertEquals(expectedUnion, v));
+        Assertions.assertEquals(ImmutableSet.of("t1_p1", "t1_p2"), result.value().get(colInfo1));
+        Assertions.assertEquals(ImmutableSet.of("t2_p1", "t2_p2"), result.value().get(colInfo2));
     }
 
     @SuppressWarnings("unchecked")

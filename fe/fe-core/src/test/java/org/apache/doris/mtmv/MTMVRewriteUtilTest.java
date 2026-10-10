@@ -66,6 +66,7 @@ public class MTMVRewriteUtilTest {
     private MTMVRelation relation = Mockito.mock(MTMVRelation.class);
     private MTMVStatus status = Mockito.mock(MTMVStatus.class);
     private MTMVPartitionInfo mvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+    private MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
     private MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic;
     private MockedStatic<MTMVUtil> mtmvUtilStatic;
     private long currentTimeMills = 3L;
@@ -107,6 +108,8 @@ public class MTMVRewriteUtilTest {
 
         mtmvUtilStatic.when(() -> MTMVUtil.mtmvContainsExternalTable(
                 Mockito.any(MTMV.class))).thenReturn(false);
+
+        Mockito.when(mtmv.getRefreshSnapshot()).thenReturn(refreshSnapshot);
 
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPartitionInfo);
 
@@ -151,6 +154,8 @@ public class MTMVRewriteUtilTest {
     @Test
     public void testGetMTMVCanRewritePartitionsInGracePeriod() throws AnalysisException {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+        // Grace answers for a partition a refresh has written; this one has been.
+        Mockito.when(p1.getVisibleVersion()).thenReturn(2L);
 
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
                 Mockito.any(MTMVRefreshContext.class),
@@ -162,6 +167,128 @@ public class MTMVRewriteUtilTest {
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
         Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
+    }
+
+    @Test
+    public void testGetMTMVCanRewritePartitionsInGracePeriodWithDataButNoSnapshot() throws AnalysisException {
+        // A partition a refresh wrote is one grace may answer for even where the snapshot has been lost with
+        // the table -- a rename recreates it: its version is one it was written at, which is what grace reads.
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+        Mockito.when(refreshSnapshot.getPartitionSnapshots()).thenReturn(Maps.newHashMap());
+        Mockito.when(p1.getVisibleVersion()).thenReturn(2L);
+
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(false);
+
+        Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false, null);
+        Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
+    }
+
+    @Test
+    public void testGetMTMVCanRewritePartitionsInGracePeriodForAPartitionNothingWrote() throws AnalysisException {
+        // A partition alignment has just added is empty and no refresh has written it, so its creation time
+        // says nothing about what it holds: grace must not answer for it, or a query rewritten to it reads no
+        // rows at all. A snapshot entry under the same name must not either -- distinct keys can generate the
+        // same partition name, so a drop and add can leave the replaced partition's entry behind -- which is
+        // why grace reads the partition's version rather than the snapshot. It falls through to the sync
+        // check, which has nothing to compare it with.
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+        Map<String, MTMVRefreshPartitionSnapshot> staleSnapshot = Maps.newHashMap();
+        staleSnapshot.put("p1", Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Mockito.when(refreshSnapshot.getPartitionSnapshots()).thenReturn(staleSnapshot);
+
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(false);
+
+        Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false, null);
+        Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
+    }
+
+    @Test
+    public void testGetMTMVCanRewritePartitionsInGracePeriodStillNeedsTheQueryCovered() throws AnalysisException {
+        // A partition inside its grace period is answered usable without being compared, but that says nothing
+        // about the base partitions the query reads. One that no MV partition is mapped from is one whose rows
+        // the MV does not hold, so the coverage has to be read before the grace period answers: taken after it,
+        // the query would be answered from the MV and that partition's rows dropped.
+        try (MockedStatic<MTMVRefreshContext> refreshContextStatic =
+                Mockito.mockStatic(MTMVRefreshContext.class)) {
+            MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+            refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(
+                    Mockito.any(MTMV.class), Mockito.anyMap())).thenReturn(context);
+            Mockito.when(context.getPartitionMappings()).thenReturn(Maps.newHashMap());
+
+            MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
+            List<String> qualifier = Lists.newArrayList("internal", "test", "base");
+            Mockito.when(pctTable.getFullQualifiers()).thenReturn(qualifier);
+            Mockito.when(mvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+            Mockito.when(mvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(pctTable));
+            mtmvUtilStatic.when(() -> MTMVUtil.getTable(qualifier)).thenReturn(pctTable);
+
+            Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+            Map<List<String>, Set<String>> queryUsedPartitions = Maps.newHashMap();
+            queryUsedPartitions.put(qualifier, Sets.newHashSet("p_expired"));
+
+            Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                    mtmv, ctx, currentTimeMills, false, queryUsedPartitions);
+            Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
+        }
+    }
+
+    @Test
+    public void testGetMTMVCanRewritePartitionsWithoutUnionRewriteNeedsEveryPartitionValid() {
+        // Without the union rewrite to compensate the partitions that are not valid, the MV alone answers the
+        // query: one stale partition of the query's scope is enough that it must not answer at all.
+        Partition p2 = Mockito.mock(Partition.class);
+        Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1, p2));
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet("p1", "p2"));
+        Mockito.when(p2.getName()).thenReturn("p2");
+        Mockito.when(p2.getVisibleVersionTime()).thenReturn(1L);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.eq("p1"),
+                Mockito.any(Set.class), Mockito.any(Set.class))).thenReturn(true);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.eq("p2"),
+                Mockito.any(Set.class), Mockito.any(Set.class))).thenReturn(false);
+
+        Mockito.when(sessionVariable.isEnableMaterializedViewUnionRewrite()).thenReturn(false);
+        Assertions.assertEquals(0, MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null).size());
+
+        // With the union rewrite the stale partition is compensated from the base table, so the valid one is
+        // still an answer.
+        Mockito.when(sessionVariable.isEnableMaterializedViewUnionRewrite()).thenReturn(true);
+        Assertions.assertEquals(1, MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null).size());
+    }
+
+    @Test
+    public void testGetMTMVCanRewritePartitionsOverADefaultListPartitionTable() throws AnalysisException {
+        // A base table whose list partitions have a default one cannot be held completely by the MV: a key
+        // only that partition holds has no MV partition to be read into, so the MV is not offered as an answer
+        // to any query over it. Measured on the shape: `LIST(k)` with p1=(1) and p_default, a committed k=2
+        // row, an MV partitioned by k -- the MV holds key 1 alone, and a query over the base table used to be
+        // rewritten to it and lose the k=2 row. The control is the same MV with a table that has none.
+        MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
+        Mockito.when(mvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(pctTable));
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.hasDefaultListPartition(Mockito.any()))
+                .thenReturn(true);
+        Assertions.assertEquals(0, MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null).size());
+
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.hasDefaultListPartition(Mockito.any()))
+                .thenReturn(false);
+        Assertions.assertEquals(1, MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null).size());
     }
 
     @Test
@@ -265,11 +392,19 @@ public class MTMVRewriteUtilTest {
         partitionMappings.put("mv_p1",
                 ImmutableMap.of(t1, Sets.newHashSet("t1_p1", "t1_p2"), t2, Sets.newHashSet("t2_p1")));
         partitionMappings.put("mv_p2", ImmutableMap.of(t2, Sets.newHashSet("t2_p2")));
-        Map<Pair<MTMVRelatedTableIf, String>, String> pctToMv = MTMVRewriteUtil.getPctToMv(partitionMappings);
-        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p1")));
-        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p2")));
-        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t2, "t2_p1")));
-        Assertions.assertEquals("mv_p2", pctToMv.get(Pair.of(t2, "t2_p2")));
+        Map<Pair<MTMVRelatedTableIf, String>, Set<String>> pctToMv = MTMVRewriteUtil.getPctToMv(partitionMappings);
+        Assertions.assertEquals(Sets.newHashSet("mv_p1"), pctToMv.get(Pair.of(t1, "t1_p1")));
+        Assertions.assertEquals(Sets.newHashSet("mv_p1"), pctToMv.get(Pair.of(t1, "t1_p2")));
+        Assertions.assertEquals(Sets.newHashSet("mv_p1"), pctToMv.get(Pair.of(t2, "t2_p1")));
+        Assertions.assertEquals(Sets.newHashSet("mv_p2"), pctToMv.get(Pair.of(t2, "t2_p2")));
+        // A base partition two MV partitions read -- a list table's default partition -- is answered with
+        // both of them, so a rewrite cannot stand on one while the rows are in the other.
+        partitionMappings.put("mv_p3", ImmutableMap.of(t1, Sets.newHashSet("t1_p3")));
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> shared = Maps.newHashMap();
+        shared.put("mv_a", ImmutableMap.of(t1, Sets.newHashSet("t1_default")));
+        shared.put("mv_b", ImmutableMap.of(t1, Sets.newHashSet("t1_default")));
+        Assertions.assertEquals(Sets.newHashSet("mv_a", "mv_b"),
+                MTMVRewriteUtil.getPctToMv(shared).get(Pair.of(t1, "t1_default")));
     }
 
     private static class TestMTMVRelatedTable implements MTMVRelatedTableIf {

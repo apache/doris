@@ -246,22 +246,27 @@ suite("test_multi_pct_bad_mtmv","mtmv") {
         );
         """
 
-    test {
-        sql """
-            CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH AUTO ON MANUAL
-            partition by(k1)
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            select * from  ${tableName1}
-            union all
-            select * from  ${tableName2}
-            """
-        exception "repeat"
-    }
+    // The two tables' list keys meet -- table1 covers 1,2 and 3, table2 covers 2 and 4 -- so at the MV's
+    // column they describe one partition per set of keys that meet, and this is no longer rejected: the MV
+    // partition holding 1 and 2 names both tables' partitions of them, which is what a refresh reads. The
+    // keys that do not meet (3 from table1, 4 from table2) are their own partitions.
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by(k1)
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS
+        select * from  ${tableName1}
+        union all
+        select * from  ${tableName2}
+        """
+    order_qt_pct_list_keys_meet """select PartitionName, PartitionKey from
+        partitions('catalog'='internal','database'='${dbName}','table'='${mvName}')
+        order by PartitionName"""
+    sql """drop materialized view if exists ${mvName}"""
 
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""

@@ -46,23 +46,65 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
             RelatedPartitionDescResult lastResult, List<Column> partitionColumns,
                       Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException {
-        Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs = lastResult.getDescs();
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> merged =
+                mergeOverlappingListDescs(lastResult.getDescs());
+        // Now that the keys are grouped -- across the tables of the MV, and before any query filter -- the
+        // partitions the query does not read are dropped per table, and an MV partition no table of which
+        // feeds the query is dropped whole: what the query reads is what is left.
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
-        for (Entry<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> entry : descs.entrySet()) {
-            MTMVRelatedTableIf pctTable = entry.getKey();
-            Map<PartitionKeyDesc, Set<String>> onePctDescs = entry.getValue();
-            for (Entry<PartitionKeyDesc, Set<String>> onePctEntry : onePctDescs.entrySet()) {
-                PartitionKeyDesc partitionKeyDesc = onePctEntry.getKey();
-                Set<String> partitionNames = onePctEntry.getValue();
-                Map<MTMVRelatedTableIf, Set<String>> partitionKeyDescMap = res.computeIfAbsent(partitionKeyDesc,
-                        k -> new HashMap<>());
-                partitionKeyDescMap.put(pctTable, partitionNames);
+        for (Entry<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> entry : merged.entrySet()) {
+            Map<MTMVRelatedTableIf, Set<String>> onePartition = Maps.newHashMap();
+            for (Entry<MTMVRelatedTableIf, Set<String>> tableEntry : entry.getValue().entrySet()) {
+                Set<String> names = Sets.newHashSet(tableEntry.getValue());
+                Set<String> queryUsed = queryUsedPartitionMap.get(tableEntry.getKey().getFullQualifiers());
+                if (queryUsed != null) {
+                    names.retainAll(queryUsed);
+                    if (names.isEmpty()) {
+                        continue;
+                    }
+                }
+                onePartition.put(tableEntry.getKey(), names);
+            }
+            if (!onePartition.isEmpty()) {
+                res.put(entry.getKey(), onePartition);
             }
         }
         if (mvPartitionInfo.getPctInfos().size() > 1) {
             checkIntersect(res.keySet(), partitionColumns);
         }
         lastResult.setRes(res);
+    }
+
+    /**
+     * One MV partition per set of keys that meet, whichever table wrote them down: a partition of a list
+     * partitioned base table can hold several keys of the MV's partition column, so two partitions -- of one
+     * table or of two -- can describe keys that meet, and an MV's own partitions cannot overlap. The one
+     * partition that holds a group's keys names every table's partitions of them, which is what a refresh
+     * reads and records for those keys (see {@link MTMVPartitionUtil#mergedListDescs}).
+     *
+     * <p>Merging across tables, not within each of them, is what keeps the MV buildable: two tables of a
+     * multi-table MV have to come out with the same descs, or one table's merged desc repeats a key another
+     * table's desc holds and `checkIntersect` (or the partition creation itself) rejects the MV.
+     */
+    private Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> mergeOverlappingListDescs(
+            Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs) {
+        Set<PartitionKeyDesc> allDescs = Sets.newHashSet();
+        for (Map<PartitionKeyDesc, Set<String>> onePctDescs : descs.values()) {
+            allDescs.addAll(onePctDescs.keySet());
+        }
+        Map<PartitionKeyDesc, PartitionKeyDesc> mergedOfDesc = MTMVPartitionUtil.mergedListDescs(allDescs);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
+        for (Entry<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> entry : descs.entrySet()) {
+            for (Entry<PartitionKeyDesc, Set<String>> onePctEntry : entry.getValue().entrySet()) {
+                PartitionKeyDesc desc = mergedOfDesc.getOrDefault(onePctEntry.getKey(), onePctEntry.getKey());
+                res.computeIfAbsent(desc, k -> new HashMap<>())
+                        .merge(entry.getKey(), Sets.newHashSet(onePctEntry.getValue()), (left, right) -> {
+                            left.addAll(right);
+                            return left;
+                        });
+            }
+        }
+        return res;
     }
 
     public void checkIntersect(Set<PartitionKeyDesc> partitionKeyDescs, List<Column> partitionColumns)

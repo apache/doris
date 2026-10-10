@@ -26,6 +26,7 @@ import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 // Describe the partition key values in create table or add partition clause
@@ -62,6 +63,33 @@ public class PartitionKeyDesc {
         desc.upperValues = upperValues;
         desc.partitionKeyValueType = PartitionKeyValueType.LESS_THAN;
         return desc;
+    }
+
+    /**
+     * The keys of a list desc in a canonical order, so that the same set of keys is the same desc wherever it
+     * is written down. {@link #equals} compares this list, and a hash set of keys iterates in the order it was
+     * filled in whenever two of them hash alike -- "Aa" and "BB" do -- so the set a desc was read from and the
+     * set another was built by unioning cannot be relied on to produce the same list.
+     */
+    public static List<List<PartitionValue>> sortedInValues(Collection<List<PartitionValue>> inValues) {
+        List<List<PartitionValue>> res = Lists.newArrayList(inValues);
+        res.sort(PartitionKeyDesc::compareKeys);
+        return res;
+    }
+
+    private static int compareKeys(List<PartitionValue> left, List<PartitionValue> right) {
+        for (int i = 0; i < Math.min(left.size(), right.size()); i++) {
+            PartitionValue leftValue = left.get(i);
+            PartitionValue rightValue = right.get(i);
+            int cmp = Boolean.compare(leftValue.isNullPartition(), rightValue.isNullPartition());
+            if (cmp == 0) {
+                cmp = leftValue.getStringValue().compareTo(rightValue.getStringValue());
+            }
+            if (cmp != 0) {
+                return cmp;
+            }
+        }
+        return Integer.compare(left.size(), right.size());
     }
 
     public static PartitionKeyDesc createIn(List<List<PartitionValue>> inValues) {

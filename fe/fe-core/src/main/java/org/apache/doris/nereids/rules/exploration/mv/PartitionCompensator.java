@@ -38,8 +38,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,6 +51,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -144,15 +147,59 @@ public class PartitionCompensator {
         if (allCompensateIsNull) {
             return null;
         }
+        // A base partition the query reads that no MV partition of this plan is named from -- one the
+        // partition_sync_limit window left out, say -- is one the MV does not hold: a partition of the MV reads
+        // a table through the partitions it does name, and the pass above works from the mapping, which has no
+        // entry for this one. Adding that partition's rows to the union alone would not be enough, because the
+        // MV partitions this plan uses still hold the rows they hold -- a partition the window has since left
+        // out can have been materialized in one of them by an earlier refresh, and is still counted there.
+        // The partitions the plan uses are taken out and the query's partitions are read from the base table,
+        // so the answer is whole and counted once.
+        boolean uncoveredFound = false;
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
+            if (CollectionUtils.isEmpty(queryUsed)) {
+                continue;
+            }
+            // The mapping of a table the query's filtering left out entirely is empty, so a table it does not
+            // mention at all is a table every query-used partition of which is uncovered.
+            Map<String, Set<String>> tableMapping = mtmvRelatedTableIfMapMap.getOrDefault(pctTable, Maps.newHashMap());
+            Set<String> named = Sets.newHashSet();
+            for (Set<String> names : tableMapping.values()) {
+                named.addAll(names);
+            }
+            if (!Sets.difference(queryUsed, named).isEmpty()) {
+                uncoveredFound = true;
+            }
+        }
+        if (uncoveredFound) {
+            for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(pctTable));
+                Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
+                if (pctInfo == null || CollectionUtils.isEmpty(queryUsed)) {
+                    continue;
+                }
+                baseTablePartitionNeedUnionNameMap
+                        .computeIfAbsent(pctInfo, k -> new HashSet<>()).addAll(queryUsed);
+            }
+            if (!rewrittenPlanUsePartitionNameSet.isEmpty()) {
+                mvPartitionNeedRemoveNameMap
+                        .computeIfAbsent(new BaseTableInfo(mtmv), k -> new HashSet<>())
+                        .addAll(rewrittenPlanUsePartitionNameSet);
+            }
+            allCompensateIsNull = false;
+        }
+
         // merge all partition to delete or union
         Set<String> needRemovePartitionSet = new HashSet<>();
         mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
         mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
 
-        // consider multi base table partition name not same, how to handle it?
-        Set<String> needUnionPartitionSet = new HashSet<>();
-        baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
-        baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
+        // The partitions to union stay with the table they belong to: a partition name means that table's
+        // keys, and two tables of a multi-table MV can use the same name for different keys -- the merge of the
+        // cross-table LIST descriptors makes such MVs buildable. Unioning the names across the tables would
+        // read the other table's partitions too, and with the union rewrite the MV's own branch already
+        // supplies their rows, so the answer would count them twice.
 
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
     }

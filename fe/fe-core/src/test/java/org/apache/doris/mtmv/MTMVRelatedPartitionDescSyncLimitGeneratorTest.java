@@ -17,12 +17,24 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -60,6 +72,55 @@ public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
         Assertions.assertEquals(1, config.getSyncLimit());
         Assertions.assertEquals("%Y%m%d", config.getDateFormat().get());
         Assertions.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
+    }
+
+    @Test
+    public void testATableWithADefaultListPartitionIsKeptOutOfTheWindow() throws AnalysisException {
+        // A default list partition takes the rows no other partition of the table claims, and which of its
+        // rows belong to an MV partition is decided by their own key -- ADD PARTITION can claim a key without
+        // moving the rows already held under it -- so a windowed read cannot keep those rows while dropping
+        // an expired explicit partition: no predicate on the partition columns tells the two sets apart. Such
+        // a table is therefore left whole, and the mapping keeps naming every partition the MV partition's
+        // key range covers, which is what the refresh reads for it. The range table is the control: it is
+        // windowed as before, so a change that simply stopped applying the window would fail here.
+        MTMVRelatedPartitionDescSyncLimitGenerator generator = new MTMVRelatedPartitionDescSyncLimitGenerator();
+        Column dateColumn = new Column("d", ScalarType.DATE);
+        MTMVRelatedTableIf listTable = Mockito.mock(MTMVRelatedTableIf.class);
+        MTMVRelatedTableIf rangeTable = Mockito.mock(MTMVRelatedTableIf.class);
+
+        ListPartitionItem defaultPartition = listItem(dateColumn, "1970-01-01");
+        defaultPartition.setDefaultPartition(true);
+        Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items = Maps.newHashMap();
+        items.put(listTable, ImmutableMap.of(
+                "p_expired", listItem(dateColumn, "1990-01-01"),
+                "p_kept", listItem(dateColumn, "9999-01-01"),
+                "p_default", defaultPartition));
+        items.put(rangeTable, ImmutableMap.of(
+                "p_old", rangeItem(dateColumn, "1990-01-01"),
+                "p_new", rangeItem(dateColumn, "9999-01-01")));
+        RelatedPartitionDescResult result = new RelatedPartitionDescResult(null);
+        result.setItems(items);
+
+        Map<String, String> mvProperties = Maps.newHashMap();
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT, "2");
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT, "YEAR");
+        generator.apply(Mockito.mock(MTMVPartitionInfo.class), mvProperties, result,
+                Lists.newArrayList(dateColumn), Maps.newHashMap());
+
+        Assertions.assertEquals(Sets.newHashSet("p_expired", "p_kept", "p_default"),
+                result.getItems().get(listTable).keySet());
+        Assertions.assertEquals(Sets.newHashSet("p_new"), result.getItems().get(rangeTable).keySet());
+    }
+
+    private static ListPartitionItem listItem(Column column, String value) throws AnalysisException {
+        return new ListPartitionItem(ImmutableList.of(PartitionKey.createListPartitionKeyWithTypes(
+                ImmutableList.of(new PartitionValue(value)), ImmutableList.of(column.getType()), false)));
+    }
+
+    private static RangePartitionItem rangeItem(Column column, String value) throws AnalysisException {
+        PartitionKey upper = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue(value)),
+                ImmutableList.of(column));
+        return new RangePartitionItem(Range.lessThan(upper));
     }
 
     @Test
