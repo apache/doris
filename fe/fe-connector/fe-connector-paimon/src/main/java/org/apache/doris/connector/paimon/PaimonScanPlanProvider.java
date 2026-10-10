@@ -906,6 +906,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         (FileStoreTable) table, columns, backendStorageProperties(),
                         usesFallbackRead(table, paimonHandle), incrementalRead, hasVariantProjection)
                 : null;
+        RustScanMetadata rustScanMetadata = null;
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
@@ -1017,7 +1018,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     validateMetadataColumnReader(true, false);
                 }
                 if (rustReaderSelector != null && rustReaderSelector.canRead(dataSplit)) {
-                    ranges.add(buildRustScanRange(dataSplit, (FileStoreTable) table, paimonHandle,
+                    if (rustScanMetadata == null) {
+                        rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
+                    }
+                    ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
                             defaultFileFormat, partitionValues, weightDenominator));
                 } else {
                     ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
@@ -1668,23 +1672,37 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return builder.build();
     }
 
-    private PaimonScanRange buildRustScanRange(DataSplit split, FileStoreTable table,
+    private PaimonScanRange buildRustScanRange(DataSplit split, RustScanMetadata metadata,
             PaimonTableHandle handle, String defaultFileFormat,
             Map<String, String> partitionValues, long weightDenominator) {
-        TableSchema schema = PaimonScanParams.withoutTimeTravelSelectors(table.schema());
-        String branch = CoreOptions.branch(schema.options());
-        if (Identifier.DEFAULT_MAIN_BRANCH.equals(branch)) {
-            branch = null;
-        }
         return new PaimonScanRange.Builder()
                 .fileFormat(dataSplitFileFormat(split, defaultFileFormat))
-                .rustSplit(encodeDataSplit(split), table.location().toString(), handle.getDatabaseName(),
-                        handle.getTableName(), encodeTableSchema(schema), branch)
+                .rustSplit(encodeDataSplit(split), metadata.tableLocation, handle.getDatabaseName(),
+                        handle.getTableName(), metadata.schemaJson, metadata.branch)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(computeSplitWeight(split))
                 .targetSplitSize(weightDenominator)
                 .bucket(split.bucket())
                 .build();
+    }
+
+    private static final class RustScanMetadata {
+        private final String tableLocation;
+        private final String schemaJson;
+        private final String branch;
+
+        private RustScanMetadata(String tableLocation, String schemaJson, String branch) {
+            this.tableLocation = tableLocation;
+            this.schemaJson = schemaJson;
+            this.branch = branch;
+        }
+
+        private static RustScanMetadata from(FileStoreTable table) {
+            TableSchema schema = PaimonScanParams.withoutTimeTravelSelectors(table.schema());
+            String branch = CoreOptions.branch(schema.options());
+            return new RustScanMetadata(table.location().toString(), encodeTableSchema(schema),
+                    Identifier.DEFAULT_MAIN_BRANCH.equals(branch) ? null : branch);
+        }
     }
 
     /**
