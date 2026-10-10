@@ -66,6 +66,7 @@
 #include "format/json/new_json_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/partition_column_reader.h"
 #include "format/table/es/es_http_reader.h"
 #include "format/table/hive_reader.h"
 #include "format/table/hudi_jni_reader.h"
@@ -1308,6 +1309,24 @@ Status FileScanner::_get_next_reader() {
                 return Status::InternalError("failed to set_fill_or_truncate_columns, err: {}",
                                              status.to_string());
             }
+        }
+
+        // A partition value is an input row for every range the partition has. This no longer needs
+        // the footer to prove nonemptiness, so it also no longer needs a reader that can report a
+        // row count; has_delete_operations() still keeps formats with row-level deletes out, and
+        // supports_range() keeps non Hive/Hudi formats and non Parquet/ORC files out.
+        if (_get_push_down_agg_type() == TPushAggOp::type::PARTITION_VALUE &&
+            PartitionColumnReader::supports_range(range, format_type) &&
+            !_partition_col_descs.empty() && _file_slot_descs.empty() && _conjuncts.empty() &&
+            _applied_rf_num == _total_rf_num && !_cur_reader->has_delete_operations() &&
+            std::all_of(_column_descs.begin(), _column_descs.end(),
+                        [this](const ColumnDescriptor& col_desc) {
+                            return col_desc.category == ColumnCategory::PARTITION_KEY &&
+                                   _partition_col_descs.contains(col_desc.name);
+                        })) {
+            auto* table_reader = assert_cast<TableFormatReader*>(_cur_reader.release());
+            _cur_reader = std::make_unique<PartitionColumnReader>(
+                    std::unique_ptr<TableFormatReader>(table_reader));
         }
 
         // Unified COUNT(*) pushdown: replace the real reader with CountReader

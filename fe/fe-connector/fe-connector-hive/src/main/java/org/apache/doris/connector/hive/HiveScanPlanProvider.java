@@ -152,9 +152,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             return doPlanScan(session, request);
         }
         // Statement-scoped reuse: within one statement the identical scan (same table, same
-        // partition set, same formats) plans once and every duplicated relation shares the result.
-        // The scope is NONE for offline planning and tests, in which case the loader runs on every
-        // call. Session variables are constant within a statement and deliberately absent.
+        // partition set, formats and effective split size) plans once and every duplicated relation shares it.
+        // The scope is NONE for offline planning and tests, in which case the loader runs on every call.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
@@ -797,6 +796,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         return builder;
     }
 
+    /**
+     * The BE-facing split size. Deliberately independent of any push-down hint: a reader may decline
+     * the reduced partition-value path for reasons the connector cannot see (a retained filter, a
+     * runtime filter that has not arrived), and an unsplit file would then be read serially by one
+     * scanner instead of the split count a normal scan uses.
+     */
     private long getTargetSplitSize(ConnectorSession session) {
         String splitSizeStr = session.getProperty(
                 "file_split_size", String.class);
@@ -936,9 +941,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * Statement-scoped cache key for one Hive scan.
      *
      * <p>Includes every input that changes the planned split list: table identity, the file formats
-     * (input format / serialization lib / JSON single-column gate), the partition keys and the
-     * pruned partition set (each partition's location and values). ACID tables are excluded
-     * upstream, and session variables are statement-constant, so both stay out of the key.
+     * (input format / serialization lib / JSON single-column gate), the partition keys and the pruned
+     * partition set (each partition's location and values). ACID tables are excluded upstream, and
+     * session variables are statement-constant, so both stay out of the key.
      */
     private static final class HiveScanReuseKey {
         private final String dbName;

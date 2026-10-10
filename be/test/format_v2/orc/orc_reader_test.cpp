@@ -4788,6 +4788,31 @@ TEST_F(NewOrcReaderTest, AggregatePushdownReturnsCountFromFileMetadata) {
     EXPECT_TRUE(aggregate_result.columns.empty());
 }
 
+TEST_F(NewOrcReaderTest, AggregateCountOfNonzeroSizeEmptyFileIsZero) {
+    const auto path = (_test_dir / "empty_footer.orc").string();
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString("struct<id:int>"));
+    MemoryOutputStream memory_stream(1024);
+    ::orc::WriterOptions options;
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    writer->close();
+    {
+        std::ofstream output(path, std::ios::binary);
+        output.write(memory_stream.getData(),
+                     static_cast<std::streamsize>(memory_stream.getLength()));
+    }
+    ASSERT_GT(std::filesystem::file_size(path), 0);
+    auto reader = create_reader_for_path(path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
+    format::FileAggregateRequest request;
+    request.agg_type = TPushAggOp::type::COUNT;
+    format::FileAggregateResult result;
+    ASSERT_TRUE(reader->get_aggregate_result(request, &result).ok());
+    EXPECT_EQ(result.count, 0);
+    ASSERT_TRUE(reader->close().ok());
+}
+
 // Only ENOENT-style errors map to NotFound so FileScannerV2 does not silently skip unhealthy splits.
 TEST_F(NewOrcReaderTest, InitKeepsInternalErrorForDirectory) {
     auto system_properties = std::make_shared<io::FileSystemProperties>();
@@ -4852,6 +4877,8 @@ TEST_F(NewOrcReaderTest, AggregatePushdownCountUsesOnlySplitStripes) {
     EXPECT_EQ(first_split_count, layout[0].rows);
     EXPECT_EQ(second_split_count, layout[1].rows);
     EXPECT_EQ(first_split_count + second_split_count, layout[0].rows + layout[1].rows);
+    ASSERT_GT(layout[0].offset, 0);
+    EXPECT_EQ(count_split_rows(0, layout[0].offset), 0);
 }
 
 TEST_F(NewOrcReaderTest, OpenAcceptsDorisOffsetTimezone) {

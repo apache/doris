@@ -807,6 +807,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
+    public static final String ENABLE_PARTITION_COLUMN_VALUE_ONLY_OPTIMIZATION
+            = "enable_partition_column_value_only_optimization";
+
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
@@ -2951,6 +2954,13 @@ public class SessionVariable implements Serializable, Writable {
                     + "alone. The default, empty, follows the catalog's fluss.union_read.mode property. "
                     + "The value set belongs to the fluss connector, which rejects anything else")
     public String flussUnionReadMode = "";
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARTITION_COLUMN_VALUE_ONLY_OPTIMIZATION,
+            fuzzy = true,
+            description = "Optimize MIN/MAX and grouping over partition columns of nontransactional Hive "
+                    + "Parquet/ORC tables. File metadata must prove a range is nonempty before the scanner "
+                    + "emits one partition row without reading data pages; unsupported readers scan normally")
+    private boolean enablePartitionColumnValueOnlyOptimization = true;
 
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
@@ -6483,6 +6493,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableCountPushDownForExternalTable() {
         return enableCountPushDownForExternalTable;
+    }
+
+    public boolean isEnablePartitionColumnValueOnlyOptimization() {
+        return enablePartitionColumnValueOnlyOptimization;
     }
 
     public boolean isForceToLocalShuffle() {

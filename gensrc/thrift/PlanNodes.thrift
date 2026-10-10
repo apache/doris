@@ -1051,7 +1051,11 @@ enum TPushAggOp {
 	MINMAX = 1,
 	COUNT = 2,
 	MIX = 3,
-	COUNT_ON_INDEX = 4
+	COUNT_ON_INDEX = 4,
+	// Duplicate-insensitive aggregation over partition columns.
+	// Readers may emit one partition row after metadata proves the range is nonempty;
+	// readers without that proof must preserve normal scan semantics.
+	PARTITION_VALUE = 5
 }
 
 struct TScoreRangeInfo {

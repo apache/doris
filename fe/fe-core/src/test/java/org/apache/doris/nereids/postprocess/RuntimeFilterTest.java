@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
@@ -25,11 +26,18 @@ import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
+import org.apache.doris.nereids.processor.post.RuntimeFilterPruner;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -41,23 +49,39 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -70,6 +94,8 @@ import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -92,6 +118,243 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
         connectContext.getSessionVariable().setDisableJoinReorder(true);
+    }
+
+    /** A real leaf for pruner unit tests: a mock returns null logical properties and NPEs. */
+    private static GroupPlan newGroupPlan(SlotReference output) {
+        return new GroupPlan(new Group(GroupId.createGenerator().getNextId(),
+                new LogicalProperties(() -> ImmutableList.of(output), () -> DataTrait.EMPTY_TRAIT)));
+    }
+
+    @Test
+    public void testPartitionTopNRequiresRealRowBound() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        for (WindowFuncType function : WindowFuncType.values()) {
+            for (boolean partitioned : new boolean[] {false, true}) {
+                for (boolean globalLimit : new boolean[] {false, true}) {
+                    CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+                    GroupPlan scan = newGroupPlan(key);
+                    PhysicalPartitionTopN<GroupPlan> topN = new PhysicalPartitionTopN<>(function,
+                            partitioned ? ImmutableList.of(key) : ImmutableList.of(),
+                            ImmutableList.of(new OrderKey(key, true, false)), globalLimit, 1,
+                            PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN, scan.getLogicalProperties(), scan);
+                    topN.accept(new RuntimeFilterPruner(), context);
+                    boolean bounded = globalLimit || (!partitioned && function == WindowFuncType.ROW_NUMBER);
+                    Assertions.assertEquals(bounded, context.getRuntimeFilterContext().isEffectiveSrcNode(topN),
+                            function + ", partitioned=" + partitioned + ", globalLimit=" + globalLimit);
+                    if (bounded) {
+                        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE,
+                                context.getRuntimeFilterContext().getEffectiveSrcType(topN));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testUnboundedPartitionTopNInheritsEffectiveChild() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        for (WindowFuncType function : WindowFuncType.values()) {
+            for (RuntimeFilterContext.EffectiveSrcType sourceType : RuntimeFilterContext.EffectiveSrcType.values()) {
+                CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+                GroupPlan scan = newGroupPlan(key);
+                context.getRuntimeFilterContext().addEffectiveSrcNode(scan, sourceType);
+                PhysicalPartitionTopN<GroupPlan> topN = new PhysicalPartitionTopN<>(function,
+                        ImmutableList.of(key), ImmutableList.of(new OrderKey(key, true, false)), false, 1,
+                        PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN, scan.getLogicalProperties(), scan);
+                topN.accept(new RuntimeFilterPruner(), context);
+                Assertions.assertEquals(sourceType, context.getRuntimeFilterContext().getEffectiveSrcType(topN));
+            }
+        }
+    }
+
+    @Test
+    public void testCteConsumerPreservesNativeProducerEffectiveness() {
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        CTEId cteId = new CTEId(1);
+        SlotReference producerSlot = new SlotReference("producer_key", IntegerType.INSTANCE);
+        SlotReference consumerSlot = new SlotReference("consumer_key", IntegerType.INSTANCE);
+        GroupPlan scan = newGroupPlan(producerSlot);
+        PhysicalLimit<GroupPlan> limit =
+                new PhysicalLimit<>(1, 0, LimitPhase.GLOBAL, scan.getLogicalProperties(), scan);
+        PhysicalCTEProducer<PhysicalLimit<GroupPlan>> producer = new PhysicalCTEProducer<>(cteId, null, limit);
+        PhysicalCTEConsumer consumer = new PhysicalCTEConsumer(new RelationId(1), cteId,
+                ImmutableMap.of(consumerSlot, producerSlot), ImmutableMultimap.of(producerSlot, consumerSlot), null);
+        rfContext.setTargetsOnScanNode(consumer, consumerSlot);
+        rfContext.getTargetExprIdToFilter().put(consumerSlot.getExprId(),
+                ImmutableList.of(Mockito.mock(RuntimeFilter.class)));
+        PhysicalCTEAnchor<PhysicalCTEProducer<PhysicalLimit<GroupPlan>>, PhysicalCTEConsumer> anchor =
+                new PhysicalCTEAnchor<>(cteId, null, producer, consumer);
+        RuntimeFilterPruner pruner = new RuntimeFilterPruner();
+        anchor.accept(pruner, context);
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE, rfContext.getEffectiveSrcType(producer));
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE, rfContext.getEffectiveSrcType(consumer));
+
+        PhysicalCTEConsumer secondConsumer = new PhysicalCTEConsumer(new RelationId(2), cteId,
+                ImmutableMap.of(consumerSlot, producerSlot), ImmutableMultimap.of(producerSlot, consumerSlot), null);
+        secondConsumer.accept(pruner, context);
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE,
+                rfContext.getEffectiveSrcType(secondConsumer));
+        PhysicalCTEConsumer unrelatedConsumer = new PhysicalCTEConsumer(new RelationId(3), new CTEId(2),
+                ImmutableMap.of(consumerSlot, producerSlot), ImmutableMultimap.of(producerSlot, consumerSlot), null);
+        unrelatedConsumer.accept(pruner, context);
+        Assertions.assertFalse(rfContext.isEffectiveSrcNode(unrelatedConsumer));
+        rfContext.setTargetsOnScanNode(unrelatedConsumer, consumerSlot);
+        unrelatedConsumer.accept(pruner, context);
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.REF,
+                rfContext.getEffectiveSrcType(unrelatedConsumer));
+    }
+
+    @Test
+    public void cteDoesNotInheritJoinKeySelectivity() {
+        // c = Project(A.k, B.v) -> LeftJoin(A, Limit(1) -> B): the join visitor marks the producer
+        // NATIVE because its build side is limited, but a LEFT JOIN preserves every A.k, so the
+        // producer output is not bounded. Neither consumer may inherit that flag, whichever
+        // producer column it keeps live.
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        SlotReference aKey = new SlotReference("a_k", IntegerType.INSTANCE);
+        SlotReference bValue = new SlotReference("b_v", IntegerType.INSTANCE);
+        CTEId cteId = new CTEId(4);
+        GroupPlan left = newGroupPlan(aKey);
+        GroupPlan rightBase = newGroupPlan(bValue);
+        PhysicalLimit<GroupPlan> limitedRight =
+                new PhysicalLimit<>(1, 0, LimitPhase.GLOBAL, rightBase.getLogicalProperties(), rightBase);
+        LogicalProperties joinProperties = new LogicalProperties(
+                () -> ImmutableList.of(aKey, bValue), () -> DataTrait.EMPTY_TRAIT);
+        PhysicalHashJoin<Plan, Plan> join = new PhysicalHashJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(aKey, bValue)), ImmutableList.of(),
+                new DistributeHint(DistributeType.NONE), Optional.empty(), joinProperties,
+                left, limitedRight);
+        PhysicalCTEProducer<Plan> producer = new PhysicalCTEProducer<>(cteId, null, join);
+        PhysicalCTEConsumer keyConsumer = new PhysicalCTEConsumer(new RelationId(10), cteId,
+                ImmutableMap.of(aKey, aKey), ImmutableMultimap.of(aKey, aKey), null);
+        PhysicalCTEAnchor<PhysicalCTEProducer<Plan>, PhysicalCTEConsumer> anchor =
+                new PhysicalCTEAnchor<>(cteId, null, producer, keyConsumer);
+        RuntimeFilterPruner pruner = new RuntimeFilterPruner();
+        anchor.accept(pruner, context);
+
+        Assertions.assertTrue(rfContext.isEffectiveSrcNode(join),
+                "the setup must reproduce the reviewed case: the join is marked from its build side");
+        Assertions.assertFalse(rfContext.isEffectiveSrcNode(keyConsumer),
+                "a consumer keeping A.k live must not inherit the join's key selectivity");
+
+        PhysicalCTEConsumer valueConsumer = new PhysicalCTEConsumer(new RelationId(11), cteId,
+                ImmutableMap.of(bValue, bValue), ImmutableMultimap.of(bValue, bValue), null);
+        valueConsumer.accept(pruner, context);
+        Assertions.assertFalse(rfContext.isEffectiveSrcNode(valueConsumer),
+                "a consumer keeping B.v live must not inherit the join's key selectivity");
+    }
+
+    @Test
+    public void cteConsumerInheritsRefProducer() {
+        // A scan that is the target of a runtime filter is REF. That is a property of one column,
+        // so an output that does not shrink can in principle borrow it -- a LEFT JOIN preserves
+        // every probe row while still inheriting REF from its build side. We keep the inheritance
+        // anyway: retaining an occasionally useless filter costs one more build/probe, whereas
+        // dropping a producer that genuinely shrank makes the outer Hive scan read everything.
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        CTEId cteId = new CTEId(5);
+        GroupPlan scan = newGroupPlan(key);
+        rfContext.addEffectiveSrcNode(scan, RuntimeFilterContext.EffectiveSrcType.REF);
+        PhysicalCTEProducer<Plan> producer = new PhysicalCTEProducer<>(cteId, null, scan);
+        PhysicalCTEConsumer consumer = new PhysicalCTEConsumer(new RelationId(20), cteId,
+                ImmutableMap.of(key, key), ImmutableMultimap.of(key, key), null);
+        PhysicalCTEAnchor<PhysicalCTEProducer<Plan>, PhysicalCTEConsumer> anchor =
+                new PhysicalCTEAnchor<>(cteId, null, producer, consumer);
+        anchor.accept(new RuntimeFilterPruner(), context);
+
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.REF,
+                rfContext.getEffectiveSrcType(producer));
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.REF,
+                rfContext.getEffectiveSrcType(consumer), "a consumer must inherit REF");
+    }
+
+    @Test
+    public void cteConsumerInheritsGroupedAggregateOverBoundedInput() {
+        // c = HashAggregate(group=k, agg=min(v)) -> GLOBAL Limit(1) -> HiveScan(k, v), materialized
+        // and consumed twice. Grouping never adds rows, so the aggregate's output is bounded by its
+        // input: the one-row bound must reach both consumers even though the aggregate has a group
+        // key, and even though one of them only keeps min(v) live.
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        SlotReference key = new SlotReference("k", IntegerType.INSTANCE);
+        CTEId cteId = new CTEId(6);
+        GroupPlan scan = newGroupPlan(key);
+        PhysicalLimit<GroupPlan> limit = new PhysicalLimit<>(1, 0, LimitPhase.GLOBAL,
+                scan.getLogicalProperties(), scan);
+        LogicalProperties aggProperties = new LogicalProperties(
+                () -> ImmutableList.of(key), () -> DataTrait.EMPTY_TRAIT);
+        PhysicalHashAggregate<Plan> groupedAgg = new PhysicalHashAggregate<>(
+                (List) ImmutableList.of(key), (List) ImmutableList.of(key),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true, aggProperties, false, limit);
+        PhysicalCTEProducer<Plan> producer = new PhysicalCTEProducer<>(cteId, null, groupedAgg);
+        PhysicalCTEConsumer firstConsumer = new PhysicalCTEConsumer(new RelationId(30), cteId,
+                ImmutableMap.of(key, key), ImmutableMultimap.of(key, key), null);
+        PhysicalCTEAnchor<PhysicalCTEProducer<Plan>, PhysicalCTEConsumer> anchor =
+                new PhysicalCTEAnchor<>(cteId, null, producer, firstConsumer);
+        RuntimeFilterPruner pruner = new RuntimeFilterPruner();
+        anchor.accept(pruner, context);
+
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE,
+                rfContext.getEffectiveSrcType(firstConsumer),
+                "a consumer must inherit the one-row bound through a grouped aggregate");
+
+        PhysicalCTEConsumer secondConsumer = new PhysicalCTEConsumer(new RelationId(31), cteId,
+                ImmutableMap.of(key, key), ImmutableMultimap.of(key, key), null);
+        secondConsumer.accept(pruner, context);
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE,
+                rfContext.getEffectiveSrcType(secondConsumer),
+                "the second consumer of a materialized CTE must inherit the bound too");
+    }
+
+    @Test
+    public void cteConsumerInheritsBoundThroughRowPreservingWindow() {
+        // c = Project(p, n) -> Window(count(*) OVER () AS n) -> GLOBAL Limit(1) -> HiveScan(p),
+        // materialized and consumed twice. A window emits one row per input row, so the Limit's
+        // bound still holds above it: both consumers must inherit, including the one that only
+        // keeps the window column n live.
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        SlotReference partition = new SlotReference("p", IntegerType.INSTANCE);
+        CTEId cteId = new CTEId(7);
+        GroupPlan scan = newGroupPlan(partition);
+        PhysicalLimit<GroupPlan> limit = new PhysicalLimit<>(1, 0, LimitPhase.GLOBAL,
+                scan.getLogicalProperties(), scan);
+        Alias windowAlias = new Alias(new WindowExpression(new Count(),
+                ImmutableList.of(), ImmutableList.of(),
+                new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                        WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                        WindowFrame.FrameBoundary.newCurrentRowBoundary())));
+        LogicalProperties windowProperties = new LogicalProperties(
+                () -> ImmutableList.of(partition, windowAlias.toSlot()), () -> DataTrait.EMPTY_TRAIT);
+        PhysicalWindow<Plan> window = new PhysicalWindow<>(
+                new LogicalWindowToPhysicalWindow.WindowFrameGroup(windowAlias), null,
+                (List) ImmutableList.of(windowAlias), false, windowProperties, limit);
+        PhysicalCTEProducer<Plan> producer = new PhysicalCTEProducer<>(cteId, null, window);
+        PhysicalCTEConsumer firstConsumer = new PhysicalCTEConsumer(new RelationId(40), cteId,
+                ImmutableMap.of(partition, partition),
+                ImmutableMultimap.of(partition, partition), null);
+        PhysicalCTEAnchor<PhysicalCTEProducer<Plan>, PhysicalCTEConsumer> anchor =
+                new PhysicalCTEAnchor<>(cteId, null, producer, firstConsumer);
+        RuntimeFilterPruner pruner = new RuntimeFilterPruner();
+        anchor.accept(pruner, context);
+
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE,
+                rfContext.getEffectiveSrcType(firstConsumer),
+                "a consumer must inherit the bound through a row-preserving window");
+
+        PhysicalCTEConsumer secondConsumer = new PhysicalCTEConsumer(new RelationId(41), cteId,
+                ImmutableMap.of(windowAlias.toSlot(), windowAlias.toSlot()),
+                ImmutableMultimap.of(windowAlias.toSlot(), windowAlias.toSlot()), null);
+        secondConsumer.accept(pruner, context);
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE,
+                rfContext.getEffectiveSrcType(secondConsumer),
+                "a consumer keeping only the window column live must inherit the bound too");
     }
 
     @Test
