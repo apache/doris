@@ -7,6 +7,7 @@ org.apache.doris.authorization.AccessAction@DROP
 org.apache.doris.authorization.AccessAction@GRANT
 org.apache.doris.authorization.AccessAction@LOAD
 org.apache.doris.authorization.AccessAction@NODE
+org.apache.doris.authorization.AccessAction@PROXY
 org.apache.doris.authorization.AccessAction@SELECT
 org.apache.doris.authorization.AccessAction@SHOW_VIEW
 org.apache.doris.authorization.AccessAction@STAGE_USAGE
