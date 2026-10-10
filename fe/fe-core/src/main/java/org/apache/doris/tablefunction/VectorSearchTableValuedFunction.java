@@ -68,7 +68,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static final String DISTANCE_UPPER_BOUND = "distance_upper_bound";
     private static final String USE_INDEX = "use_index";
     private static final Set<String> PROPERTIES = ImmutableSet.of(
-            TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER,
+            TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER, PREFILTER,
             NPROBES, REFINE_FACTOR, EF, USE_INDEX, QUERY_PARALLELISM,
             VERSION, TIMESTAMP, TAG, BRANCH, DISTANCE_LOWER_BOUND, DISTANCE_UPPER_BOUND);
 
@@ -210,17 +210,6 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             throws AnalysisException {
         long parsed = parseLong(value, property, 1, Integer.MAX_VALUE);
         return (int) parsed;
-    }
-
-    private static boolean parseBoolean(String value, String property)
-            throws AnalysisException {
-        if ("true".equalsIgnoreCase(value)) {
-            return true;
-        }
-        if ("false".equalsIgnoreCase(value)) {
-            return false;
-        }
-        throw new AnalysisException("'" + property + "' must be 'true' or 'false'");
     }
 
     private static TVectorMetric parseMetric(String value) throws AnalysisException {

@@ -120,9 +120,9 @@ suite("test_lance_vector_search_two_phase", "p0,external") {
 
         sql "SET enable_lance_lazy_materialization = true"
 
-        // TVF filter is a Lance prefilter. Lance reads category while selecting ANN candidates
-        // and removes ineligible rows before nearest(), so the three nearest category='odd' rows
-        // are row IDs 2, 4 and 6. It does not become a Doris residual predicate.
+        // With prefilter=true, Lance reads category while selecting ANN candidates and removes
+        // ineligible rows before nearest(), so the three nearest category='odd' rows are 2, 4 and
+        // 6. The filter does not become a Doris residual predicate.
         String prefilterQuery = """
             SELECT row_id, category, label, _distance
             FROM vector_search(
@@ -131,6 +131,7 @@ suite("test_lance_vector_search_two_phase", "p0,external") {
                 "query_vector"="${headQuery}",
                 "top_k"="3",
                 "filter"="category = 'odd'",
+                "prefilter"="true",
                 "metric"="l2",
                 "nprobes"="4",
                 "refine_factor"="10",
@@ -143,6 +144,45 @@ suite("test_lance_vector_search_two_phase", "p0,external") {
             notContains "predicates:"
         }
         qt_prefilter_execution "${prefilterQuery}"
+
+        // Explicit false and an omitted property both apply the TVF filter after ANN candidate
+        // selection. The first three candidates are rows 1, 2 and 3, leaving only row 2 eligible.
+        def filteredVectorQuery = { String prefilterValue ->
+            String prefilterProperty = prefilterValue == null ? ""
+                    : ', "prefilter"="' + prefilterValue + '"'
+            """
+                SELECT row_id
+                FROM vector_search(
+                    "table"="${tableName}",
+                    "column"="embedding",
+                    "query_vector"="${headQuery}",
+                    "top_k"="3",
+                    "filter"="category = 'odd'",
+                    "metric"="l2",
+                    "nprobes"="4",
+                    "refine_factor"="10",
+                    "use_index"="true"${prefilterProperty})
+                ORDER BY _distance
+            """
+        }
+        String explicitFalsePrefilterQuery = filteredVectorQuery("false")
+        String defaultPrefilterQuery = filteredVectorQuery(null)
+        qt_prefilter_false "${explicitFalsePrefilterQuery}"
+        qt_prefilter_default "${defaultPrefilterQuery}"
+        String invalidPrefilterQuery = """
+            SELECT row_id
+            FROM vector_search(
+                "table"="${tableName}",
+                "column"="embedding",
+                "query_vector"="${headQuery}",
+                "top_k"="3",
+                "filter"="category = 'odd'",
+                "prefilter"="maybe")
+        """
+        test {
+            sql invalidPrefilterQuery
+            exception "'prefilter' must be 'true' or 'false'"
+        }
 
         // With use_index=true, the one physical index segment returns rows 1..3 across both
         // fragments. Doris evaluates category='odd' in phase one and keeps only row 2.

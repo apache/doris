@@ -22,16 +22,19 @@ under the License.
 `FileScannerV2` accumulates scanner initialization, open, block-read, and close
 wall time. Range acquisition and split preparation are nested within those
 calls, so their counters are not additional time. Scanner worker scheduling
-wait is reported separately. `LanceScannerReadTime` measures time spent calling
+wait is reported separately. `LanceScannerNextTime` measures time spent calling
 the Lance scanner, including Rust execution and waits. Doris scanner CPU time
 does not include work done on Lance's CPU pool.
 
-The following counters expose the work within an indexed vector search:
+The following counters expose the work within an indexed vector search.
+DataFusion sort, sort-preserving merge, and take timings are grouped under the
+generic `LanceExecutionPlan` profile because these plan nodes can also appear in
+FTS scans.
 
 | Counter | Scope |
 | --- | --- |
 | `LanceIndexOpenTime` | Index-handle lookup/open, including metadata reads on a miss. |
-| `LanceIVFPartitionRankingTime` | Partition ranking, including its CPU dispatch wait. |
+| `LanceIVFPartitionSelectionTime` | IVF partition selection, including its CPU dispatch wait. |
 | `LanceIndexPartitionLoadTime` | Partition cache lookup, coalesced-load wait, and read/decode on a miss. Also measured on cache hits. |
 | `LanceIndexPartitionPrepareTime` | Partition load and per-partition filter preparation. On the streaming path, shared-filter waiting overlaps loading. |
 | `LanceIndexPrefilterWaitTime` | Waiting for the shared prefilter to become ready. This is distinct from building the filter. |
@@ -41,8 +44,8 @@ The following counters expose the work within an indexed vector search:
 | `LanceIndexDistanceTopKTime` | Candidate filtering, distance evaluation, and heap updates in that sub-index. These operations are fused in fast-scan paths. |
 | `LanceIndexResultMaterializeTime` | Converting result heaps into Arrow arrays and batches, excluding final global sorting. |
 | `LanceANNPartitionExecTime`, `LanceANNSubIndexExecTime`, `LanceANNBatchExecTime` | Baseline elapsed times reported by the corresponding Lance ANN operators. These include asynchronous waits. |
-| `LanceSortComputeTime`, `LanceSortMergeComputeTime` | DataFusion sort / sort-preserving merge operator compute times. |
-| `LanceTakeExecTime` | Baseline time reported by Lance's take operator within the scan plan. Doris second-phase row-ID fetch has separate counters. |
+| `LanceSortComputeTime`, `LanceSortMergeComputeTime` | DataFusion sort / sort-preserving merge operator compute times in `LanceExecutionPlan`. |
+| `LanceTakeExecTime` | Baseline time reported by Lance's take operator within the scan plan, grouped under `LanceExecutionPlan`. Doris second-phase row-ID fetch has separate counters. |
 | `LanceVectorDistanceComputeTime` | Baseline reported by the vector-distance operator, e.g. refinement or an unindexed tail. |
 
 Timings accumulate across partitions, tasks, and index segments. They are
@@ -53,8 +56,8 @@ search stages and waits. A zero counter can mean the corresponding operator or
 path was not used. Detailed sub-index timers currently cover IVF flat sub-indices;
 other sub-indices are visible through the encompassing search timer.
 
-`LancePrefilterLoadTime` includes `LancePrefilterInputTime` and
-`LancePrefilterBuildTime`; do not add these three together. A segment-scoped
+`RowIdPrefilterLoadTime` includes `RowIdPrefilterInputTime` and
+`RowIdPrefilterBuildTime`; do not add these three together. A segment-scoped
 search without a predicate can avoid constructing the row-ID allowlist, while
 still respecting deletions and fragment visibility. Filter-readiness waiting can
 therefore remain nonzero even when the row-ID materialization counters are zero.

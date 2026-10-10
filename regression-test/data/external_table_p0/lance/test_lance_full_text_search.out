@@ -28,6 +28,15 @@
 2
 1
 
+-- !fts_prefilter_true --
+1	7
+
+-- !fts_prefilter_false --
+0	\N
+
+-- !fts_prefilter_default --
+0	\N
+
 -- !fts_filter --
 7
 
