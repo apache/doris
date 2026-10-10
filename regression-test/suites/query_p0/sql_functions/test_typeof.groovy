@@ -38,11 +38,14 @@ suite("test_typeof") {
     """
 
     def originalSkipFold = sql("SHOW VARIABLES LIKE 'debug_skip_fold_constant'")[0][1]
+    def originalFoldByBe = sql("SHOW VARIABLES LIKE 'enable_fold_constant_by_be'")[0][1]
     try {
         [false, true].each { skipFold ->
-            sql "SET debug_skip_fold_constant = ${skipFold}"
+            [false, true].each { foldByBe ->
+                sql "SET debug_skip_fold_constant = ${skipFold}"
+                sql "SET enable_fold_constant_by_be = ${foldByBe}"
 
-            qt_literals """
+                qt_literals """
                 SELECT typeof(NULL), typeof(''), typeof('cat'),
                     typeof(CAST(NULL AS BOOLEAN)), typeof(CAST(NULL AS TINYINT)),
                     typeof(CAST(NULL AS SMALLINT)), typeof(CAST(NULL AS INT)),
@@ -57,28 +60,39 @@ suite("test_typeof") {
                     typeof(CAST(NULL AS IPV4)), typeof(CAST(NULL AS IPV6)),
                     typeof(CAST(NULL AS JSON)), typeof(CAST(NULL AS VARIANT)),
                     typeof(TO_BITMAP(1)), typeof(HLL_HASH('cat'))
-            """
+                """
 
-            qt_nested """
+                qt_nested """
                 SELECT typeof(CAST(NULL AS ARRAY<ARRAY<INT>>)),
                     typeof(CAST(NULL AS MAP<STRING,ARRAY<DECIMAL(12,3)>>)),
                     typeof(CAST(NULL AS STRUCT<x:INT,y:VARCHAR(10)>)),
-                    typeof(CAST(NULL AS ARRAY<STRUCT<x:INT,y:MAP<STRING,INT>>>))
-            """
+                    typeof(CAST(NULL AS ARRAY<STRUCT<x:INT,y:MAP<STRING,INT>>>)),
+                    typeof(typeof(v)), typeof(CAST(v AS CHAR(4)))
+                FROM test_typeof WHERE id = 1
+                """
 
-            order_qt_columns """
+                order_qt_columns """
                 SELECT id, typeof(i), typeof(v), typeof(c), typeof(d),
                     typeof(a), typeof(m), typeof(s), typeof(i + CAST(1 AS INT)),
                     typeof(i) IS NULL
                 FROM test_typeof ORDER BY id
-            """
+                """
 
-            order_qt_empty """
+                order_qt_aggregate_cardinality """
+                SELECT 'nonempty', typeof(sum(i)) FROM test_typeof
+                UNION ALL
+                SELECT 'empty', typeof(sum(i)) FROM test_typeof WHERE id < 0
+                ORDER BY 1
+                """
+
+                order_qt_empty """
                 SELECT typeof(v) FROM test_typeof WHERE id < 0 ORDER BY id
-            """
+                """
+            }
         }
     } finally {
         sql "SET debug_skip_fold_constant = ${originalSkipFold}"
+        sql "SET enable_fold_constant_by_be = ${originalFoldByBe}"
     }
 
     test {
@@ -88,5 +102,17 @@ suite("test_typeof") {
     test {
         sql "SELECT typeof(1, 2)"
         exception "arity"
+    }
+    test {
+        sql "SELECT id FROM test_typeof WHERE typeof(sum(i)) = 'bigint'"
+        exception "LOGICAL_FILTER can not contains AggregateFunction expression"
+    }
+    test {
+        sql "SELECT id FROM test_typeof WHERE typeof(row_number() OVER ()) = 'bigint'"
+        exception "LOGICAL_FILTER can not contains WindowExpression expression"
+    }
+    test {
+        sql "SELECT typeof(CAST(TRUE AS DATE))"
+        exception "cannot cast BOOLEAN to DATEV2"
     }
 }
