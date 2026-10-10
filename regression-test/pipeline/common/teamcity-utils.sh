@@ -55,6 +55,7 @@ comment_to_pipeline=(
     ['vault_p0']='Doris_DorisCloudRegression_VaultP0'
     ['nonConcurrent']='Doris_DorisRegression_NonConcurrentRegression'
     ['check_coverage']='Doris_Coverage_Merge_P0_UT'
+    ['check_coverage_fe']='Doris_Coverage_CheckCoverageFe'
 )
 
 # github中评论的要触发的流水线名字
@@ -77,6 +78,7 @@ conment_to_context=(
     ['vault_p0']='vault_p0 (Doris Cloud Regression)'
     ['nonConcurrent']='NonConcurrent Regression (nonConcurrent)'
     ['check_coverage']='check_coverage (Coverage)'
+    ['check_coverage_fe']='check_coverage_fe (Coverage)'
 )
 
 get_commit_id_of_build() {
@@ -378,6 +380,7 @@ trigger_or_skip_build() {
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "nonConcurrent"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage_fe"
         elif [[ ${COMMENT_TRIGGER_TYPE} == "beut" ]]; then
             # skip beut 的时候，也把 check_coverage skip 了
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
