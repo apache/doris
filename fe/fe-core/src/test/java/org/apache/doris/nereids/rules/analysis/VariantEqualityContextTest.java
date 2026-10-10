@@ -20,15 +20,20 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
 import java.util.Arrays;
 
 class VariantEqualityContextTest extends TestWithFeService {
+
+    private boolean originalEnableVariantV2;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -49,6 +54,10 @@ class VariantEqualityContextTest extends TestWithFeService {
             Config.enable_variant_v2 = false;
 
             assertRejected("SELECT v, COUNT(*) FROM t1 GROUP BY v", "Doris hll, bitmap");
+            assertCheckRejected("SELECT v FROM t1 ORDER BY v", "Doris hll, bitmap");
+            assertCheckRejected("SELECT v FROM t1 ORDER BY v LIMIT 10", "Doris hll, bitmap");
+            assertRejected("SELECT row_number() OVER (ORDER BY v) FROM t1", "Doris hll, bitmap");
+            assertRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v", "could not used in ComparisonPredicate");
             assertRejected("SELECT DISTINCT v FROM t1", "Doris hll, bitmap");
             assertRejected("SELECT COUNT(DISTINCT v) FROM t1", "COUNT DISTINCT");
             assertRejected("SELECT v FROM t1 INTERSECT SELECT v FROM t2", "Doris hll, bitmap");
@@ -68,30 +77,71 @@ class VariantEqualityContextTest extends TestWithFeService {
         }
     }
 
-    @Test
-    void testVariantV2CanonicalHashContextsAndComparisonRestrictions() {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+    @BeforeEach
+    void enableVariantV2() {
+        originalEnableVariantV2 = Config.enable_variant_v2;
         Config.enable_variant_v2 = true;
-        try {
-            assertAllAccepted(
-                    "SELECT parse_to_variant(CAST(k AS STRING)), COUNT(*) FROM t1 "
-                            + "GROUP BY parse_to_variant(CAST(k AS STRING))",
-                    "SELECT DISTINCT parse_to_variant(CAST(k AS STRING)) FROM t1",
-                    "SELECT COUNT(DISTINCT parse_to_variant(CAST(k AS STRING))) FROM t1",
-                    "SELECT parse_to_variant(CAST(k AS STRING)) FROM t1 INTERSECT "
-                            + "SELECT parse_to_variant(CAST(k AS STRING)) FROM t2",
-                    "SELECT parse_to_variant(CAST(k AS STRING)) FROM t1 EXCEPT "
-                            + "SELECT parse_to_variant(CAST(k AS STRING)) FROM t2",
-                    "SELECT parse_to_variant(CAST(k AS STRING)) FROM t1 UNION "
-                            + "SELECT parse_to_variant(CAST(k AS STRING)) FROM t2");
+    }
 
-            assertVariantComparisonRejected("SELECT parse_to_variant('1') = parse_to_variant('1.0')");
-            assertVariantComparisonRejected("SELECT parse_to_variant('1') != parse_to_variant('1.0')");
-            assertVariantComparisonRejected("SELECT parse_to_variant('1') <=> parse_to_variant('1.0')");
-            assertVariantComparisonRejected("SELECT parse_to_variant(CAST(k AS STRING)) = k FROM t1");
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+    @AfterEach
+    void restoreVariantV2() {
+        Config.enable_variant_v2 = originalEnableVariantV2;
+    }
+
+    @Test
+    void testRejectedVariantOrderingAndMixedComparisons() {
+        assertVariantComparisonRejected("SELECT v = k FROM t1");
+        assertVariantComparisonRejected("SELECT v > v FROM t1");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
+    }
+
+    @Test
+    void testVariantEquality() {
+        assertAllAccepted(
+                "SELECT v = v, v != v, v <=> v FROM t1",
+                "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v",
+                "SELECT * FROM t1 LEFT JOIN t2 ON t1.v <=> t2.v",
+                "SELECT * FROM t1 FULL JOIN t2 ON t1.v = t2.v AND t1.k = t2.k",
+                "SELECT * FROM t1 JOIN t2 ON t1.v = t2.v OR t1.k = t2.k",
+                "SELECT EXISTS(SELECT 1 FROM t2 WHERE t1.v = t2.v) FROM t1",
+                "SELECT * FROM t1 WHERE v IN (SELECT v FROM t2)",
+                "SELECT * FROM t1 WHERE v NOT IN (SELECT v FROM t2)",
+                "SELECT * FROM t1 JOIN t2 ON t1.v['id'] = t2.v['id']");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v > t2.v");
+        assertVariantComparisonRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.k");
+    }
+
+    @Test
+    void testLegacyVariantEqualityWhenDefaultIsDisabled() {
+        Config.enable_variant_v2 = false;
+        assertRejected("SELECT parse_to_variant('1') = parse_to_variant('1.0')",
+                "could not used in ComparisonPredicate");
+        assertRejected("SELECT parse_to_variant('1') <=> NULL",
+                "could not used in ComparisonPredicate");
+        assertRejected("SELECT * FROM t1 JOIN t2 ON t1.v = t2.v",
+                "could not used in ComparisonPredicate");
+    }
+
+    @Test
+    void testVariantV2CanonicalHashContexts() {
+        assertAllAccepted(
+                "SELECT parse_to_variant(CAST(k AS STRING)), COUNT(*) FROM t1 "
+                        + "GROUP BY parse_to_variant(CAST(k AS STRING))",
+                "SELECT DISTINCT parse_to_variant(CAST(k AS STRING)) FROM t1",
+                "SELECT COUNT(DISTINCT parse_to_variant(CAST(k AS STRING))) FROM t1",
+                "SELECT parse_to_variant(CAST(k AS STRING)) FROM t1 INTERSECT "
+                        + "SELECT parse_to_variant(CAST(k AS STRING)) FROM t2",
+                "SELECT parse_to_variant(CAST(k AS STRING)) FROM t1 EXCEPT "
+                        + "SELECT parse_to_variant(CAST(k AS STRING)) FROM t2",
+                "SELECT parse_to_variant(CAST(k AS STRING)) FROM t1 UNION "
+                        + "SELECT parse_to_variant(CAST(k AS STRING)) FROM t2");
+    }
+
+    @Test
+    void testVariantOrdering() {
+        assertPlanAccepted("SELECT v FROM t1 ORDER BY v");
+        assertPlanAccepted("SELECT v FROM t1 ORDER BY v LIMIT 10");
+        assertPlanAccepted("SELECT row_number() OVER (ORDER BY v) FROM t1");
     }
 
     @Test
@@ -112,6 +162,17 @@ class VariantEqualityContextTest extends TestWithFeService {
     private void assertAllAccepted(String... sqlStatements) {
         Assertions.assertAll(Arrays.stream(sqlStatements)
                 .map(sql -> (Executable) () -> assertAccepted(sql)));
+    }
+
+    private void assertPlanAccepted(String sql) {
+        connectContext.setQueryId(new TUniqueId(1, 1));
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).plan(sql), sql);
+    }
+
+    private void assertCheckRejected(String sql, String expectedMessage) {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql).applyBottomUp(new CheckAfterRewrite()), sql);
+        Assertions.assertTrue(exception.getMessage().contains(expectedMessage), exception.getMessage());
     }
 
     private void assertVariantComparisonRejected(String sql) {

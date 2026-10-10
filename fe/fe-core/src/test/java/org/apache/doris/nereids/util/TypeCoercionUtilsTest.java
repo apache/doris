@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -36,6 +38,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -141,30 +145,29 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testVariantV2ToJsonImplicitCastRequiresExplicitCast() {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Assertions.assertEquals(JsonType.INSTANCE, TypeCoercionUtils.implicitCast(
-                    VariantType.INSTANCE, JsonType.INSTANCE).get());
-            Config.enable_variant_v2 = true;
-            Assertions.assertFalse(TypeCoercionUtils.implicitCast(
-                    VariantType.INSTANCE, JsonType.INSTANCE).isPresent());
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+    public void testVariantToJsonImplicitCast() {
+        Assertions.assertEquals(JsonType.INSTANCE,
+                TypeCoercionUtils.implicitCast(VariantType.INSTANCE, JsonType.INSTANCE).get());
     }
 
     @Test
-    public void testVariantV2ToJsonFunctionSignatureRequiresExplicitCast() {
+    public void testVariantToJsonFunctionSignature() {
+        Assertions.assertTrue(ExplicitlyCastableSignature.isExplicitlyCastable(
+                JsonType.INSTANCE, VariantType.INSTANCE));
+    }
+
+    @Test
+    public void testToJsonAcceptsVariantArgument() {
         boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        Config.enable_variant_v2 = true;
         try {
-            Config.enable_variant_v2 = false;
-            Assertions.assertTrue(ExplicitlyCastableSignature.isExplicitlyCastable(
-                    JsonType.INSTANCE, VariantType.INSTANCE));
-            Config.enable_variant_v2 = true;
-            Assertions.assertFalse(ExplicitlyCastableSignature.isExplicitlyCastable(
-                    JsonType.INSTANCE, VariantType.INSTANCE));
+            SlotReference variant = new SlotReference("v", new VariantType(100));
+            FunctionSignature signature = new ToJson(variant).getSignature();
+            Assertions.assertEquals(JsonType.INSTANCE, signature.returnType);
+            Assertions.assertEquals(variant.getDataType(), signature.getArgType(0));
+            // JSON builders keep converting a Variant argument through to_json.
+            Expression array = new JsonArray(variant).rewriteWhenAnalyze();
+            Assertions.assertEquals(new ToJson(variant), array.child(0));
         } finally {
             Config.enable_variant_v2 = originalEnableVariantV2;
         }
@@ -403,22 +406,36 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testVariantV2ComparisonRequiresExplicitCast() {
+    public void testVariantComparisonRequiresExplicitCast() {
         boolean originalEnableVariantV2 = Config.enable_variant_v2;
         Config.enable_variant_v2 = true;
-        SlotReference variant = new SlotReference("v", VariantType.INSTANCE);
-        SlotReference anotherVariant = new SlotReference("v2", VariantType.INSTANCE);
-        SlotReference integer = new SlotReference("i", IntegerType.INSTANCE);
-        ElementAt variantSubpath = new ElementAt(variant, new StringLiteral("c"));
-        ElementAt anotherVariantSubpath = new ElementAt(anotherVariant, new StringLiteral("c"));
         try {
-            AnalysisException equality = Assertions.assertThrows(AnalysisException.class,
-                    () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, anotherVariant)));
-            Assertions.assertTrue(equality.getMessage().contains("CAST to a concrete type first"));
+            SlotReference variant = new SlotReference("v", VariantType.INSTANCE);
+            SlotReference anotherVariant = new SlotReference("v2", VariantType.INSTANCE);
+            SlotReference integer = new SlotReference("i", IntegerType.INSTANCE);
+            ElementAt variantSubpath = new ElementAt(variant, new StringLiteral("c"));
+            ElementAt anotherVariantSubpath = new ElementAt(anotherVariant, new StringLiteral("c"));
 
-            AnalysisException nullSafeEquality = Assertions.assertThrows(AnalysisException.class,
-                    () -> TypeCoercionUtils.processComparisonPredicate(new NullSafeEqual(variant, anotherVariant)));
-            Assertions.assertTrue(nullSafeEquality.getMessage().contains("CAST to a concrete type first"));
+            // Variant equality uses canonical comparison, so it is accepted without a cast.
+            EqualTo equality = new EqualTo(variant, anotherVariant);
+            Assertions.assertSame(equality, TypeCoercionUtils.processComparisonPredicate(equality));
+
+            NullSafeEqual nullSafeEquality = new NullSafeEqual(variant, anotherVariant);
+            Assertions.assertSame(nullSafeEquality, TypeCoercionUtils.processComparisonPredicate(nullSafeEquality));
+
+            // A bare NULL takes the Variant type on either side; an ordering comparison stays rejected.
+            for (ComparisonPredicate bareNull : ImmutableList.of(
+                    new EqualTo(variant, NullLiteral.INSTANCE), new EqualTo(NullLiteral.INSTANCE, variant),
+                    new NullSafeEqual(variant, NullLiteral.INSTANCE),
+                    new NullSafeEqual(NullLiteral.INSTANCE, variant))) {
+                Expression coerced = TypeCoercionUtils.processComparisonPredicate(bareNull);
+                Assertions.assertEquals(bareNull.getClass(), coerced.getClass());
+                Assertions.assertEquals(VariantType.INSTANCE, coerced.child(0).getDataType());
+                Assertions.assertEquals(VariantType.INSTANCE, coerced.child(1).getDataType());
+            }
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processComparisonPredicate(
+                            new GreaterThan(variant, NullLiteral.INSTANCE)));
 
             AnalysisException mixedType = Assertions.assertThrows(AnalysisException.class,
                     () -> TypeCoercionUtils.processComparisonPredicate(new GreaterThan(variant, integer)));
@@ -439,18 +456,11 @@ public class TypeCoercionUtilsTest {
             Assertions.assertEquals(subpathComparison.child(0).getDataType(),
                     subpathComparison.child(1).getDataType());
 
-            Assertions.assertThrows(AnalysisException.class,
-                    () -> TypeCoercionUtils.processComparisonPredicate(
-                            new EqualTo(variantSubpath, anotherVariantSubpath)));
+            EqualTo subpathEquality = new EqualTo(variantSubpath, anotherVariantSubpath);
+            Assertions.assertSame(subpathEquality, TypeCoercionUtils.processComparisonPredicate(subpathEquality));
 
             Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
                     new GreaterThan(new Cast(variant, IntegerType.INSTANCE), integer)));
-
-            Config.enable_variant_v2 = false;
-            Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
-                    new EqualTo(variant, integer)));
-            Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
-                    new GreaterThan(variant, integer)));
         } finally {
             Config.enable_variant_v2 = originalEnableVariantV2;
         }

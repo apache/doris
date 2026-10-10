@@ -342,7 +342,8 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
 }
 
 Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                     JsonbWriter& writer) const {
+                                                     JsonbWriter& writer,
+                                                     const FormatOptions& options) const {
     const auto& jsonb_binary = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
     const JsonbDocument* doc = nullptr;
     RETURN_IF_ERROR(

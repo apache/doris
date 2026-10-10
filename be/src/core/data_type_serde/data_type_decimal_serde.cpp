@@ -1239,8 +1239,8 @@ void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column, ColumnStrin
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
-                                                          int64_t row_num,
-                                                          JsonbWriter& writer) const {
+                                                          int64_t row_num, JsonbWriter& writer,
+                                                          const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb");
     } else {
@@ -1254,8 +1254,9 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_co
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                                 ColumnString& to_column) const {
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
     } else {
@@ -1263,6 +1264,10 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& 
         JsonbWriter writer;
         const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_data();
         for (int i = 0; i < size; i++) {
+            if (source_null_map && source_null_map[i]) {
+                to_column.insert_default();
+                continue;
+            }
             writer.reset();
             if (!writer.writeDecimal(data[i], precision, scale)) {
                 return Status::InvalidArgument(

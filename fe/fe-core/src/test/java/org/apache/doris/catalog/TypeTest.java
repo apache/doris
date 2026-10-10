@@ -26,6 +26,14 @@ import java.util.ArrayList;
 
 public class TypeTest {
 
+    @Test
+    public void testTimestampTzIsNotVariantSubtype() {
+        Assert.assertFalse(Type.VARIANT.supportSubType(ScalarType.createTimeStampTzType(6)));
+        Assert.assertFalse(Type.VARIANT.supportSubType(
+                new ArrayType(ScalarType.createTimeStampTzType(3), true)));
+        Assert.assertTrue(Type.VARIANT.supportSubType(ScalarType.createDatetimeV2Type(6)));
+    }
+
     // ===================== ArrayType =====================
     @Test
     public void testArrayOfArrayExactMatch() {
