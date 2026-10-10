@@ -594,7 +594,7 @@ suite('test_manager_interface_1',"p0") {
         assertTrue(x == 1);
 
         
-        sql """ admin set frontend config("query_metadata_name_ids_timeout"= "${val}")"""
+        sql """ admin set all frontends config("query_metadata_name_ids_timeout"= "${val}")"""
         result = sql """ 
             admin show frontend config 
         """
@@ -613,7 +613,7 @@ suite('test_manager_interface_1',"p0") {
         assertTrue(x == 1);
     
         val -= 2 
-        sql """ admin set frontend config("query_metadata_name_ids_timeout"= "${val}")"""
+        sql """ admin set all frontends config("query_metadata_name_ids_timeout"= "${val}")"""
         logger.info("result = ${result}" )
 
         
