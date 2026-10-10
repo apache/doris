@@ -113,6 +113,13 @@ protected:
         return ColumnConst::create(ColumnNullable::create(strings({""}), ColumnUInt8::create(1, 1)),
                                    rows);
     }
+
+    static ColumnPtr null_int32(size_t rows) {
+        return ColumnConst::create(
+                ColumnNullable::create(ColumnHelper::create_column<DataTypeInt32>({0}),
+                                       ColumnUInt8::create(1, 1)),
+                rows);
+    }
 };
 
 TEST_F(FunctionConstantArgumentTest, regexp_replace_options) {
@@ -463,6 +470,30 @@ TEST_F(FunctionConstantArgumentTest, array_apply_op_and_value) {
     EXPECT_EQ(array_type->to_string(const_result, 1), "[3]");
 }
 
+// op can be nullable-typed when it is a BE-only expression such as an IF with a NULL branch, even
+// when the branch actually taken, and so the value read, is not NULL. A NULL value is rejected the
+// same way a literal NULL op is rejected by FE, instead of the generic nullable-argument shortcut
+// silently returning NULL for the whole call.
+TEST_F(FunctionConstantArgumentTest, array_apply_rejects_null_op) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_type = std::make_shared<DataTypeArray>(make_nullable(int_type));
+    auto nullable_string_type = make_nullable(std::make_shared<DataTypeString>());
+
+    auto nested = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(3);
+
+    Block block;
+    block.insert({ColumnArray::create(nested, std::move(offsets)), array_type, "arr"});
+    block.insert({null_string(1), nullable_string_type, "op"});
+    block.insert({ColumnHelper::create_column<DataTypeInt32>({2}), int_type, "val"});
+    Status status =
+            execute("array_apply", block, make_nullable(array_type), {nullptr, nullptr, nullptr});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("op support const value only"), std::string::npos)
+            << status.to_string();
+}
+
 // A constant argument that BE evaluates to a full column may come with constant arguments that are
 // ColumnConst, over several rows.
 TEST_F(FunctionConstantArgumentTest, sha2_constant_input) {
@@ -479,6 +510,21 @@ TEST_F(FunctionConstantArgumentTest, sha2_constant_input) {
         EXPECT_EQ(result.get_data_at(i).to_string(),
                   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
+}
+
+// The digest length can be nullable-typed when it is a BE-only expression such as an IF with a
+// NULL branch, even when the branch actually taken is not NULL. A NULL value is rejected the same
+// way a literal NULL length is rejected by FE, instead of the generic nullable-argument shortcut
+// silently returning NULL for the whole call.
+TEST_F(FunctionConstantArgumentTest, sha2_rejects_null_digest_length) {
+    auto string_type = std::make_shared<DataTypeString>();
+    auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    Block block;
+    block.insert({ColumnConst::create(strings({"abc"}), 1), string_type, "s"});
+    block.insert({null_int32(1), nullable_int_type, "length"});
+    Status status = execute("sha2", block, make_nullable(string_type), {nullptr, nullptr});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("digest length"), std::string::npos) << status.to_string();
 }
 
 TEST_F(FunctionConstantArgumentTest, split_by_regexp_limit) {
@@ -505,6 +551,20 @@ TEST_F(FunctionConstantArgumentTest, split_by_regexp_limit) {
     negative_block.insert({ColumnConst::create(strings({","}), 1), string_type, "pattern"});
     negative_block.insert({ColumnHelper::create_column<DataTypeInt32>({-1}), int_type, "limit"});
     status = execute("split_by_regexp", negative_block, return_type, {nullptr, nullptr, nullptr});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("must be a positive constant"), std::string::npos)
+            << status.to_string();
+
+    // the limit can be nullable-typed when it is a BE-only expression such as an IF with a NULL
+    // branch, even when the branch actually taken is not NULL. A NULL value is rejected the same
+    // way a literal NULL limit is rejected by FE, instead of the generic nullable-argument
+    // shortcut silently returning NULL for the whole call.
+    Block null_limit_block;
+    null_limit_block.insert({ColumnConst::create(strings({"a,b,c"}), 1), string_type, "s"});
+    null_limit_block.insert({ColumnConst::create(strings({","}), 1), string_type, "pattern"});
+    null_limit_block.insert({null_int32(1), make_nullable(int_type), "limit"});
+    status = execute("split_by_regexp", null_limit_block, make_nullable(return_type),
+                     {nullptr, nullptr, nullptr});
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("must be a positive constant"), std::string::npos)
             << status.to_string();

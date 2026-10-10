@@ -29,6 +29,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
 #include "exec/common/stringop_substring.h"
@@ -222,17 +223,56 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        // use_default_implementation_for_nulls() is disabled below, so, unlike the usual
+        // get_return_type_impl contract, arguments here keep their original nullability and the
+        // wrapping is not automatic: replicate it by hand from every argument.
+        bool nullable = arguments[0]->is_nullable() || arguments[1]->is_nullable();
+        DataTypePtr base = std::make_shared<DataTypeString>();
+        return nullable ? make_nullable(base) : base;
     }
+
+    // the digest length is validated below before the NULL check propagates it like an ordinary
+    // value, so the generic nullable-argument shortcut must not run first and silently return
+    // NULL for it.
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        const ColumnWithTypeAndName& data_with_type = block.get_by_position(arguments[0]);
+        const ColumnWithTypeAndName& length_with_type = block.get_by_position(arguments[1]);
+        bool data_nullable = data_with_type.type->is_nullable();
+        bool length_nullable = length_with_type.type->is_nullable();
+        NullableColumnInfo data_info =
+                data_nullable ? data_with_type.get_nullable_column_info() : NullableColumnInfo {};
+        NullableColumnInfo length_info = length_nullable
+                                                 ? length_with_type.get_nullable_column_info()
+                                                 : NullableColumnInfo {};
+
+        // the digest length is a constant checked in FE: either a literal or a value only BE can
+        // evaluate. A literal NULL is rejected by FE, so a BE-evaluated NULL is rejected here too,
+        // instead of silently propagating NULL through the generic nullable-argument shortcut.
+        if (length_nullable && length_info.only_null) {
+            return Status::InvalidArgument(
+                    "sha2's digest length only support 224/256/384/512 but meet NULL");
+        }
+
+        if (data_nullable && data_info.only_null) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column_const(input_rows_count,
+                                                                            Field());
+            return Status::OK();
+        }
+
         // The digest length may be evaluated by BE as a full column while the input remains const.
-        const auto& [data_col, data_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
+        ColumnWithTypeAndName unnested_data =
+                data_nullable ? data_with_type.unnest_nullable(data_info, false) : data_with_type;
+        ColumnWithTypeAndName unnested_length =
+                length_nullable ? length_with_type.unnest_nullable(length_info, false)
+                                : length_with_type;
+        const auto& [data_col, data_const] = unpack_if_const(unnested_data.column);
 
         [[maybe_unused]] const auto& [right_column, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
+                unpack_if_const(unnested_length.column);
         auto digest_length = assert_cast<const ColumnInt32*>(right_column.get())->get_data()[0];
 
         auto res_col = ColumnString::create();
@@ -257,7 +297,11 @@ public:
                     "sha2's digest length only support 224/256/384/512 but meet {}", digest_length);
         }
 
-        block.replace_by_position(result, std::move(res_col));
+        block.replace_by_position(
+                result, (data_nullable || length_nullable)
+                                ? wrap_in_nullable(ColumnPtr(std::move(res_col)), block, arguments,
+                                                   input_rows_count)
+                                : ColumnPtr(std::move(res_col)));
         return Status::OK();
     }
 

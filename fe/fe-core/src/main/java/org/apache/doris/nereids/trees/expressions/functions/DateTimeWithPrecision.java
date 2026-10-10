@@ -57,14 +57,14 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
             // searching in FunctionSet. So we adjust the return type by hand here.
             if (getArgument(0) instanceof IntegerLikeLiteral) {
                 IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) getArgument(0);
-                int precision = integerLikeLiteral.getIntValue();
+                long precision = integerLikeLiteral.getLongValue();
                 if (precision < 0 || precision > TimeStampNsType.SCALE) {
                     throw new AnalysisException("Precision of " + getName().toUpperCase(Locale.ROOT)
                             + " must be between 0 and "
                             + TimeStampNsType.SCALE + ". Precision was set to: " + precision);
                 }
                 signature = signature.withReturnType(precision > DateTimeV2Type.MAX_SCALE
-                        ? TimeStampNsType.INSTANCE : DateTimeV2Type.of(precision));
+                        ? TimeStampNsType.INSTANCE : DateTimeV2Type.of((int) precision));
             } else if (!getArgument(0).isLiteral()) {
                 throw new AnalysisException(getName().toUpperCase(Locale.ROOT)
                         + " precision argument must be a constant literal.");

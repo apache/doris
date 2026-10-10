@@ -122,6 +122,10 @@ public class ConstantFunctionArgumentTest {
                 DateTrunc.class).child(1));
 
         assertAnalysisError("select now(3 + 7)", "Precision of NOW must be between 0 and");
+        // a BIGINT precision wraps to a small int if narrowed before the range check, which would
+        // wrongly accept it instead of rejecting a precision outside 0..9
+        assertAnalysisError("select now(cast(4294967299 as bigint) + cast(0 as bigint))",
+                "Precision of NOW must be between 0 and");
     }
 
     @Test

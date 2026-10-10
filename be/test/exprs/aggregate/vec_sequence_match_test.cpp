@@ -21,9 +21,11 @@
 #include <memory>
 #include <vector>
 
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
@@ -591,6 +593,74 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
 
     agg_function_sequence_count->destroy(place2);
     agg_function_sequence_count->destroy(place3);
+}
+
+// The pattern is a constant checked in FE: either a literal or a value only BE can evaluate. A
+// literal NULL pattern is rejected by FE; a BE-evaluated NULL is rejected here too, instead of the
+// generic nullable-argument wrapper skipping every row (and so skipping the lazy parsing normally
+// done in add()) and silently returning the empty-input result (0 or false).
+TEST_F(VSequenceMatchTest, testMatchRejectsNullPattern) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {make_nullable(std::make_shared<DataTypeString>()),
+                            std::make_shared<DataTypeDateTimeV2>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
+    for (const std::string& name : {"sequence_match", "sequence_count"}) {
+        auto agg_function = factory.get(name, data_types, nullptr, false, -1);
+        ASSERT_NE(agg_function, nullptr);
+
+        auto nested_pattern = ColumnString::create();
+        nested_pattern->insert_data("", 0);
+        auto column_pattern =
+                ColumnNullable::create(std::move(nested_pattern), ColumnUInt8::create(1, 1));
+
+        auto column_timestamp = ColumnDateTimeV2::create();
+        VecDateTimeValue time_value;
+        time_value.unchecked_set_time(2024, 1, 1, 0, 0, 0);
+        column_timestamp->insert_data((char*)&time_value, 0);
+
+        auto column_event1 = ColumnUInt8::create();
+        column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+        auto column_event2 = ColumnUInt8::create();
+        column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+        std::vector<const IColumn*> columns = {column_pattern.get(), column_timestamp.get(),
+                                               column_event1.get(), column_event2.get()};
+        EXPECT_THROW(agg_function->check_input_columns_type(columns.data()), Exception);
+    }
+}
+
+// An invalid pattern is validated once up front, even when every row's timestamp is NULL, so the
+// generic nullable-argument wrapper that would otherwise skip every row (and so skip the lazy
+// parsing normally done in add()) cannot hide a syntactically invalid pattern.
+TEST_F(VSequenceMatchTest, testMatchRejectsInvalidPatternRegardlessOfNullTimestamp) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeString>(),
+                            make_nullable(std::make_shared<DataTypeDateTimeV2>()),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
+    for (const std::string& name : {"sequence_match", "sequence_count"}) {
+        auto agg_function = factory.get(name, data_types, nullptr, false, -1);
+        ASSERT_NE(agg_function, nullptr);
+
+        auto column_pattern = ColumnString::create();
+        // only 2 event columns are bound below, so event number 9 is out of range
+        column_pattern->insert(Field::create_field<TYPE_STRING>("(?9)"));
+
+        auto nested_timestamp = ColumnDateTimeV2::create();
+        VecDateTimeValue time_value;
+        time_value.unchecked_set_time(2024, 1, 1, 0, 0, 0);
+        nested_timestamp->insert_data((char*)&time_value, 0);
+        auto column_timestamp =
+                ColumnNullable::create(std::move(nested_timestamp), ColumnUInt8::create(1, 1));
+
+        auto column_event1 = ColumnUInt8::create();
+        column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+        auto column_event2 = ColumnUInt8::create();
+        column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+        std::vector<const IColumn*> columns = {column_pattern.get(), column_timestamp.get(),
+                                               column_event1.get(), column_event2.get()};
+        EXPECT_THROW(agg_function->check_input_columns_type(columns.data()), Exception);
+    }
 }
 
 } // namespace doris

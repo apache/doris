@@ -128,6 +128,12 @@ suite("fold_literal_arguments") {
         exception "Precision of NOW must be between 0 and"
     }
     test {
+        // a BIGINT precision would wrap to a small int if narrowed before the range check, which
+        // would wrongly accept it instead of rejecting a precision outside 0..9
+        sql "select now(cast(4294967299 as bigint) + cast(0 as bigint))"
+        exception "Precision of NOW must be between 0 and"
+    }
+    test {
         sql "select date_trunc(dt, concat('mon', 'x')) from fold_literal_arguments_t"
         exception "date_trunc function time unit param only support argument is"
     }
@@ -267,6 +273,25 @@ suite("fold_literal_arguments") {
         exception "Event number 9 is out of range"
     }
     test {
+        // the pattern is validated once up front, even when every row's timestamp is NULL, so the
+        // generic nullable-argument shortcut cannot skip every row and hide an invalid pattern
+        sql "select sequence_match(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from (select 1 k, cast(null as datetime) dt) t"
+        exception "Event number 9 is out of range"
+    }
+    test {
+        sql "select sequence_count(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from (select 1 k, cast(null as datetime) dt) t"
+        exception "Event number 9 is out of range"
+    }
+    test {
+        // a BE-only NULL pattern is rejected the same way a literal NULL one is
+        sql "select sequence_match(if(crc32('') = 0, cast(null as string), '(?1)(?2)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
+        exception "must not be null"
+    }
+    test {
+        sql "select sequence_count(if(crc32('') = 0, cast(null as string), '(?1)(?2)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
+        exception "must not be null"
+    }
+    test {
         // FE accepts this pattern, but BE cannot parse two consecutive time conditions
         sql "select sequence_match('(?1)(?t>1)(?t<5)(?2)', dt, k = 1, k = 2) from fold_literal_arguments_t"
         exception "Temporal condition should be preceded by an event condition"
@@ -306,6 +331,25 @@ suite("fold_literal_arguments") {
     test {
         sql "select array_apply([1, 2, 3], lpad('>', 2, '>'), 2)"
         exception "unsupported op"
+    }
+    test {
+        // op is nullable-typed because one IF branch is NULL, even though the branch actually
+        // taken is not: a NULL value is rejected the same way a literal NULL op is
+        sql "select array_apply([1, 2, 3], if(crc32('') = 0, cast(null as string), '>'), 2)"
+        exception "op support const value only"
+    }
+    test {
+        // the digest length is nullable-typed because one IF branch is NULL, even though the
+        // branch actually taken is not: a NULL value is rejected the same way a literal NULL
+        // length is rejected
+        sql "select sha2('abc', if(crc32('') = 0, cast(null as int), 256))"
+        exception "digest length"
+    }
+    test {
+        // the limit is nullable-typed because one IF branch is NULL, even though the branch
+        // actually taken is not: a NULL value is rejected the same way a literal NULL limit is
+        sql "select split_by_regexp('a,b,c', ',', if(crc32('') = 0, cast(null as int), 2))"
+        exception "must be a positive constant"
     }
     test {
         sql "select date_trunc(dt, lpad('x', 3, 'mo')) from fold_literal_arguments_t"
