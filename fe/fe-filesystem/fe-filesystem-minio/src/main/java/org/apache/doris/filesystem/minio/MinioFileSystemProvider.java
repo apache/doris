@@ -131,8 +131,11 @@ public class MinioFileSystemProvider implements FileSystemProvider<MinioFileSyst
             // region keys — replicate both exclusion legs.
             for (Map.Entry<String, String> entry : properties.entrySet()) {
                 if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
-                    // case-sensitive contains, byte-identical to legacy S3Properties.guessIsMe
-                    if (entry.getValue().contains("amazonaws.com")) {
+                    // The uri host is a DNS name: match case-insensitively, deliberately deviating
+                    // from legacy S3Properties.guessIsMe's case-sensitive contains. With the legacy
+                    // behaviour an upper-case AWS uri was not excluded here, so MinIO silently
+                    // claimed a map that belongs to S3.
+                    if (entry.getValue().toLowerCase(java.util.Locale.ROOT).contains("amazonaws.com")) {
                         return false;
                     }
                     break;

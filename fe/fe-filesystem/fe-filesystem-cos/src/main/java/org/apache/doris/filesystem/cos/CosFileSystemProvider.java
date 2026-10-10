@@ -51,7 +51,10 @@ public class CosFileSystemProvider implements FileSystemProvider<CosFileSystemPr
             return true;
         }
         String endpoint = firstPresent(properties, ENDPOINT_NAMES);
-        return endpoint != null && endpoint.contains("myqcloud.com");
+        // The endpoint is a DNS host: classify case-insensitively so an upper/mixed case spelling
+        // routes exactly like its lowercase form (the legacy COSProperties.guessIsMe compared
+        // case-sensitively).
+        return endpoint != null && StringUtils.containsIgnoreCase(endpoint, "myqcloud.com");
     }
 
     @Override
@@ -76,14 +79,14 @@ public class CosFileSystemProvider implements FileSystemProvider<CosFileSystemPr
             String value = properties.get(name);
             if (value != null) {
                 if (!value.isEmpty()) {
-                    return value.contains("myqcloud.com");
+                    return StringUtils.containsIgnoreCase(value, "myqcloud.com");
                 }
                 break;
             }
         }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
-                return entry.getValue().contains("myqcloud.com");
+                return StringUtils.containsIgnoreCase(entry.getValue(), "myqcloud.com");
             }
         }
         return false;

@@ -182,6 +182,30 @@ class S3FileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_isCaseInsensitiveForAwsEndpoint() {
+        // The endpoint is a DNS host, so an upper/mixed case Amazonaws spelling must be guessed
+        // exactly like the lowercase one (DORIS-29438 class).
+        Map<String, String> lower = new HashMap<>();
+        lower.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        Map<String, String> upper = new HashMap<>();
+        upper.put("s3.endpoint", "HTTPS://S3.US-EAST-1.AMAZONAWS.COM");
+
+        Assertions.assertTrue(provider.supportsGuess(lower));
+        Assertions.assertTrue(provider.supportsGuess(upper), upper.toString());
+    }
+
+    @Test
+    void supportsGuess_isCaseInsensitiveForAwsUri() {
+        Map<String, String> lower = new HashMap<>();
+        lower.put("uri", "s3://bucket.s3.us-east-1.amazonaws.com/key");
+        Map<String, String> upper = new HashMap<>();
+        upper.put("uri", "S3://bucket.S3.US-EAST-1.AMAZONAWS.COM/key");
+
+        Assertions.assertTrue(provider.supportsGuess(lower));
+        Assertions.assertTrue(provider.supportsGuess(upper), upper.toString());
+    }
+
+    @Test
     void bind_returnsValidatedS3FileSystemProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("s3.endpoint", "https://minio.local");

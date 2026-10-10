@@ -51,7 +51,10 @@ public class ObsFileSystemProvider implements FileSystemProvider<ObsFileSystemPr
             return true;
         }
         String endpoint = firstPresent(properties, ENDPOINT_NAMES);
-        return endpoint != null && endpoint.contains("myhuaweicloud.com");
+        // The endpoint is a DNS host: classify case-insensitively so an upper/mixed case spelling
+        // routes exactly like its lowercase form (the legacy OBSProperties.guessIsMe compared
+        // case-sensitively).
+        return endpoint != null && StringUtils.containsIgnoreCase(endpoint, "myhuaweicloud.com");
     }
 
     @Override
@@ -76,14 +79,14 @@ public class ObsFileSystemProvider implements FileSystemProvider<ObsFileSystemPr
             String value = properties.get(name);
             if (value != null) {
                 if (!value.isEmpty()) {
-                    return value.contains("myhuaweicloud.com");
+                    return StringUtils.containsIgnoreCase(value, "myhuaweicloud.com");
                 }
                 break;
             }
         }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
-                return entry.getValue().contains("myhuaweicloud.com");
+                return StringUtils.containsIgnoreCase(entry.getValue(), "myhuaweicloud.com");
             }
         }
         return false;

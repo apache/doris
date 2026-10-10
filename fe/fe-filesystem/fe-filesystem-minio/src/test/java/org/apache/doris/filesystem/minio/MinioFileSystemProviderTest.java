@@ -96,6 +96,29 @@ class MinioFileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_excludesAwsUriFromTheUriFallbackRegardlessOfCase() {
+        // No endpoint alias present, so the guess falls back to the uri marker. That marker must be
+        // matched case-insensitively: with the legacy case-sensitive contains an upper-case AWS uri
+        // was not excluded, and MinIO silently claimed a map that belongs to S3.
+        Map<String, String> upperAws = new HashMap<>();
+        upperAws.put("uri", "s3://bucket.S3.US-EAST-1.AMAZONAWS.COM/key");
+        upperAws.put("minio.access_key", "ak");
+
+        Map<String, String> lowerAws = new HashMap<>();
+        lowerAws.put("uri", "s3://bucket.s3.us-east-1.amazonaws.com/key");
+        lowerAws.put("minio.access_key", "ak");
+
+        Assertions.assertFalse(provider.supportsGuess(upperAws), upperAws.toString());
+        Assertions.assertFalse(provider.supportsGuess(lowerAws), lowerAws.toString());
+
+        // Control: a genuinely non-AWS uri is still claimed by MinIO.
+        Map<String, String> privateMinio = new HashMap<>();
+        privateMinio.put("uri", "s3://bucket.minio.internal/key");
+        privateMinio.put("minio.access_key", "ak");
+        Assertions.assertTrue(provider.supportsGuess(privateMinio), privateMinio.toString());
+    }
+
+    @Test
     void supports_rejectsForeignDialects() {
         Map<String, String> gcs = new HashMap<>();
         gcs.put("gs.access_key", "ak");
