@@ -73,6 +73,26 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
                     sql "DROP TABLE IF EXISTS ${table}"
                 }
             }
+            String identityTable = "binary_${format}_identity"
+            sql "DROP TABLE IF EXISTS ${identityTable}"
+            try {
+                spark_iceberg """CREATE TABLE demo.${dbName}.${identityTable} (id INT, binary_key BINARY)
+                    USING iceberg PARTITIONED BY (binary_key)
+                    TBLPROPERTIES ('format-version'='2', 'write.format.default'='${format}')"""
+                // The binary value and SQL NULL share the Iceberg path token "null", but not a partition.
+                sql "INSERT INTO ${identityTable} VALUES (1, X'9EE965'), (2, NULL), (3, X'9EE965')"
+                spark_iceberg "REFRESH TABLE demo.${dbName}.${identityTable}"
+                assertEquals([[2]], sql("SELECT id FROM ${identityTable} WHERE binary_key IS NULL"))
+                assertEquals([[1], [3]], sql("SELECT id FROM ${identityTable} WHERE binary_key = X'9EE965' ORDER BY id"))
+                assertSparkDorisResultEquals(spark_iceberg("""
+                    SELECT id FROM demo.${dbName}.${identityTable} WHERE binary_key IS NULL
+                """), [[2]])
+                assertSparkDorisResultEquals(spark_iceberg("""
+                    SELECT id FROM demo.${dbName}.${identityTable} WHERE binary_key = X'9EE965' ORDER BY id
+                """), [[1], [3]])
+            } finally {
+                sql "DROP TABLE IF EXISTS ${identityTable}"
+            }
         }
     } finally {
         sql "SWITCH internal"

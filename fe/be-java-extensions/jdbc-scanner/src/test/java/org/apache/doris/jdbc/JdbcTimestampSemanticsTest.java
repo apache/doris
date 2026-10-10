@@ -167,7 +167,7 @@ class JdbcTimestampSemanticsTest {
         MySQLJdbcExecutor executor = Mockito.mock(MySQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
         executor.config = new JdbcDataSourceConfig().setTableType(org.apache.doris.thrift.TOdbcTableType.OCEANBASE);
         executor.resultSet = Mockito.mock(ResultSet.class);
-        Mockito.when(executor.resultSet.getObject(1, LocalDateTime.class)).thenReturn(UTC_VALUE);
+        Mockito.when(executor.resultSet.getString(1)).thenReturn(UTC_VALUE.toString().replace('T', ' '));
         Assertions.assertEquals(UTC_VALUE, executor.getColumnValue(0,
                 ColumnType.parseType("event_time", "timestamptz(6)"), new String[0]));
         executor.preparedStatement = Mockito.mock(java.sql.PreparedStatement.class);
@@ -289,7 +289,7 @@ class JdbcTimestampSemanticsTest {
         executor.config = new JdbcDataSourceConfig().setTableType(org.apache.doris.thrift.TOdbcTableType.MYSQL);
         ResultSet resultSet = Mockito.mock(ResultSet.class);
         executor.resultSet = resultSet;
-        Mockito.when(resultSet.getObject(1, LocalDateTime.class)).thenReturn(UTC_VALUE).thenReturn(null);
+        Mockito.when(resultSet.getString(1)).thenReturn(UTC_VALUE.toString().replace('T', ' ')).thenReturn(null);
         ColumnType type = ColumnType.parseType("event_time", "timestamptz(6)");
         Assertions.assertEquals(UTC_VALUE, executor.getColumnValue(0, type, new String[0]));
         Assertions.assertNull(executor.getColumnValue(0, type, new String[0]));
