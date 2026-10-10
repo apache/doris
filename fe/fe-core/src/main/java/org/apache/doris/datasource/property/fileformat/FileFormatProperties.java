@@ -45,10 +45,9 @@ public abstract class FileFormatProperties {
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
-    // Default: false, mapping BINARY types to STRING for compatibility
-    // When enabled, BINARY types map to VARBINARY
-    public boolean enableMappingVarbinary = false;
-    public boolean enableMappingTimestampTz = false;
+    // External binary payloads are bytes, including when no mapping option is supplied.
+    public boolean enableMappingVarbinary = true;
+    public boolean enableMappingTimestampTz = true;
 
     public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {
         this.fileFormatType = fileFormatType;

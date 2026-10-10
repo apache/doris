@@ -157,18 +157,22 @@ public class JdbcPostgreSQLConnectorClient extends JdbcConnectorClient {
                 return ConnectorType.of("DATETIMEV2", scale, -1);
             }
             case "timestamptz": {
+                // Decoding infinities and out-of-range instants produces SQL NULL.
+                fieldInfo.setAllowNull(true);
                 int scale = computeTimestampScale(fieldInfo);
                 return enableMappingTimestampTz
                         ? ConnectorType.of("TIMESTAMPTZ", scale, -1)
                         : ConnectorType.of("DATETIMEV2", scale, -1);
             }
+            case "uuid":
+                // A native UUID is not a textual or binary payload.
+                return ConnectorType.of("UUID");
             case "bpchar":
                 return ConnectorType.of("CHAR", fieldInfo.requiredColumnSize(), -1);
             case "varchar":
             case "text":
             case "json":
             case "jsonb":
-            case "uuid":
             case "time":
             case "timetz":
             case "money":
@@ -245,13 +249,15 @@ public class JdbcPostgreSQLConnectorClient extends JdbcConnectorClient {
             }
             case "bool":
                 return ConnectorType.of("BOOLEAN");
+            case "uuid":
+                // A native UUID is not a textual or binary payload.
+                return ConnectorType.of("UUID");
             case "bpchar":
                 return ConnectorType.of("CHAR", fieldInfo.requiredColumnSize(), -1);
             case "varchar":
             case "text":
             case "json":
             case "jsonb":
-            case "uuid":
                 return ConnectorType.of("STRING");
             default:
                 return ConnectorType.of("STRING");

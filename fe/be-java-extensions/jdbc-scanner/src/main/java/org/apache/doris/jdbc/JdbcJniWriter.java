@@ -75,6 +75,7 @@ import java.util.Map;
 public class JdbcJniWriter extends JniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcJniWriter.class);
 
+    private final JdbcTypeHandler typeHandler;
     private final String jdbcUrl;
     private final String jdbcUser;
     private final String jdbcPassword;
@@ -101,6 +102,7 @@ public class JdbcJniWriter extends JniWriter {
 
     public JdbcJniWriter(int batchSize, Map<String, String> params) {
         super(batchSize, params);
+        this.typeHandler = JdbcTypeHandlerFactory.create(params.getOrDefault("table_type", ""));
         this.jdbcUrl = params.getOrDefault("jdbc_url", "");
         this.jdbcUser = params.getOrDefault("jdbc_user", "");
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
@@ -127,6 +129,7 @@ public class JdbcJniWriter extends JniWriter {
             initializeClassLoaderAndDataSource();
 
             conn = hikariDataSource.getConnection();
+            typeHandler.initializeWriteConnection(conn);
 
             if (useTransaction) {
                 conn.setAutoCommit(false);
@@ -263,8 +266,7 @@ public class JdbcJniWriter extends JniWriter {
                         parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setObject(
-                        parameterIndex, Timestamp.valueOf(column.getTimeStampTz(rowIdx)));
+                typeHandler.setTimestampTz(preparedStatement, parameterIndex, column.getTimeStampTz(rowIdx));
                 break;
             case CHAR:
             case VARCHAR:
@@ -272,7 +274,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
                 break;
             case UUID:
-                preparedStatement.setObject(parameterIndex, column.getUuid(rowIdx));
+                typeHandler.setUuid(preparedStatement, parameterIndex, column.getUuid(rowIdx));
                 break;
             case BINARY:
             case VARBINARY:
@@ -323,7 +325,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+                typeHandler.setTimestampTzNull(preparedStatement, parameterIndex);
                 break;
             case CHAR:
             case VARCHAR:
@@ -331,7 +333,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setNull(parameterIndex, Types.VARCHAR);
                 break;
             case UUID:
-                preparedStatement.setNull(parameterIndex, Types.OTHER);
+                typeHandler.setUuidNull(preparedStatement, parameterIndex);
                 break;
             case BINARY:
             case VARBINARY:

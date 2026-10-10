@@ -32,7 +32,9 @@ import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
@@ -59,6 +61,8 @@ public class PaimonTypeMappingToPaimonTest {
         // no-arg type. MUTATION: swapping e.g. INT -> BigIntType, or adding precision to a no-arg
         // type, changes the persisted column type and turns these red.
         Assertions.assertEquals(new BooleanType(), PaimonTypeMapping.toPaimonType(ConnectorType.of("BOOLEAN")));
+        Assertions.assertEquals(new TinyIntType(), PaimonTypeMapping.toPaimonType(ConnectorType.of("TINYINT")));
+        Assertions.assertEquals(new SmallIntType(), PaimonTypeMapping.toPaimonType(ConnectorType.of("SMALLINT")));
         Assertions.assertEquals(new IntType(), PaimonTypeMapping.toPaimonType(ConnectorType.of("INT")));
         Assertions.assertEquals(new IntType(), PaimonTypeMapping.toPaimonType(ConnectorType.of("INTEGER")));
         Assertions.assertEquals(new BigIntType(), PaimonTypeMapping.toPaimonType(ConnectorType.of("BIGINT")));
@@ -81,17 +85,13 @@ public class PaimonTypeMappingToPaimonTest {
     }
 
     @Test
-    public void datetimeDropsScaleToNoArgTimestamp() {
-        // WHY: legacy maps DATETIME/DATETIMEV2 -> new TimestampType() (no-arg, precision 6); the
-        // requested datetime scale is intentionally dropped, and it is a plain timestamp not a
-        // zoned one. MUTATION: propagating the scale (new TimestampType(scale)) or using
-        // LocalZonedTimestampType makes this red.
-        TimestampType expected = new TimestampType();
-        Assertions.assertEquals(6, expected.getPrecision(), "no-arg TimestampType must default to precision 6");
-        Assertions.assertEquals(expected,
-                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIMEV2", 3, 0)),
-                "DATETIMEV2(scale 3) must drop the scale -> TimestampType() precision 6");
-        Assertions.assertEquals(expected, PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIME")));
+    public void datetimePreservesPrecisionAndTimestampKind() {
+        Assertions.assertEquals(new TimestampType(3),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIMEV2", 3, 0)));
+        Assertions.assertEquals(new TimestampType(),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIME")));
+        Assertions.assertEquals(new org.apache.paimon.types.LocalZonedTimestampType(6),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("TIMESTAMPTZ", 6, 0)));
     }
 
     @Test
@@ -217,10 +217,10 @@ public class PaimonTypeMappingToPaimonTest {
     @Test
     public void unsupportedScalarTypesThrow() {
         // WHY: the legacy visitor had no branch for these and threw; the connector preserves that
-        // gap by throwing DorisConnectorException rather than inventing a mapping. MUTATION: adding
-        // a TINYINT/SMALLINT/LARGEINT/TIME/TIMESTAMPTZ branch (silently widening support) would
-        // make the corresponding assertion red.
-        for (String unsupported : new String[] {"TINYINT", "SMALLINT", "LARGEINT", "TIMEV2", "TIMESTAMPTZ"}) {
+        // gap by throwing DorisConnectorException rather than inventing a mapping. TINYINT and
+        // SMALLINT are supported because Paimon schema evolution can expose both types. MUTATION:
+        // adding a LARGEINT/TIME branch would make the corresponding assertion red.
+        for (String unsupported : new String[] {"LARGEINT", "TIMEV2"}) {
             Assertions.assertThrows(DorisConnectorException.class,
                     () -> PaimonTypeMapping.toPaimonType(ConnectorType.of(unsupported)),
                     unsupported + " must throw (legacy gap preserved)");
@@ -232,9 +232,9 @@ public class PaimonTypeMappingToPaimonTest {
         // WHY: an unsupported element nested inside a complex type must still fail-fast, proving the
         // throw is reached through the recursion (not swallowed). MUTATION: catching/degrading the
         // nested throw inside array/map/struct handling would make this red.
-        ConnectorType arrayOfTinyint = ConnectorType.arrayOf(ConnectorType.of("TINYINT"));
+        ConnectorType arrayOfLargeint = ConnectorType.arrayOf(ConnectorType.of("LARGEINT"));
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> PaimonTypeMapping.toPaimonType(arrayOfTinyint));
+                () -> PaimonTypeMapping.toPaimonType(arrayOfLargeint));
 
         ConnectorType structWithBadField = ConnectorType.structOf(
                 Collections.singletonList("x"),

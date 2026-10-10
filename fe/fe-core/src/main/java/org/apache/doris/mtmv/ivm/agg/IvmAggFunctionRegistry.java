@@ -131,6 +131,14 @@ public class IvmAggFunctionRegistry {
         processorFor(target).appendApplyExpressions(target, ctx);
     }
 
+    /**
+     * Returns true when this target's own value state is carried by the visible MV column, so normalize
+     * must keep that column alive (materializing a hidden carrier column when an upper expression drops it).
+     */
+    public boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        return processorFor(target).visibleColumnHoldsValueState(target);
+    }
+
     private IvmAggFunctionProcessor processorFor(IvmAggTarget target) {
         IvmAggFunctionProcessor processor = processorByKind.get(target.getFunctionKind());
         if (processor == null) {

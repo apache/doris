@@ -263,8 +263,9 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         // source-agnostic. This runs before the write plan is bound (planWrite has not run yet for an
         // EXPLAIN), so the connector derives the detail from the write handle.
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, boundTargetColumns, false, Collections.emptyMap(), null,
-                null, Optional.empty(), writeOperation, writesDataFiles, requireMergeCardinalityCheck);
+                tableHandle, connectorColumns, boundTargetColumns, false, Collections.emptyMap(),
+                Collections.emptySet(), null, null, Optional.empty(), writeOperation,
+                writesDataFiles, requireMergeCardinalityCheck);
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
@@ -290,11 +291,13 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         }
         boolean overwrite = false;
         Map<String, String> writeContext = Collections.emptyMap();
+        Set<String> staticPartitionNullKeys = Collections.emptySet();
         Optional<String> branchName = Optional.empty();
         if (insertCtx.isPresent() && insertCtx.get() instanceof PluginDrivenInsertCommandContext) {
             PluginDrivenInsertCommandContext ctx = (PluginDrivenInsertCommandContext) insertCtx.get();
             overwrite = ctx.isOverwrite();
             writeContext = ctx.getStaticPartitionSpec();
+            staticPartitionNullKeys = ctx.getStaticPartitionNullKeys();
             branchName = ctx.getBranchName();
         }
         ConnectorTableHandle boundTableHandle = tableHandle;
@@ -308,7 +311,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
                     MvccUtil.getSnapshotFromContext(targetTable, Optional.empty(), scanParams));
         }
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                boundTableHandle, connectorColumns, boundTargetColumns, overwrite, writeContext, writeSortInfo,
+                boundTableHandle, connectorColumns, boundTargetColumns, overwrite, writeContext,
+                staticPartitionNullKeys, writeSortInfo,
                 boundWriteMetadataIdentity, branchName, writeOperation, writesDataFiles,
                 requireMergeCardinalityCheck);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
@@ -342,6 +346,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         private final List<ConnectorColumn> boundTargetColumns;
         private final boolean overwrite;
         private final Map<String, String> writeContext;
+        private final Set<String> staticPartitionNullKeys;
         private final TSortInfo sortInfo;
         private final String boundWriteMetadataIdentity;
         private final Optional<String> branchName;
@@ -351,7 +356,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
 
         private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
                 List<ConnectorColumn> boundTargetColumns, boolean overwrite,
-                Map<String, String> writeContext, TSortInfo sortInfo, String boundWriteMetadataIdentity,
+                Map<String, String> writeContext, Set<String> staticPartitionNullKeys,
+                TSortInfo sortInfo, String boundWriteMetadataIdentity,
                 Optional<String> branchName, WriteOperation writeOperation,
                 boolean writesDataFiles, boolean requireMergeCardinalityCheck) {
             this.tableHandle = tableHandle;
@@ -359,6 +365,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             this.boundTargetColumns = boundTargetColumns;
             this.overwrite = overwrite;
             this.writeContext = writeContext;
+            this.staticPartitionNullKeys = staticPartitionNullKeys;
             this.sortInfo = sortInfo;
             this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
             this.branchName = branchName == null ? Optional.empty() : branchName;
@@ -421,6 +428,11 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         @Override
         public Map<String, String> getStaticPartitionSpec() {
             return writeContext;
+        }
+
+        @Override
+        public Set<String> getStaticPartitionNullKeys() {
+            return staticPartitionNullKeys;
         }
 
         @Override

@@ -103,7 +103,7 @@ public class JdbcDorisConnector implements Connector {
                     // so OceanBase Oracle mode is detected correctly
                     JdbcDbType dbType = getOrCreateClient().getDbType();
                     scanPlanProvider = new JdbcScanPlanProvider(
-                            dbType, props, context.getCatalogId());
+                            dbType, props, context.getCatalogId(), getOrCreateClient()::isNoBackslashEscapes);
                 }
             }
         }

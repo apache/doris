@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
@@ -181,8 +182,9 @@ final class IcebergPartitionUtils {
             }
             Object value = partitionData.get(i);
             try {
-                partitionInfoMap.put(columnName,
-                        serializePartitionValue(field.type(), value, zone));
+                // UUID scan slots consume canonical UUID text, not binary partition hex.
+                String encoded = serializePartitionValue(field.type(), value, zone);
+                partitionInfoMap.put(columnName, encoded);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
                         e.getMessage());
@@ -271,31 +273,30 @@ final class IcebergPartitionUtils {
      * {@code null} token and a missing key both hit {@code insert_default()}.
      *
      * @param outputPartitionFields the metadata table's {@code partition} struct fields, in output order
-     * @param enableMappingVarbinary the catalog's {@code enable.mapping.varbinary}; when set, UUID maps to
-     *         VARBINARY and therefore cannot round-trip through this text transport either
-     * @throws DorisConnectorException on a non-null BINARY/FIXED (or UUID under varbinary mapping) partition
-     *         value — fail loud rather than silently materialize it as NULL
+     * @param enableMappingVarbinary retained for callers with legacy catalog properties; bytes always use hex
      */
     static String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec,
             List<NestedField> outputPartitionFields, boolean enableMappingVarbinary, ZoneId zone) {
         List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
-        for (int i = 0; i < partitionTypes.size(); i++) {
-            Type type = partitionTypes.get(i).type();
-            if (partitionData.get(i) != null && (type.typeId() == TypeID.BINARY
-                    || type.typeId() == TypeID.FIXED
-                    || (type.typeId() == TypeID.UUID && enableMappingVarbinary))) {
-                throw new DorisConnectorException(
-                        "Iceberg position_deletes cannot materialize non-null partition field '"
-                                + partitionTypes.get(i).name() + "' of type " + type
-                                + " without a binary-safe partition transport");
-            }
-        }
-        List<String> partitionValues = getPartitionValues(partitionData, partitionSpec, zone);
         Map<Integer, Object> partitionValueByFieldId = new HashMap<>();
         List<PartitionField> fields = partitionSpec.fields();
         for (int i = 0; i < fields.size(); i++) {
-            partitionValueByFieldId.put(fields.get(i).fieldId(),
-                    getPartitionJsonValue(partitionTypes.get(i).type(), partitionValues.get(i)));
+            Type type = partitionTypes.get(i).type();
+            Object value = partitionData.get(i);
+            Object jsonValue = null;
+            if (value != null) {
+                if (type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED) {
+                    // Typed hex keeps arbitrary partition bytes intact across the JSON boundary.
+                    java.nio.ByteBuffer bytes =
+                            org.apache.iceberg.types.Conversions.toByteBuffer(type, value).duplicate();
+                    byte[] copy = new byte[bytes.remaining()];
+                    bytes.get(copy);
+                    jsonValue = "0x" + java.util.HexFormat.of().withUpperCase().formatHex(copy);
+                } else {
+                    jsonValue = getPartitionJsonValue(type, serializePartitionValue(type, value, zone));
+                }
+            }
+            partitionValueByFieldId.put(fields.get(i).fieldId(), jsonValue);
         }
         ObjectNode partitionJson = EXACT_DECIMAL_MAPPER.createObjectNode();
         for (NestedField outputPartitionField : outputPartitionFields) {
@@ -318,7 +319,7 @@ final class IcebergPartitionUtils {
      * quoted number would often work by accident — but the default format options set
      * {@code converted_from_string=false}, so do not rely on it; match legacy and emit native types.
      *
-     * <p>BINARY/FIXED never reach here — {@link #getPartitionDataObjectJson} rejects them up front.
+     * <p>Binary fields are encoded directly as hex by {@link #getPartitionDataObjectJson}.
      */
     private static Object getPartitionJsonValue(Type type, String partitionValue) {
         if (partitionValue == null) {
@@ -376,7 +377,15 @@ final class IcebergPartitionUtils {
                     return null;
                 }
                 return Double.toString((Double) value);
-            // BINARY / FIXED are intentionally unsupported: returning a utf8 string may corrupt the data.
+            case BINARY:
+            case FIXED:
+                if (value == null) {
+                    return null;
+                }
+                java.nio.ByteBuffer bytes = ((java.nio.ByteBuffer) value).duplicate();
+                byte[] copy = new byte[bytes.remaining()];
+                bytes.get(copy);
+                return "0x" + java.util.HexFormat.of().formatHex(copy);
             case DATE:
                 if (value == null) {
                     return null;
@@ -397,10 +406,11 @@ final class IcebergPartitionUtils {
                 // Iceberg timestamp is stored as microseconds since epoch (1970-01-01T00:00:00).
                 long timestampMicros = (Long) value;
                 LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
-                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000, ZoneOffset.UTC);
-                // timestamptz when shouldAdjustToUTC() — render the stored UTC instant in the session zone.
+                        Math.floorDiv(timestampMicros, 1_000_000),
+                        (int) Math.floorMod(timestampMicros, 1_000_000) * 1000, ZoneOffset.UTC);
+                // An explicit offset distinguishes both occurrences of a DST overlap at commit time.
                 if (((TimestampType) type).shouldAdjustToUTC()) {
-                    timestamp = timestamp.atZone(ZoneOffset.UTC).withZoneSameInstant(zone).toLocalDateTime();
+                    return timestamp.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
                 }
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
@@ -413,10 +423,11 @@ final class IcebergPartitionUtils {
     // DateLiteral.parseDateTime (connector-forbidden); the canonical form is the only one BE emits, so this
     // single formatter is equivalent in practice (DV-T04-c). Mirrors the scan-side IcebergTimeUtils tradeoff.
     private static final DateTimeFormatter TIMESTAMP_PARTITION_FORMAT = new DateTimeFormatterBuilder()
-            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
             .optionalStart()
             .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
             .optionalEnd()
+            .optionalStart().appendOffsetId().optionalEnd()
             .toFormatter();
 
     /**
@@ -437,6 +448,24 @@ final class IcebergPartitionUtils {
             switch (icebergType.typeId()) {
                 case STRING:
                     return valueStr;
+                case UUID:
+                    if (!valueStr.startsWith("0x")) {
+                        return java.util.UUID.fromString(valueStr);
+                    }
+                    java.nio.ByteBuffer uuid = decodeBinaryPartitionValue(valueStr);
+                    if (uuid.remaining() != 16) {
+                        throw new IllegalArgumentException("UUID requires 16 bytes");
+                    }
+                    return new java.util.UUID(uuid.getLong(), uuid.getLong());
+                case BINARY:
+                case FIXED:
+                    java.nio.ByteBuffer binary = decodeBinaryPartitionValue(valueStr);
+                    if (icebergType.typeId() == TypeID.FIXED
+                            && binary.remaining()
+                                    != ((org.apache.iceberg.types.Types.FixedType) icebergType).length()) {
+                        throw new IllegalArgumentException("Invalid fixed partition length");
+                    }
+                    return binary;
                 case INTEGER:
                     return Integer.parseInt(valueStr);
                 case LONG:
@@ -463,6 +492,14 @@ final class IcebergPartitionUtils {
         }
     }
 
+    private static java.nio.ByteBuffer decodeBinaryPartitionValue(String value) {
+        // The prefix separates arbitrary bytes from legacy text partition values.
+        if (!value.startsWith("0x")) {
+            throw new IllegalArgumentException("Binary partition values require a 0x prefix");
+        }
+        return java.nio.ByteBuffer.wrap(java.util.HexFormat.of().parseHex(value.substring(2)));
+    }
+
     private static String normalizeFloatingPointPartitionValue(String valueStr) {
         if ("nan".equalsIgnoreCase(valueStr)) {
             return "NaN";
@@ -478,11 +515,17 @@ final class IcebergPartitionUtils {
     }
 
     private static long parseTimestampToMicros(String valueStr, TimestampType timestampType, ZoneId sessionZone) {
-        LocalDateTime ldt = LocalDateTime.parse(valueStr, TIMESTAMP_PARTITION_FORMAT);
-        // timestamptz (shouldAdjustToUTC): interpret the wall-clock string in the session zone; plain timestamp:
-        // interpret it in UTC. Mirrors legacy parseTimestampToMicros (DateUtils.getTimeZone vs ZoneId.of("UTC")).
-        ZoneId zone = timestampType.shouldAdjustToUTC() ? sessionZone : ZoneOffset.UTC;
-        Instant instant = ldt.atZone(zone).toInstant();
+        java.time.temporal.TemporalAccessor parsed = TIMESTAMP_PARTITION_FORMAT.parse(valueStr.replace('T', ' '));
+        LocalDateTime ldt = LocalDateTime.from(parsed);
+        ZoneId explicitZone = parsed.query(java.time.temporal.TemporalQueries.zone());
+        // Dynamic commits carry an offset; only unqualified static literals use the session zone.
+        ZoneId zone = timestampType.shouldAdjustToUTC()
+                ? (explicitZone != null ? explicitZone : sessionZone) : ZoneOffset.UTC;
+        java.time.zone.ZoneOffsetTransition transition = zone.getRules().getTransition(ldt);
+        // BE's cctz maps skipped civil seconds to the transition, retaining the subsecond fraction.
+        // Java's default instead shifts by the gap duration, which selects a different overwrite partition.
+        Instant instant = transition != null && transition.isGap()
+                ? transition.getInstant().plusNanos(ldt.getNano()) : ldt.atZone(zone).toInstant();
         return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
     }
 
@@ -521,8 +564,8 @@ final class IcebergPartitionUtils {
     // Master IcebergUtils.UNKNOWN_SNAPSHOT_ID: an empty table / a null last_updated_snapshot_id row.
     private static final long UNKNOWN_SNAPSHOT_ID = -1;
 
-    private static final DateTimeFormatter RANGE_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-    private static final DateTimeFormatter RANGE_DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter RANGE_DATE_FORMAT = DateTimeFormatter.ofPattern("uuuu-MM-dd");
+    private static final DateTimeFormatter RANGE_DATETIME_FORMAT = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
 
     // Sort by partition-range LOW ascending; ties broken by HIGH descending (larger range first), so an
     // enclosing partition precedes the ones it encloses. Parity with master IcebergUtils.RangeComparator.
@@ -715,8 +758,10 @@ final class IcebergPartitionUtils {
             // behaved this way, and the FE partition-column CSV is deduped the same way
             // (IcebergConnectorMetadata.buildTableSchema).
             Map<String, String> values = new LinkedHashMap<>();
+            Map<String, ConnectorType> valueTypes = new LinkedHashMap<>();
             for (int i = 0; i < raw.columnNames.size(); ++i) {
                 values.put(raw.columnNames.get(i), raw.values.get(i));
+                valueTypes.put(raw.columnNames.get(i), raw.types.get(i));
             }
             // Ordered values, one per DISTINCT source column in first-occurrence order; supplied so fe-core
             // skips the name parse. Derived from the deduped map rather than from raw.columnNames so the
@@ -724,14 +769,17 @@ final class IcebergPartitionUtils {
             // the two positionally (PluginDrivenMvccExternalTable.toListPartitionItem's load-bearing
             // checkState), so emitting one value per spec FIELD against one column per DISTINCT source
             // column would skip every partition and silently disable pruning.
-            // String.valueOf keeps byte-parity with the legacy parse, which reads a null field rendered
-            // into the name as the literal "null" (StringBuilder append of a null Object).
+            // Typed NULLs must not be parsed as bytes (or confused with a STRING value "null").
             List<String> orderedValues = new ArrayList<>(values.size());
+            List<Boolean> nullFlags = new ArrayList<>(values.size());
             for (String value : values.values()) {
                 orderedValues.add(String.valueOf(value));
+                nullFlags.add(value == null);
             }
             partitions.add(new ConnectorPartitionInfo(raw.name, values, Collections.emptyMap(),
-                    orderedValues, Collections.emptyList()));
+                    ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
+                    ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
+                    orderedValues, nullFlags, new ArrayList<>(valueTypes.values())));
         }
         return partitions;
     }
@@ -832,6 +880,7 @@ final class IcebergPartitionUtils {
         List<String> partitionColumnNames = new ArrayList<>();
         List<String> partitionValues = new ArrayList<>();
         List<String> transforms = new ArrayList<>();
+        List<ConnectorType> valueTypes = new ArrayList<>();
         for (int i = 0; i < partitionSpec.fields().size(); ++i) {
             PartitionField partitionField = partitionSpec.fields().get(i);
             Class<?> fieldClass = partitionSpec.javaClasses()[i];
@@ -840,6 +889,16 @@ final class IcebergPartitionUtils {
             int ordinal = partitionFieldOrdinals.get(partitionField.fieldId());
             Object o = partitionData.get(ordinal, fieldClass);
             String fieldValue = o == null ? null : o.toString();
+            Type fieldType = partitionSpec.partitionType().fields().get(i).type();
+            valueTypes.add(IcebergTypeMapping.fromIcebergType(fieldType, true, true));
+            // ByteBuffer.toString() describes its bounds, not the partition bytes. Use the
+            // transformed type so bucket(binary) remains an integer while identity/truncate keep bytes.
+            if (fieldType.typeId() == Type.TypeID.BINARY || fieldType.typeId() == Type.TypeID.FIXED) {
+                fieldValue = serializePartitionValue(fieldType, o, ZoneOffset.UTC);
+            } else if (fieldType.typeId() == Type.TypeID.UUID && o != null) {
+                // FE parses this typed value as UUID; binary hex would silently drop the partition.
+                fieldValue = serializePartitionValue(fieldType, o, ZoneOffset.UTC);
+            }
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
             // Resolve the partition field's SOURCE column name (case-preserved), matching the generic
             // "partition_columns" contract in IcebergConnectorMetadata.buildTableSchema; fall back to the
@@ -868,7 +927,7 @@ final class IcebergPartitionUtils {
             lastSnapshotId = UNKNOWN_SNAPSHOT_ID;
         }
         return new IcebergRawPartition(sb.toString(), partitionColumnNames, partitionValues, transforms,
-                lastUpdateTime, lastSnapshotId);
+                valueTypes, lastUpdateTime, lastSnapshotId);
     }
 
     /**
@@ -922,9 +981,14 @@ final class IcebergPartitionUtils {
         // timestamp). Equivalent to master's c.getType().isDate()||isDateV2() formatter switch.
         DateTimeFormatter formatter = sourceType.typeId() == TypeID.DATE ? RANGE_DATE_FORMAT : RANGE_DATETIME_FORMAT;
         return new RangeBuild(name, lower, upper,
-                Collections.singletonList(lower.format(formatter)),
-                Collections.singletonList(upper.format(formatter)),
+                Collections.singletonList(lower.format(formatter) + rangeOffset(sourceType)),
+                Collections.singletonList(upper.format(formatter) + rangeOffset(sourceType)),
                 lastUpdateTime, lastSnapshotId);
+    }
+
+    private static String rangeOffset(Type type) {
+        // Transform bounds are UTC instants; an explicit offset prevents session-zone reinterpretation.
+        return type.typeId() == TypeID.TIMESTAMP && ((TimestampType) type).shouldAdjustToUTC() ? "+00:00" : "";
     }
 
     /**
@@ -1007,11 +1071,18 @@ final class IcebergPartitionUtils {
         private final List<String> columnNames;
         private final List<String> values;
         private final List<String> transforms;
+        private final List<ConnectorType> types;
         private final long lastUpdateTime;
         private final long lastSnapshotId;
 
         IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
                 long lastUpdateTime, long lastSnapshotId) {
+            this(name, columnNames, values, transforms, Collections.emptyList(), lastUpdateTime, lastSnapshotId);
+        }
+
+        IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
+                List<ConnectorType> types, long lastUpdateTime, long lastSnapshotId) {
+            this.types = types;
             this.name = name;
             this.columnNames = columnNames;
             this.values = values;

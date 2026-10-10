@@ -41,6 +41,11 @@ final class TestStatementScope implements ConnectorStatementScope {
         return (T) cache.computeIfAbsent(key, k -> loader.get());
     }
 
+    /** Whether something was memoized under {@code key}, e.g. a connector's statement reuse map. */
+    boolean contains(String key) {
+        return cache.containsKey(key);
+    }
+
     @Override
     public void closeAll() {
         if (!closed.compareAndSet(false, true)) {

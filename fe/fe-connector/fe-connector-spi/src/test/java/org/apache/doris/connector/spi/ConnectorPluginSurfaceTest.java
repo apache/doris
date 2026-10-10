@@ -87,7 +87,7 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 13 adds the DiagnosticException opt-in, shared across engine and plugin loaders.
+        // Major 13 adds the DiagnosticException opt-in and textual write-input semantics on ConnectorColumn.
         Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
@@ -99,6 +99,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
+            ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,

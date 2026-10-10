@@ -9,7 +9,7 @@ multi_mv_test_base_mtmv	NORMAL	SUCCESS	true
 multi_mv_test_base_mtmv	NORMAL	SUCCESS	true
 
 -- !rename_column --
-multi_mv_test_base_mtmv	SCHEMA_CHANGE	SUCCESS	false
+multi_mv_test_base_mtmv	NORMAL	SUCCESS	true
 
 -- !success --
 multi_mv_test_base_mtmv	NORMAL	SUCCESS	true
@@ -21,7 +21,7 @@ multi_mv_test_base_mtmv	SCHEMA_CHANGE	SUCCESS	false
 multi_mv_test_base_mtmv	NORMAL	SUCCESS	true
 
 -- !drop_column --
-multi_mv_test_base_mtmv	SCHEMA_CHANGE	SUCCESS	false
+multi_mv_test_base_mtmv	NORMAL	SUCCESS	true
 
 -- !success --
 multi_mv_test_base_mtmv	NORMAL	SUCCESS	true

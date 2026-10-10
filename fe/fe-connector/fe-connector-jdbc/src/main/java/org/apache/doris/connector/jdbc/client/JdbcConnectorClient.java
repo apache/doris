@@ -211,8 +211,9 @@ public abstract class JdbcConnectorClient implements Closeable {
         this.onlySpecifiedDatabase = onlySpecifiedDatabase;
         this.includeDatabaseMap = includeDatabaseMap != null ? includeDatabaseMap : Collections.emptyMap();
         this.excludeDatabaseMap = excludeDatabaseMap != null ? excludeDatabaseMap : Collections.emptyMap();
-        this.enableMappingVarbinary = enableMappingVarbinary;
-        this.enableMappingTimestampTz = enableMappingTimestampTz;
+        // Deprecated flags cannot change the external logical type contract.
+        this.enableMappingVarbinary = true;
+        this.enableMappingTimestampTz = true;
     }
 
     // -- lifecycle --
@@ -312,6 +313,24 @@ public abstract class JdbcConnectorClient implements Closeable {
     }
 
     // -- connection helpers --
+
+    public boolean isNoBackslashEscapes() {
+        if (dbType != JdbcDbType.MYSQL && dbType != JdbcDbType.OCEANBASE) {
+            return false;
+        }
+        // Use the catalog connection so URL sessionVariables and server SQL mode are respected.
+        try (Connection connection = getConnection();
+                java.sql.Statement statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("SELECT @@SESSION.sql_mode")) {
+            if (!result.next()) {
+                throw new DorisConnectorException("MySQL did not return its session SQL mode");
+            }
+            return java.util.Arrays.stream(result.getString(1).split(","))
+                    .anyMatch(mode -> mode.trim().equalsIgnoreCase("NO_BACKSLASH_ESCAPES"));
+        } catch (SQLException e) {
+            throw new DorisConnectorException("Failed to read MySQL session SQL mode", e);
+        }
+    }
 
     public Connection getConnection() {
         ClassLoader old = Thread.currentThread().getContextClassLoader();

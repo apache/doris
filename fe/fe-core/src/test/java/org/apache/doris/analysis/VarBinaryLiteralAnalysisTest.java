@@ -72,7 +72,9 @@ public class VarBinaryLiteralAnalysisTest {
         VarBinaryLiteral ac = new VarBinaryLiteral(bytes("ac"));
 
         Assertions.assertEquals(0, ab.compareLiteral(ab));
-        Assertions.assertEquals(0, ab.compareLiteral(ab0)); // trailing zero equals
+        // Zero bytes are significant in VARBINARY, including at the end of a value.
+        Assertions.assertTrue(ab.compareLiteral(ab0) < 0);
+        Assertions.assertTrue(ab0.compareLiteral(ab) > 0);
         Assertions.assertTrue(ab.compareLiteral(ac) < 0);
         Assertions.assertTrue(ac.compareLiteral(ab) > 0);
 

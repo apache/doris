@@ -50,14 +50,14 @@ suite("test_uuid_parquet_native", "p0,external") {
                    DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"""
             sql """INSERT INTO uuid_parquet_native SELECT id,CAST(u AS UUID),CAST(a AS ARRAY<UUID>),
                    CAST(s AS STRUCT<k:UUID>) FROM ${source}"""
-            // Alternate mappings of the same file to exercise parsed-footer cache isolation.
+            // UUID annotations retain their logical type for either binary mapping option.
             String binarySource = source.replace("'format'='parquet'",
                     "'format'='parquet','enable_mapping_varbinary'='true'")
             qt_binary_schema "DESC FUNCTION ${binarySource}"
-            qt_binary_values """SELECT id,HEX(u),CAST(HEX(u) AS UUID) FROM ${binarySource}
+            qt_binary_values """SELECT id,u,CAST(u AS STRING) FROM ${binarySource}
                                 WHERE id < 12 ORDER BY id"""
             qt_external_schema "DESC FUNCTION ${source}"
-            qt_external_values "SELECT id,u,a,s,LENGTH(u),CAST(u AS UUID) FROM ${source} WHERE id < 12 ORDER BY id"
+            qt_external_values "SELECT id,u,a,s,LENGTH(CAST(u AS STRING)),CAST(u AS UUID) FROM ${source} WHERE id < 12 ORDER BY id"
             qt_external_group "SELECT u,COUNT(*),SUM(id) FROM ${source} GROUP BY u ORDER BY u"
             qt_external_join """SELECT COUNT(*) FROM ${source} l JOIN ${source} r
                                 ON l.u=r.u WHERE l.id < 12 AND r.id < 12"""

@@ -54,8 +54,9 @@ public class JdbcTypeHandlerFactory {
             case "SAP_HANA":
                 return new SapHanaTypeHandler();
             case "TRINO":
-            case "PRESTO":
                 return new TrinoTypeHandler();
+            case "PRESTO":
+                return new PrestoTypeHandler();
             case "GBASE":
                 return new GbaseTypeHandler();
             default:
