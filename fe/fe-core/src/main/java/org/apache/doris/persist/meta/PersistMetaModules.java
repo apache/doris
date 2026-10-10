@@ -44,7 +44,7 @@ public class PersistMetaModules {
             "globalFunction", "workloadGroups",
             "binlogs", "resourceGroups", "AnalysisMgrV2", "AsyncJobManager", "workloadSchedPolicy",
             "insertOverwrite", "plsql", "dictionaryManager", "indexPolicy", "KeyManagerStore",
-            "authenticationIntegrations", "roleMappings", "lanceIndexJobManager"
+            "authenticationIntegrations", "roleMappings"
     );
 
     // The modules in `CloudEnv`.
@@ -52,7 +52,10 @@ public class PersistMetaModules {
 
     // Modules in this list is deprecated and will not be saved in meta file. (also should not be in MODULE_NAMES)
     public static final ImmutableList<String> DEPRECATED_MODULE_NAMES = ImmutableList.of(
-            "loadJob", "cooldownJob", "AnalysisMgr", "mtmvJobManager", "JobTaskManager", "syncJob");
+            "loadJob", "cooldownJob", "AnalysisMgr", "mtmvJobManager", "JobTaskManager", "syncJob",
+            // Removed with the durable Lance index job framework; images written while it
+            // existed carry this (possibly empty) chunk and must stay readable.
+            "lanceIndexJobManager");
 
     static {
         MODULES_MAP = Maps.newHashMap();

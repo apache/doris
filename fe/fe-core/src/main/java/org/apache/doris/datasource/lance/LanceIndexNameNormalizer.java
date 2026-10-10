@@ -15,28 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.lance.job;
+package org.apache.doris.datasource.lance;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
  * Logical index name normalization v1, the only definition: the UTF-8 result
- * of Java {@code toLowerCase(Locale.ROOT)}. Both the display name and the
- * normalized bytes are persisted on the job; Doris preserves display case,
- * rejects new case-only duplicates, and fails mutation on ambiguous external
- * case-only collisions. No normalization migration or mixed-version fence
- * protocol exists.
+ * of Java {@code toLowerCase(Locale.ROOT)}. Doris preserves display case,
+ * rejects new case-only duplicates against authoritative metadata, and fails
+ * mutation on ambiguous external case-only collisions. No normalization
+ * migration exists.
  */
 public final class LanceIndexNameNormalizer {
-    /** Bound on the persisted logical index name, aligned with the external string bound. */
+    /** Bound on the logical index name, aligned with the external string bound. */
     public static final int MAX_INDEX_NAME_BYTES = 1024;
 
     private LanceIndexNameNormalizer() {
     }
 
     /**
-     * Normalization v1. The result is the identity bytes of the same-name fence key.
+     * Normalization v1. The result is the matching key for authoritative-metadata
+     * comparison and case-only duplicate rejection during the admission preflight.
      */
     public static String normalize(String displayName) {
         if (displayName == null) {
