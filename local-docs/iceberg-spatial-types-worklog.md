@@ -1,0 +1,293 @@
+# Iceberg 空间类型工作日志
+
+日期：2026-10-11  
+开发基线：`master`  
+任务 worktree：`/mnt/disk4/zhangyuze/doris-worktrees/master-67907`  
+任务分支：`feature/iceberg-spatial-types`  
+关联 PR：[#67907](https://github.com/apache/doris/pull/67907)
+
+## 1. 需求重新分析
+
+本任务的目标是在 Apache Doris `master` 分支上，以可审查、可验证、可持续维护的方式支持 Iceberg V3 的 `GEOMETRY` 和 `GEOGRAPHY` 类型。
+
+最终需要形成一条完整链路：
+
+```
+Iceberg V3 schema
+    -> FE 类型解析与元数据保留
+    -> Doris/Iceberg schema 双向映射
+    -> Nereids SQL 分析与写入校验
+    -> BE 空间值读取、WKB 转换和函数计算
+    -> 写回 Iceberg 并重新读取验证
+```
+
+需求重点不是单独增加两个类型，而是保证类型元数据、数据表示、分析校验和读写行为在整条链路上一致。
+
+## 2. PR #67907 已有内容
+
+根据已读取的 PR 相关聊天和评审记录，原 PR 已经完成或部分完成以下工作：
+
+- 增加 `GEOMETRY`、`GEOGRAPHY` 类型基础设施。
+- 保存 CRS、Geography Edge Algorithm 等空间类型元数据。
+- 增加 Doris 与 Iceberg 空间类型的双向 schema 映射。
+- 支持空间值读取、空间函数计算和写回，持久化使用标准原始 WKB。
+- 修复空间函数的 NULL 传播。
+- 修复投影 `GEOMETRY(EPSG:3857)` 的原始 WKB 访问。
+- 增强 legacy WKB 对带 SRID 的 EWKB 兼容解析。
+- 修复 Varbinary/Arrow 长度转换和空间类型校验顺序。
+- 增加类型解析、转换、WKB 读写和空间函数测试。
+- 已完成部分格式检查、静态检查和定向编译验证。
+
+原 PR 还明确排除了空间索引、bounds 裁剪、谓词下推、Paimon、Lance 和 GeoArrow。
+
+这些内容只能作为实现和评审资料，不能直接视为 `master` 分支上的验证结果。原工作主要在 4.1 分支上推进，提交较分散，且混有构建环境排查和临时验证过程。
+
+## 3. 当前工作判断
+
+### 已确认的基础事实
+
+- mentor 要求后续工作基于 `master`，不再继续在 4.1 上扩展。
+- 已创建干净的 master 任务线：
+  - 基线：`/mnt/disk4/zhangyuze/doris-worktrees/master-base`
+  - 任务 worktree：`/mnt/disk4/zhangyuze/doris-worktrees/master-67907`
+  - 分支：`feature/iceberg-spatial-types`
+- 任务 worktree 当前从 `master` 的 `dd456ab7a894` 创建，工作区干净。
+- 旧 4.1 worktree 和 PR 保留作为历史参考，不作为新的开发基线。
+
+### 需要重新确认的内容
+
+由于 master 与 4.1 存在代码和依赖差异，以下内容必须在 master 上重新定位和验证：
+
+- Iceberg 版本是否仍提供相同的 V3 `GEOMETRY`/`GEOGRAPHY` API。
+- FE 类型定义、Thrift 定义和 Nereids 类型转换是否已经存在或发生变化。
+- Iceberg schema 解析和 Doris schema 生成的实际入口。
+- CREATE、ALTER、ADD COLUMN 的空间类型校验路径。
+- BE 端空间列的物理读取、WKB 编码和列转换路径。
+- 现有空间函数对 NULL、SRID、CRS 和 Geography metadata 的行为。
+- master 当前回归测试环境是否具备 Iceberg V3 所需的 catalog、Parquet 和依赖。
+
+## 4. 工作范围
+
+### 本轮必须完成
+
+1. FE 空间类型和元数据基础设施。
+2. Iceberg V3 与 Doris 的双向 schema 映射。
+3. CRS 和 Geography Edge Algorithm 的默认值、合法值和往返一致性。
+4. CREATE/ALTER/ADD COLUMN 的空间类型校验。
+5. 真实 Nereids SQL 分析路径中的空间类型兼容性校验。
+6. 标准原始 WKB 的读取、计算和写回。
+7. Geometry/Geography 的 NULL、SRID、投影 CRS 和 metadata 行为。
+8. Iceberg 端到端写入、读取和空间函数回归。
+9. 与 master 代码结构匹配的单元测试、BE 测试和回归测试。
+
+### 明确不纳入本轮
+
+- 空间索引。
+- bounds 裁剪。
+- 谓词下推。
+- Paimon、Lance 或 GeoArrow 支持。
+- 重复 WKB 解析优化和大规模 COW/filter 性能压测。
+- 与本功能无关的 OIDC、认证插件或 TeamCity 基础设施修复。
+- 为绕过本地构建环境而修改 Doris 或第三方依赖源码。
+
+## 5. 分阶段工作计划
+
+### 阶段 0：master 基线审查
+
+- 检查 master 当前空间类型、Iceberg、Thrift 和 Nereids 相关代码。
+- 对照旧 PR 变更，建立“可复用、需重写、已不需要”清单。
+- 确认 Iceberg 依赖版本和 V3 类型 API。
+- 输出 master 上的实际入口、缺口和文件范围。
+
+完成标准：不修改业务代码，形成 master 适配清单。
+
+### 阶段 1：类型与元数据基础设施
+
+- 在 master 当前类型体系中补齐 `GEOMETRY`、`GEOGRAPHY`。
+- 处理 CRS、Edge Algorithm、默认值和非法值。
+- 补充 Catalog、Nereids、Thrift 的双向转换。
+- 添加类型 round-trip 和参数校验测试。
+
+完成标准：FE 类型可以创建、序列化、反序列化并保持 metadata 一致。
+
+### 阶段 2：Iceberg schema 双向映射
+
+- 实现 Iceberg `GEOMETRY`/`GEOGRAPHY` 到 Doris 类型的映射。
+- 实现 Doris 类型到 Iceberg V3 类型的映射。
+- 统一默认 CRS 的表示方式，避免 Iceberg 的 `null` 默认值与 Doris 显式默认值产生误判。
+- 校验 Geography algorithm 的枚举和值域。
+- 覆盖嵌套类型和不支持类型的明确失败路径。
+
+完成标准：schema 往返不丢失类型、CRS 和 Geography metadata。
+
+### 阶段 3：DDL 和真实分析链路
+
+- 覆盖 CREATE TABLE、ALTER TABLE、ADD COLUMN。
+- 验证 Iceberg V3 和 Parquet 前置条件。
+- 增加真实 Nereids `INSERT`、`INSERT ... SELECT` 和必要的 `MERGE` 分析测试。
+- 覆盖 Geometry/Geography kind、CRS、algorithm 不匹配。
+- 覆盖 NULL 写入可空空间列。
+
+完成标准：错误在正确的分析或 DDL 阶段被发现，错误信息稳定且不依赖直接调用内部 analyzer。
+
+### 阶段 4：空间值读写和函数闭环
+
+- 确认 Iceberg Parquet/ORC 物理值到 Doris 空间列的转换入口。
+- 统一标准原始 WKB 的读取和写回格式。
+- 验证投影 Geometry 的 WKB 访问。
+- 验证 legacy EWKB/SRID 的兼容行为。
+- 覆盖 mixed NULL/non-NULL 行。
+- 验证 `ST_AsText`、`ST_AsBinary`、`ST_X`、`ST_Y`、`ST_GeometryType`。
+- 验证 Geography 距离、关系和长度类函数。
+
+完成标准：写入 Iceberg 后重新读取，值、metadata、NULL 和函数结果均一致。
+
+### 阶段 5：测试、评审和提交整理
+
+- FE 定向单元测试。
+- BE 空间函数和 WKB 定向测试。
+- Iceberg 外表回归测试。
+- 生成并检查回归测试输出，不手写结果文件。
+- 执行格式、静态检查和相关编译。
+- 按单一主题拆分提交：类型基础设施、schema/DDL、读写闭环、测试修复。
+- 做一次范围审查，确认未混入环境脚本、构建产物或无关修改。
+
+完成标准：master 任务分支具备可审查提交历史和完整验证证据。
+
+## 6. 验收标准
+
+- master 上可以识别并保留 Iceberg V3 Geometry/Geography 类型。
+- Geometry/Geography schema 双向转换不丢失 CRS 和 Geography algorithm。
+- 默认 CRS、非法 CRS、非法 algorithm 和 metadata 不匹配行为有测试。
+- CREATE、ALTER、ADD COLUMN 和真实 SQL 分析链路有覆盖。
+- 标准 WKB 写入、读取和重新读取闭环通过。
+- NULL、SRID、投影 CRS 和 legacy EWKB 行为有明确结果。
+- 关键空间函数返回值被断言，而不是只检查执行成功。
+- FE、BE 和回归测试结果可区分代码失败与环境失败。
+- 不引入空间索引、bounds 裁剪、谓词下推或其他未批准范围。
+- 代码提交不包含 `local-docs/`、构建产物或临时环境修改。
+
+## 7. 风险和处理原则
+
+- **master 与 4.1 差异**：先重新定位入口，不直接整批 cherry-pick 旧提交。
+- **旧 PR 提交分散**：按功能重新组织提交，旧提交只作参考。
+- **FE UT OIDC 失败**：记录为 TeamCity 环境问题，不修改认证插件代码。
+- **本地 Lance/Cargo 构建失败**：使用开发机原生 SSH/Remote-SSH 执行；不修改 Doris 源码绕过。
+- **Iceberg 依赖或测试环境缺失**：先记录阻塞点，区分环境准备和功能实现，不能用未验证的临时依赖替代正式配置。
+- **测试范围扩大**：任何超出本日志范围的功能先单独确认，不在本任务中顺手加入。
+
+## 8. 当前下一步
+
+下一步执行阶段 0：只读审查 master 上的空间类型、Iceberg、Nereids、Thrift 和现有测试入口，形成与旧 PR 的迁移清单。完成后再开始阶段 1，不直接修改业务代码。
+
+
+
+## 9. 阶段 0 执行结果（2026-10-11）
+
+### master 当前架构证据
+
+1. Iceberg 类型映射入口已经是 Connector SPI：
+
+   - `fe/fe-connector/fe-connector-iceberg/.../IcebergTypeMapping.java`
+   - `fe/fe-connector/fe-connector-iceberg/.../IcebergSchemaBuilder.java`
+   - `fe/fe-connector/fe-connector-iceberg/.../IcebergSchemaUtils.java`
+   - `fe/fe-connector/fe-connector-iceberg/.../IcebergConnectorMetadata.java`
+
+   旧 PR 记录中的 `fe-core/.../IcebergUtils.java` 和 `DorisTypeToIcebergType.java` 在当前 master 路径中不存在，不能作为直接修改入口。
+
+2. 当前 `IcebergTypeMapping.fromIcebergType` 对 Iceberg V3 的 `GEOMETRY`、`GEOGRAPHY` 和 `TIMESTAMP_NANO` 统一返回 `UNSUPPORTED`。现有测试明确锁定了“表可以加载，但该列不可查询”的降级行为。
+
+3. 当前 `IcebergTypeMapping.toIcebergPrimitive` 只接受 Connector SPI 中已有的标量名称，没有 `GEOMETRY` 或 `GEOGRAPHY` 分支；`IcebergSchemaBuilder.convert` 对未知标量最终会抛出不支持异常。
+
+4. 当前 FE `PrimitiveType` 枚举和 Doris Thrift primitive 类型没有 `GEOMETRY`、`GEOGRAPHY`。因此只修改 Iceberg connector 映射，会得到一个 ConnectorType 名称，但 `ConnectorColumnConverter` 无法把它转换成真正的 Doris 类型，最终仍会降级为 `UNSUPPORTED`。
+
+5. 当前 BE Parquet 读取器已经识别 Parquet 的 `GEOMETRY`/`GEOGRAPHY` logical annotation，但把它们作为 `BYTE_ARRAY` 原始 payload 处理，不建立 Doris 空间类型。现有测试只验证原始 WKB 字节能够解码为字节列。
+
+### 对原 PR 方案的修正判断
+
+原 PR 的“增加 FE 空间类型 + Iceberg 双向映射 + WKB 读写”方向仍然有效，但实现入口和依赖关系已经过时。新的实现必须先决定空间类型在 Doris 内部的正式表示：
+
+- 如果目标是支持 `ST_*` 函数和类型检查，必须新增真正的 FE/Thrift/BE 空间类型，并贯通列、表达式、序列化和读写链路。
+- 如果只把 Iceberg 空间列映射成 VARBINARY，只能实现原始字节读写，不能满足原 PR 的空间函数、Geometry/Geography 区分、CRS 和 algorithm 校验目标。
+- 因此本任务采用“正式空间类型 + Connector SPI 透传 metadata + WKB 作为物理表示”的方向；不能用 UNSUPPORTED 或普通 VARBINARY 作为最终方案。
+
+### 阶段 0 产出
+
+阶段 0 已完成，形成以下迁移约束：
+
+- 不整批 cherry-pick 4.1 旧提交。
+- 先在 master 建立空间类型的最小跨层契约，再接入 Iceberg connector。
+- 先确认 Doris Thrift 和 BE 列类型的新增方式，再实现 connector 映射。
+- 先补可验证的类型和 WKB 单测，再加入 Iceberg 端到端回归。
+- 保留当前 Connector SPI 对未知外部类型的降级能力，但 Geometry/Geography 一旦进入正式支持路径，不能继续静默降级。
+
+## 10. 调整后的后续计划
+
+### 阶段 1 调整：正式空间类型契约
+
+先只做类型契约和最小闭环，不接 Iceberg DDL：
+
+- 评估 `PrimitiveType`、Doris Thrift、FE `Type/ScalarType`、Nereids `DataType` 的最小改动集合。
+- 明确 Geometry 与 Geography 是否共享一个物理列类型，以及 CRS/algorithm 存放位置。
+- 明确标准原始 WKB 的内存表示、NULL 表示和 metadata 传递方式。
+- 明确已有 BE `GeoShape`/空间函数能否复用，避免引入第二套空间值实现。
+- 为类型序列化、反序列化、Thrift round-trip 和非法 metadata 添加测试。
+
+阶段 1 完成前，不修改 Iceberg connector 的 Geometry 映射。
+
+### 阶段 2 调整：Connector SPI 和 Iceberg schema
+
+在正式类型契约确定后：
+
+- 为 ConnectorType 增加空间类型所需的最小 metadata carrier。
+- 修改 `IcebergTypeMapping` 支持 Geometry/Geography，并保留 CRS/algorithm。
+- 修改 `IcebergSchemaBuilder` 支持 Doris 空间类型写入 Iceberg V3 schema。
+- 修改 `IcebergSchemaUtils` 生成正确的 Thrift 字段描述。
+- 增加默认 CRS、非默认 CRS、不同 Edge Algorithm 和非法值测试。
+
+### 阶段 3 调整：分析与 DDL
+
+- 接入真实 CREATE/ALTER/ADD COLUMN 路径。
+- 验证 V3、Parquet 和嵌套类型约束。
+- 验证 Geometry/Geography 之间、CRS 之间、algorithm 之间的不兼容行为。
+- 验证 ConnectorType 到 FE 类型的转换不会回落到 UNSUPPORTED。
+- 增加真实 Nereids INSERT/INSERT SELECT 分析测试。
+
+### 阶段 4 调整：BE 物理读写和函数
+
+- 将 Parquet 的 GEOMETRY/GEOGRAPHY BYTE_ARRAY annotation 接入正式空间列，而不是停留在 raw byte fallback。
+- 复用现有 GeoShape/WKB 解析和空间函数实现；若不能复用，先拆出共享的 WKB 层。
+- 验证投影 Geometry、EWKB SRID、NULL 和 mixed rows。
+- 验证写回 Iceberg 后重新读取及关键 `ST_*` 函数结果。
+
+### 阶段 5 调整：验证和提交
+
+- 按“空间类型契约”“connector/schema”“BE 读写和函数”“回归测试”拆分提交。
+- 每个提交只包含对应模块和测试。
+- 使用 master 的标准 FE/BE/回归入口验证。
+- 明确区分代码缺陷、依赖缺失和 CI 环境失败。
+- 在完成端到端证据前，不宣称 PR 已完成。
+
+
+
+### 与旧 PR 的差异补充
+
+旧 PR 的空间实现并不只是 FE 代码，至少还包含：
+
+- Doris Thrift `TPrimitiveType.GEOMETRY/GEOGRAPHY`；
+- FE `PrimitiveType`、`ScalarType`、`Type` 和 Nereids 类型；
+- BE `DataTypeSpatial`、`ColumnSpatial` 和空间列序列化；
+- Iceberg Parquet/Arrow schema 和 writer；
+- Nereids 空间函数绑定与写入校验；
+- 大量 WKB、NULL、CRS、SRID 和回归测试。
+
+当前 master 的这些空间层文件尚不存在，但 BE 已有成熟的 `GeoShape`/WKB 函数实现以及 Iceberg Parquet 的 GEOMETRY/GEOGRAPHY annotation 识别。因此重做时应复用现有 GeoShape/WKB 能力，并把旧 PR 的“空间列、类型、writer、connector”改动分层迁移，不能只复制 FE 类型映射。
+
+
+## 执行记录：阶段 1（进行中）
+
+- 已将空间原生类型接入 master 当前的类型编号体系：保留 master 已使用的 `TIMESTAMP_NS=45`、`UUID=46`，新增 Thrift `GEOMETRY=47`、`GEOGRAPHY=48`；BE 内部枚举追加为 45/46，避免沿用旧 PR 在旧基线上的编号。
+- 已补齐 `PrimitiveType` 与 BE primitive type 的 Thrift 转换和字符串转换。
+- 已在 `TScalarType` / `PTypeNode` 预留 CRS 与 geography algorithm 元数据字段，并在 FE `ScalarType` 中加入默认值、构造、SQL 展示、Thrift 序列化、反序列化和相等性语义。
+- 当前仍未把空间类型接入表 DDL、Connector SPI、BE 物理列、Arrow/Parquet 读写或函数绑定；这些必须在基础类型编译通过后分阶段推进。
+- 风险控制：不直接 cherry-pick 旧 PR 后续提交；旧 PR 使用的 FE 路径和类型编号已与 master 发生漂移，后续只提取语义并按当前 SPI/模块边界重写。
