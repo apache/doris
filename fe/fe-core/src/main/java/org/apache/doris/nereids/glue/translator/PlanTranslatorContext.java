@@ -119,6 +119,26 @@ public class PlanTranslatorContext {
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
     private final RuntimeFilterContextV2 runtimeFilterV2Context;
 
+    /**
+     * Depth of fragment-merging binary nodes (hash join / nested loop join /
+     * set operation) whose children are being visited right now. Bucketed fusion
+     * removes the exchange node that would otherwise keep an olap scan in its own
+     * fragment; when the fused fragment is consumed by such a node the scan gets
+     * merged into a fragment that already contains other scans, which the
+     * scan-assignment jobs reject ("Not supported multiple scan multiple
+     * OlapTable but not contains colocate join or bucket shuffle join"). The
+     * translator therefore skips bucketed fusion while inside a merge child.
+     */
+    private int fragmentMergeChildDepth = 0;
+
+    /**
+     * Backend that the olap scan translated next has to be pinned to, or -1. Bucketed
+     * aggregation fusion sets it around the translation of the aggregate's child subtree,
+     * see PhysicalPlanTranslator#visitBucketedFusion; visitPhysicalOlapScan applies it
+     * before OlapScanNode#init builds the scan range locations.
+     */
+    private long bucketedFusionBackendId = -1;
+
     private boolean isTopMaterializeNode = true;
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
@@ -267,6 +287,43 @@ public class PlanTranslatorContext {
 
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
+    }
+
+    public void enterFragmentMergeChild() {
+        fragmentMergeChildDepth++;
+    }
+
+    public void exitFragmentMergeChild() {
+        fragmentMergeChildDepth--;
+    }
+
+    public boolean isInFragmentMergeChild() {
+        return fragmentMergeChildDepth > 0;
+    }
+
+    /**
+     * A distribute is an exchange boundary: the plan below it is translated into fragments
+     * of its own, so a fragment-merging ancestor (join / set operation / recursive union)
+     * cannot absorb a scan that sits below the exchange. Clears the fragment-merge child
+     * context while the child of the distribute is translated and returns the previous
+     * depth, which {@link #exitExchangeBoundary(int)} restores.
+     */
+    public int enterExchangeBoundary() {
+        int savedDepth = fragmentMergeChildDepth;
+        fragmentMergeChildDepth = 0;
+        return savedDepth;
+    }
+
+    public void exitExchangeBoundary(int savedDepth) {
+        fragmentMergeChildDepth = savedDepth;
+    }
+
+    public void setBucketedFusionBackendId(long backendId) {
+        this.bucketedFusionBackendId = backendId;
+    }
+
+    public long getBucketedFusionBackendId() {
+        return bucketedFusionBackendId;
     }
 
     /**

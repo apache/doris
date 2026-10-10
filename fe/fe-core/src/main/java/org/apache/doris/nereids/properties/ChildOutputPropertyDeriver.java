@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -215,10 +216,33 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case GLOBAL:
             case DISTINCT_LOCAL:
             case DISTINCT_GLOBAL:
+                // Bucketed hash agg fusion: when the one-phase GLOBAL aggregate
+                // will be fused with its distribute child into BucketedAggregationNode,
+                // the output is NOT hash-distributed (256-bucket internal hash is
+                // not shuffle-compatible). Advertise ANY to prevent parent operators
+                // from incorrectly skipping exchanges.
+                if (AggregateUtils.isBucketedHashAggFusible(agg, childOutputProperty.getDistributionSpec())
+                        && isShuffleCompatible(childOutputProperty.getDistributionSpec())) {
+                    return PhysicalProperties.ANY;
+                }
                 return new PhysicalProperties(childOutputProperty.getDistributionSpec());
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
+    }
+
+    /**
+     * Returns true if the child's distribution is a shuffle-compatible hash that the
+     * bucketed fusion pattern produces (ShuffleType.REQUIRE).  EXECUTION_BUCKETED is
+     * used by CTE dedup and colocate-join patterns — those should NOT be treated as
+     * bucketed-fusion output because their hash functions ARE shuffle-compatible.
+     */
+    private static boolean isShuffleCompatible(DistributionSpec distSpec) {
+        if (!(distSpec instanceof DistributionSpecHash)) {
+            return false;
+        }
+        DistributionSpecHash hashSpec = (DistributionSpecHash) distSpec;
+        return hashSpec.getShuffleType() == ShuffleType.REQUIRE;
     }
 
     @Override

@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
@@ -56,10 +58,30 @@ import java.util.stream.Collectors;
 public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate, CascadesContext ctx) {
-        aggregate = (PhysicalHashAggregate<? extends Plan>) super.visit(aggregate, ctx);
+        return projectAggregateCse(
+                (PhysicalHashAggregate<? extends Plan>) super.visit(aggregate, ctx));
+    }
 
-        // for multi-phases aggregate, only process the 1st phase aggregate
-        if (aggregate.child() instanceof PhysicalDistribute || aggregate.child() instanceof Aggregate) {
+    /**
+     * Shared CSE projection logic for PhysicalHashAggregate.
+     * Extracts common sub-expressions from
+     * aggregate function arguments into a project node beneath the aggregate.
+     *
+     * <p>For one-phase aggregates whose child is a PhysicalDistribute
+     * (aggregate -> distribute -> scan), the CSE project is inserted below the
+     * distribute (merged into the project that is already there, if any) so that
+     * the distribution-key slots stay intact and the exchange
+     * only carries the (already pruned) aggregate input. The translator's bucketed
+     * fusion (fusing one-phase aggregate + distribute into BucketedAggregationNode)
+     * builds directly on the distribute's child, so the fused plan naturally
+     * becomes BucketedAgg(sum(x), max(x)) -> Project(a+b AS x) -> scan and the
+     * common aggregate argument is evaluated once per row instead of once per
+     * aggregate function.</p>
+     */
+    private <T extends AbstractPhysicalPlan & Aggregate<? extends Plan>>
+            Plan projectAggregateCse(T aggregate) {
+        // For multi-phase aggregates, only process the 1st phase.
+        if (aggregate.child() instanceof Aggregate) {
             return aggregate;
         }
 
@@ -75,7 +97,6 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             inputSlots.addAll(expr.getInputSlots());
         }
         if (cseCandidates.isEmpty()) {
-            // no opportunity to generate cse
             return aggregate;
         }
         CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
@@ -83,7 +104,6 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             collector.collect(expr);
         }
         if (collector.commonExprByDepth.isEmpty()) {
-            // no opportunity to generate cse
             return aggregate;
         }
         if (aggregate.child() instanceof PhysicalProject) {
@@ -151,9 +171,80 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
                     project.getProjects(), ((PhysicalPlan) project.child()).getPhysicalProperties());
             project = project.withPhysicalPropertiesAndStats(projectPhysicalProperties, project.getStats());
-            aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
-                    .withAggOutput(aggOutputReplaced)
+            return (Plan) aggregate.withAggOutput(aggOutputReplaced)
                     .withChildren(project);
+        } else if (aggregate.child() instanceof PhysicalDistribute) {
+            // One-phase (INPUT_TO_RESULT) aggregate over a distribute
+            // (aggregate -> distribute -> scan): insert the CSE project between
+            // the distribute and its child, instead of between the aggregate and
+            // the distribute. This keeps the aggregate's child as a distribute
+            // (so bucketed fusion and the property machinery still see the same
+            // shape), and the project lands inside the scan
+            // fragment, so the common aggregate argument is computed once per row
+            // before the exchange. After bucketed fusion bypasses the distribute,
+            // the executed plan is BucketedAgg(sum(x), max(x)) -> Project(a+b AS x)
+            // -> scan.
+            //
+            // Only the one-phase shape reaches here with complex aggregate
+            // arguments: two-phase GLOBAL aggregates (BUFFER_TO_RESULT) reference
+            // the local phase's intermediate slots, so no CSE candidate is
+            // extracted for them anyway. Guard explicitly anyway to keep the
+            // intent clear and to stay safe if a future aggregate function
+            // surfaces a non-slot argument on the GLOBAL phase.
+            if (!(aggregate instanceof PhysicalHashAggregate)) {
+                return aggregate;
+            }
+            PhysicalHashAggregate<? extends Plan> hashAggregate =
+                    (PhysicalHashAggregate<? extends Plan>) aggregate;
+            if (hashAggregate.getAggPhase() != AggPhase.GLOBAL
+                    || hashAggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
+                return aggregate;
+            }
+            PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) aggregate.child();
+            List<NamedExpression> projections = new ArrayList<>();
+            projections.addAll(inputSlots);
+            projections.addAll(cseCandidates.values());
+            List<Slot> projectOutput = new ImmutableList.Builder<Slot>()
+                    .addAll(inputSlots)
+                    .addAll(slotMap.values())
+                    .build();
+            LogicalProperties projectLogicalProperties = new LogicalProperties(
+                    () -> projectOutput,
+                    () -> DataTrait.EMPTY_TRAIT
+            );
+            AbstractPhysicalPlan distributeChild = ((AbstractPhysicalPlan) distribute.child());
+            PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                    projections, distributeChild.getPhysicalProperties());
+            PhysicalProject<? extends Plan> project = new PhysicalProject<>(projections, Optional.empty(),
+                    projectLogicalProperties,
+                    projectPhysicalProperties,
+                    distributeChild.getStats(),
+                    distribute.child());
+            if (distributeChild instanceof PhysicalProject) {
+                // MergeProjectPostProcessor has already run, so a project stacked on an
+                // existing one stays in the plan: it costs an extra SelectNode, and above a
+                // CTE consumer both projects are translated onto the same multicast sink,
+                // which takes only one projection. Fold the CSE project into the existing
+                // one, and leave the aggregate untouched when they cannot be merged.
+                PhysicalProject<? extends Plan> childProject = (PhysicalProject<? extends Plan>) distributeChild;
+                Optional<List<NamedExpression>> mergedProjections = project.canMergeChildProjections(childProject)
+                        ? project.mergeProjections(childProject) : Optional.empty();
+                if (!mergedProjections.isPresent()) {
+                    return aggregate;
+                }
+                project = project.withProjectionsAndChild(mergedProjections.get(), childProject.child());
+                project = project.withPhysicalPropertiesAndStats(
+                        ChildOutputPropertyDeriver.computeProjectOutputProperties(project.getProjects(),
+                                ((PhysicalPlan) project.child()).getPhysicalProperties()),
+                        project.getStats());
+            }
+            // withChildren keeps the distribution spec and physical properties of the
+            // distribute unchanged; its output now comes from the CSE project, which
+            // still carries every distribution-key slot (the group-by slots are part
+            // of inputSlots above).
+            PhysicalDistribute<Plan> newDistribute = distribute.withChildren(ImmutableList.of(project));
+            return (Plan) aggregate.withAggOutput(aggOutputReplaced)
+                    .withChildren(newDistribute);
         } else {
             List<NamedExpression> projections = new ArrayList<>();
             projections.addAll(inputSlots);
@@ -174,11 +265,9 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     projectPhysicalProperties,
                     child.getStats(),
                     aggregate.child());
-            aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
-                    .withAggOutput(aggOutputReplaced)
+            return (Plan) aggregate.withAggOutput(aggOutputReplaced)
                     .withChildren(project);
         }
-        return aggregate;
     }
 
     private void getCseCandidatesFromAggregateFunction(Expression expr, Map<Expression, Alias> result,
