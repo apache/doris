@@ -55,6 +55,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_time.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -71,6 +72,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/orc/orc_file_type.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
@@ -5330,6 +5332,64 @@ TEST_F(NewOrcReaderTest, GetSchemaReturnsFileLocalColumns) {
     EXPECT_EQ(schema[1].name, "value");
     EXPECT_EQ(schema[1].type->get_primitive_type(), TYPE_STRING);
     EXPECT_TRUE(schema[1].type->is_nullable());
+}
+
+TEST_F(NewOrcReaderTest, FileMarkerRestoresCanonicalChildrenRecursively) {
+    auto reader = create_reader();
+    auto file_schema = create_orc_file_type();
+    format::ColumnDefinition field;
+    ASSERT_TRUE(reader->_fill_schema_field(*file_schema, 0, "f", &field).ok());
+    EXPECT_EQ(field.type->get_primitive_type(), TYPE_FILE);
+    ASSERT_EQ(field.children.size(), DataTypeFile::FIELD_COUNT);
+    const DataTypeFile file_type;
+    for (size_t i = 0; i < field.children.size(); ++i) {
+        EXPECT_EQ(field.children[i].name, file_type.get_element_name(i));
+        EXPECT_TRUE(field.children[i].type->equals(*file_type.get_element(i)));
+    }
+    auto map_schema =
+            ::orc::createMapType(::orc::createPrimitiveType(::orc::STRING), std::move(file_schema));
+    auto array_schema = ::orc::createListType(std::move(map_schema));
+    auto struct_schema = ::orc::createStructType();
+    struct_schema->addStructField("assets", std::move(array_schema));
+    const auto expected = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(
+                    std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeMap>(
+                            make_nullable(std::make_shared<DataTypeString>()),
+                            make_nullable(std::make_shared<DataTypeFile>())))))},
+            Strings {"assets"}));
+    EXPECT_TRUE(reader->_convert_to_doris_type(*struct_schema)->equals(*expected));
+}
+
+TEST_F(NewOrcReaderTest, FileValidationWaitsForAncestorNullMaps) {
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    const auto type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeFile>())}, Strings {"asset"}));
+    auto schema = ::orc::createStructType();
+    schema->addStructField("asset", create_orc_file_type());
+    auto source = type->create_column();
+    File invalid(DataTypeFile::FIELD_COUNT);
+    invalid[0] = Field::create_field<TYPE_STRING>("relative/path");
+    source->insert(Field::create_field<TYPE_STRUCT>(
+            Struct {Field::create_field<TYPE_FILE>(std::move(invalid))}));
+    auto batch = schema->createRowBatch(1, *::orc::getDefaultPool(), false, false);
+    Arena arena;
+    DataTypeSerDe::FormatOptions options;
+    // The raw SerDe deliberately defers validation until all enclosing masks are known.
+    ASSERT_TRUE(type->get_serde()
+                        ->write_column_to_orc("UTC", *source, nullptr, batch.get(), 0, 1, arena,
+                                              options)
+                        .ok());
+    auto visible = type->create_column();
+    EXPECT_FALSE(reader->_decode_column(*schema, *schema, *batch, visible, 1, nullptr).ok());
+    batch->hasNulls = true;
+    batch->notNull[0] = false;
+    auto masked = type->create_column();
+    const auto status = reader->_decode_column(*schema, *schema, *batch, masked, 1, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(masked->size(), 1);
+    EXPECT_TRUE(masked->is_null_at(0));
 }
 
 TEST_F(NewOrcReaderTest, GetSchemaReturnsExpectedVirtualColumnNullability) {

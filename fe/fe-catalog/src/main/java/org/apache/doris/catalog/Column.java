@@ -24,7 +24,9 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonPreProcessable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -46,12 +48,12 @@ import java.util.Set;
 /**
  * This class represents the column-related metadata.
  */
-public class Column implements GsonPostProcessable {
+public class Column implements GsonPostProcessable, GsonPreProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
     // all shadow indexes should have this prefix in name
     public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
-    // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // NOTE: you should name hidden column start with '__DORIS_' !
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
@@ -82,7 +84,7 @@ public class Column implements GsonPostProcessable {
     public static final String STREAM_CHANGE_TYPE_COL = "__DORIS_STREAM_CHANGE_TYPE_COL__";
     public static final String STREAM_SEQ_COL = "__DORIS_STREAM_SEQUENCE_COL__";
     public static final String STREAM_LSN_COL = "__DORIS_STREAM_LSN_COL__";
-    // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // NOTE: you should name hidden column start with '__DORIS_' !
 
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
@@ -253,11 +255,12 @@ public class Column implements GsonPostProcessable {
     }
 
     public Column(String name, PrimitiveType dataType) {
-        this(name, ScalarType.createType(dataType), false, null, false, null, "");
+        this(name, dataType == PrimitiveType.FILE ? Type.FILE : ScalarType.createType(dataType),
+                false, null, false, null, "");
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
-        this(name, ScalarType.createType(dataType), isAllowNull);
+        this(name, dataType == PrimitiveType.FILE ? Type.FILE : ScalarType.createType(dataType), isAllowNull);
     }
 
     public Column(String name, PrimitiveType dataType, int len, int precision, int scale, boolean isAllowNull) {
@@ -442,6 +445,13 @@ public class Column implements GsonPostProcessable {
                 c.setIsAllowNull(field.getContainsNull());
                 column.addChildrenColumn(c);
             }
+        } else if (type.isFileType()) {
+            int childId = 0;
+            for (StructField field : ((FileType) type).getFields()) {
+                Column child = new Column(field.getName(), field.getType(), true);
+                child.setUniqueId(childId++);
+                column.addChildrenColumn(child);
+            }
         } else if (type.isVariantType() && type instanceof VariantType) {
             // variant may contain predefined structured fields
             ArrayList<VariantField> fields = ((VariantType) type).getPredefinedFields();
@@ -561,6 +571,9 @@ public class Column implements GsonPostProcessable {
     // decimal/decimal32/decimal64/decimal128I/decimal256
     // ipv4/ipv6/uuid
     public boolean isSupportBloomFilter() {
+        if (type.typeContainsFile()) {
+            return false;
+        }
         PrimitiveType pType = getDataType();
         return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
                 || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
@@ -1036,6 +1049,7 @@ public class Column implements GsonPostProcessable {
                 break;
             case ARRAY:
             case MAP:
+            case FILE:
             case STRUCT:
                 sb.append(type.toString());
                 break;
@@ -1087,8 +1101,29 @@ public class Column implements GsonPostProcessable {
         return defaultValue != null || realDefaultValue != null || defaultValueExprDef != null;
     }
 
+    /** Verify redundant column children agree with the canonical FILE type. */
+    public void validateFileSchema() {
+        if (type.isFileType()) {
+            Preconditions.checkArgument(children != null && children.size() == FileType.FIELD_COUNT,
+                    "FILE column requires six canonical children");
+            List<StructField> fields = new ArrayList<>();
+            for (int i = 0; i < children.size(); i++) {
+                Column child = children.get(i);
+                Preconditions.checkArgument(child.getUniqueId() == i, "Invalid FILE child unique ID at position %s", i);
+                fields.add(new StructField(child.getName(), child.getType(), null, child.isAllowNull()));
+            }
+            FileType.validateFields(fields);
+        }
+    }
+
+    @Override
+    public void gsonPreProcess() {
+        validateFileSchema();
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
+        validateFileSchema();
         // This just for bugfix. Because when user upgrade from 0.x to 1.1.x,
         // the length of String type become 1. The reason is not very clear and maybe fixed by #14275.
         // Here we try to rectify the error string length, by setting all String' length to MAX_STRING_LENGTH

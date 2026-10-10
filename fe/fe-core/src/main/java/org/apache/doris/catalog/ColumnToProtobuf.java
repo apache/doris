@@ -32,6 +32,7 @@ import java.util.Set;
 public class ColumnToProtobuf {
     public static OlapFile.ColumnPB toPb(Column column, Set<String> bfColumns, List<Index> indexes)
             throws DdlException {
+        column.validateFileSchema();
         OlapFile.ColumnPB.Builder builder = OlapFile.ColumnPB.newBuilder();
 
         // when doing schema change, some modified column has a prefix in name.
@@ -113,6 +114,17 @@ public class ColumnToProtobuf {
             builder.addChildrenColumns(toPb(k, Sets.newHashSet(), Lists.newArrayList()));
             Column v = column.getChildren().get(1);
             builder.addChildrenColumns(toPb(v, Sets.newHashSet(), Lists.newArrayList()));
+        } else if (column.getType().isFileType()) {
+            for (int i = 0; i < FileType.FIELD_COUNT; i++) {
+                OlapFile.ColumnPB child = toPb(column.getChildren().get(i), Sets.newHashSet(), Lists.newArrayList());
+                if (i == 5) {
+                    // VARBINARY is the logical FILE child; STRING is its binary-safe tablet storage carrier.
+                    child = child.toBuilder().setType("STRING")
+                            .setLength(getFieldLengthByType(PrimitiveType.STRING, ScalarType.MAX_STRING_LENGTH))
+                            .setIndexLength(0).build();
+                }
+                builder.addChildrenColumns(child);
+            }
         } else if (column.getType().isStructType()) {
             List<Column> childrenColumns = column.getChildren();
             for (Column c : childrenColumns) {
@@ -181,6 +193,8 @@ public class ColumnToProtobuf {
                 return stringLength + 2; // sizeof(OLAP_VARCHAR_MAX_LENGTH)
             case STRING:
                 return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
+            case VARBINARY:
+                return stringLength < 0 ? ScalarType.MAX_VARBINARY_LENGTH : stringLength;
             case JSONB:
                 return stringLength + 4; // sizeof(OLAP_JSONB_MAX_LENGTH)
             case ARRAY:
@@ -195,6 +209,7 @@ public class ColumnToProtobuf {
                 return 32;
             case DECIMALV2:
                 return 12; // use 12 bytes in olap engine.
+            case FILE:
             case STRUCT:
                 return 65535;
             case MAP:

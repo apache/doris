@@ -446,7 +446,10 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                     expression = analyzer.analyze(expression);
                 } else {
                     if (column.isAllowNull()) {
-                        expression = new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+                        // A typed FILE source needs a typed NULL default, without attempting
+                        // the intentionally unsupported VARCHAR -> FILE SQL conversion.
+                        expression = new NullLiteral(slotDescriptor.getType().typeContainsFile()
+                                ? DataType.fromCatalogType(slotDescriptor.getType()) : VarcharType.SYSTEM_DEFAULT);
                     } else {
                         expression = null;
                     }

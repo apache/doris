@@ -619,6 +619,9 @@ public class MaterializedViewHandler extends AlterHandler {
         }
 
         for (Column column : newMVColumns) {
+            if (column.isKey() && column.getType().typeContainsFile()) {
+                throw new DdlException("FILE cannot be a materialized view key: " + column.getName());
+            }
             // check c.2
             if (column.isKey() && column.getType().isFloatingPointType()) {
                 throw new DdlException("Do not support float/double type on key column, you can change it to decimal");
@@ -665,9 +668,10 @@ public class MaterializedViewHandler extends AlterHandler {
             newColumn.setAggregationType(AggregateType.NONE, true);
             newMVColumns.add(newColumn);
         }
-        // if the column is complex type, we forbid to create materialized view
+        // FILE and containers holding FILE can be carried as non-key payload columns.
         for (Column column : newMVColumns) {
-            if (column.getDataType().isComplexType() || column.getDataType().isJsonbType()) {
+            boolean filePayload = column.getType().typeContainsFile() && !column.isKey();
+            if (!filePayload && (column.getDataType().isComplexType() || column.getDataType().isJsonbType())) {
                 throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
                         + "to create materialized view");
             }

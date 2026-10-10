@@ -133,6 +133,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
                 quote_char = 0;
                 has_quote = !has_quote;
             }
+        } else if (options.strict_json_strings && has_quote && c == '\\' && idx + 1 < slice_size) {
+            // A JSON escape cannot close the string or introduce an array element delimiter.
+            ++idx;
         } else if (!has_quote && (c == '[' || c == '{')) {
             ++nested_level;
         } else if (!has_quote && (c == ']' || c == '}')) {

@@ -135,6 +135,7 @@ public class InPredicate extends Expression {
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        Expression.checkFileComparison(this);
         List<Expression> arguments = getArguments();
         if (arguments.get(0).getDataType().isStructType()) {
             // we should check in value list is all struct type

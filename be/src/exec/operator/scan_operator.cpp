@@ -425,6 +425,29 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
         }
         slotref = std::dynamic_pointer_cast<VSlotRef>(VExpr::expr_without_cast(child));
     }
+    // FILE has no scalar value range. Its parent null map can still use the ordinary
+    // null predicate, without comparing FILE values or addressing a child as a slot.
+    if (!root->is_rf_wrapper() && expr_root->node_type() == TExprNodeType::FUNCTION_CALL &&
+        expr_root->children().size() == 1 && expr_root->children()[0]->is_slot_ref() &&
+        slotref->data_type()->get_primitive_type() == TYPE_FILE) {
+        auto* file_slot = _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc.at(
+                slotref->slot_id());
+        auto* fn_call = dynamic_cast<VectorizedFnCall*>(expr_root.get());
+        if (fn_call &&
+            (fn_call->fn().name.function_name == "is_null_pred" ||
+             fn_call->fn().name.function_name == "is_not_null_pred") &&
+            file_slot->get_virtual_column_expr() == nullptr &&
+            can_push_down_column_predicate(file_slot)) {
+            pdt = _should_push_down_is_null_predicate(fn_call);
+            if (pdt != PushDownType::UNACCEPTABLE) {
+                slot = file_slot;
+                _slot_id_to_predicates[slot->id()].push_back(NullPredicate::create_shared(
+                        _parent->operator_row_desc_before_projection().get_column_id(slot->id()),
+                        slot->col_name(), fn_call->fn().name.function_name == "is_null_pred",
+                        TYPE_FILE));
+            }
+        }
+    }
     if (_is_predicate_acting_on_slot(expr_root->children(), &slot, &range)) {
         Status status = Status::OK();
         std::visit(

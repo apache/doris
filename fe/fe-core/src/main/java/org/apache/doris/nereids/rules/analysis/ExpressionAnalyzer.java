@@ -604,6 +604,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             unboundFunction = preProcessUnboundFunction(unboundFunction, context);
         }
 
+        // Some aggregate constructors discard DISTINCT (for example ANY_VALUE). Check the SQL modifier first.
+        if (unboundFunction.isDistinct()) {
+            unboundFunction.children().forEach(argument -> Expression.checkFileKey(argument,
+                    "DISTINCT aggregate"));
+        }
         // bind function
         List<Object> arguments = constructUnboundFunctionArguments(unboundFunction);
         String dbName = unboundFunction.getDbName();

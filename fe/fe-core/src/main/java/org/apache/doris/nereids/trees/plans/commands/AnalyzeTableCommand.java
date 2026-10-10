@@ -144,6 +144,15 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
             }
         }
         analyzeProperties.check();
+        if (analyzeProperties.getAnalysisType() == AnalysisInfo.AnalysisType.HISTOGRAM) {
+            for (String name : columnNames) {
+                Column column = table instanceof OlapTable
+                        ? ((OlapTable) table).getVisibleColumn(name) : table.getColumn(name);
+                if (column.getType().isFileType()) {
+                    throw new AnalysisException("FILE histogram statistics are unavailable");
+                }
+            }
+        }
 
         if (analyzeProperties.isSync()
                 && (analyzeProperties.isAutomatic() || analyzeProperties.getPeriodTimeInMs() != 0)) {

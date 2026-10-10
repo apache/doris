@@ -68,6 +68,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
     OLAP_FIELD_TYPE_TIMESTAMP_NS = 41,
     OLAP_FIELD_TYPE_UUID = 42,
+    OLAP_FIELD_TYPE_FILE = 43,
 };
 
 constexpr bool field_is_slice_type(const FieldType& field_type) {

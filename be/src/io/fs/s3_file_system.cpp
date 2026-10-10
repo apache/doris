@@ -291,6 +291,39 @@ Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const 
     return Status::OK();
 }
 
+Status S3FileSystem::stat_impl(const Path& path, FileStat* metadata,
+                               FileStatContext* context) const {
+    const auto key = DORIS_TRY(get_key(path));
+    const auto client = _client->get();
+    CHECK_S3_CLIENT(client);
+    const ObjStoragePath object {.bucket = _bucket, .key = key};
+    if (context->is_cancelled && context->is_cancelled()) {
+        return Status::Cancelled("File stat cancelled");
+    }
+    auto result = client->head_object(object);
+    if (context->is_cancelled && context->is_cancelled()) {
+        return Status::Cancelled("File stat cancelled");
+    }
+    if (!result.resp.ok()) {
+        return std::move(
+                Status(result.resp.status.code, std::move(result.resp.status.msg))
+                        .append(fmt::format("failed to head s3 file {}", full_s3_path(key))));
+    }
+    FileStat value {.size = result.file_size, .content_type = std::move(result.content_type)};
+    if (result.etag) {
+        std::string_view etag(*result.etag);
+        if (etag.size() >= 2 && etag.front() == '"' && etag.back() == '"') {
+            etag.remove_prefix(1);
+            etag.remove_suffix(1);
+        }
+        if (!etag.empty()) {
+            value.checksum = "ETAG:" + std::string(etag);
+        }
+    }
+    *metadata = std::move(value);
+    return Status::OK();
+}
+
 Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                                bool* exists) {
     // For object storage, this path is always not exist.

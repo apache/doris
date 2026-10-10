@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -45,10 +46,23 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFile;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFileOuter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FileDataSize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -137,6 +151,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -147,7 +162,6 @@ import java.util.stream.Collectors;
  * Utils for type coercion.
  */
 public class TypeCoercionUtils {
-
     /**
      * numeric type precedence for type promotion.
      * bigger numeric has smaller ordinal
@@ -192,10 +206,22 @@ public class TypeCoercionUtils {
                 && Cast.castNullable(false, sourceType, targetType);
     }
 
-    /**
-     * Return Optional.empty() if we cannot do implicit cast.
-     */
+    /** Reject representation changes involving FILE before NULL folding can erase the source type. */
+    public static void checkImplicitFileCast(DataType source, DataType target) {
+        if ((source.typeContainsFile() || target.typeContainsFile())
+                && !implicitCast(source, target).isPresent()) {
+            throw new AnalysisException("Cannot implicitly convert " + source + " to " + target);
+        }
+    }
+
+    /** Return Optional.empty() if we cannot do implicit cast. */
     public static Optional<DataType> implicitCast(DataType input, DataType expected) {
+        if (expected instanceof AnyDataType || expected instanceof FollowToAnyDataType) {
+            return implicitCastPrimitive(input, expected);
+        }
+        if (input.isFileType() || expected.isFileType()) {
+            return input.isNullType() || input.equals(expected) ? Optional.of(expected) : Optional.empty();
+        }
         if (input instanceof ArrayType && expected instanceof ArrayType) {
             Optional<DataType> itemType = implicitCast(
                     ((ArrayType) input).getItemType(), ((ArrayType) expected).getItemType());
@@ -229,6 +255,8 @@ public class TypeCoercionUtils {
                 }
             }
             return Optional.of(new StructType(newFields));
+        } else if (input.typeContainsFile() || expected.typeContainsFile()) {
+            return input.isNullType() ? Optional.of(expected) : Optional.empty();
         } else if (input instanceof VariantType && expected instanceof JsonType) {
             // JSON functions require users to make this representation change explicit.
             return Optional.empty();
@@ -546,6 +574,7 @@ public class TypeCoercionUtils {
      * cast input type if input's datatype is not same with dateType.
      */
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
+        TypeCoercionUtils.checkImplicitFileCast(input.getDataType(), targetType);
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
         } else if (input.getDataType().equals(targetType)
@@ -573,10 +602,11 @@ public class TypeCoercionUtils {
             return TypeCoercionUtils.castIfNotSameType(expression, targetType);
         } else {
             try {
+                TypeCoercionUtils.checkImplicitFileCast(expression.getDataType(), targetType);
                 checkCanCastTo(expression.getDataType(), targetType);
             } catch (UnboundException e) {
                 // Source type not yet known (UnboundFunction, UnboundSlot, ...);
-                // CheckCast in the normal analysis pipeline validates after binding.
+                // Cast's legality check validates implicit FILE conversion after binding, before folding.
             }
             return TypeCoercionUtils.unSafeCast(expression, targetType);
         }
@@ -586,6 +616,7 @@ public class TypeCoercionUtils {
      * like castIfNotSameType does, but varchar or char type would be cast to target length exactly
      */
     public static Expression castIfNotSameTypeStrict(Expression input, DataType targetType) {
+        TypeCoercionUtils.checkImplicitFileCast(input.getDataType(), targetType);
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
         } else if (input.getDataType().equals(targetType)) {
@@ -840,18 +871,74 @@ public class TypeCoercionUtils {
         });
     }
 
-    /**
-     * process BoundFunction type coercion
-     */
+    /** Only COUNT, ELEMENT_AT and FILE functions accept FILE-containing arguments. */
+    public static void checkFileFunction(BoundFunction function) {
+        String name = function.getName().toLowerCase(Locale.ROOT);
+        if (function instanceof Combinator) {
+            checkFileFunction(((Combinator) function).getNestedFunction());
+        }
+        if (function instanceof AggregateFunction && ((AggregateFunction) function).isDistinct()) {
+            function.getArguments().forEach(arg -> Expression.checkFileKey(arg, "DISTINCT " + name));
+        }
+        if (function instanceof Udf || function instanceof AliasUdf) {
+            if (function instanceof PythonUdf || function instanceof PythonUdaf || function instanceof PythonUdtf) {
+                // Replayed functions bypass CREATE validation. Check declared types too, since NULL
+                // arguments and scalar arguments cannot expose unsupported return/intermediate types.
+                FunctionSignature signature = function.getSignatures().get(0);
+                org.apache.doris.catalog.Type intermediateType = null;
+                if (function instanceof PythonUdaf) {
+                    intermediateType = ((org.apache.doris.catalog.AggregateFunction)
+                            ((PythonUdaf) function).getCatalogFunction()).getIntermediateType();
+                }
+                if (signature.returnType.typeContainsFile()
+                        || signature.argumentsTypes.stream().anyMatch(DataType::typeContainsFile)
+                        || (intermediateType != null && intermediateType.typeContainsFile())) {
+                    throw new AnalysisException("PYTHON_UDF does not support FILE or a type containing FILE");
+                }
+            } else {
+                FunctionSignature signature = function.getSignatures().get(0);
+                if (signature.returnType.typeContainsFile()
+                        || signature.argumentsTypes.stream().anyMatch(DataType::typeContainsFile)) {
+                    throw new AnalysisException(name + " does not support FILE or a type containing FILE");
+                }
+            }
+        }
+        if (!(function instanceof Count || function instanceof ElementAt || function instanceof ToFile
+                || function instanceof FileDataSize || function instanceof ExplodeFile
+                || function instanceof ExplodeFileOuter)) {
+            function.getArguments().forEach(arg -> {
+                if (arg instanceof Lambda) {
+                    // Higher-order binding packs real input arrays into the lambda closure.
+                    Lambda lambda = (Lambda) arg;
+                    Expression.checkFileKey(lambda.getLambdaFunction(), name);
+                    lambda.getLambdaArguments().forEach(argument ->
+                            Expression.checkFileKey(argument.getArrayExpression(), name));
+                } else {
+                    Expression.checkFileKey(arg, name);
+                }
+            });
+        }
+        // Constructors and higher-order MAP functions cannot produce FILE keys.
+        if (function.getDataType().isMapType()) {
+            MapType map = (MapType) function.getDataType();
+            if (map.getKeyType().typeContainsFile()) {
+                throw new AnalysisException("FILE cannot be used in MAP keys");
+            }
+        }
+    }
+
+    /** Process bound function type coercion. */
     public static Expression processBoundFunction(BoundFunction boundFunction) {
         // check
         boundFunction.checkLegalityBeforeTypeCoercion();
         if (boundFunction instanceof CreateMap && boundFunction.arity() == 0) {
             return new MapLiteral();
         }
+        TypeCoercionUtils.checkFileFunction(boundFunction);
 
         // type coercion
-        return implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
+        Expression result = implicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
+        return result instanceof ElementAt ? ((ElementAt) result).rewriteFileAccess() : result;
     }
 
     /**
@@ -1245,6 +1332,10 @@ public class TypeCoercionUtils {
             return Optional.of(right);
         } else if (right instanceof NullType) {
             return Optional.of(left);
+        } else if ((left.typeContainsFile() || right.typeContainsFile())
+                && !((left.isArrayType() && right.isArrayType())
+                        || (left.isMapType() && right.isMapType()) || (left.isStructType() && right.isStructType()))) {
+            return Optional.empty();
         } else if (left instanceof VariantType && right instanceof VariantType) {
             return findCommonVariantType();
         } else if (left instanceof VariantType) {
@@ -2582,6 +2673,9 @@ public class TypeCoercionUtils {
      */
     @Deprecated
     private static Optional<DataType> findWiderTypeForTwoForCaseWhen(DataType left, DataType right) {
+        if (left.typeContainsFile() || right.typeContainsFile()) {
+            return findWiderTypeForTwo(left, right, false, true);
+        }
         // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
         Optional<DataType> commonType = findCommonComplexTypeForCaseWhen(left, right);
         if (commonType.isPresent()) {

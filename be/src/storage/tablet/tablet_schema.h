@@ -204,18 +204,7 @@ public:
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
     std::shared_ptr<const IDataType> get_vec_type() const;
 
-    Status check_valid() const {
-        if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
-            type() != FieldType::OLAP_FIELD_TYPE_STRUCT &&
-            type() != FieldType::OLAP_FIELD_TYPE_MAP) {
-            return Status::OK();
-        }
-        if (is_bf_column()) {
-            return Status::NotSupported("Do not support bloom filter index, type={}",
-                                        get_string_by_field_type(type()));
-        }
-        return Status::OK();
-    }
+    Status check_valid() const;
 
     void set_precision(int precision) {
         _precision = precision;

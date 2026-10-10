@@ -93,7 +93,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (info.rowCount == 0 && tableSample != null) {
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
-            job.appendBuf(this, Collections.singletonList(new ColStatsData(statsId)));
+            job.appendBuf(this, Collections.singletonList(new ColStatsData(statsId, isFileColumn())));
             return;
         }
         if (tableSample != null) {
@@ -115,7 +115,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }
         // Get basic stats, including min and max.
-        ResultRow minMax = collectMinMax();
+        ResultRow minMax = isFileColumn() ? null : collectMinMax();
         String min = StatisticsUtil.escapeSQL(minMax != null && minMax.getValues().size() > 0
                 ? minMax.get(0) : null);
         String max = StatisticsUtil.escapeSQL(minMax != null && minMax.getValues().size() > 1
@@ -132,7 +132,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         getSampleParams(params, tableRowCount, collectInfo);
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql;
-        if (collectInfo.algorithm == AnalyzeSampleAlgorithm.DUJ1) {
+        if (isFileColumn()) {
+            sql = stringSubstitutor.replace(FILE_ANALYZE_TEMPLATE);
+        } else if (collectInfo.algorithm == AnalyzeSampleAlgorithm.DUJ1) {
             sql = stringSubstitutor.replace(DUJ1_ANALYZE_TEMPLATE);
         } else {
             sql = stringSubstitutor.replace(LINEAR_ANALYZE_TEMPLATE);
@@ -361,6 +363,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      */
     protected void setSampleParamsByAlgorithm(Map<String, String> params, long tableRowCount,
             AnalyzeSampleAlgorithm algorithm) {
+        if (isFileColumn()) {
+            return;
+        }
         if (algorithm == AnalyzeSampleAlgorithm.DUJ1) {
             params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
@@ -385,7 +390,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         } else {
             Map<String, String> params = buildSqlParams();
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            if (shouldCollectHotValue()) {
+            if (isFileColumn()) {
+                collectFullFileStatistics(params);
+            } else if (shouldCollectHotValue()) {
                 params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
                 params.put("subStringColName", getStringTypeColName(col));
                 params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)");

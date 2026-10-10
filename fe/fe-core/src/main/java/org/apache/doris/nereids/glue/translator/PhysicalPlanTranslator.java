@@ -2278,6 +2278,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, context);
+            if (inputPlanNode instanceof OlapScanNode) {
+                context.applyFileScanAccessPaths((OlapScanNode) inputPlanNode);
+            }
         } else {
             TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
             inputPlanNode.setProjectList(projectionExprs);

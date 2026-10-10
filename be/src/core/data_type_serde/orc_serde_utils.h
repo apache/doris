@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstring>
 #include <orc/Vector.hh>
 #include <vector>
@@ -28,6 +29,10 @@
 
 namespace doris {
 namespace orc_serde_utils {
+
+// URI is required; optional FILE children retain canonical names, order and kinds.
+Status validate_orc_file_type(const ::orc::Type& type,
+                              std::array<int, 6>* child_positions = nullptr);
 
 size_t orc_decode_row_count(size_t rows, const std::vector<size_t>* selected_rows);
 size_t orc_source_row_at(size_t row, const std::vector<size_t>* selected_rows);

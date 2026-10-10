@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -92,9 +93,23 @@ public class JsonFileFormatProperties extends FileFormatProperties {
         }
     }
 
+    public void checkSupportedCompressionType(boolean isWrite) {
+        if (isWrite) {
+            if (compressionType == TFileCompressType.UNKNOWN) {
+                compressionType = TFileCompressType.PLAIN;
+            }
+            // JSON and CSV OUTFILE use the same text writer compression codecs.
+            if (!CsvFileFormatProperties.SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.contains(compressionType)) {
+                throw new AnalysisException(
+                        "json compression type [" + compressionType.name() + "] is invalid for writing");
+            }
+        }
+    }
+
     @Override
     public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
         sinkOptions.setLineDelimiter(lineDelimiter);
+        sinkOptions.setCompressionType(compressionType);
     }
 
     @Override

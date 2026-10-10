@@ -57,6 +57,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -73,6 +74,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format/orc/orc_file_type.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/orc/orc_file_input_stream.h"
 #include "format_v2/orc/orc_search_argument.h"
@@ -1082,7 +1084,12 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         data_type = _convert_map_to_doris_type(type);
         break;
     case ::orc::TypeKind::STRUCT:
-        data_type = _convert_struct_to_doris_type(type);
+        if (is_orc_file_type(type)) {
+            THROW_IF_ERROR(validate_orc_file_type(type));
+            data_type = std::make_shared<DataTypeFile>();
+        } else {
+            data_type = _convert_struct_to_doris_type(type);
+        }
         break;
     default:
         throw doris::Exception(
@@ -1177,6 +1184,10 @@ Status OrcReader::_fill_struct_schema_children(const ::orc::Type& type,
         format::ColumnDefinition child_field;
         RETURN_IF_ERROR(_fill_schema_field(*child_type, static_cast<int32_t>(child_idx), child_name,
                                            &child_field));
+        if (field->type->get_primitive_type() == TYPE_FILE) {
+            const auto& file_type = assert_cast<const DataTypeFile&>(*remove_nullable(field->type));
+            child_field.type = file_type.get_element(file_type.get_position_by_name(child_name));
+        }
         field->children.push_back(std::move(child_field));
     }
     return Status::OK();
@@ -1951,7 +1962,11 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
     view.selected_rows = selected_rows;
     view.timezone = &_state->timezone_obj;
     view.enable_mapping_timestamp_tz = _enable_mapping_timestamp_tz;
-    return column_type->get_serde()->read_column_from_orc(*column, view);
+    RETURN_IF_ERROR(column_type->get_serde()->read_column_from_orc(*column, view));
+    if (contains_file_type(column_type)) {
+        RETURN_IF_ERROR(validate_file_column(*column, column_type));
+    }
+    return Status::OK();
 }
 
 Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {

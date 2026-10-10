@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFile;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Stack;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
@@ -442,6 +443,9 @@ public class BindExpression implements AnalysisRuleFactory {
             if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
                     && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
                 int aliasCount = generate.getExpandColumnAlias().get(i).size();
+                if (boundGenerator instanceof ExplodeFile && aliasCount != 6) {
+                    throw new AnalysisException("EXPLODE_FILE requires exactly six column aliases");
+                }
                 boolean shouldExpandStruct = boundSlot.getDataType() instanceof StructType && aliasCount > 1;
                 if (boundGenerator instanceof Stack) {
                     int outputColumnCount = ((Stack) boundGenerator).getOutputColumnCount();
@@ -1150,6 +1154,10 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         }
         project = project.withProjects(boundProjectionsBuilder.build());
+        if (project.isDistinct()) {
+            project.getProjects().forEach(value -> Expression.checkFileKey(
+                    value, "SELECT DISTINCT"));
+        }
         return rewriteProjectForDisabledFullGroupBy(project).orElse(project);
     }
 

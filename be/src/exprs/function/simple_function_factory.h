@@ -115,6 +115,7 @@ void register_function_assert_true(SimpleFunctionFactory& factory);
 void register_function_compress(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
+void register_function_to_file(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
 void register_function_ai(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
@@ -359,6 +360,7 @@ public:
             register_function_format(instance);
             register_function_compress(instance);
             register_function_dict_get(instance);
+            register_function_to_file(instance);
             register_function_dict_get_many(instance);
             register_function_ai(instance);
             register_function_score(instance);

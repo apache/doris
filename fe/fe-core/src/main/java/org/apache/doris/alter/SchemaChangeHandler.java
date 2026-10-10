@@ -1005,6 +1005,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 modColIndex = i;
                 found = true;
                 if (!col.equals(modColumn)) {
+                    // Light schema changes bypass createJob's compatibility checks.
+                    // FILE must retain its identity and cannot tighten nullability on either path.
+                    if (col.getType().typeContainsFile()
+                            || modColumn.getType().typeContainsFile()) {
+                        col.checkSchemaChangeAllowed(modColumn);
+                    }
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR

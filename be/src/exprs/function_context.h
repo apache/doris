@@ -80,6 +80,10 @@ public:
     void set_dict_function(const TDictFunction& dict_function) { _dict_function = dict_function; }
 
     std::optional<TDictFunction>& dict_function() { return _dict_function; };
+    void set_file_resource(const TFileResourceSnapshot& resource);
+    const std::shared_ptr<const TFileResourceSnapshot>& file_resource() const {
+        return _file_resource;
+    }
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
     bool enable_strict_mode() const { return _enable_strict_mode; }
@@ -212,6 +216,7 @@ private:
     Arena arena;
 
     std::optional<TDictFunction> _dict_function;
+    std::shared_ptr<const TFileResourceSnapshot> _file_resource;
 };
 
 using doris::FunctionContext;

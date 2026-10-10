@@ -17,11 +17,47 @@
 
 #include "core/data_type_serde/orc_serde_utils.h"
 
+#include <orc/Type.hh>
+
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "core/column/column_array.h"
 
 namespace doris::orc_serde_utils {
+
+Status validate_orc_file_type(const ::orc::Type& type, std::array<int, 6>* child_positions) {
+    constexpr std::array<const char*, 6> names = {"uri",          "offset",   "size",
+                                                  "content_type", "checksum", "inline"};
+    constexpr std::array<::orc::TypeKind, 6> kinds = {::orc::STRING, ::orc::LONG,   ::orc::LONG,
+                                                      ::orc::STRING, ::orc::STRING, ::orc::BINARY};
+    if (type.getKind() != ::orc::STRUCT || !type.hasAttributeKey("doris.struct-type") ||
+        type.getAttributeValue("doris.struct-type") != "FILE") {
+        return Status::InvalidArgument("FILE ORC input requires doris.struct-type=FILE");
+    }
+    if (type.getSubtypeCount() == 0 || type.getFieldName(0) != names[0]) {
+        return Status::InvalidArgument("FILE ORC input requires uri");
+    }
+    if (child_positions != nullptr) {
+        child_positions->fill(-1);
+    }
+    size_t field = 0;
+    for (size_t i = 0; i < type.getSubtypeCount(); ++i) {
+        while (field < names.size() && type.getFieldName(i) != names[field]) {
+            ++field;
+        }
+        if (field == names.size()) {
+            return Status::NotSupported("FILE ORC input requires canonical child names and order");
+        }
+        if (type.getSubtype(i)->getKind() != kinds[field]) {
+            return Status::InvalidArgument("Invalid FILE ORC child {} type", names[field]);
+        }
+        if (child_positions != nullptr) {
+            (*child_positions)[field] = cast_set<int>(i);
+        }
+        ++field;
+    }
+    return Status::OK();
+}
 
 size_t orc_decode_row_count(size_t rows, const std::vector<size_t>* selected_rows) {
     if (selected_rows == nullptr) {

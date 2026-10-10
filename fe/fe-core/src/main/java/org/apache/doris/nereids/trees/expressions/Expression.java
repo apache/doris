@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.nereids.analyzer.Unbound;
@@ -191,7 +192,54 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 return commonCheckResult;
             }
         }
-        return checkInputDataTypesInternal();
+        TypeCheckResult result = checkInputDataTypesInternal();
+        if (result.success()) {
+            checkFileExpression(this);
+        }
+        return result;
+    }
+
+    /** Reject FILE values in SQL keys that require comparison, ordering, or hashing. */
+    public static void checkFileKey(Expression value, String operation) {
+        if (value.getDataType().typeContainsFile()) {
+            throw new AnalysisException(operation + " does not support FILE or a type containing FILE: "
+                    + value.getDataType().toSql());
+        }
+    }
+
+    public static void checkFileComparison(Expression expression) {
+        expression.getArguments().forEach(child ->
+                checkFileKey(child, expression.getClass().getSimpleName()));
+    }
+
+    /** Validate the execution version for a FILE-containing value. */
+    public static void checkFileExecutionVersion(Expression expression) {
+        if (!expression.getDataType().typeContainsFile()) {
+            return;
+        }
+        try {
+            FileType.checkExecutionVersion();
+        } catch (IllegalStateException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    /** Called by the existing recursive expression type check, without a second plan traversal. */
+    public static void checkFileExpression(Expression expression) {
+        // A frame is structural window metadata and has no SQL value type.
+        if (expression instanceof WindowFrame) {
+            return;
+        }
+        checkFileExecutionVersion(expression);
+        if (expression instanceof InSubquery) {
+            InSubquery in = (InSubquery) expression;
+            checkFileKey(in.getCompareExpr(), "IN");
+            checkFileKey(in.getSubqueryOutput(), "IN");
+        } else if (expression instanceof WindowExpression) {
+            WindowExpression window = (WindowExpression) expression;
+            window.getPartitionKeys().forEach(key -> checkFileKey(key, "window PARTITION BY"));
+            window.getOrderKeys().forEach(key -> checkFileKey(key.child(), "window ORDER BY"));
+        }
     }
 
     public int fastChildrenHashCode() {

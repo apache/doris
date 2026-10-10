@@ -61,6 +61,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -68,6 +69,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
@@ -83,6 +85,7 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vin_predicate.h"
 #include "format/orc/orc_file_reader.h"
+#include "format/orc/orc_file_type.h"
 #include "format/table/iceberg_default_value.h"
 #include "format/table/iceberg_reader.h"
 #include "format/table/transactional_hive_common.h"
@@ -620,9 +623,13 @@ Status OrcReader::init_schema_reader() {
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
                                     std::vector<DataTypePtr>* col_types) {
     const auto& root_type = _is_acid ? remove_acid(_reader->getType()) : _reader->getType();
-    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        col_names->emplace_back(root_type.getFieldName(i));
-        col_types->emplace_back(convert_to_doris_type(root_type.getSubtype(i)));
+    try {
+        for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
+            col_names->emplace_back(root_type.getFieldName(i));
+            col_types->emplace_back(convert_to_doris_type(root_type.getSubtype(i)));
+        }
+    } catch (const doris::Exception& e) {
+        return e.to_status();
     }
     return Status::OK();
 }
@@ -1700,6 +1707,14 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
                                               convert_to_doris_type(orc_type->getSubtype(1))));
     }
     case orc::TypeKind::STRUCT: {
+        if (is_orc_file_type(*orc_type)) {
+            // The selected schema may be pruned; validate the complete on-disk FILE schema.
+            const auto complete = _column_id_to_file_type.find(orc_type->getColumnId());
+            const auto* file_type =
+                    complete == _column_id_to_file_type.end() ? orc_type : complete->second;
+            THROW_IF_ERROR(validate_orc_file_type(*file_type));
+            return make_nullable(std::make_shared<DataTypeFile>());
+        }
         DataTypes res_data_types;
         std::vector<std::string> names;
         for (int i = 0; i < orc_type->getSubtypeCount(); ++i) {
@@ -1716,9 +1731,13 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
 
 Status OrcReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     const auto& root_type = _reader->getType();
-    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        name_to_type->emplace(root_type.getFieldName(i),
-                              convert_to_doris_type(root_type.getSubtype(i)));
+    try {
+        for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
+            name_to_type->emplace(root_type.getFieldName(i),
+                                  convert_to_doris_type(root_type.getSubtype(i)));
+        }
+    } catch (const doris::Exception& e) {
+        return e.to_status();
     }
     return Status::OK();
 }
@@ -1985,6 +2004,23 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                                 cvb, num_values);
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return _decode_timestamp_tz_column<is_filter>(col_name, data_column, cvb, num_values);
+    case PrimitiveType::TYPE_FILE: {
+        const auto complete = _column_id_to_file_type.find(orc_column_type->getColumnId());
+        const auto* file_type =
+                complete == _column_id_to_file_type.end() ? orc_column_type : complete->second;
+        RETURN_IF_ERROR(validate_orc_file_type(*file_type));
+        // Only children absent on disk can be filled with NULL. A selected FILE must
+        // retain every present child so full-value validation and transport remain lossless.
+        if (orc_column_type->getSubtypeCount() != file_type->getSubtypeCount()) {
+            return Status::NotSupported("Reading a pruned ORC FILE value is not implemented");
+        }
+        const OrcDecodedColumnView view {.file_type = file_type,
+                                         .selected_type = orc_column_type,
+                                         .batch = cvb,
+                                         .rows = num_values,
+                                         .timezone = &_time_zone};
+        return data_type->get_serde()->read_column_from_orc(*data_column, view);
+    }
     case PrimitiveType::TYPE_ARRAY: {
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
             return Status::InternalError(
@@ -2499,6 +2535,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     col_name, column_ptr, column_type,
                     _table_info_node_ptr->get_children_node(col_name), _type_map[file_column_name],
                     batch_vec[orc_col_idx->second], _batch->numElements));
+            if (contains_file_type(column_type)) {
+                RETURN_IF_ERROR(validate_file_column(*column_ptr, column_type));
+            }
 #ifndef NDEBUG
             column_ptr->sanity_check();
 #endif
@@ -2649,6 +2688,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     col_name, column_ptr, column_type,
                     _table_info_node_ptr->get_children_node(col_name), _type_map[file_column_name],
                     batch_vec[orc_col_idx->second], _batch->numElements));
+            if (contains_file_type(column_type)) {
+                RETURN_IF_ERROR(validate_file_column(*column_ptr, column_type));
+            }
 #ifndef NDEBUG
             column_ptr->sanity_check();
 #endif
@@ -2893,6 +2935,9 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
                 table_col_name, column_ptr, column_type,
                 _table_info_node_ptr->get_children_node(table_col_name),
                 _type_map[file_column_name], batch_vec[orc_col_idx->second], data.numElements));
+        if (contains_file_type(column_type)) {
+            RETURN_IF_ERROR(validate_file_column(*column_ptr, column_type));
+        }
 #ifndef NDEBUG
         column_ptr->sanity_check();
 #endif

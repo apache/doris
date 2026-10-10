@@ -33,6 +33,28 @@
 #include "gtest/gtest_pred_impl.h" // IWYU pragma: keep
 
 namespace doris {
+TEST(VFieldTest, file_identity_and_copy) {
+    File value {Field::create_field<TYPE_STRING>(String {"s3://bucket/object"}),
+                Field(),
+                Field::create_field<TYPE_BIGINT>(Int64 {0}),
+                Field(),
+                Field(),
+                Field()};
+    Field original = Field::create_field<TYPE_FILE>(value);
+    Field copied(original);
+    Field moved(std::move(copied));
+    Field assigned;
+    assigned = moved;
+    EXPECT_EQ(assigned.get_type(), TYPE_FILE);
+    ASSERT_EQ(assigned.get<TYPE_FILE>().size(), 6);
+    EXPECT_EQ(assigned.get<TYPE_FILE>()[0].get<TYPE_STRING>(), "s3://bucket/object");
+    EXPECT_EQ(assigned.get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 0);
+    EXPECT_TRUE(assigned.get<TYPE_FILE>()[5].is_null());
+    EXPECT_EQ(original <=> assigned, std::strong_ordering::equal);
+    assigned.get<TYPE_FILE>()[0] = Field::create_field<TYPE_STRING>(String {"urn:other"});
+    EXPECT_EQ(original <=> assigned, std::strong_ordering::equal);
+}
+
 TEST(VFieldTest, detects_floating_point_nan) {
     EXPECT_TRUE(Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN()).is_nan());
     EXPECT_TRUE(

@@ -93,6 +93,7 @@ enum TExprNodeType {
   // Normal literal
   LITERAL = 44,
   UUID_LITERAL = 45,
+  FILE_LITERAL = 46,
 }
 
 //enum TAggregationOp {

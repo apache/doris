@@ -47,6 +47,7 @@ public class PartitionColumnStatistic {
 
     public final double count;
     public final Hll128 ndv;
+    public final boolean ndvUnavailable;
     public final double numNulls;
     public final double dataSize;
     public final double avgSizeByte;
@@ -61,6 +62,15 @@ public class PartitionColumnStatistic {
                            double numNulls, double dataSize, double minValue, double maxValue,
                            LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
                            String updatedTime) {
+        this(count, ndv, avgSizeByte, numNulls, dataSize, minValue, maxValue,
+                minExpr, maxExpr, isUnKnown, updatedTime, false);
+    }
+
+    public PartitionColumnStatistic(double count, Hll128 ndv, double avgSizeByte,
+            double numNulls, double dataSize, double minValue, double maxValue,
+            LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
+            String updatedTime, boolean ndvUnavailable) {
+        this.ndvUnavailable = ndvUnavailable;
         this.count = count;
         this.ndv = ndv;
         this.avgSizeByte = avgSizeByte;
@@ -108,15 +118,19 @@ public class PartitionColumnStatistic {
 
         double count = Double.parseDouble(row.get(6));
         PartitionColumnStatisticBuilder partitionStatisticBuilder = new PartitionColumnStatisticBuilder(count);
-        String ndv = row.get(7);
-        Base64.Decoder decoder = Base64.getDecoder();
-        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(decoder.decode(ndv)));
-        Hll hll = new Hll();
-        if (!hll.deserialize(dis)) {
-            LOG.warn("Failed to deserialize ndv. [{}]", row);
-            return PartitionColumnStatistic.UNKNOWN;
+        if (col.getType().isFileType()) {
+            partitionStatisticBuilder.setNdv(new Hll128()).setNdvUnavailable(true);
+        } else {
+            String ndv = row.get(7);
+            Base64.Decoder decoder = Base64.getDecoder();
+            DataInputStream dis = new DataInputStream(new ByteArrayInputStream(decoder.decode(ndv)));
+            Hll hll = new Hll();
+            if (!hll.deserialize(dis)) {
+                LOG.warn("Failed to deserialize ndv. [{}]", row);
+                return PartitionColumnStatistic.UNKNOWN;
+            }
+            partitionStatisticBuilder.setNdv(Hll128.fromHll(hll));
         }
-        partitionStatisticBuilder.setNdv(Hll128.fromHll(hll));
         String nullCount = row.getWithDefault(8, "0");
         partitionStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
         partitionStatisticBuilder.setDataSize(Double

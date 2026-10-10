@@ -1,0 +1,5 @@
+{"id":1,"f":{"uri":"urn:stats","offset":0,"size":3,"content_type":"text/plain","checksum":"ETAG:opaque","inline":"AP9B"}}
+{"id":2,"f":{"uri":"urn:min"}}
+{"id":3,"f":null}
+{"id":4,"f":{"uri":"urn:empty","size":0,"inline":""}}
+{"id":5,"f":null}

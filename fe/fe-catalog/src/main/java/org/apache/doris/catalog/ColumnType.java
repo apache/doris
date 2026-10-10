@@ -308,7 +308,11 @@ public abstract class ColumnType {
 
     private static void checkSupportSchemaChangeForComplexType(Type checkType, Type other, boolean nested,
             boolean allowDecimalPrecisionPromotion) throws DdlException {
-        if (checkType.isStructType() && other.isStructType()) {
+        if (checkType.isFileType() || other.isFileType()) {
+            if (!checkType.equals(other)) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+            }
+        } else if (checkType.isStructType() && other.isStructType()) {
             StructType thisStructType = (StructType) checkType;
             StructType otherStructType = (StructType) other;
 
@@ -362,7 +366,7 @@ public abstract class ColumnType {
 
     public static void write(DataOutput out, Type type) throws IOException {
         Preconditions.checkArgument(type.isScalarType() || type.isAggStateType()
-                        || type.isArrayType() || type.isMapType() || type.isStructType(),
+                        || type.isArrayType() || type.isMapType() || type.isStructType() || type.isFileType(),
                 "not support serialize this type " + type.toSql());
         Text.writeString(out, GsonUtilsCatalog.GSON.toJson(type));
     }

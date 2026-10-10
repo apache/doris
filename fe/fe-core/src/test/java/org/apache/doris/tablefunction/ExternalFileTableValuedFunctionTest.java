@@ -17,8 +17,12 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FileType;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
@@ -39,12 +43,107 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 public class ExternalFileTableValuedFunctionTest {
+    private static List<PTypeNode> fileNodes() {
+        PTypeNode.Builder file = PTypeNode.newBuilder().setType(TTypeNodeType.FILE.getValue());
+        List<PTypeNode> children = new ArrayList<>();
+        for (StructField field : FileType.create().getFields()) {
+            file.addStructFields(PStructField.newBuilder().setName(field.getName()).setContainsNull(true));
+            children.add(PTypeNode.newBuilder().setType(TTypeNodeType.SCALAR.getValue())
+                    .setScalarType(PScalarType.newBuilder()
+                            .setType(field.getType().getPrimitiveType().toThrift().getValue())
+                            .setLen(field.getType().isVarbinaryType() ? -1 : field.getType().getLength())).build());
+        }
+        children.add(0, file.build());
+        return children;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Pair<Type, Integer> parseNodes(List<PTypeNode> nodes) throws Exception {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Method method = ExternalFileTableValuedFunction.class
+                .getDeclaredMethod("getColumnType", List.class, int.class);
+        method.setAccessible(true);
+        return (Pair<Type, Integer>) method.invoke(tvf, nodes, 0);
+    }
+
+    @Test
+    public void testFileSchemaIdentityAndRecursiveNodeConsumption() throws Exception {
+        Pair<Type, Integer> file = parseNodes(fileNodes());
+        Assertions.assertEquals(FileType.create(), file.key());
+        Assertions.assertEquals(7, file.value());
+        List<PTypeNode> bounded = fileNodes();
+        bounded.set(6, bounded.get(6).toBuilder().setScalarType(bounded.get(6).getScalarType().toBuilder()
+                .setLen(ScalarType.MAX_VARBINARY_LENGTH)).build());
+        Assertions.assertEquals(FileType.create(), parseNodes(bounded).key());
+        List<PTypeNode> array = new ArrayList<>();
+        array.add(PTypeNode.newBuilder().setType(TTypeNodeType.ARRAY.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.ARRAY.getValue())).build());
+        array.addAll(fileNodes());
+        Assertions.assertEquals(FileType.create(), ((ArrayType) parseNodes(array).key()).getItemType());
+
+        List<PTypeNode> map = new ArrayList<>();
+        map.add(PTypeNode.newBuilder().setType(TTypeNodeType.MAP.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.MAP.getValue())).build());
+        map.add(PTypeNode.newBuilder().setType(TTypeNodeType.SCALAR.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.STRING.getValue())).build());
+        map.addAll(fileNodes());
+        Assertions.assertEquals(FileType.create(), ((MapType) parseNodes(map).key()).getValueType());
+
+        List<PTypeNode> nested = new ArrayList<>();
+        PTypeNode.Builder structure = PTypeNode.newBuilder().setType(TTypeNodeType.STRUCT.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.STRUCT.getValue()));
+        for (String name : Arrays.asList("asset", "attachments", "lookup", "tail")) {
+            structure.addStructFields(PStructField.newBuilder().setName(name).setContainsNull(true));
+        }
+        nested.add(structure.build());
+        nested.addAll(fileNodes());
+        nested.addAll(array);
+        nested.addAll(map);
+        nested.add(PTypeNode.newBuilder().setType(TTypeNodeType.SCALAR.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.BIGINT.getValue())).build());
+        Pair<Type, Integer> parsed = parseNodes(nested);
+        Assertions.assertEquals(nested.size(), parsed.value());
+        List<StructField> fields = ((StructType) parsed.key()).getFields();
+        Assertions.assertEquals(FileType.create(), fields.get(0).getType());
+        Assertions.assertEquals(FileType.create(), ((ArrayType) fields.get(1).getType()).getItemType());
+        Assertions.assertEquals(FileType.create(), ((MapType) fields.get(2).getType()).getValueType());
+        Assertions.assertEquals(Type.BIGINT, fields.get(3).getType());
+    }
+
+    @Test
+    public void testFileSchemaRejectsNoncanonicalWireChildren() {
+        for (int invalid : Arrays.asList(0, 1, 2, 3, 4)) {
+            List<PTypeNode> nodes = fileNodes();
+            PTypeNode.Builder file = nodes.get(0).toBuilder();
+            if (invalid == 0) {
+                file.removeStructFields(5);
+            } else if (invalid == 1) {
+                file.setStructFields(0, file.getStructFields(0).toBuilder().setName("URI"));
+            } else if (invalid == 2) {
+                file.setStructFields(0, file.getStructFields(0).toBuilder().setContainsNull(false));
+            } else if (invalid == 3) {
+                nodes.set(6, nodes.get(6).toBuilder().setScalarType(
+                        PScalarType.newBuilder().setType(TPrimitiveType.STRING.getValue())).build());
+            } else {
+                nodes.set(6, nodes.get(6).toBuilder().setScalarType(nodes.get(6).getScalarType().toBuilder()
+                        .setLen(32)).build());
+            }
+            nodes.set(0, file.build());
+            InvocationTargetException error = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> parseNodes(nodes));
+            Assertions.assertInstanceOf(IllegalArgumentException.class, error.getCause());
+        }
+    }
+
     @Test
     public void testFileSchemaPreservesNestedFieldSpelling() throws Exception {
         ExternalFileTableValuedFunction tvf = Mockito.mock(

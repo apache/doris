@@ -66,6 +66,10 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do full collection for column {}", col.getName());
         }
+        if (isFileColumn()) {
+            collectFullFileStatistics(params);
+            return;
+        }
         String template;
         if (shouldCollectHotValue()) {
             params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));

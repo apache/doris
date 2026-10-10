@@ -21,6 +21,9 @@
 
 namespace doris::CastWrapper {
 
+// Implemented in function_cast_file.cpp. Runs before generic JSON/VARIANT conversion.
+WrapperType create_file_wrapper(const DataTypePtr& from_type, const DataTypePtr& to_type);
+
 // Implemented in function_cast_int.cpp
 WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                PrimitiveType to_type);

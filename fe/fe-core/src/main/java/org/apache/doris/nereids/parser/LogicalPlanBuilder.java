@@ -5051,7 +5051,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         break;
                     }
                 }
-                if (input instanceof LogicalOneRowRelation && !meetUnnest) {
+                if (input instanceof LogicalOneRowRelation && !meetUnnest && !isDistinct) {
                     return new UnboundOneRowRelation(((LogicalOneRowRelation) input).getRelationId(), projects);
                 }
                 return new LogicalProject<>(projects, isDistinct, input);

@@ -27,6 +27,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -68,6 +69,11 @@ struct Array : public FieldVector {
 };
 
 struct Struct : public FieldVector {
+    using FieldVector::FieldVector;
+};
+
+// Keep FILE identity even when a value is carried outside a column (for example literals).
+struct File : public FieldVector {
     using FieldVector::FieldVector;
 };
 
@@ -238,7 +244,8 @@ public:
 
     bool is_complex_field() const {
         return type == PrimitiveType::TYPE_ARRAY || type == PrimitiveType::TYPE_MAP ||
-               type == PrimitiveType::TYPE_STRUCT || type == PrimitiveType::TYPE_VARIANT;
+               type == PrimitiveType::TYPE_STRUCT || type == PrimitiveType::TYPE_VARIANT ||
+               type == PrimitiveType::TYPE_FILE;
     }
 
     Field& operator=(Field&& rhs) {
@@ -297,8 +304,8 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, Map,
-                         VariantField, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
+                         Int128, IPv6, Float64, String, JsonbField, StringView, Array, Struct, File,
+                         Map, VariantField, Decimal32, Decimal64, DecimalV2Value, Decimal128V3,
                          Decimal256, BitmapValue, HyperLogLog, QuantileState>
             storage;
 

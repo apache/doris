@@ -289,6 +289,12 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     }
 
     @Override
+    public Void visitFileLiteral(FileLiteral expr, TExprNode msg) {
+        msg.node_type = TExprNodeType.FILE_LITERAL;
+        return null;
+    }
+
+    @Override
     public Void visitStructLiteral(StructLiteral expr, TExprNode msg) {
         msg.node_type = TExprNodeType.STRUCT_LITERAL;
         ((StructType) expr.getType()).getFields()

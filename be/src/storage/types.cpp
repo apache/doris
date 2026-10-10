@@ -22,6 +22,7 @@ namespace doris {
 bool is_scalar_type(FieldType field_type) {
     switch (field_type) {
     case FieldType::OLAP_FIELD_TYPE_STRUCT:
+    case FieldType::OLAP_FIELD_TYPE_FILE:
     case FieldType::OLAP_FIELD_TYPE_ARRAY:
     case FieldType::OLAP_FIELD_TYPE_MAP:
     case FieldType::OLAP_FIELD_TYPE_VARIANT:

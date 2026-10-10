@@ -43,6 +43,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/transformer/vcsv_transformer.h"
+#include "format/transformer/vjson_transformer.h"
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
@@ -136,6 +137,12 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _header_type, _header, _file_opts->column_separator, _file_opts->line_delimiter,
                 _file_opts->with_bom, _file_opts->compression_type));
         break;
+    case TFileFormatType::FORMAT_JSON:
+        _vfile_writer.reset(
+                new VJSONTransformer(_state, _file_writer_impl.get(), _vec_output_expr_ctxs,
+                                     _output_object_data, _file_opts->json_column_names,
+                                     _file_opts->line_delimiter, _file_opts->compression_type));
+        break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetWriter(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
@@ -201,6 +208,8 @@ std::string VFileResultWriter::_file_format_to_name() {
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         return "csv" + _compression_type_to_name();
+    case TFileFormatType::FORMAT_JSON:
+        return "json" + _compression_type_to_name();
     case TFileFormatType::FORMAT_PARQUET:
         return "parquet";
     case TFileFormatType::FORMAT_ORC:

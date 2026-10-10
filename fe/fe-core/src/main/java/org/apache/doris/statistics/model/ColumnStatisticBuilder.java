@@ -27,6 +27,7 @@ import java.util.Map;
 public class ColumnStatisticBuilder {
     private double count;
     private double ndv;
+    private boolean ndvUnavailable;
     private double avgSizeByte;
     private double numNulls;
     private double dataSize;
@@ -48,6 +49,7 @@ public class ColumnStatisticBuilder {
     public ColumnStatisticBuilder(ColumnStatistic columnStatistic) {
         this.count = columnStatistic.count;
         this.ndv = columnStatistic.ndv;
+        this.ndvUnavailable = columnStatistic.ndvUnavailable;
         this.avgSizeByte = columnStatistic.avgSizeByte;
         this.numNulls = columnStatistic.numNulls;
         this.dataSize = columnStatistic.dataSize;
@@ -69,6 +71,7 @@ public class ColumnStatisticBuilder {
     public ColumnStatisticBuilder(ColumnStatistic columnStatistic, double count) {
         this.count = count;
         this.ndv = columnStatistic.ndv;
+        this.ndvUnavailable = columnStatistic.ndvUnavailable;
         this.avgSizeByte = columnStatistic.avgSizeByte;
         this.numNulls = columnStatistic.numNulls;
         this.dataSize = columnStatistic.dataSize;
@@ -80,6 +83,11 @@ public class ColumnStatisticBuilder {
         this.original = columnStatistic.original;
         this.updatedTime = columnStatistic.updatedTime;
         this.hotValues = columnStatistic.hotValues;
+    }
+
+    public ColumnStatisticBuilder setNdvUnavailable(boolean ndvUnavailable) {
+        this.ndvUnavailable = ndvUnavailable;
+        return this;
     }
 
     public ColumnStatisticBuilder setNdv(double ndv) {
@@ -191,20 +199,22 @@ public class ColumnStatisticBuilder {
     }
 
     public ColumnStatistic build() {
-        dataSize = dataSize > 0 ? dataSize : Math.max((count - numNulls + 1) * avgSizeByte, 0);
+        if (!ndvUnavailable) {
+            dataSize = dataSize > 0 ? dataSize : Math.max((count - numNulls + 1) * avgSizeByte, 0);
+        }
         if (original == null && !isUnknown) {
             original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
                     dataSize, minValue, maxValue, minExpr, maxExpr,
-                    isUnknown, updatedTime, hotValues);
+                    isUnknown, updatedTime, hotValues, ndvUnavailable);
         }
         ColumnStatistic colStats = new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
                 dataSize, minValue, maxValue, minExpr, maxExpr,
-                isUnknown, updatedTime, hotValues);
+                isUnknown, updatedTime, hotValues, ndvUnavailable);
         return colStats;
     }
 
     public void normalizeAvgSizeByte(DataType dataType) {
-        if (isUnknown) {
+        if (isUnknown || ndvUnavailable) {
             return;
         }
         if (avgSizeByte > 0) {

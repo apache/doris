@@ -17,11 +17,13 @@
 
 #include "s3_obj_storage_client.h"
 
+#include <aws/core/utils/xml/XmlSerializer.h>
 #include <cpp/obj-client/obj_storage_client.h>
 #include <gen_cpp/Status_types.h>
 
 #include <algorithm>
 #include <chrono>
+#include <sstream>
 
 #include "client_bvar.h"
 #include "cpp/obj_retry_strategy.h"
@@ -42,6 +44,51 @@ using namespace Aws::S3::Model;
 namespace {
 
 constexpr int64_t S3_REQUEST_THRESHOLD_MS = 5000;
+
+std::optional<int64_t> list_object_modification_time_ms(const Aws::S3::Model::Object& object,
+                                                        Aws::Utils::Xml::XmlNode& contents_node) {
+    if (!object.LastModifiedHasBeenSet()) {
+        return std::nullopt;
+    }
+    const auto& sdk_time = object.GetLastModified();
+    const auto milliseconds = sdk_time.WasParseSuccessful()
+                                      ? std::optional<int64_t>(sdk_time.Millis())
+                                      : std::nullopt;
+    if (contents_node.IsNull()) {
+        return milliseconds;
+    }
+    auto last_modified = contents_node.FirstChild("LastModified");
+    if (last_modified.IsNull()) {
+        return milliseconds;
+    }
+    const auto timestamp = Aws::Utils::Xml::DecodeEscapedXmlText(last_modified.GetText());
+    const auto dot = timestamp.find('.');
+    if (dot == Aws::String::npos) {
+        return milliseconds;
+    }
+    int64_t fraction = 0;
+    auto end = dot + 1;
+    while (end < timestamp.size() && timestamp[end] >= '0' && timestamp[end] <= '9') {
+        if (end - dot <= 3) {
+            fraction = fraction * 10 + timestamp[end] - '0';
+        }
+        ++end;
+    }
+    if (end == dot + 1) {
+        return std::nullopt;
+    }
+    for (auto digits = end - dot - 1; digits < 3; ++digits) {
+        fraction *= 10;
+    }
+    // The SDK also rejects one/two fractional digits. Parse whole seconds independently for
+    // this new field, while leaving its existing seconds metadata untouched.
+    const Aws::Utils::DateTime seconds(timestamp.substr(0, dot) + timestamp.substr(end),
+                                       Aws::Utils::DateFormat::ISO_8601);
+    if (!seconds.WasParseSuccessful()) {
+        return std::nullopt;
+    }
+    return seconds.Millis() + fraction;
+}
 
 int64_t elapsed_time_milliseconds(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
@@ -270,8 +317,16 @@ ObjStorageHeadResult S3ObjStorageClient::head_object(const ObjStoragePath& opts)
             "s3_file_system::head_object", std::ref(request).get());
 
     if (outcome.IsSuccess()) {
-        return {.resp = ObjStorageResponse::OK(),
-                .file_size = outcome.GetResult().GetContentLength()};
+        const auto& result = outcome.GetResult();
+        ObjStorageHeadResult metadata {.resp = ObjStorageResponse::OK(),
+                                       .file_size = result.GetContentLength()};
+        if (!result.GetContentType().empty()) {
+            metadata.content_type = result.GetContentType();
+        }
+        if (!result.GetETag().empty()) {
+            metadata.etag = result.GetETag();
+        }
+        return metadata;
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return {.resp = {.status = ObjStorageStatus::NOT_FOUND}, .file_size = 0};
     } else {
@@ -335,9 +390,19 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
     request.WithBucket(opts.bucket)
             .WithPrefix(prefix)
             .WithMaxKeys(static_cast<int>(capabilities().max_list_page));
+    if (!opts.delimiter.empty()) {
+        request.SetDelimiter(opts.delimiter);
+    }
     if (!continuation_token.empty()) {
         request.SetContinuationToken(std::string(continuation_token));
     }
+    // This SDK's ISO-8601 parser discards fractional seconds. Retain only the current response
+    // so the new millisecond metadata can use the original XML without changing SDK timestamps.
+    auto response_buffer = std::make_shared<std::stringbuf>();
+    request.SetResponseStreamFactory([response_buffer]() {
+        response_buffer->str("");
+        return Aws::New<Aws::IOStream>("S3ListPage", response_buffer.get());
+    });
     TEST_SYNC_POINT_CALLBACK("S3ObjStorageClient::list_objects", &request);
 
     auto outcome = [&]() {
@@ -395,13 +460,23 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
             .has_more = result.GetIsTruncated(),
     };
     const auto& content = result.GetContents();
+    const auto document = Aws::Utils::Xml::XmlDocument::CreateFromXmlString(response_buffer->str());
+    auto contents_node = document.GetRootElement();
+    if (!contents_node.IsNull()) {
+        contents_node = contents_node.FirstChild("Contents");
+    }
     page.objects.reserve(content.size());
     for (const auto& obj : content) {
         DCHECK(obj.GetKey().starts_with(request.GetPrefix()))
                 << obj.GetKey() << ' ' << request.GetPrefix();
+        const auto modification_time_ms = list_object_modification_time_ms(obj, contents_node);
         page.objects.emplace_back(ObjectMeta {.key = obj.GetKey(),
                                               .size = obj.GetSize(),
-                                              .mtime_s = obj.GetLastModified().Seconds()});
+                                              .mtime_s = obj.GetLastModified().Seconds(),
+                                              .modification_time_ms = modification_time_ms});
+        if (!contents_node.IsNull()) {
+            contents_node = contents_node.NextNode("Contents");
+        }
     }
     return page;
 }

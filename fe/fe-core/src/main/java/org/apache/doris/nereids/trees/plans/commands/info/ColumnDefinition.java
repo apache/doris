@@ -348,7 +348,8 @@ public class ColumnDefinition {
      * Returns whether the given type may be used as an OLAP key column.
      */
     public static boolean isEligibleKeyType(DataType type) {
-        return !type.isFloatLikeType()
+        return !type.isFileType()
+                && !type.isFloatLikeType()
                 && !type.isStringType()
                 && !type.isArrayType()
                 && !type.isBitmapType()
@@ -428,6 +429,14 @@ public class ColumnDefinition {
             throw new AnalysisException(e.getMessage(), e);
         }
         type.validateDataType();
+        if (!isOlap && type.typeContainsFile()) {
+            throw new AnalysisException("FILE is supported only in internal tables");
+        }
+        if (type.isFileType()
+                && !isKey && !keysSet.contains(name) && keysType == KeysType.AGG_KEYS
+                && aggType != AggregateType.REPLACE && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
+            throw new AnalysisException("FILE value columns require REPLACE or REPLACE_IF_NOT_NULL aggregation");
+        }
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.enable_non_aggregate_table_state_types) {
@@ -633,7 +642,9 @@ public class ColumnDefinition {
         if (!defaultValue.isPresent() || defaultValue.get() == DefaultValue.NULL_DEFAULT_VALUE) {
             return;
         }
-        if (type.isMapType()) {
+        if (type.isFileType()) {
+            throw new AnalysisException("FILE column default value only supports SQL NULL");
+        } else if (type.isMapType()) {
             throw new AnalysisException("Map type column default value just support null");
         } else if (type.isStructType()) {
             throw new AnalysisException("Struct type column default value just support null");

@@ -75,7 +75,8 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_VARBINARY,                      /* 41, varbinary */
     TYPE_TIMESTAMPTZ,                    /* 42, timestamptz */
     TYPE_TIMESTAMP_NS,                   /* 43, signed Int64 epoch nanoseconds */
-    TYPE_UUID                            /* 44, uuid */
+    TYPE_UUID,                           /* 44, uuid */
+    TYPE_FILE                            /* 45, external file reference */
 };
 
 } // namespace doris

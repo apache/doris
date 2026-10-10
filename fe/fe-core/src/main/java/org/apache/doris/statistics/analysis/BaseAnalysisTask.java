@@ -273,6 +273,55 @@ public abstract class BaseAnalysisTask {
             + " AND `idx_id` = ${idxId} "
             + " AND `col_id` = '${colId}'";
 
+    // FILE has no comparison/hash statistics. Project its payload size to a scalar locally.
+    protected static final String FILE_ANALYZE_TEMPLATE =
+            "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
+            + "${catalogId} AS `catalog_id`, ${dbId} AS `db_id`, ${tblId} AS `tbl_id`, "
+            + "${idxId} AS `idx_id`, '${colId}' AS `col_id`, NULL AS `part_id`, "
+            + "${rowCount} AS `row_count`, NULL AS `ndv`, "
+            + "ROUND((COUNT(1) - COUNT(`__file_bytes`)) * ${scaleFactor}) AS `null_count`, "
+            + "NULL AS `min`, NULL AS `max`, "
+            + "COALESCE(SUM(`__file_bytes`), 0) * ${scaleFactor} AS `data_size`, "
+            + "NOW() AS `update_time`, NULL AS `hot_value` "
+            + "FROM (SELECT __file_data_size(${colName}) AS `__file_bytes` "
+            + "FROM ${catalogName}.${dbName}.${tblName} ${index} ${sampleHints} ${limit} ${preAggHint}) t";
+
+    // The partition table requires a non-null HLL. This empty carrier is never interpreted
+    // as measured NDV for FILE: readers restore unavailability from the column type.
+    protected static final String FILE_PARTITION_ANALYZE_TEMPLATE = " SELECT "
+            + "${catalogId} AS `catalog_id`, ${dbId} AS `db_id`, ${tblId} AS `tbl_id`, "
+            + "${idxId} AS `idx_id`, ${partName} AS `part_name`, ${partId} AS `part_id`, "
+            + "'${colId}' AS `col_id`, COUNT(1) AS `row_count`, HLL_EMPTY() AS `ndv`, "
+            + "COUNT(1) - COUNT(`__file_bytes`) AS `null_count`, NULL AS `min`, NULL AS `max`, "
+            + "COALESCE(SUM(`__file_bytes`), 0) AS `data_size`, NOW() AS `update_time` "
+            + "FROM (SELECT __file_data_size(${colName}) AS `__file_bytes` "
+            + "FROM ${catalogName}.${dbName}.${tblName} ${index} ${partitionInfo}) t";
+
+    protected static final String FILE_MERGE_PARTITION_TEMPLATE =
+            "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
+            + "${catalogId} AS `catalog_id`, ${dbId} AS `db_id`, ${tblId} AS `tbl_id`, "
+            + "${idxId} AS `idx_id`, '${colId}' AS `col_id`, NULL AS `part_id`, "
+            + "COALESCE(SUM(count), 0) AS `row_count`, NULL AS `ndv`, "
+            + "COALESCE(SUM(null_count), 0) AS `null_count`, NULL AS `min`, NULL AS `max`, "
+            + "COALESCE(SUM(data_size_in_bytes), 0) AS `data_size`, "
+            + "NOW() AS `update_time`, NULL AS `hot_value` FROM "
+            + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
+            + " WHERE `catalog_id` = ${catalogId} AND `db_id` = ${dbId} AND `tbl_id` = ${tblId}"
+            + " AND `idx_id` = ${idxId} AND `col_id` = '${colId}'";
+
+    protected boolean isFileColumn() {
+        return col.getType().isFileType();
+    }
+
+    protected void collectFullFileStatistics(Map<String, String> params) {
+        params.put("rowCount", "COUNT(1)");
+        params.put("scaleFactor", "1");
+        params.put("sampleHints", "");
+        params.put("limit", "");
+        params.put("preAggHint", "");
+        runQuery(new StringSubstitutor(params).replace(FILE_ANALYZE_TEMPLATE));
+    }
+
     protected AnalysisInfo info;
 
     protected CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog;
@@ -411,6 +460,9 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getDataSizeFunction(Column column, boolean useDuj1) {
+        if (column.getType().isFileType()) {
+            return "COALESCE(SUM(__file_data_size(${colName})), 0)";
+        }
         if (useDuj1) {
             if (column.getType().isStringType()) {
                 return "SUM(`column_length`)";
@@ -566,7 +618,8 @@ public abstract class BaseAnalysisTask {
             params.put("partName", StatisticsUtil.quote(StatisticsUtil.escapeSQL(part)));
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
+            sqls.add(stringSubstitutor.replace(isFileColumn()
+                    ? FILE_PARTITION_ANALYZE_TEMPLATE : PARTITION_ANALYZE_TEMPLATE));
             count++;
             partNames.add(part);
             // 3. insert partition in batch
@@ -612,7 +665,8 @@ public abstract class BaseAnalysisTask {
                 params.put("min", castToNumeric("min"));
                 params.put("max", castToNumeric("max"));
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-                runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+                runQuery(stringSubstitutor.replace(isFileColumn()
+                        ? FILE_MERGE_PARTITION_TEMPLATE : MERGE_PARTITION_TEMPLATE));
             } else {
                 job.taskDoneWithoutData(this);
             }

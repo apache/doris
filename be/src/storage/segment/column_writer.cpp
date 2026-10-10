@@ -181,6 +181,39 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
     return Status::OK();
 }
 
+Status ColumnWriter::create_file_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                        io::FileWriter* file_writer,
+                                        std::unique_ptr<ColumnWriter>* writer) {
+    RETURN_IF_ERROR(column->check_valid());
+    if (opts.meta->children_columns_size() != 6) {
+        return Status::InvalidArgument("FILE writer requires six child metadata entries");
+    }
+    std::vector<std::unique_ptr<ColumnWriter>> sub_column_writers;
+    sub_column_writers.reserve(column->get_subtype_count());
+    for (uint32_t i = 0; i < column->get_subtype_count(); i++) {
+        const TabletColumn& sub_column = column->get_sub_column(i);
+        RETURN_IF_ERROR(sub_column.check_valid());
+
+        // create sub writer
+        ColumnWriterOptions column_options;
+        column_options.meta = opts.meta->mutable_children_columns(i);
+        column_options.need_zone_map = false;
+        column_options.need_bloom_filter = sub_column.is_bf_column();
+        column_options.storage_format = opts.storage_format;
+        std::unique_ptr<ColumnWriter> sub_column_writer;
+        RETURN_IF_ERROR(
+                ColumnWriter::create(column_options, &sub_column, file_writer, &sub_column_writer));
+        sub_column_writers.push_back(std::move(sub_column_writer));
+    }
+
+    ScalarColumnWriter* null_writer =
+            get_null_writer(opts, file_writer, column->get_subtype_count() + 1);
+
+    *writer = std::unique_ptr<ColumnWriter>(new FileColumnWriter(
+            opts, std::make_shared<TabletColumn>(*column), null_writer, sub_column_writers));
+    return Status::OK();
+}
+
 Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
                                          const TabletColumn* column, io::FileWriter* file_writer,
                                          std::unique_ptr<ColumnWriter>* writer) {
@@ -362,6 +395,9 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             RETURN_IF_ERROR(create_struct_writer(opts, column, file_writer, writer));
             return Status::OK();
+        }
+        case FieldType::OLAP_FIELD_TYPE_FILE: {
+            return create_file_writer(opts, column, file_writer, writer);
         }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
             RETURN_IF_ERROR(create_array_writer(opts, column, file_writer, writer));
@@ -929,6 +965,22 @@ void OffsetColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
     footer->set_next_array_item_ordinal(_next_offset);
 }
 
+namespace {
+
+Status apply_to_struct_children(const std::vector<std::unique_ptr<ColumnWriter>>& children,
+                                ScalarColumnWriter* null_writer,
+                                Status (ColumnWriter::*operation)()) {
+    for (const auto& child : children) {
+        RETURN_IF_ERROR((child.get()->*operation)());
+    }
+    if (null_writer != nullptr) {
+        RETURN_IF_ERROR((null_writer->*operation)());
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 StructColumnWriter::StructColumnWriter(
         const ColumnWriterOptions& opts, TabletColumnPtr column, ScalarColumnWriter* null_writer,
         std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
@@ -944,13 +996,7 @@ StructColumnWriter::StructColumnWriter(
 }
 
 Status StructColumnWriter::init() {
-    for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->init());
-    }
-    if (is_nullable()) {
-        RETURN_IF_ERROR(_null_writer->init());
-    }
-    return Status::OK();
+    return apply_to_struct_children(_sub_column_writers, _null_writer.get(), &ColumnWriter::init);
 }
 
 Status StructColumnWriter::write_inverted_index() {
@@ -991,38 +1037,107 @@ uint64_t StructColumnWriter::estimate_buffer_size() {
 }
 
 Status StructColumnWriter::finish() {
-    for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->finish());
-    }
-    if (is_nullable()) {
-        RETURN_IF_ERROR(_null_writer->finish());
-    }
+    RETURN_IF_ERROR(apply_to_struct_children(_sub_column_writers, _null_writer.get(),
+                                             &ColumnWriter::finish));
     _opts.meta->set_num_rows(get_next_rowid());
     return Status::OK();
 }
 
 Status StructColumnWriter::write_data() {
-    for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->write_data());
-    }
-    if (is_nullable()) {
-        RETURN_IF_ERROR(_null_writer->write_data());
-    }
-    return Status::OK();
+    return apply_to_struct_children(_sub_column_writers, _null_writer.get(),
+                                    &ColumnWriter::write_data);
 }
 
 Status StructColumnWriter::write_ordinal_index() {
-    for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->write_ordinal_index());
-    }
-    if (is_nullable()) {
-        RETURN_IF_ERROR(_null_writer->write_ordinal_index());
-    }
-    return Status::OK();
+    return apply_to_struct_children(_sub_column_writers, _null_writer.get(),
+                                    &ColumnWriter::write_ordinal_index);
 }
 
 Status StructColumnWriter::finish_current_page() {
     return Status::NotSupported("struct writer has no data, can not finish_current_page");
+}
+
+FileColumnWriter::FileColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
+                                   ScalarColumnWriter* null_writer,
+                                   std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta), _opts(opts) {
+    for (auto& sub_column_writer : sub_column_writers) {
+        _sub_column_writers.push_back(std::move(sub_column_writer));
+    }
+    _num_sub_column_writers = _sub_column_writers.size();
+    DCHECK(_num_sub_column_writers >= 1);
+    if (is_nullable()) {
+        _null_writer.reset(null_writer);
+    }
+}
+
+Status FileColumnWriter::init() {
+    return apply_to_struct_children(_sub_column_writers, _null_writer.get(), &ColumnWriter::init);
+}
+
+Status FileColumnWriter::write_inverted_index() {
+    if (_opts.need_inverted_index) {
+        return Status::NotSupported("FILE does not support inverted index");
+    }
+    return Status::OK();
+}
+
+Status FileColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                         size_t num_rows) {
+    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+    return Status::OK();
+}
+
+Status FileColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    const auto* results = reinterpret_cast<const void* const*>(*ptr);
+    for (size_t i = 0; i < _num_sub_column_writers; ++i) {
+        const auto* nullmap = static_cast<const uint8_t*>(results[_num_sub_column_writers + i]);
+        RETURN_IF_ERROR(_sub_column_writers[i]->append(nullmap, results[i], num_rows));
+    }
+    return Status::OK();
+}
+
+uint64_t FileColumnWriter::estimate_buffer_size() {
+    uint64_t size = 0;
+    for (auto& column_writer : _sub_column_writers) {
+        size += column_writer->estimate_buffer_size();
+    }
+    size += is_nullable() ? _null_writer->estimate_buffer_size() : 0;
+    return size;
+}
+
+Status FileColumnWriter::finish() {
+    RETURN_IF_ERROR(apply_to_struct_children(_sub_column_writers, _null_writer.get(),
+                                             &ColumnWriter::finish));
+    _opts.meta->set_num_rows(get_next_rowid());
+    return Status::OK();
+}
+
+Status FileColumnWriter::write_data() {
+    return apply_to_struct_children(_sub_column_writers, _null_writer.get(),
+                                    &ColumnWriter::write_data);
+}
+
+Status FileColumnWriter::write_ordinal_index() {
+    return apply_to_struct_children(_sub_column_writers, _null_writer.get(),
+                                    &ColumnWriter::write_ordinal_index);
+}
+
+Status FileColumnWriter::append_nulls(size_t num_rows) {
+    for (auto& column_writer : _sub_column_writers) {
+        RETURN_IF_ERROR(column_writer->append_nulls(num_rows));
+    }
+    if (is_nullable()) {
+        std::vector<UInt8> null_signs(num_rows, 1);
+        const uint8_t* null_sign_ptr = null_signs.data();
+        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
+    }
+    return Status::OK();
+}
+
+Status FileColumnWriter::finish_current_page() {
+    return Status::NotSupported("FILE writer has no data, can not finish_current_page");
 }
 
 ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,

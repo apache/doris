@@ -444,8 +444,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     }
 
     private void checkUdfSupportedType(Type type, String typePosition) throws AnalysisException {
-        // Reject bitmap/hll/quantile_state type
-        if (type.isObjectStored()) {
+        // FILE values have no Java/Python UDF representation. Check before descending into containers.
+        if (type.isObjectStored() || type.isFileType()) {
             throw new AnalysisException(String.format(
                     "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
         }

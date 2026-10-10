@@ -18,6 +18,8 @@
 #include "core/data_type_serde/data_type_struct_serde.h"
 
 #include <gen_cpp/types.pb.h>
+#include <rapidjson/document.h>
+#include <rapidjson/memorystream.h>
 
 #include <algorithm>
 
@@ -206,7 +208,6 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            next.trim_quote();
             // check field_name
             if (field_pos >= elem_size) {
                 // we should do column revert if error
@@ -216,6 +217,21 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                 return Status::InvalidArgument(
                         "Actual struct field number is more than schema field number {}.",
                         field_pos, elem_size);
+            }
+            rapidjson::Document field_name;
+            if (options.strict_json_strings) {
+                rapidjson::MemoryStream stream(next.data, next.size);
+                field_name.ParseStream<rapidjson::kParseValidateEncodingFlag>(stream);
+                if (field_name.HasParseError() || !field_name.IsString() ||
+                    stream.Tell() != next.size) {
+                    for (size_t j = 0; j < field_pos; j++) {
+                        struct_column.get_column(j).pop_back(1);
+                    }
+                    return Status::InvalidArgument("Expected a JSON string for struct field name");
+                }
+                next = Slice(field_name.GetString(), field_name.GetStringLength());
+            } else {
+                next.trim_quote();
             }
             if (elem_names[field_pos] != next) {
                 // we should do column revert if error

@@ -51,7 +51,8 @@ public class PartitionColumnStatisticCacheLoader extends
             // For non-empty table, return UNKNOWN if we can't collect ndv value.
             // Because inaccurate ndv is very misleading.
             PartitionColumnStatistic stats = partitionStatistic.get();
-            if (stats.count > 0 && stats.ndv.estimateCardinality() == 0 && stats.count != stats.numNulls) {
+            if (!stats.ndvUnavailable && stats.count > 0
+                    && stats.ndv.estimateCardinality() == 0 && stats.count != stats.numNulls) {
                 partitionStatistic = Optional.of(PartitionColumnStatistic.UNKNOWN);
             }
         }

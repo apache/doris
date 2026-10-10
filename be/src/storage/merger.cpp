@@ -728,7 +728,8 @@ Status Merger::vertical_merge_rowsets(
 
             if (col.type() == FieldType::OLAP_FIELD_TYPE_ARRAY ||
                 col.type() == FieldType::OLAP_FIELD_TYPE_MAP ||
-                col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+                col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+                col.type() == FieldType::OLAP_FIELD_TYPE_FILE) {
                 // Complex types: raw_data_bytes recursively aggregates sub-writers.
                 col_per_row = raw_per_row;
             } else if (col.is_length_variable_type()) {

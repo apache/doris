@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
+import org.apache.doris.nereids.trees.expressions.functions.table.ListFile;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
@@ -62,6 +63,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
+            tableValued(ListFile.class, "list_file"),
             tableValued(S3.class, "s3"),
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Partitions.class, "partitions"),

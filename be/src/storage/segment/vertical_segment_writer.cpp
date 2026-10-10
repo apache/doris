@@ -129,7 +129,8 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i), opts);
+        const auto child_id = column.type() == FieldType::OLAP_FIELD_TYPE_FILE ? i + 1 : column_id;
+        _init_column_meta(meta->add_children_columns(), child_id, column.get_sub_column(i), opts);
     }
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
@@ -228,6 +229,7 @@ Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,
     }
 
     DISABLE_INDEX_IF_FIELD_TYPE(STRUCT)
+    DISABLE_INDEX_IF_FIELD_TYPE(FILE)
     DISABLE_INDEX_IF_FIELD_TYPE(ARRAY)
     DISABLE_INDEX_IF_FIELD_TYPE(JSONB)
     DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE)

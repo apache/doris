@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -36,6 +38,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -49,7 +52,7 @@ import java.util.Objects;
 public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     // CAST can be from SQL Query or Type Coercion. true for explicitly cast from SQL query.
-    protected final boolean isExplicitType; //FIXME: now not useful
+    protected final boolean isExplicitType;
 
     // Some system-inserted casts are part of correctness-sensitive normalization and must fail
     // instead of producing NULL, independently of the session's enable_strict_cast setting.
@@ -89,6 +92,17 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType source = getArgument(0).getDataType();
+        if (!isExplicitType) {
+            TypeCoercionUtils.checkImplicitFileCast(source, targetType);
+        } else if ((source.typeContainsFile() || targetType.typeContainsFile())
+                && !CheckCast.check(source, targetType, isStrict)) {
+            throw new AnalysisException("cannot cast " + source.toSql() + " to " + targetType.toSql());
+        }
+    }
+
+    @Override
     public DataType getDataType() {
         return targetType;
     }
@@ -118,6 +132,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // so test exact type equality before the conservative datetime/timestamptz conversion rules below.
         if (srcType.equals(targetType)) {
             return false;
+        }
+        if (targetType.isFileType()) {
+            return true;
         }
         // Not allowed cast is forbidden in CheckCast, and all the Propagation Nullable cases are handled above
         // and the default return false below.

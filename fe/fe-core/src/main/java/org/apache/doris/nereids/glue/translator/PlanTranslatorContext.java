@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -37,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.CTEScanNode;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -48,6 +51,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -77,6 +81,10 @@ public class PlanTranslatorContext {
      * index from Nereids' slot to legacy slot.
      */
     private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
+
+    // Descriptors default to complete FILE reads. Restore these paths only after a scan's
+    // final projection is installed and its output contains no FILE values.
+    private final Map<SlotId, SlotReference> fileScanAccessPaths = Maps.newHashMap();
 
     private final Map<Integer, PlanNodeId> nereidsIdToPlanNodeIdMap = Maps.newHashMap();
 
@@ -409,6 +417,35 @@ public class PlanTranslatorContext {
     }
 
     /**
+     * A scan executes its final projection before returning blocks to any local or RPC exchange.
+     * Only that boundary can consume an incomplete FILE; every exported FILE remains complete.
+     * Called after the real scan projection and output tuple have been installed.
+     */
+    public void applyFileScanAccessPaths(OlapScanNode scan) {
+        if (scan.getProjectList() == null || scan.getProjectList().isEmpty()
+                || scan.getOutputTupleDesc() == null) {
+            return;
+        }
+        Set<SlotId> fullFileInputs = Sets.newHashSet();
+        // Resolve intermediate projections with the existing substitution path so each
+        // complete FILE output keeps only its own source columns fully materialized.
+        for (Expr projection : scan.getPointQueryProjectList()) {
+            if (projection.getType().typeContainsFile()) {
+                List<SlotRef> inputs = Lists.newArrayList();
+                projection.collect(SlotRef.class, inputs);
+                inputs.forEach(input -> fullFileInputs.add(input.getSlotId()));
+            }
+        }
+        for (SlotDescriptor slot : scan.getTupleDesc().getSlots()) {
+            SlotReference original = fileScanAccessPaths.get(slot.getId());
+            if (original != null && !fullFileInputs.contains(slot.getId())) {
+                slot.setAllAccessPaths(original.getAllAccessPaths().get());
+                slot.setDisplayAllAccessPaths(original.getDisplayAllAccessPaths().get());
+            }
+        }
+    }
+
+    /**
      * Create SlotDesc and add it to the mappings from expression to the stales expr.
      */
     public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
@@ -432,6 +469,17 @@ public class PlanTranslatorContext {
             slotDescriptor.setPredicateAccessPaths(slotReference.getPredicateAccessPaths().get());
             slotDescriptor.setDisplayAllAccessPaths(slotReference.getDisplayAllAccessPaths().get());
             slotDescriptor.setDisplayPredicateAccessPaths(slotReference.getDisplayPredicateAccessPaths().get());
+            if (slotReference.getDataType().typeContainsFile()
+                    && !slotReference.getAllAccessPaths().get().isEmpty()) {
+                fileScanAccessPaths.put(slotDescriptor.getId(), slotReference);
+                // Keep the predicate channel for local filtering/lazy reads, but request the
+                // complete output before it can leave the scan. Never serialize placeholders.
+                String root = slotReference.getAllAccessPaths().get().get(0).getPath().get(0);
+                slotDescriptor.setAllAccessPaths(ImmutableList.of(ColumnAccessPath.data(ImmutableList.of(root))));
+                String displayRoot = slotReference.getDisplayAllAccessPaths().get().get(0).getPath().get(0);
+                slotDescriptor.setDisplayAllAccessPaths(
+                        ImmutableList.of(ColumnAccessPath.data(ImmutableList.of(displayRoot))));
+            }
         }
         SlotRef slotRef;
         slotRef = new SlotRef(slotDescriptor);

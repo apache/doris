@@ -43,6 +43,7 @@ import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FileResourceSnapshot;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionName;
@@ -105,6 +106,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
@@ -726,6 +728,18 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 searchExpression.getQsPlan(), slotChildren, fieldIndexes,
                 searchExpression.nullable());
         return searchPredicate;
+    }
+
+    @Override
+    public Expr visitToFile(ToFile toFile, PlanTranslatorContext context) {
+        FunctionCallExpr call = (FunctionCallExpr) visitScalarFunction(toFile, context);
+        org.apache.doris.catalog.ScalarFunction catalogFunction =
+                (org.apache.doris.catalog.ScalarFunction) call.getFn();
+        // Translation runs for the current EXECUTE. Never retain credentials on
+        // the Nereids expression, which can be reused by a prepared statement.
+        catalogFunction.setFileResource(FileResourceSnapshot.resolveForToFile(
+                context.getStatementContext(), toFile.getResourceName()).toThrift());
+        return call;
     }
 
     @Override

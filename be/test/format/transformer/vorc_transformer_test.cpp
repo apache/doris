@@ -31,6 +31,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -41,6 +42,7 @@
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/value/uuid_value.h"
+#include "format/orc/orc_file_type.h"
 #include "format/orc/vorc_reader.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "io/fs/file_writer.h"
@@ -818,4 +820,135 @@ TEST_F(VOrcTransformerTest, CompactsCollectionsMaskedByNullableStruct) {
     EXPECT_EQ(key_statistics->getMinimum(), "");
     EXPECT_EQ(key_statistics->getMaximum(), "z");
 }
+TEST_F(VOrcTransformerTest, SparseFileOutputSchemaIsRejectedBeforeWriting) {
+    const auto file = make_nullable(std::make_shared<DataTypeFile>());
+    const DataTypes types {file, make_nullable(std::make_shared<DataTypeArray>(file))};
+    const std::array<std::string, 2> schemas {"struct<f:struct<uri:string>>",
+                                              "struct<f:array<struct<uri:string>>>"};
+    RuntimeState state;
+    state.set_timezone("UTC");
+    for (size_t i = 0; i < types.size(); ++i) {
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+        const auto exprs = MockSlotRef::create_mock_contexts(DataTypes {types[i]});
+        VOrcTransformer transformer(&state, file_writer.get(), exprs, schemas[i], {"f"}, false,
+                                    TFileCompressType::PLAIN);
+        const auto status = transformer.open();
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("FILE ORC output requires six children"),
+                  std::string::npos);
+        EXPECT_TRUE(transformer.close().ok());
+    }
+}
+
+TEST_F(VOrcTransformerTest, FileRoundTripPreservesNestedBinaryAndNulls) {
+    const auto file_type = make_nullable(std::make_shared<DataTypeFile>());
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(file_type));
+    const auto map_type = make_nullable(std::make_shared<DataTypeMap>(
+            make_nullable(std::make_shared<DataTypeString>()), file_type));
+    const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {array_type, map_type}, Strings {"files", "by_name"}));
+    const std::string bytes = std::string(4096, '\xff') + std::string("\0end", 4);
+    const auto file_value = [](const std::string* payload) {
+        File children(6);
+        children[0] = Field::create_field<TYPE_STRING>(
+                "s3://bucket/a/../b%2Fc%2fd%20e%252F?versionId=AbC%2bD");
+        children[1] = Field::create_field<TYPE_BIGINT>(3);
+        children[2] = Field::create_field<TYPE_BIGINT>(7);
+        children[3] = Field::create_field<TYPE_STRING>("application/octet-stream");
+        children[4] = Field::create_field<TYPE_STRING>("ETAG:opaque-2");
+        if (payload != nullptr) {
+            children[5] = Field::create_field<TYPE_VARBINARY>(
+                    StringView(payload->data(), cast_set<uint32_t>(payload->size())));
+        }
+        return Field::create_field<TYPE_FILE>(std::move(children));
+    };
+    const std::string empty;
+    auto top = file_type->create_column();
+    top->insert(file_value(&bytes));
+    top->insert_default();
+    top->insert(file_value(&empty));
+    auto nested = struct_type->create_column();
+    const auto array_value = Field::create_field<TYPE_ARRAY>(
+            Array {file_value(&bytes), Field(), file_value(&empty), file_value(nullptr)});
+    const auto map_value = Field::create_field<TYPE_MAP>(Map {
+            Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_STRING>("asset"),
+                                                   Field::create_field<TYPE_STRING>("missing")}),
+            Field::create_field<TYPE_ARRAY>(Array {file_value(&bytes), Field()})});
+    nested->insert(Field::create_field<TYPE_STRUCT>(Struct {array_value, map_value}));
+    nested->insert_default();
+    nested->insert(Field::create_field<TYPE_STRUCT>(Struct {
+            Field::create_field<TYPE_ARRAY>(Array {}),
+            Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array {}),
+                                               Field::create_field<TYPE_ARRAY>(Array {})})}));
+
+    const DataTypes types {file_type, struct_type};
+    const auto output_exprs = MockSlotRef::create_mock_contexts(types);
+    RuntimeState state;
+    state.set_timezone("UTC");
+    // Exercise both inferred output schemas and explicit ORC schema strings.
+    for (const bool explicit_schema : {false, true}) {
+        SCOPED_TRACE(explicit_schema);
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+        const std::string canonical = create_orc_file_type()->toString();
+        const std::string schema =
+                explicit_schema ? "struct<f:" + canonical + ",s:struct<files:array<" + canonical +
+                                          ">,by_name:map<string," + canonical + ">>>"
+                                : "";
+        VOrcTransformer transformer(&state, file_writer.get(), output_exprs, schema, {"f", "s"},
+                                    false, TFileCompressType::PLAIN);
+        const auto open_status = transformer.open();
+        ASSERT_TRUE(open_status.ok()) << open_status;
+        Block block;
+        block.insert({top->clone(), file_type, "f"});
+        block.insert({nested->clone(), struct_type, "s"});
+        const auto write_status = transformer.write(block);
+        ASSERT_TRUE(write_status.ok()) << write_status;
+        ASSERT_TRUE(transformer.close().ok());
+
+        orc::ReaderOptions options;
+        auto reader = orc::createReader(orc::readLocalFile(_file_path, options.getReaderMetrics()),
+                                        options);
+        const auto& root_type = reader->getType();
+        EXPECT_TRUE(is_orc_file_type(*root_type.getSubtype(0)));
+        EXPECT_TRUE(is_orc_file_type(*root_type.getSubtype(1)->getSubtype(0)->getSubtype(0)));
+        EXPECT_TRUE(is_orc_file_type(*root_type.getSubtype(1)->getSubtype(1)->getSubtype(1)));
+        // Match OrcReader::_init_orc_row_reader(): its string decoder expects encoded-capable
+        // batches even for direct-encoded strings, including ordinary MAP keys around FILE.
+        orc::RowReaderOptions row_options;
+        row_options.setEnableLazyDecoding(true);
+        auto row_reader = reader->createRowReader(row_options);
+        auto batch = row_reader->createRowBatch(3);
+        ASSERT_TRUE(row_reader->next(*batch));
+        const auto& root_batch = assert_cast<const orc::StructVectorBatch&>(*batch);
+        TFileScanRangeParams params;
+        TFileRangeDesc range;
+        auto doris_reader =
+                OrcReader::create_unique(params, range, 1024, "UTC", nullptr, nullptr, true);
+        for (size_t i = 0; i < types.size(); ++i) {
+            ColumnPtr restored = types[i]->create_column();
+            const auto status = doris_reader->_orc_column_to_doris_column<false>(
+                    root_type.getFieldName(i), restored, types[i],
+                    std::make_shared<TableSchemaChangeHelper::ConstNode>(), root_type.getSubtype(i),
+                    root_batch.fields[i], 3);
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_TRUE(validate_file_column(*restored, types[i]).ok());
+            ASSERT_EQ(restored->size(), 3);
+            EXPECT_TRUE(restored->is_null_at(1));
+            // Compare physical serialization, which includes all six FILE children without
+            // invoking FILE equality or exposing inline through a public text serializer.
+            const auto& expected = *block.get_by_position(i).column;
+            for (size_t row = 0; row < 3; ++row) {
+                std::string expected_bytes(expected.serialize_size_at(row), '\0');
+                std::string actual_bytes(restored->serialize_size_at(row), '\0');
+                expected.serialize_impl(expected_bytes.data(), row);
+                restored->serialize_impl(actual_bytes.data(), row);
+                EXPECT_EQ(expected_bytes, actual_bytes);
+            }
+        }
+        ASSERT_TRUE(_fs->delete_file(_file_path).ok());
+    }
+}
+
 } // namespace doris

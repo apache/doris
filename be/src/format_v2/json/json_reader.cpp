@@ -919,7 +919,12 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
     }
 
     const auto primitive_type = type_desc->get_primitive_type();
-    if (!is_complex_type(primitive_type)) {
+    if (primitive_type == TYPE_FILE) {
+        std::string_view json_str = simdjson::to_json_string(value);
+        Slice slice {json_str.data(), json_str.size()};
+        RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                   _serde_options));
+    } else if (!is_complex_type(primitive_type)) {
         if (value_type == simdjson::ondemand::json_type::string) {
             std::string_view value_string;
             if constexpr (use_string_cache) {
@@ -933,9 +938,14 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
             } else {
                 value_string = value.get_string();
             }
-            Slice slice {value_string.data(), value_string.size()};
-            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
-                                                                       _serde_options));
+            if (is_string_type(primitive_type)) {
+                // get_string() already decoded JSON quoting and escapes.
+                data_column_ptr->insert_data(value_string.data(), value_string.size());
+            } else {
+                Slice slice {value_string.data(), value_string.size()};
+                RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                           _serde_options));
+            }
         } else if (value_type == simdjson::ondemand::json_type::boolean) {
             const char* str_value = value.get_bool() ? "1" : "0";
             Slice slice {str_value, 1};
@@ -1018,9 +1028,14 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
                 }
             }
             std::string_view key_view = member_value.unescaped_key().value();
-            Slice key_slice(key_view.data(), key_view.size());
-            RETURN_IF_ERROR(key_serde->deserialize_one_cell_from_json(*key_column, key_slice,
-                                                                      _serde_options));
+            if (is_string_type(map_type->get_key_type()->get_primitive_type())) {
+                // unescaped_key() returns the actual key, including any literal quotes.
+                key_column->insert_data(key_view.data(), key_view.size());
+            } else {
+                Slice key_slice(key_view.data(), key_view.size());
+                RETURN_IF_ERROR(key_serde->deserialize_one_cell_from_json(*key_column, key_slice,
+                                                                          _serde_options));
+            }
             simdjson::ondemand::value field_value = member_value.value().value();
             RETURN_IF_ERROR(_write_data_to_column<use_string_cache>(
                     field_value, map_type->get_value_type(),

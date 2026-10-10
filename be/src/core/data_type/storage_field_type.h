@@ -58,6 +58,8 @@ constexpr FieldType primitive_type_to_storage_field_type(PrimitiveType type) {
         return FieldType::OLAP_FIELD_TYPE_DATETIME;
     case PrimitiveType::TYPE_CHAR:
         return FieldType::OLAP_FIELD_TYPE_CHAR;
+    case PrimitiveType::TYPE_FILE:
+        return FieldType::OLAP_FIELD_TYPE_FILE;
     case PrimitiveType::TYPE_STRUCT:
         return FieldType::OLAP_FIELD_TYPE_STRUCT;
     case PrimitiveType::TYPE_ARRAY:
@@ -152,6 +154,8 @@ constexpr PrimitiveType storage_field_type_to_primitive_type(FieldType type) {
         return PrimitiveType::TYPE_DECIMALV2;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return PrimitiveType::TYPE_VARCHAR;
+    case FieldType::OLAP_FIELD_TYPE_FILE:
+        return PrimitiveType::TYPE_FILE;
     case FieldType::OLAP_FIELD_TYPE_STRUCT:
         return PrimitiveType::TYPE_STRUCT;
     case FieldType::OLAP_FIELD_TYPE_ARRAY:

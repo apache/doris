@@ -104,7 +104,8 @@ enum TPrimitiveType {
   VARBINARY = 43, // represent varbinary type
   TIMESTAMPTZ = 44, // timestamp with time zone
   TIMESTAMP_NS = 45, // signed nanoseconds since the Unix epoch
-  UUID = 46
+  UUID = 46,
+  FILE = 47
 }
 
 enum TTypeNodeType {
@@ -113,6 +114,7 @@ enum TTypeNodeType {
     MAP = 2,
     STRUCT = 3,
     VARIANT = 4,
+    FILE = 5,
 }
 
 enum TStorageBackendType {
@@ -167,7 +169,7 @@ struct TTypeNode {
     // only set for scalar types
     2: optional TScalarType scalar_type
 
-    // only used for structs; has struct_fields.size() corresponding child types
+    // used for STRUCT and FILE; has struct_fields.size() corresponding child types
     3: optional list<TStructField> struct_fields
 
     // old version used for array
@@ -381,6 +383,24 @@ struct TDictFunction {
   2: optional i64 version_id
 }
 
+enum TFileType {
+    FILE_LOCAL = 0,
+    FILE_BROKER = 1,
+    FILE_STREAM = 2,    // file content is streaming in the buffer
+    FILE_S3 = 3,
+    FILE_HDFS = 4,
+    FILE_NET = 5,       // read file by network, such as http
+    FILE_HTTP = 6,
+}
+
+// Immutable resource configuration bound for one query execution.
+// Credentials belong to this execution descriptor, never to a FILE value.
+struct TFileResourceSnapshot {
+  1: required string resource_name
+  2: required TFileType file_type
+  3: required map<string, string> properties
+}
+
 // Represents a function in the Catalog.
 struct TFunction {
   // Fully qualified function name.
@@ -420,6 +440,7 @@ struct TFunction {
   17: optional TDictFunction dict_function
   18: optional string runtime_version
   19: optional string function_code
+  20: optional TFileResourceSnapshot file_resource
 }
 
 enum TJdbcOperation {
@@ -597,16 +618,6 @@ struct TReplicaInfo {
 struct TResourceInfo {
     1: required string user
     2: required string group
-}
-
-enum TFileType {
-    FILE_LOCAL = 0,
-    FILE_BROKER = 1,
-    FILE_STREAM = 2,    // file content is streaming in the buffer
-    FILE_S3 = 3,
-    FILE_HDFS = 4,
-    FILE_NET = 5,       // read file by network, such as http
-    FILE_HTTP = 6,
 }
 
 struct TTabletCommitInfo {

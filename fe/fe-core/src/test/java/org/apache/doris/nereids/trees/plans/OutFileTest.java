@@ -30,6 +30,8 @@ import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -37,6 +39,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
 
 public class OutFileTest extends TestWithFeService implements PlanPatternMatchSupported {
     private final NereidsParser parser = new NereidsParser();
@@ -126,5 +129,77 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                 PhysicalProperties.ANY
         );
         return new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
+    }
+
+    @Test
+    public void testOrcOutFileCarriesCanonicalFileChildrenRecursively() throws Exception {
+        String sql = "select cast(null as file) f, cast(null as array<file>) a, "
+                + "cast(null as struct<f:file>) s, cast(null as map<string,file>) m "
+                + "into outfile 'hdfs://127.0.0.1:8020/tmp/file_orc_' format as orc "
+                + "properties (\"hadoop.username\" = \"doris\")";
+        PlanFragment fragment = getOutputFragment(sql);
+        Field field = ResultFileSink.class.getDeclaredField("fileSinkOptions");
+        field.setAccessible(true);
+        TResultFileSinkOptions options = (TResultFileSinkOptions) field.get(fragment.getSink());
+        String file = "struct<uri:string,offset:bigint,size:bigint,content_type:string,"
+                + "checksum:string,inline:binary>";
+        Assertions.assertEquals("struct<f:" + file + ",a:array<" + file + ">,s:struct<f:"
+                + file + ">,m:map<string," + file + ">>", options.getOrcSchema());
+    }
+
+    @Test
+    public void testJsonOutFileCarriesCanonicalObjectNamesAndOptions() throws Exception {
+        TResultFileSinkOptions options = getSinkOptions("select id as MiXeD, score as `space A` from T1 "
+                + "into outfile 'hdfs://127.0.0.1:8020/tmp/json_' format as json "
+                + "properties (\"hadoop.username\" = \"doris\", \"compress_type\" = \"gz\", "
+                + "\"line_delimiter\" = \"\\r\\n\")");
+        Assertions.assertEquals(TFileFormatType.FORMAT_JSON, options.getFileFormat());
+        Assertions.assertEquals(Arrays.asList("mixed", "space a"), options.getJsonColumnNames());
+        Assertions.assertEquals(TFileCompressType.GZ, options.getCompressionType());
+        Assertions.assertEquals("\r\n", options.getLineDelimiter());
+        Assertions.assertEquals("hdfs://127.0.0.1:8020", options.getBrokerProperties().get("fs.defaultFS"));
+    }
+
+    @Test
+    public void testJsonOutFileRejectsDuplicateObjectNames() {
+        for (String aliases : Arrays.asList("id as same, score as same", "id as MiXeD, score as mixed")) {
+            Exception exception = Assertions.assertThrows(Exception.class, () -> getSinkOptions("select " + aliases
+                    + " from T1 into outfile 'hdfs://127.0.0.1:8020/tmp/json_' format as json "
+                    + "properties (\"hadoop.username\" = \"doris\")"));
+            Assertions.assertTrue(exception.getMessage().contains("Duplicate field name found:"),
+                    exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testJsonOutFileRejectsVarbinaryRecursively() {
+        for (String type : Arrays.asList("varbinary", "array<varbinary>", "struct<payload:varbinary>",
+                "map<string,varbinary>", "array<struct<payload:array<varbinary>>>")) {
+            Exception exception = Assertions.assertThrows(Exception.class, () -> getSinkOptions(
+                    "select cast(null as " + type + ") as payload "
+                            + "into outfile 'hdfs://127.0.0.1:8020/tmp/json_' format as json "
+                            + "properties (\"hadoop.username\" = \"doris\")"));
+            Assertions.assertTrue(exception.getMessage().contains("JSON OUTFILE does not support type varbinary"),
+                    type + ": " + exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testJsonOutFileAcceptsFileRecursively() throws Exception {
+        TResultFileSinkOptions options = getSinkOptions("select cast(null as file) f, "
+                + "cast(null as array<file>) a, cast(null as struct<f:file>) s, "
+                + "cast(null as map<string,file>) m "
+                + "into outfile 'hdfs://127.0.0.1:8020/tmp/json_' format as json "
+                + "properties (\"hadoop.username\" = \"doris\")");
+        Assertions.assertEquals(Arrays.asList("f", "a", "s", "m"), options.getJsonColumnNames());
+        Assertions.assertEquals(TFileCompressType.PLAIN, options.getCompressionType());
+        Assertions.assertEquals("\n", options.getLineDelimiter());
+    }
+
+    private TResultFileSinkOptions getSinkOptions(String sql) throws Exception {
+        PlanFragment fragment = getOutputFragment(sql);
+        Field field = ResultFileSink.class.getDeclaredField("fileSinkOptions");
+        field.setAccessible(true);
+        return (TResultFileSinkOptions) field.get(fragment.getSink());
     }
 }

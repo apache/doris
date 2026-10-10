@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_buffer.hpp"
@@ -63,7 +64,7 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
     }
 
     _options.timezone = &state->timezone_obj();
-    if (_is_text_format) {
+    if (hive_serde_properties != nullptr) {
         _options.field_delim = hive_serde_properties->field_delim;
         _options.collection_delim = hive_serde_properties->collection_delim[0];
         _options.map_key_delim = hive_serde_properties->mapkv_delim[0];
@@ -83,6 +84,12 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
 }
 
 Status VCSVTransformer::open() {
+    for (const auto& context : _output_vexpr_ctxs) {
+        if (contains_file_type(context->root()->data_type())) {
+            return Status::NotSupported("CSV output does not support FILE");
+        }
+    }
+
     RETURN_IF_ERROR(get_block_compression_codec(_compress_type, &_compress_codec));
     if (_with_bom) {
         Slice bom_slice(reinterpret_cast<const char*>(bom), sizeof(bom));
@@ -118,6 +125,12 @@ Status VCSVTransformer::close() {
 }
 
 Status VCSVTransformer::write(const Block& block) {
+    for (size_t column = 0; column < block.columns(); ++column) {
+        if (contains_file_type(block.get_by_position(column).type)) {
+            return Status::NotSupported("CSV output does not support FILE");
+        }
+    }
+
     auto ser_col = ColumnString::create();
     ser_col->reserve(block.columns());
     VectorBufferWriter buffer_writer(*ser_col.get());

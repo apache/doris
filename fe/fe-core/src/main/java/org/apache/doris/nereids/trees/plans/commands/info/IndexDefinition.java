@@ -170,12 +170,19 @@ public class IndexDefinition {
                 || columnType.isIPType() || columnType.isUuidType() || columnType.isFloatLikeType();
     }
 
+    private static void checkFileIndex(Type type) {
+        if (type.typeContainsFile()) {
+            throw new AnalysisException("FILE does not support direct indexes: " + type.toSql());
+        }
+    }
+
     /**
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        checkFileIndex(column.getType().toCatalogDataType());
         if (indexType == IndexType.ANN) {
             if (column.isNullable()) {
                 throw new AnalysisException("ANN index must be built on a column that is not nullable");
@@ -299,6 +306,7 @@ public class IndexDefinition {
      */
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
                             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        checkFileIndex(column.getType());
         if (indexType == IndexType.ANN) {
             if (column.isAllowNull()) {
                 throw new AnalysisException("ANN index must be built on a column that is not nullable");

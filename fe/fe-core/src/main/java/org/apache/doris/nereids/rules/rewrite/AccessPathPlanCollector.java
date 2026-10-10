@@ -22,6 +22,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectorContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -54,6 +55,7 @@ import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,13 +67,26 @@ import java.util.TreeSet;
 public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementContext> {
     private Multimap<Integer, CollectAccessPathResult> allSlotToAccessPaths = LinkedHashMultimap.create();
     private Map<Slot, List<CollectAccessPathResult>> scanSlotToAccessPaths = new LinkedHashMap<>();
+    private final Set<ExprId> fileProjectionSlots = new HashSet<>();
     private boolean skipMetaPath;
 
     public void setSkipMetaPath(boolean skipMetaPath) {
         this.skipMetaPath = skipMetaPath;
     }
 
+    /** Collect scan paths, preserving null-only demands through derived FILE projections. */
     public Map<Slot, List<CollectAccessPathResult>> collect(Plan root, StatementContext context) {
+        // COUNT/IS NULL can reference aliases introduced by NormalizeAggregate. Their
+        // null-only demand must reach the defining expression before checking storage null maps.
+        root.foreach(plan -> {
+            if (plan instanceof LogicalProject) {
+                for (NamedExpression output : ((LogicalProject<?>) plan).getProjects()) {
+                    if (output instanceof Alias && output.getDataType().typeContainsFile()) {
+                        fileProjectionSlots.add(output.getExprId());
+                    }
+                }
+            }
+        });
         root.accept(this, context);
         return scanSlotToAccessPaths;
     }
@@ -89,7 +104,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         List<Slot> output = generate.getGeneratorOutput();
 
         AccessPathExpressionCollector exprCollector
-                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false, skipMetaPath);
+                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false, skipMetaPath,
+                        fileProjectionSlots);
         for (int i = 0; i < output.size(); i++) {
             Slot generatorOutput = output.get(i);
             Function function = generators.get(i);
@@ -235,7 +251,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     @Override
     public Void visitLogicalProject(LogicalProject<? extends Plan> project, StatementContext context) {
         AccessPathExpressionCollector exprCollector
-                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false, skipMetaPath);
+                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false, skipMetaPath,
+                        fileProjectionSlots);
         for (NamedExpression output : project.getProjects()) {
             // e.g. select element_at(s, 'city') from (select s from tbl)a;
             // we will not treat the inner `s` access all path
@@ -265,6 +282,17 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                                     outerSlotAccessPath.getType()
                             )
                     );
+                }
+            } else if (output instanceof Alias && output.getDataType().typeContainsFile()
+                    && allSlotToAccessPaths.containsKey(output.getExprId().asInt())) {
+                // NormalizeAggregate can name a nested FILE expression before COUNT/IS NULL.
+                // Propagate the consumer's path through that expression instead of demanding
+                // its entire FILE value merely because it has an alias.
+                for (CollectAccessPathResult path : allSlotToAccessPaths.get(output.getExprId().asInt())) {
+                    CollectorContext argumentContext = new CollectorContext(context, path.isPredicate());
+                    argumentContext.setType(path.getType());
+                    argumentContext.getAccessPathBuilder().addSuffix(path.getPath().subList(1, path.getPath().size()));
+                    output.child(0).accept(exprCollector, argumentContext);
                 }
             } else {
                 exprCollector.collect(output);
@@ -399,7 +427,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
 
     private void collectByExpressions(Plan plan, StatementContext context, boolean bottomPredicate) {
         AccessPathExpressionCollector exprCollector
-                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, bottomPredicate, skipMetaPath);
+                = new AccessPathExpressionCollector(context, allSlotToAccessPaths, bottomPredicate, skipMetaPath,
+                        fileProjectionSlots);
         for (Expression expression : plan.getExpressions()) {
             exprCollector.collect(expression);
         }

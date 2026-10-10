@@ -123,7 +123,7 @@ struct TResultFileSinkOptions {
     1: required string file_path
     2: required PlanNodes.TFileFormatType file_format
     3: optional string column_separator    // only for csv
-    4: optional string line_delimiter  // only for csv
+    4: optional string line_delimiter  // for csv and json
     5: optional i64 max_file_size_bytes
     6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     7: optional map<string, string> broker_properties // only for remote file
@@ -157,9 +157,11 @@ struct TResultFileSinkOptions {
     //hive write sink use int96
     //export data to file use by user define properties
     21: optional bool enable_int96_timestamps
-    // currently only for csv
+    // for csv and json
     // TODO: merge with parquet_compression_type and orc_compression_type
     22: optional PlanNodes.TFileCompressType compression_type
+    // JSON row object keys, canonicalized and validated using STRUCT field rules.
+    25: optional list<string> json_column_names
 }
 
 struct TMemoryScratchSink {

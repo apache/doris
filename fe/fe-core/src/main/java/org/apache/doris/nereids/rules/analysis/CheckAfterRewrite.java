@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -78,6 +79,9 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
 
         for (Expression expression : plan.getExpressions()) {
             expression.foreach(expr -> {
+                if (expr instanceof AggregateFunction) {
+                    TypeCoercionUtils.checkFileFunction((AggregateFunction) expr);
+                }
                 if (expr instanceof SubqueryExpr) {
                     throw new AnalysisException("Subquery is not allowed in " + plan.getType());
                 } else if (!isGenerate && expr instanceof TableGeneratingFunction) {

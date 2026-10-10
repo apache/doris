@@ -49,6 +49,13 @@ class RowDescriptor;
 Status convert_to_arrow_type(const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
                              const std::string& timezone, bool datetime_naive = false);
 
+// FILE identity belongs to the Field, including nested list/map item fields.
+Status convert_to_arrow_field(const std::string& name, const DataTypePtr& type,
+                              std::shared_ptr<arrow::Field>* result, const std::string& timezone,
+                              bool datetime_naive = false);
+
+Status validate_arrow_file_metadata(const DataTypePtr& type, const arrow::Field& field);
+
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
         bool is_nullable, PrimitiveType primitive_type);

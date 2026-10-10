@@ -51,6 +51,7 @@
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_struct.h"
@@ -818,6 +819,9 @@ Status NewJsonReader::_simdjson_handle_simple_json_write_columns(
             }
         }
     }
+    // A rejected FILE row has been rolled back. Do not report it as a source row as well as
+    // a filtered row, including a document whose array contains only rejected rows.
+    *is_empty_row = block.rows() == num_rows;
     return Status::OK();
 }
 
@@ -1035,6 +1039,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                 val, slot_descs[column_index]->type(), column_ptr,
                 slot_descs[column_index]->col_name(), _serdes[column_index], valid));
         if (!(*valid)) {
+            json_reader_detail::truncate_block_to_rows(block, cur_row_count);
             return Status::OK();
         }
         _seen_columns[column_index] = true;
@@ -1147,7 +1152,26 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     }
 
     auto primitive_type = type_desc->get_primitive_type();
-    if (_is_load || !is_complex_type(primitive_type)) {
+    if (primitive_type == TYPE_FILE) {
+        std::string_view json_str = simdjson::to_json_string(value);
+        Slice slice {json_str.data(), json_str.size()};
+        const auto status =
+                data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice, _serde_options);
+        if (!status.ok()) {
+            if (!_is_load) return status;
+            if (_params.strict_mode || nullable_column == nullptr) {
+                return _append_error_msg(nullptr,
+                                         fmt::format("Invalid FILE value in column '{}': {}",
+                                                     column_name, status.to_string()),
+                                         "", valid);
+            }
+            // No FILE child was appended on failure. Keep the ordinary non-strict whole-value
+            // NULL behavior; FileScanner still enforces destination NOT NULL constraints.
+            nullable_column->insert_default();
+            *valid = true;
+            return Status::OK();
+        }
+    } else if (_is_load || !is_complex_type(primitive_type)) {
         if (value.type() == simdjson::ondemand::json_type::string) {
             std::string_view value_string;
             if constexpr (use_string_cache) {
@@ -1163,9 +1187,14 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                 value_string = value.get_string();
             }
 
-            Slice slice {value_string.data(), value_string.size()};
-            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
-                                                                       _serde_options));
+            if (is_string_type(primitive_type)) {
+                // get_string() already decoded JSON quoting and escapes.
+                data_column_ptr->insert_data(value_string.data(), value_string.size());
+            } else {
+                Slice slice {value_string.data(), value_string.size()};
+                RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                           _serde_options));
+            }
 
         } else if (value.type() == simdjson::ondemand::json_type::boolean) {
             const char* str_value = nullptr;
@@ -1183,8 +1212,10 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             // Note that `if (value->IsInt())`, but column is FloatColumn.
             std::string_view json_str = simdjson::to_json_string(value);
             Slice slice {json_str.data(), json_str.size()};
-            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
-                                                                       _serde_options));
+            auto options = _serde_options;
+            options.strict_json_strings = contains_file_type(type_desc);
+            RETURN_IF_ERROR(
+                    data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice, options));
         }
     } else if (primitive_type == TYPE_STRUCT) {
         if (value.type() != simdjson::ondemand::json_type::object) [[unlikely]] {
@@ -1268,10 +1299,14 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                     data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
                     data_serde = serde->get_nested_serdes()[0];
                 }
-                Slice slice(key_view.data(), key_view.length());
-
-                RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
-                                                                           serde_options));
+                if (is_string_type(type_desc->get_primitive_type())) {
+                    // unescaped_key() returns the actual key, including any literal quotes.
+                    data_column_ptr->insert_data(key_view.data(), key_view.size());
+                } else {
+                    Slice slice(key_view.data(), key_view.length());
+                    RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(
+                            *data_column_ptr, slice, serde_options));
+                }
                 return Status::OK();
             };
 
@@ -1503,6 +1538,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Block& block, bool* valid) {
     // write by jsonpath
     bool has_valid_value = false;
+    const size_t cur_row_count = block.rows();
 
     Defer clear_defer([this]() { _cached_string_values.clear(); });
 
@@ -1541,6 +1577,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
                                                                  column_ptr, slot_desc->col_name(),
                                                                  _serdes[i], valid));
             if (!(*valid)) {
+                json_reader_detail::truncate_block_to_rows(block, cur_row_count);
                 return Status::OK();
             }
             has_valid_value = true;

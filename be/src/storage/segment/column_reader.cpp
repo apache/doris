@@ -37,9 +37,12 @@
 #include "core/binary_cast.hpp"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_file.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_agg_state.h"
@@ -52,6 +55,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h" //for VecDateTime
 #include "io/fs/file_reader.h"
+#include "storage/file_column_schema.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
@@ -453,6 +457,37 @@ Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const Column
     return Status::OK();
 }
 
+Status ColumnReader::create_file(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                                 uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                                 std::shared_ptr<ColumnReader>* reader) {
+    if (meta.children_columns_size() != 6 + static_cast<int>(meta.is_nullable())) {
+        return Status::Corruption(
+                "FILE segment requires six children and optional parent null map");
+    }
+    for (int i = 0; i < FILE_STORAGE_CHILD_TYPES.size(); ++i) {
+        const auto& child = meta.children_columns(i);
+        if (child.type() != static_cast<int>(FILE_STORAGE_CHILD_TYPES[i]) || !child.is_nullable() ||
+            child.children_columns_size() != 0 || child.num_rows() != num_rows) {
+            return Status::Corruption("Invalid FILE segment child {}", FILE_STORAGE_CHILD_NAMES[i]);
+        }
+    }
+    if (meta.is_nullable()) {
+        const auto& nulls = meta.children_columns(6);
+        if (nulls.type() != static_cast<int>(FieldType::OLAP_FIELD_TYPE_TINYINT) ||
+            nulls.is_nullable() || nulls.num_rows() != num_rows) {
+            return Status::Corruption("Invalid FILE parent null map");
+        }
+    }
+    std::shared_ptr<ColumnReader> file(new ColumnReader(opts, meta, num_rows, file_reader));
+    for (const auto& child : meta.children_columns()) {
+        std::shared_ptr<ColumnReader> child_reader;
+        RETURN_IF_ERROR(ColumnReader::create(opts, child, num_rows, file_reader, &child_reader));
+        file->_sub_readers.push_back(std::move(child_reader));
+    }
+    *reader = std::move(file);
+    return Status::OK();
+}
+
 Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                       uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                                       std::shared_ptr<ColumnReader>* reader) {
@@ -516,6 +551,9 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
         }
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             return create_struct(opts, meta, num_rows, file_reader, reader);
+        }
+        case FieldType::OLAP_FIELD_TYPE_FILE: {
+            return create_file(opts, meta, num_rows, file_reader, reader);
         }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
             return create_array(opts, meta, file_reader, reader);
@@ -1081,6 +1119,9 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             return new_struct_iterator(iterator, tablet_column);
         }
+        case FieldType::OLAP_FIELD_TYPE_FILE: {
+            return new_file_iterator(iterator, tablet_column);
+        }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
             return new_array_iterator(iterator, tablet_column);
         }
@@ -1184,6 +1225,85 @@ Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
     }
     *iterator = std::make_unique<StructFileColumnIterator>(
             shared_from_this(), std::move(null_iterator), std::move(sub_column_iterators));
+    return Status::OK();
+}
+
+namespace {
+
+// The STRING page decoder writes ColumnString; only FILE inline converts that
+// physical carrier to the logical ColumnVarbinary. All access-path and lazy-read
+// state stays in the scalar iterator base.
+class FileInlineColumnIterator final : public FileColumnIterator {
+public:
+    explicit FileInlineColumnIterator(std::shared_ptr<ColumnReader> reader)
+            : FileColumnIterator(std::move(reader)),
+              _carrier(ColumnNullable::create(ColumnString::create(), ColumnUInt8::create())) {}
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        if (!need_to_read()) {
+            _convert_to_place_holder_column(dst, *n);
+            return Status::OK();
+        }
+        _recovery_from_place_holder_column(dst);
+        _carrier->clear();
+        RETURN_IF_ERROR(FileColumnIterator::next_batch(n, _carrier, has_null));
+        append_to_binary(dst);
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, size_t count, MutableColumnPtr& dst) override {
+        if (!need_to_read()) {
+            _convert_to_place_holder_column(dst, count);
+            return Status::OK();
+        }
+        _recovery_from_place_holder_column(dst);
+        _carrier->clear();
+        RETURN_IF_ERROR(FileColumnIterator::read_by_rowids(rowids, count, _carrier));
+        append_to_binary(dst);
+        return Status::OK();
+    }
+
+private:
+    void append_to_binary(MutableColumnPtr& dst) const {
+        const auto& source = assert_cast<const ColumnNullable&>(*_carrier);
+        auto& target = assert_cast<ColumnNullable&>(*dst);
+        auto& binary = assert_cast<ColumnVarbinary&>(target.get_nested_column());
+        const auto& strings = assert_cast<const ColumnString&>(source.get_nested_column());
+        for (size_t i = 0; i < source.size(); ++i) {
+            const auto value = strings.get_data_at(i);
+            binary.insert_data(value.data, value.size);
+            target.get_null_map_data().push_back(source.get_null_map_data()[i]);
+        }
+    }
+
+    MutableColumnPtr _carrier;
+};
+
+} // namespace
+
+Status ColumnReader::new_file_iterator(ColumnIteratorUPtr* iterator,
+                                       const TabletColumn* tablet_column) {
+    if (tablet_column) {
+        RETURN_IF_ERROR(tablet_column->check_valid());
+    }
+    std::vector<ColumnIteratorUPtr> children;
+    for (size_t i = 0; i < FILE_STORAGE_CHILD_TYPES.size(); ++i) {
+        ColumnIteratorUPtr child;
+        if (i == 5) {
+            child = std::make_unique<FileInlineColumnIterator>(_sub_readers[i]);
+        } else {
+            RETURN_IF_ERROR(_sub_readers[i]->new_iterator(
+                    &child, tablet_column ? &tablet_column->get_sub_column(i) : nullptr));
+        }
+        child->set_column_name(FILE_STORAGE_CHILD_NAMES[i]);
+        children.push_back(std::move(child));
+    }
+    ColumnIteratorUPtr nulls;
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_sub_readers[6]->new_iterator(&nulls, nullptr));
+    }
+    *iterator = std::make_unique<FileValueColumnIterator>(shared_from_this(), std::move(nulls),
+                                                          std::move(children));
     return Status::OK();
 }
 
@@ -1881,6 +2001,39 @@ bool MapFileColumnIterator::has_lazy_read_target() const {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+namespace {
+
+Status read_nested_rows_by_runs(ColumnIterator& iterator, const rowid_t* rowids, size_t count,
+                                MutableColumnPtr& dst) {
+    if (count == 0) {
+        return Status::OK();
+    }
+    size_t this_run = 1;
+    auto start_idx = rowids[0];
+    auto last_idx = rowids[0];
+    for (size_t i = 1; i < count; ++i) {
+        if (last_idx == rowids[i] - 1) {
+            last_idx = rowids[i];
+            this_run++;
+            continue;
+        }
+        RETURN_IF_ERROR(iterator.seek_to_ordinal(start_idx));
+        size_t num_read = this_run;
+        RETURN_IF_ERROR(iterator.next_batch(&num_read, dst));
+        DCHECK_EQ(num_read, this_run);
+        start_idx = rowids[i];
+        last_idx = rowids[i];
+        this_run = 1;
+    }
+    RETURN_IF_ERROR(iterator.seek_to_ordinal(start_idx));
+    size_t num_read = this_run;
+    RETURN_IF_ERROR(iterator.next_batch(&num_read, dst));
+    DCHECK_EQ(num_read, this_run);
+    return Status::OK();
+}
+
+} // namespace
+
 StructFileColumnIterator::StructFileColumnIterator(
         std::shared_ptr<ColumnReader> reader, ColumnIteratorUPtr null_iterator,
         std::vector<ColumnIteratorUPtr>&& sub_column_iterators)
@@ -2036,34 +2189,7 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
 
     _recovery_from_place_holder_column(dst);
 
-    if (count == 0) {
-        return Status::OK();
-    }
-
-    size_t this_run = 1;
-    auto start_idx = rowids[0];
-    auto last_idx = rowids[0];
-    for (size_t i = 1; i < count; ++i) {
-        if (last_idx == rowids[i] - 1) {
-            last_idx = rowids[i];
-            this_run++;
-            continue;
-        }
-        RETURN_IF_ERROR(seek_to_ordinal(start_idx));
-        size_t num_read = this_run;
-        RETURN_IF_ERROR(next_batch(&num_read, dst));
-        DCHECK_EQ(num_read, this_run);
-
-        start_idx = rowids[i];
-        last_idx = rowids[i];
-        this_run = 1;
-    }
-
-    RETURN_IF_ERROR(seek_to_ordinal(start_idx));
-    size_t num_read = this_run;
-    RETURN_IF_ERROR(next_batch(&num_read, dst));
-    DCHECK_EQ(num_read, this_run);
-    return Status::OK();
+    return read_nested_rows_by_runs(*this, rowids, count, dst);
 }
 
 void StructFileColumnIterator::set_lazy_output_requirement() {
@@ -2164,6 +2290,276 @@ void StructFileColumnIterator::set_read_requirement(ReadRequirement requirement)
 }
 
 bool StructFileColumnIterator::has_lazy_read_target() const {
+    if (_read_requirement == ReadRequirement::LAZY_OUTPUT) {
+        return true;
+    }
+    return std::any_of(_sub_column_iterators.begin(), _sub_column_iterators.end(),
+                       [](const auto& sub_column_iterator) {
+                           return sub_column_iterator->has_lazy_read_target();
+                       });
+}
+
+FileValueColumnIterator::FileValueColumnIterator(
+        std::shared_ptr<ColumnReader> reader, ColumnIteratorUPtr null_iterator,
+        std::vector<ColumnIteratorUPtr>&& sub_column_iterators)
+        : _file_reader(reader), _sub_column_iterators(std::move(sub_column_iterators)) {
+    if (_file_reader->is_nullable()) {
+        _null_iterator = std::move(null_iterator);
+    }
+}
+
+Status FileValueColumnIterator::init(const ColumnIteratorOptions& opts) {
+    if (_read_requirement == ReadRequirement::SKIP) {
+        DLOG(INFO) << "FILE column iterator column " << _column_name << " skip reading.";
+        return Status::OK();
+    }
+
+    for (auto& column_iterator : _sub_column_iterators) {
+        RETURN_IF_ERROR(column_iterator->init(opts));
+    }
+    if (_file_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init(opts));
+    }
+    return Status::OK();
+}
+
+Status FileValueColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
+    if (!need_to_read()) {
+        DLOG(INFO) << "FILE column iterator column " << _column_name << " skip reading.";
+        _convert_to_place_holder_column(dst, *n);
+        return Status::OK();
+    }
+
+    _recovery_from_place_holder_column(dst);
+    *n = std::min<uint64_t>(*n, _file_reader->num_rows() - _current_ordinal);
+    *has_null = false;
+    if (*n == 0) {
+        return Status::OK();
+    }
+
+    if (read_null_map_only()) {
+        size_t num_read = *n;
+        auto* nested = dst.get();
+        if (dst->is_nullable()) {
+            auto& nullable = assert_cast<ColumnNullable&>(*dst);
+            nested = &nullable.get_nested_column();
+            if (_null_iterator) {
+                MutableColumnPtr nulls = nullable.get_null_map_column_ptr();
+                bool ignored = false;
+                RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, nulls, &ignored));
+            } else {
+                nullable.get_null_map_column().insert_many_vals(0, num_read);
+            }
+            *has_null = true;
+        }
+        // These are local scan placeholders, not complete transportable FILE values.
+        assert_cast<ColumnFile&>(*nested).insert_many_defaults(num_read);
+        *n = num_read;
+        _current_ordinal += num_read;
+        return Status::OK();
+    }
+
+    auto& column_file = assert_cast<ColumnFile&, TypeCheckOnRelease::DISABLE>(
+            is_column_nullable(*dst) ? static_cast<ColumnNullable&>(*dst).get_nested_column()
+                                     : *dst);
+    for (size_t i = 0; i < column_file.tuple_size(); i++) {
+        size_t num_read = *n;
+        auto sub_column_ptr = IColumn::mutate(std::move(column_file.get_column_ptr(i)));
+        Defer defer_sub_column {[&] { column_file.get_column_ptr(i) = std::move(sub_column_ptr); }};
+        bool column_has_null = false;
+        RETURN_IF_ERROR(
+                _sub_column_iterators[i]->next_batch(&num_read, sub_column_ptr, &column_has_null));
+        DCHECK(num_read == *n);
+    }
+
+    if (is_column_nullable(*dst) && need_to_read_meta_columns()) {
+        size_t num_read = *n;
+        auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
+        // A linked non-nullable to nullable schema change leaves old segments without
+        // a parent-null stream. Those rows remain non-NULL.
+        if (_null_iterator) {
+            bool null_signs_has_null = false;
+            MutableColumnPtr null_map_column = std::move(null_map_ptr);
+            RETURN_IF_ERROR(
+                    _null_iterator->next_batch(&num_read, null_map_column, &null_signs_has_null));
+        } else {
+            null_map_ptr->insert_many_vals(0, num_read);
+        }
+        DCHECK(num_read == *n);
+        *has_null = true;
+    }
+
+    _current_ordinal += *n;
+    return Status::OK();
+}
+
+Status FileValueColumnIterator::seek_to_ordinal(ordinal_t ord) {
+    if (ord > _file_reader->num_rows()) {
+        return Status::InvalidArgument("FILE seek beyond row count");
+    }
+    _current_ordinal = ord;
+    // Empty ARRAY/MAP values can seek their FILE item stream to its end. In
+    // particular, a stream with no items has no data page to seek at ordinal 0.
+    if (ord == _file_reader->num_rows()) {
+        return Status::OK();
+    }
+    if (!need_to_read()) {
+        DLOG(INFO) << "FILE column iterator column " << _column_name << " skip reading.";
+        return Status::OK();
+    }
+
+    if (read_null_map_only()) {
+        // In NULL_MAP_ONLY mode, only seek the null iterator; skip all sub-column iterators
+        if (_file_reader->is_nullable() && _null_iterator) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+        }
+        return Status::OK();
+    }
+
+    for (auto& column_iterator : _sub_column_iterators) {
+        RETURN_IF_ERROR(column_iterator->seek_to_ordinal(ord));
+    }
+
+    if (_file_reader->is_nullable() && need_to_read_meta_columns()) {
+        RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+    }
+    return Status::OK();
+}
+
+Status FileValueColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    if (_read_requirement == ReadRequirement::SKIP) {
+        return Status::OK();
+    }
+    if (!read_null_map_only()) {
+        for (auto& column_iterator : _sub_column_iterators) {
+            // Initialization loads the child's ordinal index. Skip pruned children,
+            // but include lazy outputs whose pages will be needed after filtering.
+            if (column_iterator->read_requirement() != ReadRequirement::SKIP) {
+                RETURN_IF_ERROR(column_iterator->init_prefetcher(params));
+            }
+        }
+    }
+    if (_file_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+void FileValueColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    if (!need_to_read()) {
+        return;
+    }
+    if (_file_reader->is_nullable()) {
+        _null_iterator->collect_prefetchers(prefetchers, init_method);
+    }
+    if (read_null_map_only()) {
+        return;
+    }
+    for (auto& column_iterator : _sub_column_iterators) {
+        if (column_iterator->need_to_read()) {
+            column_iterator->collect_prefetchers(prefetchers, init_method);
+        }
+    }
+}
+
+Status FileValueColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                               MutableColumnPtr& dst) {
+    if (!need_to_read()) {
+        DLOG(INFO) << "FILE column iterator column " << _column_name << " skip reading.";
+        _convert_to_place_holder_column(dst, count);
+        return Status::OK();
+    }
+
+    _recovery_from_place_holder_column(dst);
+
+    return read_nested_rows_by_runs(*this, rowids, count, dst);
+}
+
+void FileValueColumnIterator::set_lazy_output_requirement() {
+    set_read_requirement_self(ReadRequirement::LAZY_OUTPUT);
+    for (auto& sub_iterator : _sub_column_iterators) {
+        sub_iterator->set_lazy_output_requirement();
+    }
+}
+
+Status FileValueColumnIterator::set_access_paths(const TColumnAccessPaths& all_access_paths,
+                                                 const TColumnAccessPaths& predicate_access_paths) {
+    if (all_access_paths.empty() && predicate_access_paths.empty()) {
+        return Status::OK();
+    }
+
+    auto plan = DORIS_TRY(_prepare_nested_access_paths(
+            all_access_paths, predicate_access_paths, NestedMetaSupport::NULL_MAP,
+            [this](ReadRequirement requirement) {
+                for (auto& sub_iterator : _sub_column_iterators) {
+                    sub_iterator->set_read_requirement(requirement);
+                }
+            }));
+
+    if (plan.skip_data_descendants) {
+        DLOG(INFO) << "FILE column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY meta read mode, all sub-columns set to SKIP";
+        return Status::OK();
+    }
+
+    const bool reads_all_sub_columns = plan.all.reads_current_data;
+    const bool include_all_paths = !reads_all_sub_columns;
+    for (auto& sub_iterator : _sub_column_iterators) {
+        const auto name = sub_iterator->column_name();
+        auto paths = DORIS_TRY(DescendantAccessPathRouter::select_struct_paths_for_child(
+                plan.all.descendant_paths, plan.predicate.descendant_paths, name,
+                include_all_paths));
+
+        // Predicate paths must still reach the child even when no non-predicate path selects it.
+        const bool need_to_read = reads_all_sub_columns || !paths.empty();
+        if (!need_to_read) {
+            set_read_requirement_self(ReadRequirement::SKIP);
+            sub_iterator->set_read_requirement(ReadRequirement::SKIP);
+            DLOG(INFO) << "FILE column iterator set sub-column " << name << " to SKIP";
+            continue;
+        }
+
+        RETURN_IF_ERROR(sub_iterator->set_access_paths(paths.all_paths, paths.predicate_paths));
+        // Set LAZY_OUTPUT after routing child predicate paths. If the child was needed only for
+        // predicate evaluation, set_access_paths() has already promoted it to
+        // PREDICATE and this monotonic update will not downgrade it. Otherwise, this
+        // marks the child as a lazy materialization target.
+        set_read_requirement_self(ReadRequirement::LAZY_OUTPUT);
+        sub_iterator->set_read_requirement_self(ReadRequirement::LAZY_OUTPUT);
+    }
+    return Status::OK();
+}
+
+void FileValueColumnIterator::set_read_phase(ReadPhase mode) {
+    ColumnIterator::set_read_phase(mode);
+    for (auto& sub_iterator : _sub_column_iterators) {
+        sub_iterator->set_read_phase(mode);
+    }
+}
+
+void FileValueColumnIterator::finalize_lazy_phase(MutableColumnPtr& dst) {
+    _recovery_from_place_holder_column(dst);
+    auto& column_file = assert_cast<ColumnFile&, TypeCheckOnRelease::DISABLE>(
+            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
+
+    for (size_t i = 0; i < _sub_column_iterators.size(); ++i) {
+        auto& sub_column = column_file.get_column_ptr(i);
+        MutableColumnPtr mutable_sub_column = IColumn::mutate(std::move(sub_column));
+        _sub_column_iterators[i]->finalize_lazy_phase(mutable_sub_column);
+        sub_column = std::move(mutable_sub_column);
+    }
+}
+
+void FileValueColumnIterator::set_read_requirement(ReadRequirement requirement) {
+    set_read_requirement_self(requirement);
+    for (const auto& sub_column_iterator : _sub_column_iterators) {
+        sub_column_iterator->set_read_requirement(requirement);
+    }
+}
+
+bool FileValueColumnIterator::has_lazy_read_target() const {
     if (_read_requirement == ReadRequirement::LAZY_OUTPUT) {
         return true;
     }

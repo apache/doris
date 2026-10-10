@@ -19,6 +19,8 @@
 
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
+#include <rapidjson/document.h>
+#include <rapidjson/memorystream.h>
 
 #include <algorithm>
 #include <array>
@@ -364,6 +366,16 @@ Status DataTypeStringSerDeBase<ColumnType>::serialize_one_cell_to_hive_text(
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::deserialize_one_cell_from_json(
         IColumn& column, Slice& slice, const FormatOptions& options) const {
+    if (options.strict_json_strings) {
+        rapidjson::Document value;
+        rapidjson::MemoryStream stream(slice.data, slice.size);
+        value.ParseStream<rapidjson::kParseValidateEncodingFlag>(stream);
+        if (value.HasParseError() || !value.IsString() || stream.Tell() != slice.size) {
+            return Status::InvalidArgument("Expected a JSON string in FILE-containing format cell");
+        }
+        assert_cast<ColumnType&>(column).insert_data(value.GetString(), value.GetStringLength());
+        return Status::OK();
+    }
     /*
          * For strings in the json complex type, we remove double quotes by default.
          *

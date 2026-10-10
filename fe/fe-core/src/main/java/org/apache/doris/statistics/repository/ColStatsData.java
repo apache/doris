@@ -58,6 +58,8 @@ public class ColStatsData {
     public final long count;
     @SerializedName("ndv")
     public final long ndv;
+    @SerializedName("ndvUnavailable")
+    public final boolean ndvUnavailable;
     @SerializedName("nullCount")
     public final long nullCount;
     @SerializedName("minLit")
@@ -76,6 +78,7 @@ public class ColStatsData {
         statsId = new StatsId();
         count = 0;
         ndv = 0;
+        ndvUnavailable = false;
         nullCount = 0;
         minLit = null;
         maxLit = null;
@@ -85,7 +88,12 @@ public class ColStatsData {
     }
 
     public ColStatsData(StatsId statsId) {
+        this(statsId, false);
+    }
+
+    public ColStatsData(StatsId statsId, boolean ndvUnavailable) {
         this.statsId = statsId;
+        this.ndvUnavailable = ndvUnavailable;
         count = 0;
         ndv = 0;
         nullCount = 0;
@@ -100,6 +108,7 @@ public class ColStatsData {
         this.statsId = new StatsId(row);
         this.count = (long) Double.parseDouble(row.getWithDefault(7, "0"));
         this.ndv = (long) Double.parseDouble(row.getWithDefault(8, "0"));
+        this.ndvUnavailable = row.get(8) == null;
         this.nullCount = (long) Double.parseDouble(row.getWithDefault(9, "0"));
         this.minLit = row.get(10);
         this.maxLit = row.get(11);
@@ -113,6 +122,7 @@ public class ColStatsData {
         this.statsId = new StatsId(id, catalogId, dbId, tblId, idxId, colId, partId);
         this.count = Math.round(columnStatistic.count);
         this.ndv = Math.round(columnStatistic.ndv);
+        this.ndvUnavailable = columnStatistic.ndvUnavailable;
         this.nullCount = Math.round(columnStatistic.numNulls);
         this.minLit = columnStatistic.minExpr == null ? null : columnStatistic.minExpr.getStringValue();
         this.maxLit = columnStatistic.maxExpr == null ? null : columnStatistic.maxExpr.getStringValue();
@@ -129,7 +139,7 @@ public class ColStatsData {
             sj = new StringJoiner(",", statsId.toSQL(), "");
         }
         sj.add(String.valueOf(count));
-        sj.add(String.valueOf(ndv));
+        sj.add(ndvUnavailable ? "NULL" : String.valueOf(ndv));
         sj.add(String.valueOf(nullCount));
         sj.add(minLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(minLit) + "'");
         sj.add(maxLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(maxLit) + "'");
@@ -146,7 +156,7 @@ public class ColStatsData {
             }
 
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
-            columnStatisticBuilder.setNdv(ndv);
+            columnStatisticBuilder.setNdv(ndv).setNdvUnavailable(ndvUnavailable);
             columnStatisticBuilder.setNumNulls(nullCount);
             columnStatisticBuilder.setDataSize(dataSizeInBytes);
             columnStatisticBuilder.setAvgSizeByte(count == 0 ? 0 : ((double) dataSizeInBytes) / count);
@@ -201,6 +211,9 @@ public class ColStatsData {
     }
 
     public boolean isValid() {
+        if (ndvUnavailable) {
+            return isNull(minLit) && isNull(maxLit) && hotValues == null;
+        }
         if (ndv > 10 * count) {
             String message = String.format("ColStatsData ndv too large. %s", toSQL(true));
             LOG.warn(message);

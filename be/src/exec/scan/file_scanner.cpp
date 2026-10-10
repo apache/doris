@@ -46,6 +46,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
@@ -619,7 +620,8 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
 
 /**
  * Check whether there are complex types in parquet/orc reader in broker/stream load.
- * Broker/stream load will cast any type as string type, and complex types will be casted wrong.
+ * Legacy complex load slots pass through string casts. FILE-containing slots use their actual
+ * types so that the format reader can preserve all six children, including inline bytes.
  * This is a temporary method, and will be replaced by tvf.
  */
 Status FileScanner::_check_output_block_types() {
@@ -628,7 +630,8 @@ Status FileScanner::_check_output_block_types() {
     if (format_type == TFileFormatType::FORMAT_PARQUET ||
         format_type == TFileFormatType::FORMAT_ORC) {
         for (auto slot : _output_tuple_desc->slots()) {
-            if (is_complex_type(slot->type()->get_primitive_type())) {
+            if (is_complex_type(slot->type()->get_primitive_type()) &&
+                !contains_file_type(slot->type())) {
                 return Status::InternalError(
                         "Parquet/orc doesn't support complex types in broker/stream load, "
                         "please use tvf(table value function) to insert complex types.");

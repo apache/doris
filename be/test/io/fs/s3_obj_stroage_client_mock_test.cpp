@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <aws/core/AmazonWebServiceResult.h>
 #include <aws/core/Aws.h>
+#include <aws/core/utils/stream/ResponseStream.h>
+#include <aws/core/utils/xml/XmlSerializer.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
@@ -42,6 +45,8 @@ public:
                 (const Aws::S3::Model::DeleteObjectRequest& request), (const, override));
     MOCK_METHOD(Aws::S3::Model::DeleteObjectsOutcome, DeleteObjects,
                 (const Aws::S3::Model::DeleteObjectsRequest& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::HeadObjectOutcome, HeadObject,
+                (const Aws::S3::Model::HeadObjectRequest& request), (const, override));
 };
 
 class CountingGetRateLimitPolicy final : public ObjStorageRateLimitPolicy {
@@ -67,6 +72,40 @@ private:
 };
 
 Aws::SDKOptions S3ObjStorageClientMockTest::options {};
+
+TEST_F(S3ObjStorageClientMockTest, HeadPreservesFileMetadata) {
+    auto mock = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ObjStorageClient>(mock);
+    HeadObjectResult result;
+    result.SetContentLength(42);
+    result.SetContentType("image/png");
+    result.SetETag("\"opaque-2\"");
+    EXPECT_CALL(*mock, HeadObject(testing::_)).WillOnce(testing::Return(result));
+    auto metadata = client->head_object({.bucket = "bucket", .key = "key"});
+    ASSERT_TRUE(metadata.resp.ok());
+    EXPECT_EQ(metadata.file_size, 42);
+    EXPECT_EQ(metadata.content_type, "image/png");
+    EXPECT_EQ(metadata.etag, "\"opaque-2\"");
+}
+
+TEST_F(S3ObjStorageClientMockTest, HeadMetadataUsesOrdinaryRequestThroughRateLimiter) {
+    auto mock = std::make_shared<MockS3Client>();
+    size_t requests = 0;
+    auto client = std::make_shared<RateLimitedObjStorageClient>(
+            std::make_shared<S3ObjStorageClient>(mock),
+            std::make_shared<CountingGetRateLimitPolicy>(&requests));
+    HeadObjectResult result;
+    result.SetContentLength(42);
+    result.SetETag("\"opaque-2\"");
+    EXPECT_CALL(*mock, HeadObject(testing::_)).WillOnce([&](const HeadObjectRequest& request) {
+        EXPECT_FALSE(request.ChecksumModeHasBeenSet());
+        return HeadObjectOutcome(result);
+    });
+    const auto metadata = client->head_object({.bucket = "bucket", .key = "key"});
+    ASSERT_TRUE(metadata.resp.ok());
+    EXPECT_EQ(metadata.etag, "\"opaque-2\"");
+    EXPECT_EQ(requests, 1);
+}
 
 TEST_F(S3ObjStorageClientMockTest, list_objects_compatibility) {
     // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
@@ -99,6 +138,135 @@ ListObjectsV2Result CreatePageResult(const std::string& nextToken,
         result.AddContents(std::move(obj));
     }
     return result;
+}
+
+TEST_F(S3ObjStorageClientMockTest, ListPagePreservesOptionalModificationTimeMilliseconds) {
+    auto mock = std::make_shared<MockS3Client>();
+    std::shared_ptr<ObjStorageClient> client = std::make_shared<S3ObjStorageClient>(mock);
+    auto result = CreatePageResult("", {"dir/a.txt", "dir/no-time.txt"}, false);
+    auto objects = result.GetContents();
+    objects[0].SetLastModified(Aws::Utils::DateTime(static_cast<int64_t>(1704164645123)));
+    result.SetContents(objects);
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_))
+            .WillOnce(testing::Return(ListObjectsV2Outcome(result)));
+    const auto listed = client->list_objects_page({.bucket = "bucket", .prefix = "dir/"}, "");
+    ASSERT_TRUE(listed.resp.ok());
+    ASSERT_EQ(listed.objects.size(), 2);
+    EXPECT_EQ(listed.objects[0].mtime_s, 1704164645);
+    EXPECT_EQ(listed.objects[0].modification_time_ms, 1704164645123);
+    EXPECT_FALSE(listed.objects[1].modification_time_ms.has_value());
+}
+
+TEST_F(S3ObjStorageClientMockTest, ListPagePreservesModificationTimeFromResponseXml) {
+    auto mock = std::make_shared<MockS3Client>();
+    std::shared_ptr<ObjStorageClient> client = std::make_shared<S3ObjStorageClient>(mock);
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_)).WillOnce([](const ListObjectsV2Request& request) {
+        Aws::Utils::Stream::ResponseStream response(request.GetResponseStreamFactory());
+        response.GetUnderlyingStream() << R"(<ListBucketResult><IsTruncated>false</IsTruncated>
+<Contents><Key>dir/milliseconds.txt</Key><Size>1</Size>
+<LastModified>2024-01-01T00:00:00.123Z</LastModified></Contents>
+<Contents><Key>dir/seconds.txt</Key><Size>2</Size>
+<LastModified>2024-01-01T00:00:00Z</LastModified></Contents>
+<Contents><Key>dir/missing.txt</Key><Size>0</Size></Contents>
+<Contents><Key>dir/tenths.txt</Key><Size>1</Size>
+<LastModified>2024-01-01T00:00:00.1Z</LastModified></Contents>
+<Contents><Key>dir/hundredths.txt</Key><Size>1</Size>
+<LastModified>2024-01-01T00:00:00.12Z</LastModified></Contents>
+<Contents><Key>dir/microseconds.txt</Key><Size>1</Size>
+<LastModified>2024-01-01T00:00:00.123456Z</LastModified></Contents></ListBucketResult>)";
+        auto document =
+                Aws::Utils::Xml::XmlDocument::CreateFromXmlStream(response.GetUnderlyingStream());
+        EXPECT_TRUE(document.WasParseSuccessful());
+        return ListObjectsV2Outcome(
+                ListObjectsV2Result(Aws::AmazonWebServiceResult<Aws::Utils::Xml::XmlDocument>(
+                        std::move(document), {})));
+    });
+    const auto listed = client->list_objects_page({.bucket = "bucket", .prefix = "dir/"}, "");
+    ASSERT_TRUE(listed.resp.ok());
+    ASSERT_EQ(listed.objects.size(), 6);
+    EXPECT_EQ(listed.objects[0].mtime_s, 1704067200);
+    EXPECT_EQ(listed.objects[0].modification_time_ms, 1704067200123);
+    EXPECT_EQ(listed.objects[1].mtime_s, 1704067200);
+    EXPECT_EQ(listed.objects[1].modification_time_ms, 1704067200000);
+    EXPECT_FALSE(listed.objects[2].modification_time_ms.has_value());
+    EXPECT_EQ(listed.objects[3].modification_time_ms, 1704067200100);
+    EXPECT_EQ(listed.objects[4].modification_time_ms, 1704067200120);
+    EXPECT_EQ(listed.objects[5].modification_time_ms, 1704067200123);
+}
+
+TEST_F(S3ObjStorageClientMockTest, ListPageResponseXmlKeepsOnlyFinalRetry) {
+    auto mock = std::make_shared<MockS3Client>();
+    std::shared_ptr<ObjStorageClient> client = std::make_shared<S3ObjStorageClient>(mock);
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_)).WillOnce([](const ListObjectsV2Request& request) {
+        {
+            Aws::Utils::Stream::ResponseStream failed_response(request.GetResponseStreamFactory());
+            failed_response.GetUnderlyingStream()
+                    << R"(<ListBucketResult><Contents><Key>dir/stale-retried-object.txt</Key>
+<LastModified>2023-01-01T00:00:00.987Z</LastModified></Contents>
+<Contents><Key>dir/another-stale-object.txt</Key></Contents></ListBucketResult>)";
+        }
+        Aws::Utils::Stream::ResponseStream response(request.GetResponseStreamFactory());
+        response.GetUnderlyingStream()
+                << R"(<ListBucketResult><Contents><Key>dir/final.txt</Key><Size>1</Size>
+<LastModified>2024-01-01T00:00:00.456Z</LastModified></Contents></ListBucketResult>)";
+        auto document =
+                Aws::Utils::Xml::XmlDocument::CreateFromXmlStream(response.GetUnderlyingStream());
+        EXPECT_TRUE(document.WasParseSuccessful());
+        return ListObjectsV2Outcome(
+                ListObjectsV2Result(Aws::AmazonWebServiceResult<Aws::Utils::Xml::XmlDocument>(
+                        std::move(document), {})));
+    });
+    const auto listed = client->list_objects_page({.bucket = "bucket", .prefix = "dir/"}, "");
+    ASSERT_TRUE(listed.resp.ok());
+    ASSERT_EQ(listed.objects.size(), 1);
+    EXPECT_EQ(listed.objects[0].key, "dir/final.txt");
+    EXPECT_EQ(listed.objects[0].mtime_s, 1704067200);
+    EXPECT_EQ(listed.objects[0].modification_time_ms, 1704067200456);
+}
+
+TEST_F(S3ObjStorageClientMockTest, ListPageInvalidXmlModificationTimeIsNull) {
+    auto mock = std::make_shared<MockS3Client>();
+    std::shared_ptr<ObjStorageClient> client = std::make_shared<S3ObjStorageClient>(mock);
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_)).WillOnce([](const ListObjectsV2Request& request) {
+        Aws::Utils::Stream::ResponseStream response(request.GetResponseStreamFactory());
+        response.GetUnderlyingStream()
+                << R"(<ListBucketResult><Contents><Key>dir/invalid.txt</Key><Size>1</Size>
+<LastModified>invalid-date.123Z</LastModified></Contents></ListBucketResult>)";
+        auto document =
+                Aws::Utils::Xml::XmlDocument::CreateFromXmlStream(response.GetUnderlyingStream());
+        EXPECT_TRUE(document.WasParseSuccessful());
+        return ListObjectsV2Outcome(
+                ListObjectsV2Result(Aws::AmazonWebServiceResult<Aws::Utils::Xml::XmlDocument>(
+                        std::move(document), {})));
+    });
+    const auto listed = client->list_objects_page({.bucket = "bucket", .prefix = "dir/"}, "");
+    ASSERT_TRUE(listed.resp.ok());
+    ASSERT_EQ(listed.objects.size(), 1);
+    EXPECT_FALSE(listed.objects[0].modification_time_ms.has_value());
+}
+
+TEST_F(S3ObjStorageClientMockTest, ListPageDelimiterIsOptIn) {
+    auto mock = std::make_shared<MockS3Client>();
+    std::shared_ptr<ObjStorageClient> client = std::make_shared<S3ObjStorageClient>(mock);
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_)).WillOnce([](const ListObjectsV2Request& request) {
+        EXPECT_EQ(request.GetDelimiter(), "/");
+        EXPECT_EQ(request.GetPrefix(), "dir/");
+        EXPECT_EQ(request.GetContinuationToken(), "next");
+        return ListObjectsV2Outcome(CreatePageResult("", {"dir/a.txt"}, false));
+    });
+    const auto direct = client->list_objects_page(
+            {.bucket = "bucket", .prefix = "dir/", .delimiter = "/"}, "next");
+    ASSERT_TRUE(direct.resp.ok());
+    ASSERT_EQ(direct.objects.size(), 1);
+    EXPECT_EQ(direct.objects[0].key, "dir/a.txt");
+    EXPECT_CALL(*mock, ListObjectsV2(testing::_)).WillOnce([](const ListObjectsV2Request& request) {
+        EXPECT_FALSE(request.DelimiterHasBeenSet());
+        return ListObjectsV2Outcome(CreatePageResult("", {"dir/deep/a.txt"}, false));
+    });
+    const auto recursive = client->list_objects_page({.bucket = "bucket", .prefix = "dir/"}, "");
+    ASSERT_TRUE(recursive.resp.ok());
+    ASSERT_EQ(recursive.objects.size(), 1);
+    EXPECT_EQ(recursive.objects[0].key, "dir/deep/a.txt");
 }
 
 TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {

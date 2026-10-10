@@ -28,6 +28,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FileLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -71,10 +73,12 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -96,6 +100,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -208,7 +213,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     private static void collectConst(Expression expr, Map<String, Expression> constMap,
             Map<String, TExpr> tExprMap, IdGenerator<ExprId> idGenerator) {
-        if (expr.isConstant() && !expr.isLiteral() && !expr.anyMatch(e -> shouldSkipFold((Expression) e))) {
+        boolean fileResult = expr.getDataType().typeContainsFile();
+        if (expr.isConstant() && !expr.isLiteral()
+                && !expr.anyMatch(e -> shouldSkipFold((Expression) e, fileResult))) {
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
             Expr staleExpr;
@@ -233,7 +240,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     }
 
     // Some expressions should not do constant folding
-    private static boolean shouldSkipFold(Expression expr) {
+    private static boolean shouldSkipFold(Expression expr, boolean fileResult) {
         // getResultExpression cannot decode UUID PValues, including UUID inside complex types.
         if (containsUuid(expr.getDataType())) {
             return true;
@@ -242,7 +249,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
-                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()) {
+                || expr.getDataType().isIPv6Type() || (expr.getDataType().isJsonType() && !fileResult)) {
             return true;
         }
 
@@ -634,6 +641,30 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                     res.add(mapLiteral);
                 }
             }
+        } else if (type.isFileType()) {
+            if (resultContent.getChildElementCount() != 6) {
+                throw new AnalysisException("FILE constant result requires six children");
+            }
+            List<List<Literal>> fields = new ArrayList<>();
+            for (int child = 0; child < 5; child++) {
+                fields.add(getResultExpression(FileType.INSTANCE.getFields().get(child).getDataType(),
+                        resultContent.getChildElement(child)));
+            }
+            PValues binary = resultContent.getChildElement(5);
+            for (int row = 0; row < fields.get(0).size(); row++) {
+                if (resultContent.getHasNull() && resultContent.getNullMap(row)) {
+                    res.add(new NullLiteral(type));
+                    continue;
+                }
+                List<Literal> value = new ArrayList<>();
+                for (int child = 0; child < 5; child++) {
+                    value.add(fields.get(child).get(row));
+                }
+                value.add(binary.getHasNull() && binary.getNullMap(row)
+                        ? new NullLiteral(FileType.INSTANCE.getFields().get(5).getDataType())
+                        : new VarBinaryLiteral(binary.getBytesValue(row).toByteArray()));
+                res.add(new FileLiteral(value));
+            }
         } else if (type.isStructType()) {
             StructType structType = (StructType) type;
             int childCount = resultContent.getChildElementCount();
@@ -669,6 +700,18 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     }
 
     private static Pair<DataType, Integer> convertToNereidsType(List<PTypeNode> typeNodes, int start) {
+        if (typeNodes.get(start).getType() == TTypeNodeType.FILE.getValue()) {
+            List<org.apache.doris.catalog.StructField> fields = new ArrayList<>();
+            int parsed = 1;
+            for (PStructField field : typeNodes.get(start).getStructFieldsList()) {
+                Pair<DataType, Integer> child = convertToNereidsType(typeNodes, start + parsed);
+                fields.add(new org.apache.doris.catalog.StructField(field.getName(), child.key().toCatalogDataType(),
+                        "", field.getContainsNull()));
+                parsed += child.value();
+            }
+            org.apache.doris.catalog.FileType.validateFields(fields);
+            return Pair.of(FileType.INSTANCE, parsed);
+        }
         PScalarType pScalarType = typeNodes.get(start).getScalarType();
         TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(pScalarType.getType());
         DataType type;

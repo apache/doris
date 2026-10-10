@@ -26,6 +26,7 @@
 #include <string>
 
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -94,6 +95,19 @@ struct FunctionExplodeV2 {
         } else {
             return make_nullable(fieldTypes[0]);
         }
+    }
+    static DataTypes get_variadic_argument_types() { return {}; }
+    static std::string get_error_msg() { return "Fake function do not support execute"; }
+};
+
+struct FunctionExplodeFile {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DORIS_CHECK_EQ(arguments.size(), 1);
+        const auto& file = assert_cast<const DataTypeFile&>(*arguments[0]);
+        const auto& elements = file.get_elements();
+        const auto& names = file.get_element_names();
+        return make_nullable(std::make_shared<DataTypeStruct>(
+                elements, names));
     }
     static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
@@ -269,6 +283,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_alternative_function_expand_outer<FunctionExplode>(factory, "explode");
 
     register_table_function_expand_outer<FunctionExplodeMap>(factory, "explode_map");
+    register_table_function_expand_outer<FunctionExplodeFile>(factory, "explode_file");
 
     register_table_function_expand_outer<FunctionExplodeJsonObject>(factory, "explode_json_object");
     register_table_function_expand_outer<FunctionJsonEach>(factory, "json_each");

@@ -320,6 +320,9 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (fn().__isset.dict_function) {
         fn_ctx->set_dict_function(fn().dict_function);
     }
+    if (fn().__isset.file_resource) {
+        fn_ctx->set_file_resource(fn().file_resource);
+    }
     return Status::OK();
 }
 
@@ -673,7 +676,8 @@ bool VectorizedFnCall::can_push_down_to_index() const {
 bool VectorizedFnCall::is_deterministic() const {
     // array_shuffle gives the rows of a block different orders, even with a seed.
     static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
-            "random", "rand", "random_bytes", "uuid", "uuid_numeric", "array_shuffle", "shuffle"};
+            "random",       "rand",    "random_bytes",  "uuid",
+            "uuid_numeric", "to_file", "array_shuffle", "shuffle"};
     return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
 }
 
