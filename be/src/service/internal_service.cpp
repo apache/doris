@@ -703,6 +703,7 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
     Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, buffer);
     if (!st.ok()) {
         LOG(WARNING) << "Result buffer not found! finst ID: " << print_id(unique_id);
+        ctx->on_failure(st);
         return;
     }
     if (st = buffer->get_batch(ctx); !st.ok()) {
@@ -721,6 +722,7 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
+            ctx->on_failure(st);
             return;
         }
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
