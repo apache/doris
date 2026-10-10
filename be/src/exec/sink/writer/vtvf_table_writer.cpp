@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exec/sink/writer/result_file_name.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/file_factory.h"
@@ -48,6 +49,7 @@ Status VTVFTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _file_path = _tvf_sink.file_path;
     _max_file_size_bytes =
             _tvf_sink.__isset.max_file_size_bytes ? _tvf_sink.max_file_size_bytes : 0;
+    _file_name_padding = _tvf_sink.__isset.file_name_padding ? _tvf_sink.file_name_padding : 0;
 
     VLOG_DEBUG << "TVF table writer open, query_id=" << print_id(_state->query_id())
                << ", tvf_name=" << _tvf_sink.tvf_name << ", file_path=" << _tvf_sink.file_path
@@ -164,8 +166,8 @@ Status VTVFTableWriter::_get_next_file_name(std::string* file_name) {
 
     // file_path is a prefix, generate: {prefix}{query_id}_{idx}.{ext}
     std::string query_id_str = print_id(_state->query_id());
-    *file_name = fmt::format("{}{}_{}.{}", _file_path, query_id_str, _file_idx, ext);
-    _file_idx++;
+    *file_name =
+            build_result_file_name(_file_path, query_id_str, _file_idx++, _file_name_padding, ext);
     return Status::OK();
 }
 

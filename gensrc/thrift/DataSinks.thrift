@@ -160,6 +160,12 @@ struct TResultFileSinkOptions {
     // currently only for csv
     // TODO: merge with parquet_compression_type and orc_compression_type
     22: optional PlanNodes.TFileCompressType compression_type
+
+    // Zero-pad the per-file index in the output file name to this many digits
+    // (e.g. my_prefix_{fragment_instance_id}_00000.csv). 0 or unset means no
+    // padding, preserving the historical name format. Used to make rollover
+    // files sort lexicographically (so _00011 sorts after _00002).
+    23: optional i32 file_name_padding
 }
 
 struct TMemoryScratchSink {
@@ -616,6 +622,9 @@ struct TTVFTableSink {
     // Java class name: a plugin's classes are private to its own classloader, so BE addresses a
     // writer by the plugin directory it is deployed in and the factory name within it.
     15: optional string writer_class
+    // Zero-pad the per-file index in the output file name to this many digits.
+    // 0 or unset means no padding. Mirrors TResultFileSinkOptions.file_name_padding.
+    16: optional i32 file_name_padding
 }
 
 struct TMCCommitData {
