@@ -44,7 +44,6 @@ import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.FileSplitter;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitSource;
-import org.apache.doris.datasource.split.SplitSourceManager;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -416,21 +415,33 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
-                    locationProperties, pathPartitionKeys, admissionResult);
-            splitAssignment.init();
+                    locationProperties, pathPartitionKeys, admissionResult,
+                    Env.getCurrentEnv().getSplitSourceManager());
+            // A scan that plans with its first split starts generating splits now, while it is planned: they are the
+            // statement's - which stops them where it drops the plan, or when it ends - unless the coordinator
+            // dispatching the plan took them over (ScanNode#start). Registered first, for a start that fails half
+            // way. Any other scan starts generating them when the coordinator dispatches the plan, each split setting
+            // up the params as it is assigned (splitToScanRange), before the plan reaches the backends.
+            boolean planWithSampleSplit = needsSampleSplit();
+            if (planWithSampleSplit) {
+                ConnectContext.get().getStatementContext().addSplitAssignmentStartedWhilePlanning(splitAssignment);
+                splitAssignment.startWhilePlanning(ConnectContext.get().getExecTimeoutS() * 1000L,
+                        ConnectContext.get().queryId());
+            }
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
+            FileSplit sampleSplit = (FileSplit) splitAssignment.getSampleSplit();
+            if (planWithSampleSplit && sampleSplit == null && !isFileStreamType()) {
                 return;
             }
-            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
-            TFileType locationType = fileSplit.getLocationType();
             selectedSplitNum = numApproximateSplits();
             if (selectedSplitNum < 0) {
                 throw new UserException("Approximate split number should not be negative");
             }
-            totalFileSize = fileSplit.getLength() * selectedSplitNum;
+            if (planWithSampleSplit) {
+                totalFileSize = sampleSplit.getLength() * selectedSplitNum;
+            }
             long maxWaitTime = sessionVariable.getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
             // Here, we must take the max of 1, because
@@ -439,8 +450,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             int numSplitsPerBE = Math.max(selectedSplitNum / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
                 SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
-                splitSources.add(splitSource);
-                Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
                 TScanRangeLocations curLocations = newLocations();
                 TSplitSource tSource = new TSplitSource();
                 tSource.setSplitSourceId(splitSource.getUniqueId());
@@ -454,7 +463,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 // Each backend only starts up one ScanNode instance.
                 // However, even one ScanNode instance can provide maximum scanning concurrency.
                 scanRangeLocations.add(curLocations);
-                setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+                if (planWithSampleSplit) {
+                    setLocationPropertiesIfNecessary(backend, sampleSplit.getLocationType(), locationProperties);
+                }
                 scanBackendIds.add(backend.getId());
             }
         } else {
@@ -665,6 +676,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return false;
     }
 
+    /**
+     * Whether planning this scan in batch mode needs its first split: the location type of the splits sets up the
+     * params every backend scans with, and the length of the first one estimates the size of the scan. Such a scan
+     * starts generating its splits while it is planned, whether or not the plan is ever dispatched (an EXPLAIN stops
+     * it again). One that answers false generates nothing before the coordinator dispatches the plan
+     * (ScanNode#start), each split setting up the params as it is assigned: a scan whose splits come from running
+     * something somewhere else, which a plan must not do before it runs. Its startSplit has to queue its splits -
+     * at least the first, whose assignment sets up the params (splitToScanRange) - on the calling thread, before it
+     * returns: start() waits only until the first split is published, not until it is assigned, and the plan goes to
+     * the backends right after.
+     */
+    protected boolean needsSampleSplit() {
+        return true;
+    }
+
     protected abstract TFileFormatType getFileFormatType() throws UserException;
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
@@ -744,17 +770,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // The current name "getLocationProperties" is a placeholder and may not reflect
     // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
-
-    @Override
-    public void stop() {
-        if (splitAssignment != null) {
-            splitAssignment.stop();
-            SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-            for (Long sourceId : splitAssignment.getSources()) {
-                manager.removeSplitSource(sourceId);
-            }
-        }
-    }
 
     public void setQueryTableSnapshot(TableSnapshot tableSnapshot) {
         this.tableSnapshot = tableSnapshot;

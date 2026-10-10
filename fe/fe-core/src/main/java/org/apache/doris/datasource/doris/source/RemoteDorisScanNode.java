@@ -35,7 +35,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExplainLevel;
@@ -59,8 +58,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
+/**
+ * Scans a table of another Doris cluster over Arrow Flight SQL: runs a query on a remote frontend, and the backends
+ * read its result straight from the remote backends with DoGet, one endpoint of the result per split.
+ *
+ * <p>The remote query runs when the coordinator dispatches the plan, never while it is planned. The scan is in batch
+ * mode: planning builds the query (EXPLAIN shows it) and a scan range per backend pointing at a split source, and the
+ * splits come from {@link #startSplit}, which the split assignment calls once the coordinator starts it
+ * (ScanNode#start). So a plan nobody runs - an EXPLAIN, a plan built only to be inspected, a statement that fails
+ * before dispatch - never reaches the remote frontend, and the Flight SQL session the query runs in belongs to the
+ * split assignment, which the coordinator stops when it closes or cancels.
+ */
 public class RemoteDorisScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisScanNode.class);
 
@@ -70,18 +79,6 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private final List<String> filters = new ArrayList<String>();
 
     private RemoteDorisSource source;
-
-    // The Flight SQL session this scan opened on the remote frontend, from getSplits until stop()
-    // closes it (see RemoteDorisFlightSession for why it must live that long and no longer). All
-    // three guarded by this: stop() may run on another thread than the one that planned the query -
-    // a KILL, the timeout checker - and more than once (cancel, then close).
-    private RemoteDorisFlightSession flightSession;
-    private boolean stopped;
-    // Whether stop() ended a session this scan had opened: the endpoints handed to the backend
-    // belong to that session's query, and a plan dispatched again with them (the same-plan retry
-    // of StmtExecutor.handleQueryWithRetry) would read what the remote frontend may have torn
-    // down with the session.
-    private boolean sessionClosedByStop;
 
     public RemoteDorisScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
                                SessionVariable sv, ScanContext scanContext) {
@@ -94,13 +91,45 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         source = new RemoteDorisSource(desc);
     }
 
+    // Builds the query the scan runs on the remote frontend from its slots and conjuncts, final by now: EXPLAIN
+    // shows it, startSplit runs it.
     @Override
-    public List<Split> getSplits(int numBackends) throws UserException {
-        List<Pair<String, ByteBuffer>> locationAndTicketList = executeQuery();
+    protected void convertPredicate() {
+        createColumns();
+        createFilters();
+    }
 
-        return locationAndTicketList.stream()
-            .map(locationAndTicket -> new RemoteDorisSplit(locationAndTicket.first, locationAndTicket.second))
-            .collect(Collectors.toList());
+    @Override
+    public boolean isBatchMode() {
+        return true;
+    }
+
+    // The params of the scan depend on none of its splits, and producing one means running the remote query.
+    @Override
+    protected boolean needsSampleSplit() {
+        return false;
+    }
+
+    // Unknown until the remote frontend has run the query: each endpoint of its result is a split.
+    @Override
+    public int numApproximateSplits() {
+        return 0;
+    }
+
+    /**
+     * Runs the query on the remote frontend and hands the endpoints of its result to the backends as the splits.
+     * The split assignment calls this when the coordinator dispatches the plan. The Flight SQL session the query
+     * runs in goes to the split assignment, which ends it when the coordinator stops this scan: see
+     * {@link RemoteDorisFlightSession} for why it lives that long.
+     */
+    @Override
+    public void startSplit(int numBackends) throws UserException {
+        List<Split> splits = new ArrayList<>();
+        for (Pair<String, ByteBuffer> locationAndTicket : executeQuery()) {
+            splits.add(new RemoteDorisSplit(locationAndTicket.first, locationAndTicket.second));
+        }
+        splitAssignment.addToQueue(splits);
+        splitAssignment.finishSchedule();
     }
 
     @Override
@@ -163,19 +192,16 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         return source.getCatalog().getProperties();
     }
 
-    // Executes a SQL query using the Apache Arrow Flight SQL protocol with the provided credentials.
-    private List<Pair<String, ByteBuffer>> executeQuery() {
-        createColumns();
-        createFilters();
-
-        if (isExplainStatement()) {
-            return new ArrayList<>();
-        }
-
+    // Runs the query on the remote frontends in turn, until one answers or the attempts run out. Once the scan is
+    // stopped - the coordinator was cancelled meanwhile, and reports why - it stops trying, with no split.
+    private List<Pair<String, ByteBuffer>> executeQuery() throws UserException {
         String queryStr = getQueryStr();
         Exception lastException = null;
 
         for (int i = 0; i < source.getCatalog().getQueryRetryCount(); i++) {
+            if (splitAssignment.isStop()) {
+                return new ArrayList<>();
+            }
             try {
                 return executeFlightSqlQuery(
                     source.nextHostAndArrowPort(),
@@ -191,16 +217,17 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
             }
         }
 
-        throw new RuntimeException("Failed to execute query: " + queryStr, lastException);
+        throw new UserException("Failed to execute query: " + queryStr, lastException);
     }
 
-    // Opens a Flight SQL session on the remote frontend and runs the query in it. The session is
-    // kept until stop(): its query serves the BE's DoGet of the endpoints returned here. A session
-    // whose query failed is closed right away, so a retry on the next node leaves nothing behind.
+    // Opens a Flight SQL session on the remote frontend and runs the query in it. The session goes to the split
+    // assignment, which ends it when the coordinator stops this scan - at once if it did meanwhile: its query serves
+    // the BE's DoGet of the endpoints returned here. A session whose query failed is closed right away, so a retry
+    // on the next node leaves nothing behind.
     @VisibleForTesting
     List<Pair<String, ByteBuffer>> executeFlightSqlQuery(Pair<String, Integer> hostAndPort,
                      String user, String psw, String sql, int timeoutSec) throws Exception {
-        RemoteDorisFlightSession session = RemoteDorisFlightSession.open(hostAndPort, user, psw);
+        RemoteDorisFlightSession session = RemoteDorisFlightSession.open(hostAndPort, user, psw, timeoutSec);
         FlightInfo info;
         try {
             info = session.execute(sql, timeoutSec);
@@ -208,85 +235,8 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
             session.close();
             throw t;
         }
-        keepFlightSession(session);
+        splitAssignment.addCloseable(session);
         return processFlightEndpoints(info.getEndpoints());
-    }
-
-    /**
-     * Holds {@code session} until {@link #stop()}. A session handed over after stop() already ran,
-     * or on top of one still held, is closed at once instead: this scan owns one session at most,
-     * and none once stopped. The statement registers the node as well: stop() is the coordinator's
-     * to call, but a plan that never gets one, or whose coordinator nobody closes, is stopped when
-     * the statement ends instead ({@link org.apache.doris.nereids.StatementContext#stopScanNodeAtClose}).
-     */
-    @VisibleForTesting
-    void keepFlightSession(RemoteDorisFlightSession session) {
-        RemoteDorisFlightSession toClose;
-        synchronized (this) {
-            if (stopped) {
-                toClose = session;
-            } else {
-                toClose = flightSession;
-                flightSession = session;
-            }
-        }
-        if (toClose != null) {
-            toClose.close();
-        }
-        if (toClose != session) {
-            ConnectContext.get().getStatementContext().stopScanNodeAtClose(this);
-        }
-    }
-
-    /**
-     * True once {@link #stop()} ended the session this scan opened: the endpoints in its scan
-     * ranges belong to that session's query on the remote frontend, so the same plan must not be
-     * dispatched again (see {@link ScanNode#cannotBeRedispatched()}).
-     */
-    @Override
-    public boolean cannotBeRedispatched() {
-        synchronized (this) {
-            return sessionClosedByStop;
-        }
-    }
-
-    /**
-     * True while this scan holds a Flight SQL session on the remote frontend: the local coordinator
-     * has to stay alive until the BE has finished reading the remote query, since closing it is what
-     * ends the session ({@link #stop()}) - and the remote frontend cancels what a closed session was
-     * still running. Without this, an Arrow Flight SQL query on this frontend would close its
-     * coordinator right after dispatch (#67503), while its BE may still be reading.
-     */
-    @Override
-    public boolean coordinatorMustOutliveDispatch() {
-        if (super.coordinatorMustOutliveDispatch()) {
-            return true;
-        }
-        synchronized (this) {
-            return flightSession != null;
-        }
-    }
-
-    /**
-     * Ends the Flight SQL session on the remote frontend, in addition to what {@code FileQueryScanNode}
-     * releases. Called by the coordinator when the local query closes or is cancelled, i.e. when the
-     * BE is done with (or gave up on) the remote query's endpoints.
-     */
-    @Override
-    public void stop() {
-        super.stop();
-        RemoteDorisFlightSession session;
-        synchronized (this) {
-            stopped = true;
-            session = flightSession;
-            flightSession = null;
-            if (session != null) {
-                sessionClosedByStop = true;
-            }
-        }
-        if (session != null) {
-            session.close();
-        }
     }
 
     private void createColumns() {
@@ -300,7 +250,8 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         }
     }
 
-    private String getQueryStr() {
+    @VisibleForTesting
+    String getQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
 
         if (source.getCatalog().enableParallelResultSink()) {
@@ -368,12 +319,6 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
 
         return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
                 new ToSqlParams(false, true, TableIf.TableType.DORIS_EXTERNAL_TABLE, tbl));
-    }
-
-    // TODO: Use AST parsing instead of string matching for EXPLAIN detection
-    private boolean isExplainStatement() {
-        return ConnectContext.get().getStatementContext().getOriginStatement().originStmt
-            .trim().toLowerCase().startsWith("explain");
     }
 
     private List<Pair<String, ByteBuffer>> processFlightEndpoints(List<FlightEndpoint> endpoints) {

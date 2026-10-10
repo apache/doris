@@ -147,6 +147,13 @@ private:
     // The resolved_ip is the actual IP address to connect to (resolved from hostname).
     Status _create_client(const TNetworkAddress& hostport, const std::string& resolved_ip,
                           ClientFactory& factory_method, void** client_key, int timeout_ms);
+
+    // Whether the server closed the connection of the client (see ThriftClientImpl::peer_closed).
+    bool _peer_closed(void* client_key);
+
+    // Close and delete the client and remove it from _client_map.
+    // Return the host/port it was created for.
+    TNetworkAddress _close_client(void* client_key);
 };
 
 template <class T>

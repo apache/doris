@@ -45,6 +45,7 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitGenerator;
@@ -60,6 +61,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
@@ -96,7 +98,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
     protected String sortColumn = null;
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
-    protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
     protected SplitAssignment splitAssignment = null;
 
@@ -139,10 +140,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
      * scanning, so that the coordinator - closing it releases what the node holds, through
      * {@link #stop()} - has to stay alive until the BE has finished scanning, even after the FE is
      * done dispatching the query. Here: a batch {@link SplitSource} the BE fetches its splits from
-     * lazily (external-table batch mode, see {@link SplitGenerator#isBatchMode()}); the BE's next
-     * split fetch fails once the source is released. A subclass holding another such resource
-     * adds its own reason, e.g. the Flight SQL session a remote Doris scan keeps open on the other
-     * frontend for the query the BE reads (RemoteDorisScanNode).
+     * lazily (batch mode, see {@link SplitGenerator#isBatchMode()}); the BE's next split fetch
+     * fails once the source is released. Its split assignment also holds what produced the splits:
+     * for a remote Doris scan, the Flight SQL session on the other frontend whose query the BE
+     * reads, which ends what that query still runs there once it is closed.
      */
     public boolean coordinatorMustOutliveDispatch() {
         return splitAssignment != null;
@@ -153,14 +154,89 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
      * attempt failed must not be retried by dispatching that plan once more
      * (StmtExecutor.handleQueryWithRetry re-dispatches the plan of a failed attempt whose coordinator
      * was cancelled, and cancel() stops the scan nodes). Either {@link #stop()} released what the
-     * ranges point at -- a remote Doris scan's ranges are the endpoints of the query its Flight SQL
-     * session ran on the other frontend, gone with the session -- or reading them consumed it -- a
-     * connector range that can be read only once (ConnectorScanRange#isSingleUse), such as an ADBC
-     * partition, the failed attempt may have drained. A batch split source has the same property but
-     * is left as it is here.
+     * ranges point at, or reading them consumed it. Here, the former: a split assignment serves one
+     * dispatch, and once stopped, it no longer serves the split sources the scan ranges point the BE
+     * at, nor holds what produced the splits (the Flight SQL session of a remote Doris scan, whose
+     * query the splits are the endpoints of). A subclass adds the latter: a connector range that can
+     * be read only once (ConnectorScanRange#isSingleUse), such as an ADBC partition, the failed
+     * attempt may have drained (PluginDrivenScanNode).
      */
     public boolean cannotBeRedispatched() {
-        return false;
+        return splitAssignment != null && splitAssignment.isStop();
+    }
+
+    /**
+     * Starts what the BE reads from this frontend while it scans this node: the {@link SplitAssignment} the BE fetches
+     * the splits from. The coordinator dispatching the plan starts it once the query is admitted, before the fragments
+     * are sent ({@link #startAll}), and stops it when it closes or cancels ({@link #stopAll}). So a plan whose scan
+     * pulls its splits from this frontend runs only through a coordinator's exec(), never as a plan handed to the BE
+     * as it is (a stream load's). A plan nobody dispatches - an EXPLAIN, a plan built only to be inspected, a statement
+     * that fails before dispatch - starts nothing here; but a scan that plans with its first split has started
+     * generating its splits already, while it was planned (FileQueryScanNode#needsSampleSplit). The coordinator takes
+     * that over here, and a statement stops it when it ends if no coordinator did.
+     */
+    public void start() throws UserException {
+        if (splitAssignment != null) {
+            splitAssignment.start();
+        }
+    }
+
+    /**
+     * Releases what the BE read from this frontend while it scanned this node: stops the split assignment, which
+     * unregisters its split sources and closes what its generator opened. Idempotent.
+     */
+    @Override
+    public void stop() {
+        if (splitAssignment != null) {
+            splitAssignment.stop();
+        }
+    }
+
+    /**
+     * Releases what a plan no coordinator dispatched holds on this frontend (see {@link #stop}), for a statement that
+     * drops the plan and goes on. A failure of the split generation the scan started while it was planned is logged
+     * as one, not thrown: no backend read those splits, and the statement does not fail for them. Idempotent.
+     */
+    public void stopUndispatched() {
+        if (splitAssignment != null) {
+            splitAssignment.stopIfNotDispatched();
+        }
+    }
+
+    /**
+     * Starts every scan node of a query being dispatched (see {@link #start}). The first failure propagates: the
+     * caller then cancels or closes the query, which stops the nodes started so far.
+     */
+    public static void startAll(List<ScanNode> scanNodes) throws UserException {
+        for (ScanNode scanNode : scanNodes) {
+            scanNode.start();
+        }
+    }
+
+    /**
+     * Stops every scan node of a query, one failing to stop not keeping the next from stopping: each releases what it
+     * holds on this frontend for the BE (see {@link #stop}), and a split assignment rethrows the failure of its
+     * asynchronous split generation - once it has released what it holds. Never throws: it runs on the query's
+     * teardown path, after the query's outcome is decided.
+     */
+    public static void stopAll(List<ScanNode> scanNodes, TUniqueId queryId) {
+        for (ScanNode scanNode : scanNodes) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.error("error happens when scan node {} stop, query id: {}", scanNode.getId(),
+                        DebugUtil.printId(queryId), t);
+            }
+        }
+    }
+
+    /**
+     * Stops every scan node of a plan the statement drops without dispatching it (see {@link #stopUndispatched}):
+     * EXPLAIN, the INSERT OVERWRITE probe, an INSERT planned again, DELETE, the plan a streaming insert task rewrites
+     * its TVF in. Never throws.
+     */
+    public static void stopAllUndispatched(List<ScanNode> scanNodes) {
+        scanNodes.forEach(ScanNode::stopUndispatched);
     }
 
     protected abstract void createScanRangeLocations() throws UserException;

@@ -801,6 +801,9 @@ public class Coordinator implements CoordInterface {
                 context.setWorkloadGroupName("");
             }
         }
+        // What the BE reads from this frontend while it scans starts now that the query is admitted, before the
+        // fragments are sent; close() and cancel() stop it.
+        ScanNode.startAll(scanNodes);
         execInternal();
     }
 
@@ -808,9 +811,9 @@ public class Coordinator implements CoordInterface {
      * Whether the BE still depends on this coordinator after {@link #exec()} returned, so it must
      * not be closed until the BE has finished scanning: one of its scan nodes holds something on
      * the FE that the BE scans with and that {@link #close()} releases
-     * ({@link ScanNode#coordinatorMustOutliveDispatch()}) - the split source an external-table
-     * scan in batch mode fetches its splits from lazily, or the Flight SQL session a remote Doris
-     * scan keeps open on the other frontend. Arrow Flight SQL uses this to decide whether a
+     * ({@link ScanNode#coordinatorMustOutliveDispatch()}) - the split source a scan in batch mode
+     * fetches its splits from lazily, and what produced the splits, such as the Flight SQL session
+     * of a remote Doris scan on the other frontend. Arrow Flight SQL uses this to decide whether a
      * query's coordinator has to outlive GetFlightInfo, the client pulling the results from the BE
      * later in DoGet. See #62259.
      */
@@ -837,13 +840,7 @@ public class Coordinator implements CoordInterface {
             }
         }
 
-        try {
-            for (ScanNode scanNode : scanNodes) {
-                scanNode.stop();
-            }
-        } catch (Throwable t) {
-            LOG.error("error happens when scannode stop ", t);
-        }
+        ScanNode.stopAll(scanNodes, queryId);
     }
 
     protected void execInternal() throws Exception {
@@ -1449,16 +1446,9 @@ public class Coordinator implements CoordInterface {
         }
         // Scan cleanup is best-effort and must never escape: the terminal status and interval cancellation
         // above are already published, and a throwing scan would otherwise skip the remaining scans (and the
-        // caller's coordinator close), masking the retained reason. A scan whose first stop() threw still
-        // removes its own sources on the close-time retry because SplitAssignment.stop() is idempotent.
-        for (ScanNode scanNode : scanNodes) {
-            try {
-                scanNode.stop();
-            } catch (Throwable t) {
-                LOG.error("error happens when scannode stop during cancel, query id: {}",
-                        DebugUtil.printId(queryId), t);
-            }
-        }
+        // caller's coordinator close), masking the retained reason. A scan whose stop() threw has released its
+        // own sources all the same: SplitAssignment.stop() rethrows only once it has released what it holds.
+        ScanNode.stopAll(scanNodes, queryId);
     }
 
     public boolean isQueryCancelled() {

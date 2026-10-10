@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -161,6 +162,12 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         } finally {
             ctx.setSkipAuth(originalIsSkipAuth);
         }
+        // No coordinator ever takes this plan: a delete by predicate reads only its filter, and any other delete - of a
+        // merge-on-write table by default, or by a predicate it cannot push, such as a subquery reading another table -
+        // falls back to DeleteFromUsingCommand, which plans the statement again. So what its scans started while
+        // planned (the split generation of a batch scan of that other table) is stopped here, rather than left running
+        // beside the fallback's own plan until the statement ends.
+        ScanNode.stopAllUndispatched(planner.getScanNodes());
         executor.setPlanner(planner);
         executor.checkBlockRules();
         // if fe could do fold constant to get delete will do nothing for table, just return.

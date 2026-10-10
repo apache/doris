@@ -108,6 +108,8 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+    // The uncaught exceptions of the threads this suite started itself (see UncaughtThreadFailures).
+    final UncaughtThreadFailures threadFailures
     static Boolean isTrinoConnectorDownloaded = false
 
     static final String FORCE_IN_RBO = "FORCE_IN_RBO";
@@ -127,6 +129,7 @@ class Suite implements GroovyInterceptable {
         this.context = context
         this.cluster = cluster;
         this.debugPoint = new DebugPoint(this)
+        this.threadFailures = new UncaughtThreadFailures(name)
     }
 
     String getConf(String key, String defaultValue = null) {
@@ -243,6 +246,16 @@ class Suite implements GroovyInterceptable {
             throw lazyCheckExceptions.get(0)
         }
         lazyCheckFutures.forEach { it.get() }
+        // The body has returned and the threads it left to the lazy checks have ended, and so has every
+        // thread the body joined: a failure on one of them is the suite's. A thread still running fails
+        // nothing from here on (UncaughtThreadFailures). A suite failing on something else first takes the
+        // failures along (ScriptContext.createAndRunSuite).
+        List<Throwable> threadFailed = threadFailures.takeAll()
+        if (!threadFailed.isEmpty()) {
+            Throwable first = threadFailed.get(0)
+            threadFailed.subList(1, threadFailed.size()).each { first.addSuppressed(it) }
+            throw first
+        }
     }
 
     public <T> Tuple2<T, Long> timer(Closure<T> actionSupplier) {
@@ -278,11 +291,17 @@ class Suite implements GroovyInterceptable {
     }
 
     private <T> Callable<T> buildThreadCallable(String threadName, ConnectionInfo connInfo, Closure<T> actionSupplier) {
+        // The task runs as the suite submitting it: a pooled worker (context.actionExecutors) keeps the
+        // UncaughtThreadFailures.OWNER of whichever suite's submission constructed it, and a thread the task
+        // starts inherits the worker's.
+        UncaughtThreadFailures owner = UncaughtThreadFailures.OWNER.get()
         return new Callable<T>() {
             @Override
             T call() throws Exception {
                 long startTime = System.currentTimeMillis()
                 def originThreadName = Thread.currentThread().name
+                UncaughtThreadFailures workerOwner = UncaughtThreadFailures.OWNER.get()
+                UncaughtThreadFailures.OWNER.set(owner)
                 try {
                     Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
                     if (connInfo != null) {
@@ -303,6 +322,7 @@ class Suite implements GroovyInterceptable {
                     long finishTime = System.currentTimeMillis()
                     context.scriptContext.eventListeners.each { it.onThreadFinished(context, finishTime - startTime) }
                     Thread.currentThread().setName(originThreadName)
+                    UncaughtThreadFailures.OWNER.set(workerOwner)
                 }
             }
         };

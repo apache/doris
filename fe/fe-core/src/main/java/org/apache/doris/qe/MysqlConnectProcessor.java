@@ -194,6 +194,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        } finally {
+            // The execution is over, but unlike a COM_QUERY statement its StatementContext is not closed: the prepared
+            // statement keeps it, and its connector scope, until the next execution (nextStatementContext). End what
+            // its planning started for a plan no coordinator dispatched, and drop the split assignments it holds, so
+            // that the prepared statement keeps no plan alive on this frontend until then.
+            prepCtx.getStatementContext().stopUndispatchedSplitAssignments();
         }
         if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);

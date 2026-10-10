@@ -93,8 +93,17 @@ Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, ClientFact
                                      hostport.hostname, dns_status.to_string());
     }
 
-    // Try to get a cached client with matching resolved IP
+    // Try to get a cached client with matching resolved IP. One whose connection the server
+    // closed while it was cached - the server restarted - would fail the call it is taken for,
+    // and not every call can be sent again once it failed (fetchSplitBatch: the frontend hands
+    // out the splits of a batch as it answers): it is closed instead, and the next one tried.
     _get_client_from_cache(hostport, resolved_ip, client_key);
+    while (*client_key != nullptr && _peer_closed(*client_key)) {
+        LOG(INFO) << "Close a cached client to " << hostport
+                  << " whose connection the server closed";
+        _close_client(*client_key);
+        _get_client_from_cache(hostport, resolved_ip, client_key);
+    }
     if (*client_key == nullptr) {
         // No cached client with matching IP, create a new one using the resolved IP
         RETURN_IF_ERROR(
@@ -111,36 +120,11 @@ Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, ClientFact
 Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** client_key,
                                         int timeout_ms) {
     DCHECK(*client_key != nullptr) << "Trying to reopen nullptr client";
-    ThriftClientImpl* client_to_close = nullptr;
-    TNetworkAddress hostport;
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto client_map_entry = _client_map.find(*client_key);
-        DCHECK(client_map_entry != _client_map.end());
-        client_to_close = client_map_entry->second;
-
-        // Get the original hostport (with hostname) for this client
-        auto hostport_entry = _client_hostport_map.find(*client_key);
-        DCHECK(hostport_entry != _client_hostport_map.end());
-        hostport = hostport_entry->second;
-    }
-
-    client_to_close->close();
-
     // TODO: Thrift TBufferedTransport cannot be re-opened after Close() because it does
     // not clean up internal buffers it reopens. To work around this issue, create a new
     // client instead.
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        _client_map.erase(*client_key);
-        _client_hostport_map.erase(*client_key);
-    }
-    delete client_to_close;
+    TNetworkAddress hostport = _close_client(*client_key);
     *client_key = nullptr;
-
-    if (_metrics_enabled) {
-        thrift_opened_clients->increment(-1);
-    }
 
     // Re-resolve hostname to IP address
     std::string resolved_ip;
@@ -153,6 +137,47 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** cl
     RETURN_IF_ERROR(_create_client(hostport, resolved_ip, factory_method, client_key, timeout_ms));
 
     return Status::OK();
+}
+
+bool ClientCacheHelper::_peer_closed(void* client_key) {
+    ThriftClientImpl* client = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto client_map_entry = _client_map.find(client_key);
+        DCHECK(client_map_entry != _client_map.end());
+        client = client_map_entry->second;
+    }
+    return client->peer_closed();
+}
+
+TNetworkAddress ClientCacheHelper::_close_client(void* client_key) {
+    ThriftClientImpl* client_to_close = nullptr;
+    TNetworkAddress hostport;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto client_map_entry = _client_map.find(client_key);
+        DCHECK(client_map_entry != _client_map.end());
+        client_to_close = client_map_entry->second;
+
+        // Get the original hostport (with hostname) for this client
+        auto hostport_entry = _client_hostport_map.find(client_key);
+        DCHECK(hostport_entry != _client_hostport_map.end());
+        hostport = hostport_entry->second;
+    }
+
+    client_to_close->close();
+
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        _client_map.erase(client_key);
+        _client_hostport_map.erase(client_key);
+    }
+    delete client_to_close;
+
+    if (_metrics_enabled) {
+        thrift_opened_clients->increment(-1);
+    }
+    return hostport;
 }
 
 Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,

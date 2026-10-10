@@ -3161,7 +3161,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 LOG.info("block initHttpStreamPlan");
             }
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
-            httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
+            try {
+                httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
+            } finally {
+                // The backend runs the plan of an http_stream load as it is (getStreamLoadPlan below), not through a
+                // coordinator's exec(), and only a plan of TVF scans passes (generateHttpStreamNereidsPlan): those
+                // start nothing while planned. A plan refused, or failing, after it was planned may have started the
+                // split generation of a batch scan, and this request is all the statement is on this frontend.
+                ctx.getStatementContext().stopUndispatchedSplitAssignments();
+            }
 
             Coordinator coord = new Coordinator(ctx, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());

@@ -159,6 +159,10 @@ public class NereidsCoordinator extends Coordinator {
             throw new UserException(status.getErrorMsg());
         }
         enqueue(coordinatorContext.connectContext);
+        // What the BE reads from this frontend while it scans starts now that the query is admitted, before the
+        // fragments are sent; close() and cancel() stop it. A cancel landing meanwhile is caught by the status check
+        // below.
+        ScanNode.startAll(coordinatorContext.scanNodes);
 
         processTopSink(coordinatorContext, coordinatorContext.topDistributedPlan);
         status = getQueryStatus();
@@ -208,16 +212,9 @@ public class NereidsCoordinator extends Coordinator {
                 coordinatorContext.getQueueToken().ifPresent(QueueToken::cancel);
                 // Scan cleanup is best-effort and must never escape: a throwing scan would otherwise skip
                 // the remaining scans (and the caller's coordinator close), masking the retained reason. A
-                // scan whose first stop() threw still removes its own sources on the close-time retry
-                // because SplitAssignment.stop() is idempotent.
-                for (ScanNode scanNode : coordinatorContext.scanNodes) {
-                    try {
-                        scanNode.stop();
-                    } catch (Throwable t) {
-                        LOG.error("error happens when scannode stop during cancel, query id: {}",
-                                DebugUtil.printId(queryId), t);
-                    }
-                }
+                // scan whose stop() threw has released its own sources all the same: SplitAssignment.stop()
+                // rethrows only once it has released what it holds.
+                ScanNode.stopAll(coordinatorContext.scanNodes, queryId);
             } finally {
                 cancelInternal(cancelReason);
             }
@@ -491,13 +488,7 @@ public class NereidsCoordinator extends Coordinator {
             }
         }
 
-        try {
-            for (ScanNode scanNode : coordinatorContext.scanNodes) {
-                scanNode.stop();
-            }
-        } catch (Throwable t) {
-            LOG.error("error happens when scannode stop ", t);
-        }
+        ScanNode.stopAll(coordinatorContext.scanNodes, coordinatorContext.queryId);
     }
 
     protected void cancelInternal(Status cancelReason) {

@@ -236,12 +236,11 @@ public class InsertOverwriteTableCommand extends Command
         LineageInfoExtractor.registerAnalyzePlanHook(ctx.getStatementContext(), planner);
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         // This plan only locates the sink and the partitions; the insert below plans again and runs
-        // that plan. No coordinator ever takes this one, so what its scan nodes opened for the
-        // backend while planning (a remote Doris scan's Flight SQL session on the other frontend, a
-        // batch split source) is released here, before the real insert opens its own.
-        for (ScanNode scanNode : planner.getScanNodes()) {
-            scanNode.stop();
-        }
+        // that plan. No coordinator ever takes this one, so what its scan nodes started while
+        // planning (the split generation of a batch scan that plans with its first split) is
+        // released here, before the real insert starts its own, rather than when the statement
+        // ends.
+        ScanNode.stopAllUndispatched(planner.getScanNodes());
         Plan analyzedPlan = planner.getAnalyzedPlan();
         lineagePlan = Optional.ofNullable(analyzedPlan);
         executor.checkBlockRules();

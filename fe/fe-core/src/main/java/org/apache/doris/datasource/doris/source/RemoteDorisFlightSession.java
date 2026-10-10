@@ -26,6 +26,9 @@ import org.apache.arrow.flight.CloseSessionRequest;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.Location;
+import org.apache.arrow.flight.auth2.BasicAuthCredentialWriter;
+import org.apache.arrow.flight.auth2.ClientBearerHeaderHandler;
+import org.apache.arrow.flight.auth2.ClientIncomingAuthHeaderMiddleware;
 import org.apache.arrow.flight.grpc.CredentialCallOption;
 import org.apache.arrow.flight.sql.FlightSqlClient;
 import org.apache.arrow.memory.BufferAllocator;
@@ -35,14 +38,13 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.Closeable;
 import java.net.URI;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
  * The Flight SQL session a {@link RemoteDorisScanNode} opens on a remote Doris frontend for one
- * scan, and ends with a CloseSession once the scan is over.
+ * scan, when the coordinator dispatches the plan, and ends with a CloseSession once the scan is over.
  *
- * <p>The handshake ({@code authenticateBasicToken}) opens a session on the remote frontend: a
+ * <p>The handshake (basic auth, answered with a bearer token) opens a session on the remote frontend: a
  * connection in its pool, counted against {@code qe_max_connection}, the Arrow Flight SQL sub-quota
  * and the catalog user's {@code max_user_connections}, that only a CloseSession, a KILL or
  * {@code wait_timeout} ends. Closing the gRPC channel does not. A session opened per scan and never
@@ -52,9 +54,9 @@ import java.util.concurrent.TimeUnit;
  * <p>The session outlives GetFlightInfo on purpose: the query it ran serves the BE's DoGet of the
  * endpoints, and the remote frontend cancels whatever a closed session was still running - the
  * query itself, when the remote table is an external table scanned in batch mode and the query is
- * therefore deferred there. So {@link #close()} is called from {@link RemoteDorisScanNode#stop()},
- * when the coordinator of the local query closes, and that coordinator is kept alive until the BE
- * has finished scanning ({@link RemoteDorisScanNode#coordinatorMustOutliveDispatch()}).
+ * therefore deferred there. So the session goes to the scan's split assignment, whose stop() - when
+ * the coordinator of the local query closes or cancels - calls {@link #close()}, and that coordinator
+ * is kept alive until the BE has finished scanning (ScanNode#coordinatorMustOutliveDispatch).
  */
 class RemoteDorisFlightSession implements Closeable {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisFlightSession.class);
@@ -80,23 +82,31 @@ class RemoteDorisFlightSession implements Closeable {
     }
 
     /**
-     * Opens a session on the remote frontend at {@code hostAndPort} with the catalog's credentials.
-     * Nothing is left behind when this fails: a handshake that was refused opened no session, and
-     * the channel and allocator are released before the exception propagates.
+     * Opens a session on the remote frontend at {@code hostAndPort} with the catalog's credentials, waiting at most
+     * {@code timeoutSec} for the handshake. Nothing is left behind when this fails: a handshake that was refused or
+     * timed out opened no session, and the channel and allocator are released before the exception propagates.
      */
-    static RemoteDorisFlightSession open(Pair<String, Integer> hostAndPort, String user, String password)
-            throws Exception {
+    static RemoteDorisFlightSession open(Pair<String, Integer> hostAndPort, String user, String password,
+            int timeoutSec) throws Exception {
         BufferAllocator allocator = new RootAllocator();
         FlightClient flightClient = null;
         try {
             URI uri = new URI("grpc", null, hostAndPort.first, hostAndPort.second, null, null, null);
-            flightClient = FlightClient.builder(allocator, new Location(uri)).build();
-            Optional<CredentialCallOption> credential = flightClient.authenticateBasicToken(user, password);
-            if (!credential.isPresent()) {
+            // What FlightClient#authenticateBasicToken does, with a deadline: it waits for the handshake without
+            // one. The scan opens the session while the coordinator dispatches the plan, holding the query's
+            // admission slot, and a remote frontend that accepts the connection but never answers would hold both
+            // for good: neither KILL nor the query's timeout interrupts the wait.
+            ClientIncomingAuthHeaderMiddleware.Factory bearerToken =
+                    new ClientIncomingAuthHeaderMiddleware.Factory(new ClientBearerHeaderHandler());
+            flightClient = FlightClient.builder(allocator, new Location(uri)).intercept(bearerToken).build();
+            flightClient.handshake(new CredentialCallOption(new BasicAuthCredentialWriter(user, password)),
+                    CallOptions.timeout(timeoutSec, TimeUnit.SECONDS));
+            CredentialCallOption credential = bearerToken.getCredentialCallOption();
+            if (credential == null) {
                 throw new UserException("Authenticates with a username and password failure");
             }
             return new RemoteDorisFlightSession(hostAndPort, allocator, new FlightSqlClient(flightClient),
-                    credential.get());
+                    credential);
         } catch (Throwable t) {
             closeQuietly(flightClient, allocator, hostAndPort);
             throw t;

@@ -27,10 +27,12 @@ import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -107,6 +111,41 @@ public class NereidsCoordinatorTest extends TestWithFeService {
 
         UserException exception = Assertions.assertThrows(UserException.class, coordinator::exec);
         Assertions.assertTrue(exception.getMessage().contains("terminate before fragment dispatch"));
+    }
+
+    @Test
+    public void testScansStartOnceTheQueryIsAdmittedAndBeforeItsFragmentsAreBuilt() throws Exception {
+        ConnectContext context = createDefaultCtx();
+        NereidsPlanner planner = plan("select * from test.tbl", context);
+        List<String> steps = new ArrayList<>();
+        NereidsCoordinator coordinator = new NereidsCoordinator(context, planner, null) {
+            @Override
+            protected void processTopSink(CoordinatorContext coordinatorContext,
+                    PipelineDistributedPlan topPlan) throws AnalysisException {
+                // The step after starting the scans: the fragments are built from the scan params next.
+                steps.add("process top sink");
+                throw new AnalysisException("stop before the fragments are built");
+            }
+        };
+        // A scan that runs something somewhere else when it starts - a remote Doris scan runs its remote query -
+        // must not do so while the query still waits in its workload group's queue.
+        ScanNode scanNode = Mockito.mock(ScanNode.class);
+        Mockito.doAnswer(invocation -> {
+            steps.add("start scan, admitted: " + coordinator.coordinatorContext.getQueueToken()
+                    .map(QueueToken::isReadyToRun).orElse(false));
+            return null;
+        }).when(scanNode).start();
+        coordinator.coordinatorContext.scanNodes.clear();
+        coordinator.coordinatorContext.scanNodes.add(scanNode);
+
+        try {
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class, coordinator::exec);
+            Assertions.assertTrue(e.getMessage().contains("stop before the fragments are built"), e.getMessage());
+        } finally {
+            coordinator.close();
+        }
+
+        Assertions.assertEquals(Lists.newArrayList("start scan, admitted: true", "process top sink"), steps);
     }
 
     @Test
