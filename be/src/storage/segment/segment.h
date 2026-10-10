@@ -316,8 +316,6 @@ private:
 
     DorisCallOnce<Status> _create_column_meta_once_call;
 
-    std::weak_ptr<SegmentFooterPB> _footer_pb;
-
     // Cached raw_data_bytes per column unique id, populated once in _create_column_meta().
     std::unordered_map<int32_t, uint64_t> _column_uid_to_raw_bytes;
 

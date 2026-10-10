@@ -364,9 +364,8 @@ io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t 
 }
 
 int64_t Segment::get_metadata_size() const {
-    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
-    return sizeof(Segment) + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0) +
-           (footer_pb_shared ? footer_pb_shared->ByteSizeLong() : 0);
+    // The segment footer is owned and tracked by StoragePageCache, so it is not counted here.
+    return sizeof(Segment) + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
 }
 
 void Segment::update_metadata_size() {
@@ -1355,16 +1354,6 @@ Status Segment::seek_and_read_by_rowid(const TabletColumn& read_column, SlotDesc
 Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
                                     OlapReaderStatistics* stats,
                                     const io::IOContext* source_io_ctx) {
-    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
-    if (footer_pb_shared != nullptr) {
-        footer_pb = footer_pb_shared;
-        return Status::OK();
-    }
-
-    VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is missing, try to load it",
-                              _file_reader->path().native(), _file_reader->size(),
-                              _file_reader->size() - 12);
-
     StoragePageCache* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
     DCHECK(segment_footer_cache != nullptr);
 
@@ -1379,6 +1368,10 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
     //   as other index/metadata pages and avoids competing with DATA_PAGE budget.
     if (!segment_footer_cache->lookup(cache_key, &cache_handle,
                                       segment_v2::PageTypePB::INDEX_PAGE)) {
+        VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is missing, try to load it",
+                                  _file_reader->path().native(), _file_reader->size(),
+                                  _file_reader->size() - 12);
+        std::shared_ptr<SegmentFooterPB> footer_pb_shared;
         RETURN_IF_ERROR(_parse_footer(footer_pb_shared, stats, source_io_ctx));
         segment_footer_cache->insert(cache_key, footer_pb_shared, footer_pb_shared->ByteSizeLong(),
                                      &cache_handle, segment_v2::PageTypePB::INDEX_PAGE);
@@ -1387,9 +1380,7 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
                                   _file_reader->path().native(), _file_reader->size(),
                                   _file_reader->size() - 12);
     }
-    footer_pb_shared = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
-    _footer_pb = footer_pb_shared;
-    footer_pb = footer_pb_shared;
+    footer_pb = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
     return Status::OK();
 }
 
