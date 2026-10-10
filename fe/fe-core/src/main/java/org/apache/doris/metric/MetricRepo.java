@@ -837,7 +837,7 @@ public final class MetricRepo {
         HTTP_COUNTER_COPY_INFO_QUERY_REQUEST = new LongCounterMetric("http_copy_into_query_request_total",
                 MetricUnit.REQUESTS, "http copy into total query request");
         DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_QUERY_REQUEST);
-        HTTP_COUNTER_COPY_INFO_QUERY_ERR = new LongCounterMetric("http_copy_into_upload_err_total",
+        HTTP_COUNTER_COPY_INFO_QUERY_ERR = new LongCounterMetric("http_copy_into_query_err_total",
                 MetricUnit.REQUESTS, "http copy into err query request");
         DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_QUERY_ERR);
         HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY = METRIC_REGISTER.histogram(
