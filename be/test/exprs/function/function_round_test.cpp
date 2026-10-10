@@ -18,6 +18,7 @@
 #include <climits>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <memory>
 #include <tuple>
@@ -974,6 +975,28 @@ FloatTestDataSet round_bankers_float64_cases = {{2.5, 0, 2.0},
                                                 {123.123456, 4, 123.123500},
                                                 {123456789.123456, 4, 123456789.123500}};
 
+const FloatTestDataSet large_scale_round_cases = {
+        {1.234e-20, 20, 1e-20}, {1.23456789e20, 20, 1.23456789e20},
+        {1e20, -19, 1e20},      {1e20, -20, 1e20},
+        {1e20, -25, 0},         {1e20, std::numeric_limits<Int16>::min(), 0}};
+const FloatTestDataSet large_scale_round_bankers_cases = {
+        {1.234e-20, 20, 1e-20},
+        {5e19, -20, 0},
+        {1.5e20, -20, 2e20},
+        {1e20, std::numeric_limits<Int16>::min(), 0}};
+const FloatTestDataSet large_scale_truncate_cases = {
+        {1.234e-20, 20, 1e-20}, {1e20, -25, 0}, {1e20, std::numeric_limits<Int16>::min(), 0}};
+const FloatTestDataSet large_scale_floor_cases = {
+        {1.234e-20, 20, 1e-20},
+        {-1e20, -25, -1e25},
+        {-1e20, std::numeric_limits<Int16>::min(), -std::numeric_limits<double>::infinity()},
+        {1e20, std::numeric_limits<Int16>::min(), 0}};
+const FloatTestDataSet large_scale_ceil_cases = {
+        {1.234e-20, 20, 2e-20},
+        {1e20, -25, 1e25},
+        {1e20, std::numeric_limits<Int16>::min(), std::numeric_limits<double>::infinity()},
+        {-1e20, std::numeric_limits<Int16>::min(), 0}};
+
 template <typename FuncType, typename DecimalType>
 static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool decimal_col_is_const) {
     static_assert(IsDecimalNumber<DecimalType>);
@@ -1074,7 +1097,8 @@ static void check_decimal_rounding(typename DecimalType::NativeType input, int i
 }
 
 template <typename FuncType, PrimitiveType FloatPType>
-static void float_checker(const FloatTestDataSet& round_test_cases, bool float_col_is_const) {
+static void float_checker(const FloatTestDataSet& round_test_cases, bool float_col_is_const,
+                          bool scale_col_is_const = false) {
     using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
     static_assert(IsNumber<FloatType>);
     auto func = std::dynamic_pointer_cast<FuncType>(FuncType::create());
@@ -1106,7 +1130,12 @@ static void float_checker(const FloatTestDataSet& round_test_cases, bool float_c
                           "col_general"});
         }
 
-        block.insert({col_scale->clone(), std::make_shared<DataTypeInt32>(), "col_scale"});
+        if (scale_col_is_const) {
+            block.insert({ColumnConst::create(col_scale->clone_resized(1), 1),
+                          std::make_shared<DataTypeInt32>(), "col_scale_const"});
+        } else {
+            block.insert({col_scale->clone(), std::make_shared<DataTypeInt32>(), "col_scale"});
+        }
         block.insert({nullptr, std::make_shared<DataTypeNumber<FloatPType>>(), "col_res"});
 
         auto status = func->execute_impl(context, block, arguments, res_idx, 1);
@@ -1231,6 +1260,33 @@ TEST(RoundFunctionTest, normal_float_const) {
 
     float_checker<FloatRoundBankersFunction, TYPE_FLOAT>(round_bankers_float32_cases, true);
     float_checker<FloatRoundBankersFunction, TYPE_DOUBLE>(round_bankers_float64_cases, true);
+}
+
+TEST(RoundFunctionTest, large_float_scales) {
+    for (bool input_const : {false, true}) {
+        for (bool scale_const : {false, true}) {
+            float_checker<FloatRoundFunction, TYPE_FLOAT>(large_scale_round_cases, input_const,
+                                                          scale_const);
+            float_checker<FloatRoundFunction, TYPE_DOUBLE>(large_scale_round_cases, input_const,
+                                                           scale_const);
+            float_checker<FloatRoundBankersFunction, TYPE_FLOAT>(large_scale_round_bankers_cases,
+                                                                 input_const, scale_const);
+            float_checker<FloatRoundBankersFunction, TYPE_DOUBLE>(large_scale_round_bankers_cases,
+                                                                  input_const, scale_const);
+            float_checker<FloatTruncateFunction, TYPE_FLOAT>(large_scale_truncate_cases,
+                                                             input_const, scale_const);
+            float_checker<FloatTruncateFunction, TYPE_DOUBLE>(large_scale_truncate_cases,
+                                                              input_const, scale_const);
+            float_checker<FloatFloorFunction, TYPE_FLOAT>(large_scale_floor_cases, input_const,
+                                                          scale_const);
+            float_checker<FloatFloorFunction, TYPE_DOUBLE>(large_scale_floor_cases, input_const,
+                                                           scale_const);
+            float_checker<FloatCeilFunction, TYPE_FLOAT>(large_scale_ceil_cases, input_const,
+                                                         scale_const);
+            float_checker<FloatCeilFunction, TYPE_DOUBLE>(large_scale_ceil_cases, input_const,
+                                                          scale_const);
+        }
+    }
 }
 
 } // namespace doris
