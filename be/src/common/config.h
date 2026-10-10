@@ -1778,6 +1778,12 @@ DECLARE_String(spill_storage_root_path);
 // If specified as percentage, the final limit value is:
 //   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
 DECLARE_String(spill_storage_limit);
+// Upper bound, in bytes, of the spill data kept by each spill store: every local spill path
+// and the object storage store of spill_storage_type=s3 are limited separately. For a local
+// path the effective limit is the smaller of this and spill_storage_limit, which always
+// applies. 0 means no byte limit (a local path is then bounded by spill_storage_limit only,
+// object storage is unbounded).
+DECLARE_mInt64(spill_storage_limit_bytes);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
 // Maximum size of each spill part file before rotation (bytes). Default 1GB.
@@ -1788,10 +1794,7 @@ DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 DECLARE_String(spill_storage_type);
 // Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". Empty
 // means the default vault of the instance.
-DECLARE_String(spill_s3_storage_vault);
-// Upper bound of spill bytes kept in object storage by this BE, including bytes reserved for
-// in-flight uploads. 0 means unlimited.
-DECLARE_mInt64(spill_s3_storage_limit_bytes);
+DECLARE_String(spill_s3_storage_vault_id);
 // Upper bound of the allocated capacity of spill upload buffers that were submitted to object
 // storage and are not yet acknowledged (every buffer counts as s3_write_buffer_size, also a
 // partially filled last one). Bounds the upload buffer memory of spill; writers block once it

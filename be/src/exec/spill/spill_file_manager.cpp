@@ -79,8 +79,8 @@ std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> create_spill_stor
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
     if (config::spill_storage_type == "s3") {
         // One remote store, see RemoteSpillDataDir for the object layout.
-        spill_store_map.emplace("s3", std::make_unique<RemoteSpillDataDir>(
-                                              config::spill_s3_storage_vault));
+        spill_store_map.emplace(
+                "s3", std::make_unique<RemoteSpillDataDir>(config::spill_s3_storage_vault_id));
     }
     // External spill sessions need native local paths even when query spill uses object
     // storage. Query spill selects the remote store; external sessions select these roots.

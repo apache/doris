@@ -997,6 +997,44 @@ TEST_F(SpillFileTest, UpdateCapacityTracksInodeUsage) {
     }
 }
 
+// spill_storage_limit_bytes caps every local spill path on top of spill_storage_limit; the
+// smaller limit wins and 0 leaves the percentage limit alone.
+TEST_F(SpillFileTest, StorageLimitBytesCapsLocalPath) {
+    const auto saved_limit = config::spill_storage_limit;
+    const auto saved_limit_bytes = config::spill_storage_limit_bytes;
+    Defer restore {[&]() {
+        config::spill_storage_limit = saved_limit;
+        config::spill_storage_limit_bytes = saved_limit_bytes;
+        static_cast<void>(_data_dir_ptr->update_capacity());
+    }};
+    config::spill_storage_limit = "20%";
+
+    config::spill_storage_limit_bytes = 0;
+    ASSERT_TRUE(_data_dir_ptr->update_capacity().ok());
+    const int64_t percent_limit = _data_dir_ptr->get_spill_data_limit();
+    ASSERT_GT(percent_limit, 1024);
+
+    // A byte limit below the percentage limit takes effect.
+    config::spill_storage_limit_bytes = 1024;
+    ASSERT_TRUE(_data_dir_ptr->update_capacity().ok());
+    EXPECT_EQ(_data_dir_ptr->get_spill_data_limit(), 1024);
+    EXPECT_TRUE(_data_dir_ptr->reach_capacity_limit(1025));
+
+    // A byte limit above the percentage limit does not raise it.
+    config::spill_storage_limit_bytes = percent_limit + 1;
+    ASSERT_TRUE(_data_dir_ptr->update_capacity().ok());
+    EXPECT_EQ(_data_dir_ptr->get_spill_data_limit(), percent_limit);
+
+    // The smaller of an absolute spill_storage_limit and the byte limit wins as well.
+    config::spill_storage_limit = "4096";
+    config::spill_storage_limit_bytes = 2048;
+    ASSERT_TRUE(_data_dir_ptr->update_capacity().ok());
+    EXPECT_EQ(_data_dir_ptr->get_spill_data_limit(), 2048);
+    config::spill_storage_limit_bytes = 8192;
+    ASSERT_TRUE(_data_dir_ptr->update_capacity().ok());
+    EXPECT_EQ(_data_dir_ptr->get_spill_data_limit(), 4096);
+}
+
 TEST_F(SpillFileTest, GCCleansUpGcRootBacklog) {
     ExecEnv::GetInstance()->spill_file_mgr()->stop();
 

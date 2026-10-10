@@ -458,7 +458,7 @@ protected:
         mock_store().reset();
         _saved_part_size = config::spill_file_part_size_bytes;
         _saved_buffer_size = config::s3_write_buffer_size;
-        _saved_limit = config::spill_s3_storage_limit_bytes;
+        _saved_limit = config::spill_storage_limit_bytes;
         _saved_inflight = config::spill_s3_max_inflight_upload_bytes;
         _saved_check_after_upload = config::enable_s3_object_check_after_upload;
         _saved_read_coalesce = config::spill_s3_read_coalesce_bytes;
@@ -474,7 +474,7 @@ protected:
         // Small buffers so that a few KB of data exercise multipart uploads and part rotation.
         config::s3_write_buffer_size = 8 * 1024;
         config::spill_file_part_size_bytes = 32 * 1024;
-        config::spill_s3_storage_limit_bytes = 0;
+        config::spill_storage_limit_bytes = 0;
 
         _runtime_state = std::make_unique<MockRuntimeState>();
         _profile = std::make_unique<RuntimeProfile>("test");
@@ -507,7 +507,7 @@ protected:
         mock_store().set_block_uploads(false);
         config::spill_file_part_size_bytes = _saved_part_size;
         config::s3_write_buffer_size = _saved_buffer_size;
-        config::spill_s3_storage_limit_bytes = _saved_limit;
+        config::spill_storage_limit_bytes = _saved_limit;
         config::spill_s3_max_inflight_upload_bytes = _saved_inflight;
         config::enable_s3_object_check_after_upload = _saved_check_after_upload;
         config::spill_s3_read_coalesce_bytes = _saved_read_coalesce;
@@ -1264,7 +1264,7 @@ TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
     ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
 
     // The limit still counts the retained objects.
-    config::spill_s3_storage_limit_bytes = charged;
+    config::spill_storage_limit_bytes = charged;
     ASSERT_TRUE(_data_dir->update_capacity().ok());
     ASSERT_TRUE(_data_dir->reach_capacity_limit(1));
 
@@ -1289,7 +1289,7 @@ TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
 }
 
 TEST_F(SpillFileS3Test, StorageLimitIsEnforced) {
-    config::spill_s3_storage_limit_bytes = 4 * 1024;
+    config::spill_storage_limit_bytes = 4 * 1024;
     _create_manager();
     ASSERT_TRUE(_data_dir->reach_capacity_limit(8 * 1024));
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1024));
@@ -1305,14 +1305,14 @@ TEST_F(SpillFileS3Test, StorageLimitIsEnforced) {
     spill_file.reset();
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 
-    config::spill_s3_storage_limit_bytes = 0;
+    config::spill_storage_limit_bytes = 0;
     ASSERT_TRUE(_data_dir->update_capacity().ok());
     spill_file = _write_blocks("query_5/sort-1-0-2", {_random_string_block(rng, 64, 200)}, &st);
     ASSERT_TRUE(st.ok()) << st;
 }
 
 TEST_F(SpillFileS3Test, TryReserveIsAtomic) {
-    config::spill_s3_storage_limit_bytes = 1000;
+    config::spill_storage_limit_bytes = 1000;
     _create_manager();
     std::atomic<int> granted {0};
     std::vector<std::thread> threads;
