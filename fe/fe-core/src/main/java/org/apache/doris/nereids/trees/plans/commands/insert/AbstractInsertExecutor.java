@@ -312,6 +312,7 @@ public abstract class AbstractInsertExecutor {
                 }
             }
         } catch (Throwable t) {
+            executor.getSummaryProfile().recordFailedAttempt(ctx.queryId());
             onFail(t);
             if (ctx.getStatementContext().isIvmMTMVRewrite()) {
                 for (Throwable cause : ExceptionUtils.getThrowableList(t)) {

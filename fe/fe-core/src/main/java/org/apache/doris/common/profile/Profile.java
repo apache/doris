@@ -281,6 +281,33 @@ public class Profile {
         return this.executionProfiles;
     }
 
+    public synchronized void clearExecutionProfiles() {
+        ProfileManager.getInstance().removeProfile(this);
+        this.executionProfiles.clear();
+        summaryProfile.clearExecutionDetails();
+        // Clear failed-attempt rows before reusing the plan.
+        rowsProducedMap.clear();
+        resetActualRowCounts(physicalPlan);
+    }
+
+    private void resetActualRowCounts(Plan plan) {
+        if (plan == null) {
+            return;
+        }
+        ((AbstractPlan) plan).updateActualRowCount(-1L);
+        for (Plan child : plan.children()) {
+            resetActualRowCounts(child);
+        }
+    }
+
+    public synchronized void clearPlan() {
+        summaryProfile.clearPlanDetails();
+        physicalPlan = null;
+        physicalRelations.clear();
+        planNodeMap = Maps.newHashMap();
+        rowsProducedMap.clear();
+    }
+
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
     // isFinished ONLY means the coordinator or stmt executor is finished.
     public synchronized void updateSummary(Map<String, String> summaryInfo, boolean isFinished,
@@ -314,7 +341,7 @@ public class Profile {
                 long durationThreshold = executionProfiles.isEmpty()
                                     ? autoProfileDurationMs : executionProfiles.size() * autoProfileDurationMs;
                 if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs < durationThreshold) {
-                    ProfileManager.getInstance().removeProfile(this.getId());
+                    ProfileManager.getInstance().removeProfile(this);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("Removed profile {} because it's costs {} is less than {}", this.getId(),
                                 durationMs, autoProfileDurationMs * this.executionProfiles.size());
