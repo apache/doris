@@ -3521,7 +3521,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             // if this is a colocate table, try to get backend seqs from colocation index.
             groupId = colocateIndex.getGroup(tabletMeta.getTableId());
-            backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
+            backendsPerBucketSeq = colocateIndex.getOrInitializeBackendsPerBucketSeq(groupId, Maps.newHashMap()).first;
         }
 
         // chooseBackendsArbitrary is true, means this may be the first table of colocation group,
@@ -3547,6 +3547,29 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
+        if (groupId != null && chooseBackendsArbitrary) {
+            TStorageMedium originalStorageMedium = storageMedium;
+            // Choose the complete sequence before any replica uses it. Colocate contenders must
+            // arbitrate once, rather than publish different partial sequences as tablets are created.
+            for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
+                Pair<Map<Tag, List<Long>>, TStorageMedium> chosenBackendIdsAndMedium
+                        = systemInfoService.selectBackendIdsForReplicaCreation(
+                        replicaAlloc, nextIndexs, storageMedium, isStorageMediumSpecified, false);
+                storageMedium = chosenBackendIdsAndMedium.second;
+                for (Map.Entry<Tag, List<Long>> entry : chosenBackendIdsAndMedium.first.entrySet()) {
+                    backendsPerBucketSeq.putIfAbsent(entry.getKey(), Lists.newArrayList());
+                    backendsPerBucketSeq.get(entry.getKey()).add(entry.getValue());
+                }
+            }
+            Pair<Map<Tag, List<List<Long>>>, Boolean> initialized = colocateIndex
+                    .getOrInitializeBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+            backendsPerBucketSeq = initialized.first;
+            if (!initialized.second) {
+                // A losing candidate's medium fallback does not describe the winning placement.
+                storageMedium = originalStorageMedium;
+            }
+        }
+
         // Collect bucket tablets locally and bulk-publish to the MaterializedIndex's
         // tablets list in a single copy-on-write after the loop (O(bucketNum) instead
         // of O(bucketNum^2)). TabletInvertedIndex registration stays per-iteration
@@ -3562,23 +3585,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             bucketTablets.add(tablet);
             tabletIdSet.add(tablet.getId());
 
-            // get BackendIds
             Map<Tag, List<Long>> chosenBackendIds;
-            if (chooseBackendsArbitrary) {
-                // This is the first colocate table in the group, or just a normal table,
-                // choose backends
+            if (groupId == null) {
+                // Preserve per-tablet selection for non-colocate tables.
                 Pair<Map<Tag, List<Long>>, TStorageMedium> chosenBackendIdsAndMedium
                         = systemInfoService.selectBackendIdsForReplicaCreation(
-                        replicaAlloc, nextIndexs,
-                        storageMedium, isStorageMediumSpecified, false);
+                        replicaAlloc, nextIndexs, storageMedium, isStorageMediumSpecified, false);
                 chosenBackendIds = chosenBackendIdsAndMedium.first;
                 storageMedium = chosenBackendIdsAndMedium.second;
-                for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
-                    backendsPerBucketSeq.putIfAbsent(entry.getKey(), Lists.newArrayList());
-                    backendsPerBucketSeq.get(entry.getKey()).add(entry.getValue());
-                }
             } else {
-                // get backends from existing backend sequence
+                // Use the winning snapshot for every replica in the colocate group.
                 chosenBackendIds = Maps.newHashMap();
                 for (Map.Entry<Tag, List<List<Long>>> entry : backendsPerBucketSeq.entrySet()) {
                     chosenBackendIds.put(entry.getKey(), entry.getValue().get(i));
@@ -3602,11 +3618,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         // Publish all bucket tablets to the materialized index in one batch.
         index.appendTablets(bucketTablets);
 
-        if (groupId != null && chooseBackendsArbitrary) {
-            colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            Env.getCurrentEnv().getEditLog().logColocateBackendsPerBucketSeq(info);
-        }
         return storageMedium;
     }
 
