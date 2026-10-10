@@ -81,6 +81,8 @@ public:
         return std::make_shared<DataTypeVarbinarySerDe>(nesting_level);
     };
 
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         scalar_type->set_len(_len);
     }
