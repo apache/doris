@@ -27,6 +27,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -226,17 +227,27 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
-    public void metaCacheWeightLimitSkipsManifestCacheDerivation() {
+    public void metaCacheWeightLimitTurnsTheSdkManifestCacheOff() {
         // WHY: the SDK manifest content cache keeps up to io.manifest.cache.max-total-bytes of manifests per FileIO
         // outside every Doris metadata cache weight limit, so under a limit it is not derived from
-        // meta.cache.iceberg.manifest.* (branch-4.x AbstractIcebergProperties). An explicit user value still wins.
-        // MUTATION: ignoring the limit flag -> "true" is derived -> red.
+        // meta.cache.iceberg.manifest.* (branch-4.x AbstractIcebergProperties) but switched off outright, because
+        // an Iceberg REST server's /config defaults fill in a key the client leaves out. An explicit user value
+        // still wins. MUTATION: ignoring the limit flag -> "true" is derived -> red; leaving the key out -> the
+        // REST server's default turns the cache on -> red.
         Map<String, String> metaCacheOnly = props("iceberg.catalog.type", "hadoop", "warehouse", "s3://b/wh",
                 "meta.cache.iceberg.manifest.enable", "true");
-        Assertions.assertNull(IcebergCatalogFactory.buildBaseCatalogProperties(metaCacheOnly, true)
+        Assertions.assertEquals("false", IcebergCatalogFactory.buildBaseCatalogProperties(metaCacheOnly, true)
                 .get("io.manifest.cache-enabled"));
-        Assertions.assertNull(IcebergCatalogFactory.buildCatalogProperties(
+        Assertions.assertEquals("false", IcebergCatalogFactory.buildCatalogProperties(
                 IcebergCatalogProperties.of(metaCacheOnly), Optional.empty(), true).get("io.manifest.cache-enabled"));
+
+        Map<String, String> rest = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "rest", "uri", "https://rest")),
+                Optional.empty(), true);
+        ConfigResponse serverDefaultsOn = ConfigResponse.builder()
+                .withDefault("io.manifest.cache-enabled", "true").build();
+        Assertions.assertEquals("false", serverDefaultsOn.merge(rest).get("io.manifest.cache-enabled"),
+                "a REST server's /config default must not turn the SDK manifest cache back on");
 
         Map<String, String> explicit = new HashMap<>(metaCacheOnly);
         explicit.put("io.manifest.cache-enabled", "true");

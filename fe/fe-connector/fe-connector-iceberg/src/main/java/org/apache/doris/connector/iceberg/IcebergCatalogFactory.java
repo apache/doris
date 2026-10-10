@@ -163,8 +163,10 @@ public final class IcebergCatalogFactory {
      * {@code io.manifest.cache-enabled} directly — derive it to {@code "true"} from the FE meta-cache
      * spec ({@code meta.cache.iceberg.manifest.*}) using the same {@code enable && ttl != 0 &&
      * capacity != 0} rule. Default-disabled (legacy {@code DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE}).
-     * Nothing is derived under a metadata cache weight limit: the SDK cache keeps up to
-     * {@code io.manifest.cache.max-total-bytes} of manifest content per FileIO outside that limit.
+     * Under a metadata cache weight limit the SDK cache, which keeps up to
+     * {@code io.manifest.cache.max-total-bytes} of manifest content per FileIO outside that limit, is not
+     * derived but switched off explicitly: an Iceberg REST server's {@code /config} defaults fill in a key the
+     * client leaves out. The server's overrides and a table's own config still take precedence.
      */
     private static void appendManifestCacheProperties(Map<String, String> props, Map<String, String> opts,
             boolean metaCacheWeightLimited) {
@@ -173,14 +175,19 @@ public final class IcebergCatalogFactory {
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_EXPIRATION_INTERVAL_MS);
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_MAX_TOTAL_BYTES);
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH);
-        if (!hasExplicitEnabled && !metaCacheWeightLimited) {
-            CacheSpec spec = CacheSpec.fromProperties(props,
-                    IcebergConnector.MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
-                    IcebergConnector.MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
-                    IcebergConnector.MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
-            if (CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity())) {
-                opts.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
-            }
+        if (hasExplicitEnabled) {
+            return;
+        }
+        if (metaCacheWeightLimited) {
+            opts.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "false");
+            return;
+        }
+        CacheSpec spec = CacheSpec.fromProperties(props,
+                IcebergConnector.MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
+                IcebergConnector.MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
+                IcebergConnector.MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
+        if (CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity())) {
+            opts.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
         }
     }
 
