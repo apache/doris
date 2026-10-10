@@ -510,90 +510,29 @@ Suite.metaClass.checkRecycleMetrics = { String recyclerHttpPort, String recycleJ
 
     int retryCount = 0
     while (true) {
-        def metricDataBeforeRecycle = getRecyclerMetricsMethod.call(
-            recyclerHttpPort,
-            "recycler_instance_last_round_to_recycle_bytes",
-            recycleJobType
-        )
-
-        def metricDataAftereRecycle = getRecyclerMetricsMethod.call(
+        def recycledBytesMetric = getRecyclerMetricsMethod.call(
             recyclerHttpPort,
             "recycler_instance_last_round_recycled_bytes",
             recycleJobType
         )
-
-        // not all resource types have bytes metrics
-        def validResourceTypes = ["recycle_indexes", "recycle_partitions", "recycle_tmp_rowsets", "recycle_rowsets", "recycle_tablet", "recycle_segment"]
-        
-        boolean checkFlag1 = false
-        boolean checkFlag2 = false
-
-        if (validResourceTypes.contains(recycleJobType)) {
-            checkFlag1 = true
-        }
-
-        if (metricDataBeforeRecycle && metricDataAftereRecycle && !checkFlag1) {
-            if (metricDataBeforeRecycle.value == metricDataAftereRecycle.value) {
-                logger.info("--- Recycle Success ---")
-                logger.info("Metric Name: recycler_instance_last_round_recycled_bytes")
-                logger.info("Value: ${metricDataBeforeRecycle.value}")
-                logger.info("Resource Type: ${metricDataBeforeRecycle.labels?.resource_type}")
-                logger.info("--------------------------------------")
-                checkFlag1 = true
-            } else {
-                logger.info("--- Recycle failed ---")
-                logger.info("Metric Name: recycler_instance_last_round_to_recycle_bytes")
-                logger.info("Value: ${metricDataBeforeRecycle.value}")
-                logger.info("Resource Type: ${metricDataBeforeRecycle.labels?.resource_type}")
-                logger.info("--------------------------------------")
-                logger.info("Metric Name: recycler_instance_last_round_recycled_bytes")
-                logger.info("Value: ${metricDataAftereRecycle.value}")
-                logger.info("Resource Type: ${metricDataAftereRecycle.labels?.resource_type}")
-                logger.info("--------------------------------------")
-            }
-        }
-
-        metricDataBeforeRecycle = getRecyclerMetricsMethod.call(
-            recyclerHttpPort,
-            "recycler_instance_last_round_to_recycle_num",
-            recycleJobType
-        )
-
-        metricDataAftereRecycle = getRecyclerMetricsMethod.call(
+        def recycledNumMetric = getRecyclerMetricsMethod.call(
             recyclerHttpPort,
             "recycler_instance_last_round_recycled_num",
             recycleJobType
         )
 
-        if (metricDataBeforeRecycle && metricDataAftereRecycle && !checkFlag2) {
-            if (metricDataBeforeRecycle.value == metricDataAftereRecycle.value) {
-                logger.info("--- Recycle Success ---")
-                logger.info("Metric Name: recycler_instance_last_round_recycled_num")
-                logger.info("Value: ${metricDataBeforeRecycle.value}")
-                logger.info("Resource Type: ${metricDataBeforeRecycle.labels?.resource_type}")
-                logger.info("--------------------------------------")
-                checkFlag2 = true
-            } else {
-                logger.info("--- Recycle failed ---")
-                logger.info("Metric Name: recycler_instance_last_round_to_recycle_num")
-                logger.info("Value: ${metricDataBeforeRecycle.value}")
-                logger.info("Resource Type: ${metricDataBeforeRecycle.labels?.resource_type}")
-                logger.info("--------------------------------------")
-                logger.info("Metric Name: recycler_instance_last_round_recycled_num")
-                logger.info("Value: ${metricDataAftereRecycle.value}")
-                logger.info("Resource Type: ${metricDataAftereRecycle.labels?.resource_type}")
-                logger.info("--------------------------------------")
-            }
-        }
-
-        if (checkFlag1 && checkFlag2) {
-            break;
+        if (recycledBytesMetric && recycledNumMetric) {
+            logger.info("Found recycler metrics for resource type '${recycleJobType}': "
+                    + "recycled_bytes=${recycledBytesMetric.value}, recycled_num=${recycledNumMetric.value}")
+            break
         }
 
         retryCount++
         if (retryCount > 10) {
-            logger.error("Failed to get metric 'recycler_instance_last_round_to_recycle_bytes' after 10 retries.")
-            return;
+            assertNotNull(recycledBytesMetric,
+                    "Missing metric 'recycler_instance_last_round_recycled_bytes' for resource type '${recycleJobType}'")
+            assertNotNull(recycledNumMetric,
+                    "Missing metric 'recycler_instance_last_round_recycled_num' for resource type '${recycleJobType}'")
         }
         sleep(5000)
     }
