@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -67,6 +68,54 @@ public class ConfigTest {
             Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue("auth_token"));
         } finally {
             Config.auth_token = old;
+        }
+    }
+
+    // Every config holding an operator-supplied secret must keep @ConfField(sensitive = true) and
+    // must be masked by both dump APIs. The names are listed explicitly on purpose: a check driven
+    // off the annotation alone cannot notice the annotation being *removed*, which is the silent
+    // regression worth guarding -- dropping it while editing a neighbouring line puts the secret
+    // back into every config dump with nothing failing. #67338 marked the first two sensitive and
+    // nothing tested them; mysql_ssl_default_ca_certificate_password,
+    // mysql_ssl_default_server_certificate_password and initial_root_password had no coverage at all.
+    @Test
+    public void testSecretConfigsStaySensitiveAndMasked() throws Exception {
+        List<String> secretConfigs = Arrays.asList(
+                "tls_private_key_password",
+                "key_store_password",
+                "auth_token",
+                "fe_meta_auth_token",
+                "mysql_ssl_default_ca_certificate_password",
+                "mysql_ssl_default_server_certificate_password",
+                "initial_root_password");
+
+        for (String name : secretConfigs) {
+            Field field = Config.class.getField(name);
+            ConfigBase.ConfField confField = field.getAnnotation(ConfigBase.ConfField.class);
+            Assertions.assertNotNull(confField, name + " must be a @ConfField");
+            Assertions.assertTrue(confField.sensitive(),
+                    name + " holds a secret and must stay @ConfField(sensitive = true)");
+
+            String old = (String) field.get(null);
+            try {
+                field.set(null, "super-secret-value-of-" + name);
+
+                Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, ConfigBase.dump().get(name),
+                        name + " must be masked by ConfigBase.dump()");
+                Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue(name),
+                        name + " must be masked by ConfigBase.getConfigInfo()");
+            } finally {
+                field.set(null, old);
+            }
+        }
+
+        // Keeps the list above complete: a config marked sensitive later has to be added here too.
+        for (Field field : Config.class.getFields()) {
+            ConfigBase.ConfField confField = field.getAnnotation(ConfigBase.ConfField.class);
+            if (confField != null && confField.sensitive() && field.getType() == String.class) {
+                Assertions.assertTrue(secretConfigs.contains(field.getName()),
+                        field.getName() + " is sensitive but is missing from secretConfigs in this test");
+            }
         }
     }
 

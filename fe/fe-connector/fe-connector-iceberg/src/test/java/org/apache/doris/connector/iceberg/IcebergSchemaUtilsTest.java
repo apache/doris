@@ -309,9 +309,9 @@ public class IcebergSchemaUtilsTest {
         // TIMESTAMP without zone -> iceberg ISO "T" replaced by a space for DATETIMEV2 (matches #65502).
         Assertions.assertEquals("2024-01-01 00:00:00.123456", fields.get("added_ts").getInitialDefaultValue());
         Assertions.assertFalse(fields.get("added_ts").isSetInitialDefaultValueIsBase64());
-        // UUID -> 16 raw bytes (MSB then LSB) Base64, flagged base64 so BE decodes rather than reads the text.
-        Assertions.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", fields.get("added_uuid").getInitialDefaultValue());
-        Assertions.assertTrue(fields.get("added_uuid").isInitialDefaultValueIsBase64());
+        // UUID defaults use canonical text so native UUID deserialization preserves their logical type.
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000000", fields.get("added_uuid").getInitialDefaultValue());
+        Assertions.assertFalse(fields.get("added_uuid").isInitialDefaultValueIsBase64());
         // BINARY / FIXED -> iceberg's identity human form is already Base64 of the raw bytes, flagged base64.
         Assertions.assertEquals("AAEC/w==", fields.get("added_binary").getInitialDefaultValue());
         Assertions.assertTrue(fields.get("added_binary").isInitialDefaultValueIsBase64());
@@ -359,14 +359,14 @@ public class IcebergSchemaUtilsTest {
                 schema, Collections.emptyList(), Collections.emptyMap()));
         TField structField = fields.get("struct_default");
         Assertions.assertTrue(childByName(structField, "bytes").isInitialDefaultValueIsBase64());
-        Assertions.assertTrue(childByName(structField, "uuid").isInitialDefaultValueIsBase64());
+        Assertions.assertFalse(childByName(structField, "uuid").isInitialDefaultValueIsBase64());
 
         TField listField = fields.get("list_default");
         Assertions.assertTrue(listField.getNestedField().getArrayField().getItemField()
                 .getFieldPtr().isInitialDefaultValueIsBase64());
 
         TField mapField = fields.get("map_default");
-        Assertions.assertTrue(mapField.getNestedField().getMapField().getKeyField()
+        Assertions.assertFalse(mapField.getNestedField().getMapField().getKeyField()
                 .getFieldPtr().isInitialDefaultValueIsBase64());
         Assertions.assertTrue(mapField.getNestedField().getMapField().getValueField()
                 .getFieldPtr().isInitialDefaultValueIsBase64());
@@ -443,21 +443,21 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals("2024-01-01 00:00:00.123456",
                 IcebergSchemaUtils.writeDefaultToDorisString(tsField.type(), tsField.writeDefault(), false));
 
-        // TIMESTAMP with zone, tz-mapping off: keep the UTC wall time, drop the trailing offset.
+        // TIMESTAMP with zone retains its offset even when a legacy flag is false.
         Types.NestedField tstzField = Types.NestedField.optional("tstz").withId(6)
                 .ofType(Types.TimestampType.withZone()).withWriteDefault(1_704_067_200_123_456L).build();
         String tstz = IcebergSchemaUtils.writeDefaultToDorisString(
                 tstzField.type(), tstzField.writeDefault(), false);
         Assertions.assertTrue(tstz.startsWith("2024-01-01 00:00:00"),
                 "timestamptz wall time preserved: " + tstz);
-        Assertions.assertFalse(tstz.matches(".*(Z|[+-]\\d{2}:\\d{2})$"),
-                "timestamptz offset dropped when tz mapping off: " + tstz);
+        Assertions.assertTrue(tstz.matches(".*(Z|[+-]\\d{2}:\\d{2})$"),
+                "timestamptz offset retained when tz mapping off: " + tstz);
 
         // Binary-like (UUID/BINARY/FIXED): not representable as a flat Doris default literal -> null (skip).
         Types.NestedField uuidField = Types.NestedField.optional("u").withId(7)
                 .ofType(Types.UUIDType.get())
                 .withWriteDefault(UUID.fromString("00000000-0000-0000-0000-000000000000")).build();
-        Assertions.assertNull(
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000000",
                 IcebergSchemaUtils.writeDefaultToDorisString(uuidField.type(), uuidField.writeDefault(), false));
         Types.NestedField binField = Types.NestedField.optional("bin").withId(8)
                 .ofType(Types.BinaryType.get())
@@ -503,8 +503,8 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(TPrimitiveType.DATETIMEV2,
                 fields.get("timestamp_col").getType().getType());
         Assertions.assertEquals(6, fields.get("timestamp_col").getType().getScale());
-        Assertions.assertEquals(TPrimitiveType.CHAR, fields.get("fixed_col").getType().getType());
-        Assertions.assertEquals(4, fields.get("fixed_col").getType().getLen());
+        Assertions.assertEquals(TPrimitiveType.VARBINARY, fields.get("fixed_col").getType().getType());
+        Assertions.assertFalse(fields.get("fixed_col").getType().isSetLen());
 
         Schema mappedSchema = new Schema(
                 Types.NestedField.optional(1, "timestamp_tz_col", Types.TimestampType.withZone()),

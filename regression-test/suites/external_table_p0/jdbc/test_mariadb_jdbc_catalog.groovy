@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_mariadb_jdbc_catalog", "p0,external") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     qt_sql """select current_catalog()"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -71,6 +74,8 @@ suite("test_mariadb_jdbc_catalog", "p0,external") {
         order_qt_information_schema """ show tables from information_schema like "processlist"; """
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
+        // The fixture uses UTC; assert the instant as well as its session-local rendering.
+        order_qt_timestamp_epoch "select unix_timestamp(timestamp0) from ${dt}"
 
         // test all types supported by Mariadb
         sql """use doris_test;"""
@@ -80,4 +85,3 @@ suite("test_mariadb_jdbc_catalog", "p0,external") {
 
     }
 }
-

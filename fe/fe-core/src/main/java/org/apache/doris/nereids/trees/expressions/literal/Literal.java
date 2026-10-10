@@ -46,6 +46,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.SessionVariable;
@@ -373,6 +374,11 @@ public abstract class Literal extends Expression implements LeafExpression {
             }
             case STRING: {
                 return new StringLiteral(literalExpr.getStringValue());
+            }
+            case VARBINARY: {
+                // Partition pruning must retain raw bytes instead of passing through a text encoding.
+                return new VarBinaryLiteral((VarBinaryType) dataType,
+                        ((org.apache.doris.analysis.VarBinaryLiteral) literalExpr).getValue());
             }
             case FLOAT: {
                 org.apache.doris.analysis.FloatLiteral floatLiteral

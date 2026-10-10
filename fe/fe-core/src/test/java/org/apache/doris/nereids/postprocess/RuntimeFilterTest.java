@@ -29,10 +29,12 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
+import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -60,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.RuntimeFilterId;
@@ -92,6 +95,10 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
         connectContext.getSessionVariable().setDisableJoinReorder(true);
+        createTable("CREATE TABLE variant_rf_a (k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+        createTable("CREATE TABLE variant_rf_b (k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
     }
 
     @Test
@@ -1205,6 +1212,64 @@ public class RuntimeFilterTest extends SSBTestBase {
                 "Standard RFs should still be present alongside non-blocking decoupled RF");
 
         connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
+    }
+
+    @Test
+    public void testVariantJoinKeyDoesNotGenerateRuntimeFilter() {
+        // Control: the INT key of the same tables produces a runtime filter in this setup.
+        Assertions.assertFalse(getRuntimeFilters(
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.k = b.k").get().isEmpty());
+        // Scalar runtime filters cannot express Variant canonical equality.
+        for (String sql : ImmutableList.of(
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v = b.v",
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v <=> b.v",
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v['id'] = b.v['id']",
+                "SELECT * FROM (SELECT CAST(k AS VARIANT) vv FROM variant_rf_a) x "
+                        + "JOIN variant_rf_b b ON x.vv = b.v")) {
+            Assertions.assertTrue(getRuntimeFilters(sql).get().isEmpty(), sql);
+        }
+    }
+
+    @Test
+    public void testVariantPushDownContextIsInvalidBeforeTraversal() {
+        RuntimeFilterContext context = new RuntimeFilterContext(
+                connectContext.getSessionVariable(), RuntimeFilterId.createGenerator());
+        AbstractPhysicalPlan builder = Mockito.mock(AbstractPhysicalPlan.class);
+        SlotReference scalar = new SlotReference("scalar", IntegerType.INSTANCE);
+        SlotReference variant = new SlotReference("variant", VariantType.INSTANCE);
+        Expression cast = new Cast(variant, IntegerType.INSTANCE);
+        for (TRuntimeFilterType type : ImmutableList.of(
+                TRuntimeFilterType.IN, TRuntimeFilterType.BLOOM,
+                TRuntimeFilterType.MIN_MAX, TRuntimeFilterType.IN_OR_BLOOM)) {
+            Assertions.assertFalse(PushDownContext.createPushDownContext(
+                    context, builder, variant, scalar, type).isValid());
+            Assertions.assertFalse(PushDownContext.createPushDownContext(
+                    context, builder, scalar, variant, type).isValid());
+            Assertions.assertTrue(PushDownContext.createPushDownContext(
+                    context, builder, scalar, cast, type).isValid());
+            Assertions.assertTrue(PushDownContext.createPushDownContext(
+                    context, builder, cast, scalar, type).isValid());
+        }
+    }
+
+    @Test
+    public void testScalarCastOfVariantGeneratesRuntimeFilter() {
+        for (String sql : ImmutableList.of(
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b "
+                        + "ON CAST(a.v AS INT) = CAST(b.v AS INT)",
+                "SELECT * FROM (SELECT CAST(v AS INT) vv FROM variant_rf_a) a "
+                        + "JOIN variant_rf_b b ON a.vv = b.k")) {
+            Assertions.assertFalse(getRuntimeFilters(sql).get().isEmpty(), sql);
+        }
+    }
+
+    @Test
+    public void testVariantSetOperationDoesNotGenerateRuntimeFilter() {
+        for (String sql : ImmutableList.of(
+                "SELECT v FROM variant_rf_a INTERSECT SELECT v FROM variant_rf_b",
+                "SELECT v FROM variant_rf_a EXCEPT SELECT v FROM variant_rf_b")) {
+            Assertions.assertTrue(getRuntimeFilters(sql).get().isEmpty(), sql);
+        }
     }
 
 }

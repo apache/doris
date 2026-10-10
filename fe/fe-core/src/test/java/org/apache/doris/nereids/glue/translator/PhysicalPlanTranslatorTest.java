@@ -77,6 +77,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.tso.MasterTsoProvider;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -84,6 +85,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -304,12 +306,17 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
     @Test
     public void testSnapshotPhysicalScanSchemaIncludesCommitTso() throws Exception {
-        OlapScanNode snapshotMowScan = getOlapScanNodes(
-                "select v1 + 1 as projected_v1 from test_db.binlog_scan_schema_stream@snapshot()").stream()
-                .filter(scan -> scan.getOlapTable() instanceof OlapTableWrapper
-                        && !(scan.getOlapTable() instanceof RowBinlogTableWrapper))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("snapshot base scan not found"));
+        OlapScanNode snapshotMowScan;
+        try (MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+            // Match the fixture's consumed TSO 100 and latest TSO 200 when checking binlog retention.
+            mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(200L);
+            snapshotMowScan = getOlapScanNodes(
+                    "select v1 + 1 as projected_v1 from test_db.binlog_scan_schema_stream@snapshot()").stream()
+                    .filter(scan -> scan.getOlapTable() instanceof OlapTableWrapper
+                            && !(scan.getOlapTable() instanceof RowBinlogTableWrapper))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("snapshot base scan not found"));
+        }
         Set<SlotId> physicalSlotIds = snapshotMowScan.getTupleDesc().getSlots().stream()
                 .map(SlotDescriptor::getId)
                 .collect(Collectors.toSet());

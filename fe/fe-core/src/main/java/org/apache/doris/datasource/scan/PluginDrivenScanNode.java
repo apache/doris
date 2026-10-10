@@ -2624,28 +2624,33 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             filteredToOriginalIndex = null;
             return Optional.empty();
         }
-        List<Expr> pushableConjuncts = conjuncts;
-        ConnectorMetadata metadata = metadata();
-        if (!metadata.supportsCastPredicatePushdown(connectorSession)) {
-            filteredToOriginalIndex = new ArrayList<>();
-            pushableConjuncts = new ArrayList<>();
-            for (int i = 0; i < conjuncts.size(); i++) {
-                if (!containsCastExpr(conjuncts.get(i))) {
-                    pushableConjuncts.add(conjuncts.get(i));
-                    filteredToOriginalIndex.add(i);
-                }
+        List<Expr> pushableConjuncts = new ArrayList<>();
+        filteredToOriginalIndex = new ArrayList<>();
+        boolean supportsCast = metadata().supportsCastPredicatePushdown(connectorSession);
+        for (int i = 0; i < conjuncts.size(); i++) {
+            Expr conjunct = conjuncts.get(i);
+            // The neutral converter strips CASTs. Instant casts can depend on the Doris session
+            // timezone, so both the predicate and its LIMIT must stay local before type information is lost.
+            if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)) {
+                continue;
             }
-            // If no filtering occurred, clear the mapping (1:1)
-            if (filteredToOriginalIndex.size() == conjuncts.size()) {
-                filteredToOriginalIndex = null;
-            }
-        } else {
+            pushableConjuncts.add(conjunct);
+            filteredToOriginalIndex.add(i);
+        }
+        if (filteredToOriginalIndex.size() == conjuncts.size()) {
             filteredToOriginalIndex = null;
         }
         if (pushableConjuncts.isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(ExprToConnectorExpressionConverter.convertConjuncts(pushableConjuncts));
+    }
+
+    static boolean containsTimestampTzCast(Expr expr) {
+        List<Expr> casts = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr
+                && (node.getType().isTimeStampTz() || node.getChild(0).getType().isTimeStampTz()), casts);
+        return !casts.isEmpty();
     }
 
     static boolean containsCastExpr(Expr expr) {

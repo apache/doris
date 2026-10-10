@@ -18,6 +18,7 @@
 package org.apache.doris.job.util;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -25,6 +26,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -494,12 +496,29 @@ public class StreamingJobUtils {
         }
     }
 
+    public static Type getCdcTransportType(Type sourceType) {
+        // CDC JSON carries Base64 text, which the VARBINARY JSON reader would treat as raw bytes.
+        if (sourceType.isVarbinaryType()) {
+            return ScalarType.createStringType();
+        }
+        // CDC emits unzoned JSON text, unlike JDBC's instant-aware Arrow/JNI carrier.
+        // Keep both the JSON reader and OLAP target on the existing wall-clock contract.
+        if (sourceType.isTimeStampTz()) {
+            return ScalarType.createDatetimeV2Type(((ScalarType) sourceType).getScalarScale());
+        }
+        if (sourceType.isArrayType()) {
+            return new ArrayType(getCdcTransportType(((ArrayType) sourceType).getItemType()));
+        }
+        return sourceType;
+    }
+
     public static List<Column> getColumns(JdbcClient jdbcClient,
             String database,
             String table,
             List<String> primaryKeys) {
         List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
         columns.forEach(col -> {
+            col.setType(getCdcTransportType(col.getType()));
             Preconditions.checkArgument(!col.getType().isUnsupported(),
                     "Unsupported column type for source column '%s.%s.%s'",
                     database, table, col.getName());

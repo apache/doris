@@ -49,6 +49,8 @@ public class JdbcTrinoClient extends JdbcClient {
                 return Type.BOOLEAN;
             case "date":
                 return ScalarType.createDateV2Type();
+            case "uuid":
+                return Type.UUID;
             case "json":
                 return ScalarType.createStringType();
             default:
@@ -72,7 +74,9 @@ public class JdbcTrinoClient extends JdbcClient {
             if (scale > 6) {
                 scale = 6;
             }
-            return ScalarType.createDatetimeV2Type(scale);
+            // Precision does not determine timezone semantics; the declared suffix does.
+            return trinoType.contains("with time zone") ? ScalarType.createTimeStampTzType(scale)
+                    : ScalarType.createDatetimeV2Type(scale);
         }
 
         if (trinoType.startsWith("array")) {

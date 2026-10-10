@@ -51,6 +51,7 @@ template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
+class ColumnVariantV2;
 } // namespace doris
 
 namespace doris {
@@ -252,6 +253,8 @@ public:
                      EqualRange& range, bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
     }
+    void sort_column(const ColumnVariantV2& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const;
     void sort_column(const ColumnVarbinary& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
@@ -387,7 +390,8 @@ private:
                           !std::is_same_v<ColumnType, ColumnArray> &&
                           !std::is_same_v<ColumnType, ColumnVarbinary> &&
                           !std::is_same_v<ColumnType, ColumnMap> &&
-                          !std::is_same_v<ColumnType, ColumnStruct>) {
+                          !std::is_same_v<ColumnType, ColumnStruct> &&
+                          !std::is_same_v<ColumnType, ColumnVariantV2>) {
                 auto value_a = column.get_data()[a];
                 auto value_b = column.get_data()[b];
                 return Compare::compare(value_a, value_b);

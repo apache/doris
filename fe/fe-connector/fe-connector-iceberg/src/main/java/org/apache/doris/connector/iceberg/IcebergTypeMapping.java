@@ -46,8 +46,8 @@ public final class IcebergTypeMapping {
      * Convert an Iceberg type to ConnectorType.
      *
      * @param icebergType the Iceberg type
-     * @param enableMappingVarbinary if true, map BINARY/UUID/FIXED to VARBINARY; otherwise STRING/CHAR
-     * @param enableMappingTimestampTz if true, map TIMESTAMP with TZ to TIMESTAMPTZ; otherwise DATETIMEV2
+     * @param enableMappingVarbinary legacy option; UUID and binary mappings follow their logical types
+     * @param enableMappingTimestampTz legacy option; timestamp mappings follow their timezone semantics
      */
     public static ConnectorType fromIcebergType(Type icebergType,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
@@ -124,28 +124,25 @@ public final class IcebergTypeMapping {
             case STRING:
                 return ConnectorType.of("STRING");
             case UUID:
-                return enableMappingVarbinary
-                        ? ConnectorType.of("VARBINARY", 16, 0) : ConnectorType.of("STRING");
+                // Preserve logical UUID semantics independently of the binary mapping option.
+                return ConnectorType.of("UUID");
             case BINARY:
                 // Iceberg BINARY is unbounded. Emit VARBINARY with NO explicit length so
                 // ConnectorColumnConverter applies ScalarType.MAX_VARBINARY_LENGTH — byte-identical to
                 // legacy IcebergUtils createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH). A
                 // concrete length (e.g. 65535) would render a different DESCRIBE / SHOW CREATE type.
-                return enableMappingVarbinary
-                        ? ConnectorType.of("VARBINARY") : ConnectorType.of("STRING");
+                // Binary payloads need not be valid UTF-8.
+                return ConnectorType.of("VARBINARY");
             case FIXED:
                 int fixedLen = ((Types.FixedType) primitive).length();
-                return enableMappingVarbinary
-                        ? ConnectorType.of("VARBINARY", fixedLen, 0)
-                        : ConnectorType.of("CHAR", fixedLen, 0);
+                return ConnectorType.of("VARBINARY", fixedLen, 0);
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ConnectorType.of("DECIMALV3", decimal.precision(), decimal.scale());
             case DATE:
                 return ConnectorType.of("DATEV2");
             case TIMESTAMP:
-                if (enableMappingTimestampTz
-                        && ((Types.TimestampType) primitive).shouldAdjustToUTC()) {
+                if (((Types.TimestampType) primitive).shouldAdjustToUTC()) {
                     // Must be "TIMESTAMPTZ" (not "TIMESTAMPTZV2"): ConnectorColumnConverter only
                     // recognizes TIMESTAMPTZ -> ScalarType.createTimeStampTzType(precision); an
                     // unrecognized name degrades the column to UNSUPPORTED. Legacy
@@ -185,6 +182,8 @@ public final class IcebergTypeMapping {
     static Type toIcebergPrimitive(ConnectorType type) {
         String name = type.getTypeName().toUpperCase(Locale.ROOT);
         switch (name) {
+            case "UUID":
+                return Types.UUIDType.get();
             case "BOOLEAN":
                 return Types.BooleanType.get();
             case "INT":

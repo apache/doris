@@ -52,25 +52,18 @@ public class PaimonPartitionValueRenderTest {
     }
 
     @Test
-    public void ltzShiftsUtcToSessionZone() {
+    public void ltzCarriesExplicitUtcOffset() {
         // Paimon stores LTZ as the UTC instant; build the UTC wall clock 2024-01-01T01:02:03.
         Timestamp utcWallClock = Timestamp.fromLocalDateTime(LocalDateTime.of(2024, 1, 1, 1, 2, 3));
 
-        // Asia/Shanghai is UTC+8 -> 09:02:03. Non-zero seconds are used deliberately so the
-        // ISO_LOCAL_DATE_TIME formatter renders the seconds component unambiguously (it omits
-        // seconds when both second and nano are zero).
         String shanghai = PaimonScanPlanProvider.serializePartitionValue(
                 DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(), utcWallClock, "Asia/Shanghai");
         String utc = PaimonScanPlanProvider.serializePartitionValue(
                 DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(), utcWallClock, "UTC");
 
-        // WHY: LTZ partition values are stored in UTC and must be shown in the SESSION zone (legacy
-        // PaimonUtil.serializePartitionValue applies ZoneId.of(timeZone)); pre-fix raw toString()
-        // renders the un-shifted UTC wall clock under every session. Asserting both the shifted
-        // (Shanghai) AND unshifted (UTC) values pins that the zone param is actually applied.
-        // MUTATION: ignoring timeZone (raw toString) -> both equal -> red.
-        Assertions.assertEquals("2024-01-01T09:02:03", shanghai);
-        Assertions.assertEquals("2024-01-01T01:02:03", utc);
+        // The BE applies the session zone; transport must retain an unambiguous instant.
+        Assertions.assertEquals("2024-01-01T01:02:03Z", shanghai);
+        Assertions.assertEquals("2024-01-01T01:02:03Z", utc);
     }
 
     @Test
@@ -86,13 +79,15 @@ public class PaimonPartitionValueRenderTest {
     }
 
     @Test
-    public void binaryYieldsUnsupported() {
-        // WHY: binary must NOT be rendered as [B@hash (non-deterministic JVM identity); the legacy
-        // contract is to THROW so the caller drops the whole partition map (no columnsFromPath).
-        // MUTATION: any render path for binary (no throw) -> red.
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> PaimonScanPlanProvider.serializePartitionValue(
-                        DataTypes.BYTES(), new byte[] {1, 2}, "UTC"));
+    public void binaryPartitionsPreserveBytesAndNulls() {
+        // Path values must decode into the same bytes as a Fluss log partition key.
+        for (org.apache.paimon.types.DataType type : new org.apache.paimon.types.DataType[] {
+                DataTypes.BINARY(4), DataTypes.VARBINARY(4)}) {
+            Assertions.assertEquals("0x00017FFF", PaimonScanPlanProvider.serializePartitionValue(
+                    type, new byte[] {0, 1, 127, (byte) 255}, "UTC"));
+            Assertions.assertEquals("0x", PaimonScanPlanProvider.serializePartitionValue(type, new byte[0], "UTC"));
+            Assertions.assertNull(PaimonScanPlanProvider.serializePartitionValue(type, null, "UTC"));
+        }
     }
 
     @Test

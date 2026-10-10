@@ -87,8 +87,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 13 adds ConnectorScanRange#getSplitIdentity: plugins compiled against the previous
-        // connector surface cannot link against an FE that exposes the new scheduling identity hook.
+        // Major 13 carries textual write-input semantics on ConnectorColumn and adds
+        // ConnectorScanRange#getSplitIdentity: plugins compiled against the previous connector
+        // surface cannot link against an FE that exposes either new API hook.
         Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
@@ -99,6 +100,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
+            ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,

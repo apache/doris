@@ -85,63 +85,48 @@ suite("test_iceberg_uuid_binary_compatibility",
         sql "SET enable_file_scanner_v2 = true"
         for (String format : ['parquet', 'orc']) {
             String table = "uuid_write_${format}_${mapping}"
-            String normal = mapping ? "CAST(UNHEX('00112233445566778899aabbccddeeff') AS VARBINARY)"
-                    : "CAST(CAST('00112233445566778899aabbccddeeff' AS UUID) AS STRING)"
-            String zero = mapping ? "CAST(UNHEX('00000000000000000000000000000000') AS VARBINARY)"
-                    : "UNHEX('00000000000000000000000000000000')"
-            String high = mapping ? "CAST(UNHEX('80000000000000000000000000000000') AS VARBINARY)"
-                    : "UNHEX('80000000000000000000000000000000')"
-            String maximum = mapping ? "CAST(UNHEX('ffffffffffffffffffffffffffffffff') AS VARBINARY)"
-                    : "'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'"
+            // The deprecated mapping property no longer changes UUID's native type binding.
+            String normal = "CAST('00112233445566778899aabbccddeeff' AS UUID)"
+            String zero = "CAST('00000000000000000000000000000000' AS UUID)"
+            String high = "CAST('80000000000000000000000000000000' AS UUID)"
+            String maximum = "CAST('ffffffffffffffffffffffffffffffff' AS UUID)"
             sql "INSERT INTO ${table} VALUES (1,${zero}),(2,${high}),(3,${normal}),(4,NULL)"
-            "order_qt_${table}_insert" "SELECT id,HEX(u) FROM ${table} ORDER BY id"
+            "order_qt_${table}_insert" "SELECT id,u FROM ${table} ORDER BY id"
             sql "INSERT OVERWRITE TABLE ${table} VALUES (11,${normal}),(12,${maximum}),(13,NULL)"
             sql "REFRESH TABLE ${table}"
-            "order_qt_${table}_overwrite" "SELECT id,HEX(u) FROM ${table} ORDER BY id"
+            "order_qt_${table}_overwrite" "SELECT id,u FROM ${table} ORDER BY id"
         }
-        for (boolean scannerV2 : [false, true]) {
-            // V1's equality-delete StringSet cannot consume ColumnVarbinary. Its legacy STRING
-            // mapping is the compatibility control; V2 exercises both mappings below.
-            if (!scannerV2 && mapping) {
-                continue
-            }
+        for (boolean scannerV2 : [true]) {
+            // Exercise equality deletes through the current scanner.
             sql "SET enable_file_scanner_v2 = ${scannerV2}"
             for (boolean strict : [false, true]) {
                 sql "SET enable_strict_cast = ${strict}"
                 snapshots.each { String table, String snapshot ->
-                    // V1 assumes the data file's format for equality-delete files. Use its
-                    // all-Parquet path as the byte-compatibility control; V2 covers every format.
-                    if (!scannerV2 && table != "uuid_parquet_parquet") {
-                        return
-                    }
                     String prefix = "${table}_binary_${mapping}_v2_${scannerV2}_strict_${strict}"
                     // NULL ancestors, missing scalar/nested leaves, explicit NULLs, zero, high-bit,
                     // maximum and ordinary UUIDs must have exactly the same bytes in every mode.
                     "order_qt_${prefix}_before" """
-                        SELECT id, HEX(u), HEX(element_at(payload, 'u'))
+                        SELECT id, u, element_at(payload, 'u')
                         FROM ${table} FOR VERSION AS OF ${snapshot} ORDER BY id
                     """
                     "order_qt_${prefix}_equality_only" """
-                        SELECT id, HEX(u), HEX(element_at(payload, 'u'))
+                        SELECT id, u, element_at(payload, 'u')
                         FROM ${table} FOR VERSION AS OF ${equalitySnapshots[table]} ORDER BY id
                     """
                     // The current snapshot additionally position-deletes the row carrying OTHER.
                     "order_qt_${prefix}_deleted" """
-                        SELECT id, HEX(u), HEX(element_at(payload, 'u'))
+                        SELECT id, u, element_at(payload, 'u')
                         FROM ${table} ORDER BY id
                     """
-                    if (scannerV2) {
-                        // V1 has a pre-existing synthesized-slot DCHECK when a missing equality
-                        // key is hidden. Keep its UUID projection as the compatibility control;
-                        // V2 must also apply deletes to hidden-key projections and COUNT pushdown.
-                        "order_qt_${prefix}_ids" "SELECT id FROM ${table} ORDER BY id"
-                        "qt_${prefix}_count" "SELECT COUNT(*) FROM ${table}"
-                    }
-                    // VARBINARY does not support SQL comparison predicates; compare its bytes
-                    // through HEX. The STRING mapping exercises the direct equality predicate.
-                    String predicate = mapping
-                            ? "HEX(u) = '80000000000000000000000000000000'"
-                            : "u = UNHEX('80000000000000000000000000000000')"
+                    // Deletes must also apply when the UUID equality key is not projected.
+                    "order_qt_${prefix}_ids" "SELECT id FROM ${table} ORDER BY id"
+                    "qt_${prefix}_count" "SELECT COUNT(*) FROM ${table}"
+                    // A non-pushable reference catches UUID bounds that would prune matching data files.
+                    "order_qt_${prefix}_predicate_reference" """SELECT id FROM ${table}
+                        WHERE CONCAT('', CAST(u AS STRING)) = '80000000-0000-0000-0000-000000000000'
+                        ORDER BY id"""
+                    // Compare UUID values identically for both deprecated property values.
+                    String predicate = "u = CAST('80000000000000000000000000000000' AS UUID)"
                     for (boolean minMax : [false, true]) {
                         sql "SET enable_parquet_filter_by_min_max = ${minMax}"
                         "order_qt_${prefix}_predicate" """

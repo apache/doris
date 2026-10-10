@@ -2137,7 +2137,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * a HIT returns the cached pin without re-loading the table (saves the load I/O and keeps the snapshot
      * STABLE across queries — the legacy with-cache catalog). The cached value carries BOTH ids atomically so a
      * schema-only ALTER between two queries cannot skew snapshotId vs schemaId. A disabled cache
-     * ({@code meta.cache.iceberg.table.ttl-second <= 0}) reads live every call (the legacy no-cache catalog).
+     * ({@code meta.cache.iceberg.table.enable=false}, {@code ttl-second <= 0} or {@code capacity=0}) reads live
+     * every call (the legacy no-cache catalog).
      */
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
@@ -2146,8 +2147,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         TableIdentifier id = TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName());
         // A null latestSnapshotCache (iceberg.rest.session=user, where a shared table-keyed hit would bypass the
         // per-user loadTable authorization) reads live per-user every call, so authorization runs every time (no
-        // stale-authz window); mirrors resolveTableForRead's tableCache null-fallback. A disabled cache (ttl<=0)
-        // is a non-null cache that reads live internally.
+        // stale-authz window); mirrors resolveTableForRead's tableCache null-fallback. A disabled cache (the table
+        // entry turned off) is a non-null cache that reads live internally.
         IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache != null
                 ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
                 : loadLatestSnapshotPin(session, iceHandle);

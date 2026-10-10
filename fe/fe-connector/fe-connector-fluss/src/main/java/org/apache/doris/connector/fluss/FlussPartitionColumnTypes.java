@@ -43,7 +43,8 @@ import org.apache.fluss.types.DataType;
 final class FlussPartitionColumnTypes {
 
     /** The types whose value survives fluss's partition naming, for the error message. */
-    static final String READABLE_TYPES = "CHAR, STRING, BOOLEAN, TINYINT, SMALLINT, INT, BIGINT and DATE";
+    static final String READABLE_TYPES =
+            "CHAR, STRING, BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, DATE, BINARY and BYTES";
 
     private FlussPartitionColumnTypes() {
     }
@@ -56,8 +57,7 @@ final class FlussPartitionColumnTypes {
      * than being waved through into fe-core's parser by a rule written before it existed.
      * {@link FlussPartitionColumnTypesTest} fails the build when that happens.
      *
-     * <p>BINARY and BYTES are the one verdict that depends on the catalog: fluss names their partitions
-     * with the hex text of the bytes, which is a perfectly good STRING and not a VARBINARY at all.
+     * <p>BINARY and BYTES use a lossless hex encoding, normalized by FlussPartitions for Doris.
      */
     static String rejection(DataType type, FlussTypeMapping.Options options) {
         switch (type.getTypeRoot()) {
@@ -72,12 +72,8 @@ final class FlussPartitionColumnTypes {
                 return null;
             case BINARY:
             case BYTES:
-                return options.isMapBinaryToVarbinary()
-                        ? "fluss names such a partition with the hex text of the bytes, which this catalog"
-                                + " cannot read back as the VARBINARY column that '"
-                                + FlussCatalogProperties.ENABLE_MAPPING_VARBINARY + "=true' asks for;"
-                                + " turning that property off reads the column, and the partition, as text"
-                        : null;
+                // Binary partition names are lossless hex; FlussPartitions adds the VARBINARY wire prefix.
+                return null;
             case FLOAT:
             case DOUBLE:
             case TIME_WITHOUT_TIME_ZONE:

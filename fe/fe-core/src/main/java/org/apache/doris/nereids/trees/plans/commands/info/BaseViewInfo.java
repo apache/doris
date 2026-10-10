@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
@@ -73,6 +74,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tso.MasterTsoProvider;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -221,10 +223,6 @@ public class BaseViewInfo {
             if (!colSets.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
             }
-            if (col.getType().isVarbinaryType()) {
-                throw new org.apache.doris.common.AnalysisException(
-                        "View does not support VARBINARY type: " + col.getName());
-            }
             try {
                 FeNameFormat.checkColumnName(col.getName());
             } catch (org.apache.doris.common.AnalysisException e) {
@@ -291,6 +289,15 @@ public class BaseViewInfo {
         }
 
         public void analyze() {
+            // View SQL is bound before the normal planner runs. Collect nested scans and
+            // obtain the statement's TTL reference before BindRelation needs it.
+            cascadesContext.newTableCollector(true).collect();
+            StatementContext statementContext = cascadesContext.getStatementContext();
+            if (statementContext.isRowBinlogReferenceTsoRequired()) {
+                statementContext.getOrRegisterRowBinlogReferenceTso(
+                        () -> MasterTsoProvider.getCurrentTso(statementContext.getConnectContext()));
+            }
+            cascadesContext.setCteContext(new CTEContext());
             execute();
         }
 

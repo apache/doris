@@ -259,11 +259,12 @@ public final class PaimonTypeMapping {
             case "DECIMAL256":
                 return new DecimalType(type.getPrecision(), type.getScale());
             case "DATETIME":
-            case "DATETIMEV2":
-                // Legacy parity: no-arg TimestampType (precision defaults to 6); the datetime
-                // scale is intentionally dropped to match DorisToPaimonTypeVisitor.atomic, and it
-                // is a plain timestamp (NOT LocalZonedTimestampType).
                 return new TimestampType();
+            case "DATETIMEV2":
+                return new TimestampType(type.getPrecision());
+            case "TIMESTAMPTZ":
+                // Preserve the instant contract when deriving an external schema.
+                return new LocalZonedTimestampType(type.getPrecision());
             case "VARBINARY":
                 return new VarBinaryType(VarBinaryType.MAX_LENGTH);
             case "VARIANT":
@@ -319,8 +320,9 @@ public final class PaimonTypeMapping {
         private final boolean mapTimestampTz;
 
         public Options(boolean mapBinaryToVarbinary, boolean mapTimestampTz) {
-            this.mapBinaryToVarbinary = mapBinaryToVarbinary;
-            this.mapTimestampTz = mapTimestampTz;
+            // The flags are retained for callers, but external logical mappings are mandatory.
+            this.mapBinaryToVarbinary = true;
+            this.mapTimestampTz = true;
         }
 
         public boolean isMapBinaryToVarbinary() {
