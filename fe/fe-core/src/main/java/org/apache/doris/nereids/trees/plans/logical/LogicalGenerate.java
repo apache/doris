@@ -139,6 +139,23 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         return new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias, conjuncts, child());
     }
 
+    /**
+     * update generators and lateral conjuncts in one operation, so that expression rewrites
+     * (e.g. ExprId replacement) never leave a conjunct referencing a stale slot from the
+     * previous child output.
+     */
+    public LogicalGenerate<Plan> withGeneratorsAndConjuncts(
+            List<Function> generators, List<Expression> conjuncts) {
+        Preconditions.checkArgument(generators.size() == generatorOutput.size());
+        List<Slot> newGeneratorOutput = Lists.newArrayList();
+        for (int i = 0; i < generators.size(); i++) {
+            newGeneratorOutput.add(generatorOutput.get(i).withNullable(generators.get(i).nullable()));
+        }
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias,
+                        Utils.fastToImmutableList(conjuncts), child()));
+    }
+
     @Override
     public LogicalGenerate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts,
