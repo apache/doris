@@ -42,6 +42,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
@@ -790,10 +792,26 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
+            // Build the new load definition before modifying the job, so a failure leaves the job and the
+            // journal unchanged.
+            RoutineLoadDesc loadDesc = null;
+            OriginStatement loadDefinitionStmt = null;
+            if (command.hasLoadProperty()) {
+                loadDesc = mergeLoadDesc(command.getRoutineLoadDesc());
+                loadDefinitionStmt = buildLoadDefinitionStatement(loadDesc);
+            }
+
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
+            if (command.hasLoadProperty()) {
+                applyLoadDefinition(loadDesc, loadDefinitionStmt, command.getSessionVariables(),
+                        command.getSqlMode());
+            }
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties);
+                    jobProperties, dataSourceProperties,
+                    command.hasLoadProperty() ? command.getOriginStatement() : null,
+                    command.hasLoadProperty() ? command.getSqlMode() : null,
+                    command.hasLoadProperty() ? command.getSessionVariables() : null);
             Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
@@ -920,9 +938,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
             modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
+            replayLoadDefinition(log.getOriginStatement(), log.getSqlMode(), log.getSessionVariables());
         } catch (UserException e) {
-            // should not happen
-            LOG.error("failed to replay modify kafka routine load job: {}", id, e);
+            if (log.getOriginStatement() != null) {
+                // Source replay (including the cloud progress RPC) can fail before the load definition
+                // is installed. Do not let a later RESUME run the job with the previous definition.
+                cancelFailedLoadDefinitionReplay(e);
+            } else {
+                LOG.error("failed to replay modify kafka routine load job: {}", id, e);
+            }
         }
     }
 
