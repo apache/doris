@@ -751,6 +751,25 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void getTableSchemaDeclaresRequiredFieldsNotNull() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", Collections.emptyMap());
+
+        ConnectorTableSchema schema =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+
+        // Required fields are read as nullable but displayed as NOT NULL.
+        ConnectorColumn id = schema.getColumns().get(0);
+        Assertions.assertTrue(id.isNullable());
+        Assertions.assertFalse(id.isDeclaredNullable());
+        ConnectorColumn name = schema.getColumns().get(1);
+        Assertions.assertTrue(name.isNullable());
+        Assertions.assertTrue(name.isDeclaredNullable());
+    }
+
+    @Test
     public void getTableSchemaCopiesTablePropertiesAndLocation() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Map<String, String> tableProps = new HashMap<>();

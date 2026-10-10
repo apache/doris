@@ -701,8 +701,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
             ConnectorSession session, String dbName, String tableName, ConnectorTableSchema tableSchema) {
         // Apply identifier mapping to column names (lowercase / explicit mapping)
         List<ConnectorColumn> mappedColumns = new ArrayList<>(tableSchema.getColumns().size());
+        Set<String> declaredNotNullColumns = new HashSet<>();
         for (ConnectorColumn col : tableSchema.getColumns()) {
             String mappedName = metadata.fromRemoteColumnName(session, dbName, tableName, col.getName());
+            if (!col.isDeclaredNullable()) {
+                declaredNotNullColumns.add(mappedName);
+            }
             if (!mappedName.equals(col.getName())) {
                 ConnectorColumn remapped = new ConnectorColumn(mappedName, col.getType(),
                         col.getComment(), col.isNullable(), col.getDefaultValue(), col.isKey());
@@ -748,7 +752,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
                 tableSchema.getProperties(), tableSchema.getTableCapabilities(),
-                tableSchema.getWriteMetadataIdentity());
+                tableSchema.getWriteMetadataIdentity(), declaredNotNullColumns);
     }
 
     @Override
@@ -882,6 +886,38 @@ public class PluginDrivenExternalTable extends ExternalTable {
     @Override
     public List<Column> getFullSchema() {
         return appendSyntheticWriteColumns(super.getFullSchema());
+    }
+
+    @Override
+    public List<Column> getBaseSchemaForDisplay() {
+        return toDisplaySchema(getBaseSchema());
+    }
+
+    @Override
+    public List<Column> getBaseSchemaForDisplay(boolean full) {
+        return toDisplaySchema(getBaseSchema(full));
+    }
+
+    /**
+     * Applies the NOT NULL the connector declared (ConnectorColumn.isDeclaredNullable()) to copies of the
+     * columns. The cached columns keep their nullable read semantics, which scans and writes rely on.
+     */
+    private List<Column> toDisplaySchema(List<Column> schema) {
+        Set<String> declaredNotNullColumns = getSchemaCacheValue()
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getDeclaredNotNullColumns())
+                .orElse(Collections.emptySet());
+        if (declaredNotNullColumns.isEmpty()) {
+            return schema;
+        }
+        List<Column> displaySchema = new ArrayList<>(schema.size());
+        for (Column column : schema) {
+            if (declaredNotNullColumns.contains(column.getName())) {
+                column = new Column(column);
+                column.setIsAllowNull(false);
+            }
+            displaySchema.add(column);
+        }
+        return displaySchema;
     }
 
     /**

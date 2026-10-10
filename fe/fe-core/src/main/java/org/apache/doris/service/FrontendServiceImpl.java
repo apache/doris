@@ -994,7 +994,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // values such as AGG and DUP that no MySQL client knows what to do with.
                         Map<String, String> columnKeys = params.isMysqlCompatibleIndexMetadata()
                                 ? TableKeyMeta.buildColumnKeys(table) : Collections.emptyMap();
-                        List<Column> baseSchema = table.getBaseSchemaOrEmpty();
+                        List<Column> baseSchema = table.getBaseSchemaForDisplayOrEmpty();
                         for (Column column : baseSchema) {
                             final TColumnDesc desc = getColumnDesc(column);
                             final TColumnDef colDef = new TColumnDef(desc);

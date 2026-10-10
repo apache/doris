@@ -2376,6 +2376,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // isKey is always true (external-table semantics: DESC shows Key=true),
             // and isAllowNull is always true regardless of the Iceberg required/optional flag (rows can
             // still read NULL under schema-evolution default-fill; do NOT propagate the NOT NULL constraint).
+            // The required/optional flag is kept only as the declared nullability that DESC / SHOW display.
             // Iceberg write defaults are statement-scoped writer metadata, not catalog display metadata.
             // IcebergWritePlanProvider pins them before write analysis; keeping the cached default null prevents
             // DESCRIBE/SHOW CREATE from exposing them and avoids using a stale default after schema evolution.
@@ -2386,7 +2387,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     field.doc() != null ? field.doc() : "",
                     true,
                     null,
-                    true);
+                    true).withDeclaredNullable(field.isOptional());
             // Carry the stable iceberg field-id as the column's uniqueId (legacy
             // IcebergUtils.updateIcebergColumnUniqueId set the top-level Column.uniqueId = field.fieldId()).
             // fe-core's ConnectorColumnConverter re-applies it (>= 0); the BE field-id scan path keys the
