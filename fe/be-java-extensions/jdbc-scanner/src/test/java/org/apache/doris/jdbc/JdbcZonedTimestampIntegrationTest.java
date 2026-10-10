@@ -237,6 +237,39 @@ class JdbcZonedTimestampIntegrationTest {
 
     @Test
     @EnabledIfSystemProperty(named = "oracle.integration.url", matches = ".+")
+    void testOracleLocalTimestampScanInitializesDriverZone() throws Exception {
+        verifyOracleLocalTimestampScan("oracle");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "oraclelegacy.integration.url", matches = ".+")
+    void testOracleLegacyLocalTimestampScanInitializesDriverZone() throws Exception {
+        verifyOracleLocalTimestampScan("oraclelegacy");
+    }
+
+    private void verifyOracleLocalTimestampScan(String prefix) throws Exception {
+        withDriver(prefix, "oracle.jdbc.OracleDriver", connection -> {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ALTER SESSION SET TIME_ZONE = '-07:00'");
+            }
+            OracleTypeHandler handler = new OracleTypeHandler();
+            String query = "SELECT CAST(TO_TIMESTAMP_TZ('2023-11-05 01:30:00.123456 -07:00', "
+                    + "'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM') AS TIMESTAMP(6) WITH LOCAL TIME ZONE), "
+                    + "CAST(TO_TIMESTAMP_TZ('2023-11-05 01:30:00.123456 -08:00', "
+                    + "'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM') AS TIMESTAMP(6) WITH LOCAL TIME ZONE), "
+                    + "CAST(NULL AS TIMESTAMP(6) WITH LOCAL TIME ZONE) FROM dual";
+            try (java.sql.PreparedStatement statement = handler.initializeStatement(connection, query, 100);
+                    ResultSet rows = statement.executeQuery()) {
+                Assertions.assertTrue(rows.next());
+                assertInstant(handler, rows, 0, "2023-11-05T08:30:00.123456Z");
+                assertInstant(handler, rows, 1, "2023-11-05T09:30:00.123456Z");
+                assertInstant(handler, rows, 2, null);
+            }
+        });
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "oracle.integration.url", matches = ".+")
     void testOracleTimestampWriteRoundTrip() throws Exception {
         verifyTimestampWriteRoundTrip("oracle", "oracle.jdbc.OracleDriver", OracleTypeHandler.class,
                 "ALTER SESSION SET TIME_ZONE = '-07:00'",
@@ -406,7 +439,10 @@ class JdbcZonedTimestampIntegrationTest {
     private void withDriver(String prefix, String driverClass, Check check) throws Exception {
         TimeZone original = TimeZone.getDefault();
         URL jar = new File(System.getProperty(prefix + ".integration.driverJar")).toURI().toURL();
-        try (URLClassLoader loader = new URLClassLoader(new URL[] {jar}, getClass().getClassLoader())) {
+        // Keep the legacy Oracle jar isolated from the modern driver used by the unit-test mocks.
+        ClassLoader parent = driverClass.startsWith("oracle.")
+                ? getClass().getClassLoader().getParent() : getClass().getClassLoader();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {jar}, parent)) {
             Driver driver = (Driver) loader.loadClass(driverClass).getDeclaredConstructor().newInstance();
             for (String zone : new String[] {"UTC", "Asia/Shanghai", "America/New_York"}) {
                 TimeZone.setDefault(TimeZone.getTimeZone(zone));

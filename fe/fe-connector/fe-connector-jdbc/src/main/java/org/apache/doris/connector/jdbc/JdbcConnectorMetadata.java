@@ -58,6 +58,7 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
      * ("jdbc") so it stays distinct across a heterogeneous gateway; see {@link ConnectorStatementScopes}.
      */
     static final String COLUMNS_NAMESPACE = "jdbc.columns";
+    static final String QUERY_SCHEMA_NAMESPACE = "jdbc.query-schema";
 
     private final JdbcConnectorClient client;
     private final JdbcCatalogProperties props;
@@ -259,6 +260,12 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
 
     @Override
     public ConnectorTableSchema getColumnsFromQuery(ConnectorSession session, String query) {
+        // Binding and scan-handle construction must reuse the same metadata prepare within a statement.
+        return ConnectorStatementScopes.resolveInStatement(session, QUERY_SCHEMA_NAMESPACE,
+                "", query, () -> loadQuerySchema(query));
+    }
+
+    private ConnectorTableSchema loadQuerySchema(String query) {
         List<JdbcFieldInfo> fields = client.getColumnsFromQuery(query);
         List<ConnectorColumn> columns = new ArrayList<>(fields.size());
         for (JdbcFieldInfo field : fields) {

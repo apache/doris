@@ -1444,6 +1444,30 @@ public class FlussSplitPlanTest {
     }
 
     @Test
+    public void binaryPartitionUnionKeepsLakeAndLogPathValues() {
+        registerPartitionedLakeTable(1, "00FF");
+        adminOps.tableInfos.put(LOG_TABLE, FlussTestTables.builder(LOG_TABLE)
+                .column("id", DataTypes.INT()).column("dt", DataTypes.BYTES())
+                .partitionedBy("dt").buckets(1)
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse").build());
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {4L}));
+        latestOffsets("00FF", 9L);
+        earliestOffsets("00FF", 0L);
+        // Paimon's native range carries typed hex, the same transport used for Fluss partition constants.
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "0x00FF")));
+        List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
+        Assertions.assertEquals(2, ranges.size());
+        assertPlainLake(ranges.get(0));
+        assertLogRange(ranges.get(1), 0, 4L, 9L);
+        for (ConnectorScanRange range : ranges) {
+            Assertions.assertEquals(Collections.singletonMap("dt", "0x00FF"), range.getPartitionValues());
+        }
+    }
+
+    @Test
     public void retainedLogHistoryDoesNotValidateAnExcludedTruncatedLiveTail() {
         registerPartitionedLakeTable(1, "today");
         adminOps.readableLakeSnapshot = new LakeSnapshot(9L,

@@ -537,6 +537,46 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void nativeBinaryPartitionsKeepAllPathValues(@TempDir Path warehouse) throws Exception {
+        for (String format : Arrays.asList("parquet", "orc")) {
+            try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                    new org.apache.paimon.fs.Path(warehouse.resolve(format).toUri()))) {
+                catalog.createDatabase("db", false);
+                Identifier id = Identifier.create("db", "binary_parts");
+                catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                        .column("key", DataTypes.BYTES()).column("region", DataTypes.STRING())
+                        .partitionKeys("key", "region").option("bucket", "-1")
+                        .option("file.format", format).build(), false);
+                Table table = catalog.getTable(id);
+                BatchWriteBuilder writer = table.newBatchWriteBuilder();
+                try (BatchTableWrite write = writer.newWrite()) {
+                    write.write(GenericRow.of(1, new byte[] {0, (byte) 255},
+                            org.apache.paimon.data.BinaryString.fromString("east")));
+                    try (BatchTableCommit commit = writer.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+                ops.table = table;
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                        PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+                PaimonTableHandle handle = new PaimonTableHandle("db", "binary_parts",
+                        Collections.emptyList(), Collections.emptyList());
+                List<ConnectorScanRange> ranges = provider.planScan(
+                        sessionWithProps(Collections.emptyMap(), new TestStatementScope()),
+                        ConnectorScanRequest.builder(handle, Arrays.asList(new PaimonColumnHandle("id", 0),
+                                new PaimonColumnHandle("key", 1), new PaimonColumnHandle("region", 2))).build());
+                Assertions.assertFalse(ranges.isEmpty());
+                for (ConnectorScanRange range : ranges) {
+                    PaimonScanRange split = (PaimonScanRange) range;
+                    Assertions.assertEquals("0x00FF", split.getPartitionValues().get("key"));
+                    Assertions.assertEquals("east", split.getPartitionValues().get("region"));
+                }
+            }
+        }
+    }
+
+    @Test
     public void planScanPushesLimitIntoPaimonSplitPlanning(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {

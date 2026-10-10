@@ -230,6 +230,11 @@ public final class JdbcQueryBuilder {
 
     public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns,
             boolean noBackslashEscapes) {
+        return wrapPassthroughQuery(query, columns, () -> noBackslashEscapes);
+    }
+
+    public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns,
+            java.util.function.BooleanSupplier noBackslashEscapes) {
         if (columns.stream().noneMatch(c -> c instanceof JdbcColumnHandle
                 && containsInstant(((JdbcColumnHandle) c).getType()))
                 || (dbType != JdbcDbType.CLICKHOUSE && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO
@@ -243,7 +248,10 @@ public final class JdbcQueryBuilder {
             String name = JdbcIdentifierQuoter.quoteRemoteIdentifier(dbType, jdbcColumn.getRemoteName());
             projections.add(timestampProjection(name, jdbcColumn.getType(), 0) + " AS " + name);
         }
-        String inner = stripTerminalDelimiter(query.trim(), noBackslashEscapes);
+        // SQL mode requires remote IO only when a MySQL-family statement actually needs wrapping.
+        boolean mysqlNoBackslashEscapes = (dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE)
+                && noBackslashEscapes.getAsBoolean();
+        String inner = stripTerminalDelimiter(query.trim(), mysqlNoBackslashEscapes);
         // WITH SESSION belongs to the Trino statement, not to a derived-table query.
         int queryStart = dbType == JdbcDbType.TRINO ? trinoSessionQueryStart(inner) : 0;
         String prefix = inner.substring(0, queryStart);

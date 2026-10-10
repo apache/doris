@@ -111,6 +111,15 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                                                  int fetchSize) throws SQLException {
         // Detect driver version when creating the statement (first time we have access to connection)
         detectDriverVersion(conn);
+        // ALTER SESSION alone leaves the driver's TSLTZ zone unset. Initialize every borrowed connection.
+        try {
+            Connection physical = conn.unwrap(Connection.class);
+            Class<?> oracleConnection = Class.forName("oracle.jdbc.OracleConnection", true,
+                    physical.getClass().getClassLoader());
+            oracleConnection.getMethod("setSessionTimeZone", String.class).invoke(conn.unwrap(oracleConnection), "UTC");
+        } catch (ReflectiveOperationException e) {
+            throw new SQLException("Failed to initialize Oracle session time zone", e);
+        }
         PreparedStatement stmt = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
         stmt.setFetchSize(fetchSize);

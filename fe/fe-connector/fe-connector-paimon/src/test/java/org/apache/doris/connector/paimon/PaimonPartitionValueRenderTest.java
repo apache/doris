@@ -79,13 +79,15 @@ public class PaimonPartitionValueRenderTest {
     }
 
     @Test
-    public void binaryYieldsUnsupported() {
-        // WHY: binary must NOT be rendered as [B@hash (non-deterministic JVM identity); the legacy
-        // contract is to THROW so the caller drops the whole partition map (no columnsFromPath).
-        // MUTATION: any render path for binary (no throw) -> red.
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> PaimonScanPlanProvider.serializePartitionValue(
-                        DataTypes.BYTES(), new byte[] {1, 2}, "UTC"));
+    public void binaryPartitionsPreserveBytesAndNulls() {
+        // Path values must decode into the same bytes as a Fluss log partition key.
+        for (org.apache.paimon.types.DataType type : new org.apache.paimon.types.DataType[] {
+                DataTypes.BINARY(4), DataTypes.VARBINARY(4)}) {
+            Assertions.assertEquals("0x00017FFF", PaimonScanPlanProvider.serializePartitionValue(
+                    type, new byte[] {0, 1, 127, (byte) 255}, "UTC"));
+            Assertions.assertEquals("0x", PaimonScanPlanProvider.serializePartitionValue(type, new byte[0], "UTC"));
+            Assertions.assertNull(PaimonScanPlanProvider.serializePartitionValue(type, null, "UTC"));
+        }
     }
 
     @Test

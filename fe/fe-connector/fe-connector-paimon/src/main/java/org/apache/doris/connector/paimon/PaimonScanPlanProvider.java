@@ -2066,7 +2066,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 result.put(partitionKeys.get(i), value);
             } catch (UnsupportedOperationException e) {
                 // Legacy parity (PaimonUtil.getPartitionInfoMap): an unsupported partition column
-                // type (e.g. binary/varbinary) drops the ENTIRE map — BE then materializes no
+                // type drops the ENTIRE map — BE then materializes no
                 // columnsFromPath for this split, rather than emitting non-deterministic [B@hash
                 // garbage. Legacy returned null; the connector returns an empty map, which
                 // PaimonScanRange.populateRangeParams treats identically (no columnsFromPath emitted).
@@ -2080,10 +2080,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Renders one Paimon partition value to the canonical string BE expects in columnsFromPath.
-     * Byte-faithful port of legacy PaimonUtil.serializePartitionValue. Pure static (no Table /
-     * ReadBuilder needed) so the correctness-critical per-type rendering is unit-testable offline.
-     * Only TIMESTAMP_WITH_LOCAL_TIME_ZONE consumes {@code timeZone} (session zone, UTC-&gt;session
-     * shift); all other cases ignore it.
+     * Pure static (no Table / ReadBuilder needed) so per-type rendering is testable offline.
+     * Zoned timestamps carry an explicit UTC offset and binary keys carry lossless hex, independent
+     * of the session time zone.
      *
      * <p>For native ORC/Parquet reads, partition columns are NOT stored in the data files — BE
      * materializes them from this string. A raw {@code Object.toString()} corrupts several types:
@@ -2105,8 +2104,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 return value == null ? null : Float.toString((Float) value);
             case DOUBLE:
                 return value == null ? null : Double.toString((Double) value);
-            // BINARY / VARBINARY intentionally unsupported (falls to default -> throws -> map
-            // dropped): a utf8 string render can corrupt the bytes (legacy comment).
+            case BINARY:
+            case VARBINARY:
+                // Native files omit partition columns; the VARBINARY path decoder needs lossless hex.
+                return value == null ? null : "0x" + java.util.HexFormat.of().withUpperCase().formatHex((byte[]) value);
             case DATE:
                 return value == null ? null
                         : LocalDate.ofEpochDay((Integer) value).format(DateTimeFormatter.ISO_LOCAL_DATE);
