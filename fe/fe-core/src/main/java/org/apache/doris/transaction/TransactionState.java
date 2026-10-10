@@ -55,6 +55,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -236,7 +237,12 @@ public class TransactionState implements Writable {
     private CountDownLatch visibleLatch;
 
     // this state need not be serialized. the map key is backend_id
-    private Map<Long, List<PublishVersionTask>> publishVersionTasks;
+    // NOTE: must be a thread-safe map. When parallel publish version is enabled
+    // (Config.enable_parallel_publish_version), the master PUBLISH_VERSION daemon iterates this map
+    // in tryFinishOneTxn, while the PUBLISH_VERSION_EXEC worker (single-threaded per dbId, routed by
+    // dbId % publish_thread_pool_num) may concurrently iterate it in tryFinishTxnSync and then clear
+    // it via pruneAfterVisible after the txn becomes VISIBLE
+    private Map<Long, List<PublishVersionTask>> publishVersionTasks = new ConcurrentHashMap<>();
     private boolean hasSendTask;
     private TransactionStatus preStatus = null;
 
@@ -352,7 +358,6 @@ public class TransactionState implements Writable {
         this.finishTime = -1;
         this.reason = "";
         this.errorReplicas = Sets.newHashSet();
-        this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.visibleLatch = new CountDownLatch(1);
         this.commitTSO = -1;
@@ -375,7 +380,6 @@ public class TransactionState implements Writable {
         this.finishTime = -1;
         this.reason = "";
         this.errorReplicas = Sets.newHashSet();
-        this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.visibleLatch = new CountDownLatch(1);
         this.callbackId = callbackId;
