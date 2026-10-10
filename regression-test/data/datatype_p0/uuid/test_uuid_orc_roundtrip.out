@@ -10,13 +10,13 @@
 3	\N	\N	\N
 
 -- !inferred_types --
-a	array<uuid>	Yes	false	\N	NONE
+a	array<varbinary(65533)>	Yes	false	\N	NONE
 id	int	Yes	false	\N	NONE
-s	struct<k:uuid>	Yes	false	\N	NONE
-u	uuid	Yes	false	\N	NONE
+s	struct<k:varbinary(65533)>	Yes	false	\N	NONE
+u	varbinary(65533)	Yes	false	\N	NONE
 
 -- !legacy_reader --
-1	00112233-4455-6677-8899-aabbccddeeff	["00112233-4455-6677-8899-aabbccddeeff", null]	{"k":"80000000-0000-0000-0000-000000000000"}
-2	ffffffff-ffff-ffff-ffff-ffffffffffff	[]	{"k":null}
+1	0x00112233445566778899AABBCCDDEEFF	[0x00112233445566778899AABBCCDDEEFF, null]	{"k":0x80000000000000000000000000000000}
+2	0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF	[]	{"k":null}
 3	\N	\N	\N
 

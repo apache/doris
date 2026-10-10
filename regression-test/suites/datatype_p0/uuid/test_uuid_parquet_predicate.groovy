@@ -39,6 +39,8 @@ suite("test_uuid_parquet_predicate", "p0,external") {
                 's3.endpoint'='${getS3Endpoint()}','s3.region'='${getS3Region()}',
                 's3.access_key'='${getS3AK()}','s3.secret_key'='${getS3SK()}')"""
     }
+    // Decode binary UUID leaves before comparison; keep id predicates eligible for row-group pruning.
+    source = "(SELECT id, CAST(HEX(u) AS UUID) AS u FROM ${source}) decoded"
     for (boolean scannerV2 : [false, true]) {
         sql "SET enable_file_scanner_v2 = ${scannerV2}"
         for (boolean pruning : [false, true]) {

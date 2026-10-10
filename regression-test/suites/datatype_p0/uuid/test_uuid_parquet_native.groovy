@@ -48,30 +48,34 @@ suite("test_uuid_parquet_native", "p0,external") {
             sql "DROP TABLE IF EXISTS uuid_parquet_native"
             sql """CREATE TABLE uuid_parquet_native (id INT,u UUID,a ARRAY<UUID>,s STRUCT<k:UUID>)
                    DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"""
-            sql """INSERT INTO uuid_parquet_native SELECT id,CAST(u AS UUID),CAST(a AS ARRAY<UUID>),
-                   CAST(s AS STRUCT<k:UUID>) FROM ${source}"""
-            // Alternate mappings of the same file to exercise parsed-footer cache isolation.
+            // UUID annotations still expose binary bytes; decode before UUID operations and storage.
+            String uuidSource = """(SELECT id, CAST(HEX(u) AS UUID) AS u,
+                    ARRAY_MAP(value -> CAST(HEX(value) AS UUID), a) AS a,
+                    IF(s IS NULL, NULL, NAMED_STRUCT('k', CAST(HEX(s.k) AS UUID))) AS s
+                    FROM ${source})"""
+            sql "INSERT INTO uuid_parquet_native SELECT * FROM ${uuidSource} decoded"
+            // Explicit and default mapping options must expose the same binary schema.
             String binarySource = source.replace("'format'='parquet'",
                     "'format'='parquet','enable_mapping_varbinary'='true'")
             qt_binary_schema "DESC FUNCTION ${binarySource}"
             qt_binary_values """SELECT id,HEX(u),CAST(HEX(u) AS UUID) FROM ${binarySource}
                                 WHERE id < 12 ORDER BY id"""
             qt_external_schema "DESC FUNCTION ${source}"
-            qt_external_values "SELECT id,u,a,s,LENGTH(u),CAST(u AS UUID) FROM ${source} WHERE id < 12 ORDER BY id"
-            qt_external_group "SELECT u,COUNT(*),SUM(id) FROM ${source} GROUP BY u ORDER BY u"
-            qt_external_join """SELECT COUNT(*) FROM ${source} l JOIN ${source} r
+            qt_external_values "SELECT id,u,a,s,LENGTH(u),CAST(HEX(u) AS UUID) FROM ${source} WHERE id < 12 ORDER BY id"
+            qt_external_group "SELECT u,COUNT(*),SUM(id) FROM ${uuidSource} decoded GROUP BY u ORDER BY u"
+            qt_external_join """SELECT COUNT(*) FROM ${uuidSource} l JOIN ${uuidSource} r
                                 ON l.u=r.u WHERE l.id < 12 AND r.id < 12"""
             qt_external_window """SELECT id,u,DENSE_RANK() OVER(ORDER BY CAST(u AS UUID)),
-                                  LAG(CAST(u AS UUID)) OVER(ORDER BY id) FROM ${source} WHERE id < 12 ORDER BY id"""
+                                  LAG(CAST(u AS UUID)) OVER(ORDER BY id) FROM ${uuidSource} decoded WHERE id < 12 ORDER BY id"""
             for (boolean pruning : [false, true]) {
                 sql "SET enable_parquet_filter_by_min_max = ${pruning}"
                 sql "SET enable_parquet_filter_by_bloom_filter = ${pruning}"
-                qt_text_equality "SELECT COUNT(*) FROM ${source} WHERE u='00000000-0000-0000-0000-000000000000'"
-                qt_text_range "SELECT COUNT(*) FROM ${source} WHERE u>='80000000-0000-0000-0000-000000000000'"
+                qt_text_equality "SELECT COUNT(*) FROM ${uuidSource} decoded WHERE u='00000000-0000-0000-0000-000000000000'"
+                qt_text_range "SELECT COUNT(*) FROM ${uuidSource} decoded WHERE u>='80000000-0000-0000-0000-000000000000'"
             }
             qt_values "SELECT * FROM uuid_parquet_native WHERE id < 12 OR id >= 4094 ORDER BY id"
             qt_counts "SELECT COUNT(*),SUM(id),COUNT(u),MIN(u),MAX(u),SUM(SIZE(a)) FROM uuid_parquet_native"
-            qt_filter """SELECT COUNT(*),MIN(CAST(u AS UUID)),MAX(CAST(u AS UUID)) FROM ${source}
+            qt_filter """SELECT COUNT(*),MIN(CAST(u AS UUID)),MAX(CAST(u AS UUID)) FROM ${uuidSource} decoded
                          WHERE CAST(u AS UUID) >= CAST('80000000000000000000000000000000' AS UUID)"""
             qt_nested "SELECT id,a[1],s.k FROM uuid_parquet_native WHERE id IN (0,1,2,3,4,1024,2048,4096) ORDER BY id"
         }

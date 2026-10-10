@@ -1040,9 +1040,13 @@ TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryRejectsInvalidBindingsAndValue
     EXPECT_NE(std::string::npos,
               status.to_string().find("Fixed size binary column expects 4 bytes, got 5"));
 
+    // VARBINARY length is an upper bound; Iceberg fixed width constrains the actual value.
     status = convert(std::make_shared<DataTypeVarbinary>(8), "abcd", 4, iceberg_converter);
+    EXPECT_TRUE(status.ok()) << status;
+    status = convert(std::make_shared<DataTypeVarbinary>(8), "abcdefgh", 4, iceberg_converter);
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
-    EXPECT_NE(std::string::npos, status.to_string().find("Iceberg fixed width does not match"));
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("Fixed size binary column expects 4 bytes, got 8"));
 
     status = convert(std::make_shared<DataTypeString>(4, TYPE_CHAR), "abcd", 4, iceberg_converter);
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
