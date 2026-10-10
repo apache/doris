@@ -17,10 +17,13 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.LambdaFunctionExpr;
+import org.apache.doris.analysis.MapLiteral;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.ToSqlParams;
@@ -47,8 +50,8 @@ public class RoutineLoadDesc {
     private static final Set<String> JSON_FUNCTIONS_WITH_ESCAPED_DISPLAY_SQL = ImmutableSet.of(
             "json_quote", "json_array", "json_object", "json_insert", "json_replace", "json_set");
 
-    // Persisted expressions must be reparsed with the same value. The display visitor does not escape
-    // semantic backslashes in StringLiteral under the default SQL mode.
+    // Persisted expressions must be reparsed with the same value. The display visitor omits some
+    // syntax and escaping required for SQL round trips.
     private static final ExprToSqlVisitor PERSISTED_EXPR_TO_SQL_VISITOR = new ExprToSqlVisitor() {
         @Override
         public String visitStringLiteral(StringLiteral expr, ToSqlParams context) {
@@ -62,12 +65,40 @@ public class RoutineLoadDesc {
         @Override
         public String visitFunctionCallExpr(FunctionCallExpr expr, ToSqlParams context) {
             String functionName = expr.getFnName().getFunction();
+            if (functionName.equalsIgnoreCase("like") && expr.getChildren().size() == 3) {
+                return super.visitFunctionCallExpr(expr, context)
+                        + " ESCAPE " + expr.getChild(2).accept(this, context);
+            }
             if (!JSON_FUNCTIONS_WITH_ESCAPED_DISPLAY_SQL.contains(functionName.toLowerCase(Locale.ROOT))) {
                 return super.visitFunctionCallExpr(expr, context);
             }
             return expr.getFnName() + "(" + expr.getChildren().stream()
                     .map(child -> child.accept(this, context))
                     .collect(Collectors.joining(", ")) + ")";
+        }
+
+        @Override
+        public String visitMapLiteral(MapLiteral expr, ToSqlParams context) {
+            List<String> entries = new ArrayList<>(expr.getChildren().size() / 2);
+            for (int i = 0; i < expr.getChildren().size(); i += 2) {
+                entries.add(expr.getChild(i).accept(this, context) + ":"
+                        + expr.getChild(i + 1).accept(this, context));
+            }
+            return "{" + String.join(", ", entries) + "}";
+        }
+
+        @Override
+        public String visitLambdaFunctionExpr(LambdaFunctionExpr expr, ToSqlParams context) {
+            String names = expr.getNames().stream().map(SqlUtils::getIdentSql).collect(Collectors.joining(", "));
+            if (expr.getNames().size() > 1) {
+                names = "(" + names + ")";
+            }
+            return names + " -> " + expr.getSlotExprs().get(0).accept(this, context);
+        }
+
+        @Override
+        public String visitColumnRefExpr(ColumnRefExpr expr, ToSqlParams context) {
+            return SqlUtils.getIdentSql(expr.getName());
         }
     };
 

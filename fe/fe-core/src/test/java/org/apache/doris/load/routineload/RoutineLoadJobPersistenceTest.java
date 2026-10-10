@@ -17,7 +17,13 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.ColumnRefExpr;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.LambdaFunctionExpr;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.MapLiteral;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -73,6 +79,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -82,8 +89,11 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RoutineLoadJobPersistenceTest {
@@ -332,6 +342,104 @@ public class RoutineLoadJobPersistenceTest {
         Assertions.assertFalse(expectedWhere.contains("\n"));
         job = (KafkaRoutineLoadJob) imageRoundTrip(job);
         Assertions.assertEquals(expectedWhere, getWhereSql(job));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = LoadDataSourceType.class, names = {"KAFKA", "KINESIS"})
+    public void testLikeEscapeSurvivesAlterReplayAndImage(LoadDataSourceType dataSourceType) throws Exception {
+        assertExpressionSurvivesAlterReplayAndImage(dataSourceType, "WHERE city LIKE 'A!_%' ESCAPE '!'", job -> {
+            FunctionCallExpr like = (FunctionCallExpr) job.getWhereExpr();
+            Assertions.assertEquals("like", like.getFnName().getFunction());
+            Assertions.assertEquals(3, like.getChildren().size());
+            Assertions.assertEquals("A!_%", ((LiteralExpr) like.getChild(1)).getStringValue());
+            Assertions.assertEquals("!", ((LiteralExpr) like.getChild(2)).getStringValue());
+        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = LoadDataSourceType.class, names = {"KAFKA", "KINESIS"})
+    public void testMapLiteralSurvivesAlterReplayAndImage(LoadDataSourceType dataSourceType) throws Exception {
+        assertExpressionSurvivesAlterReplayAndImage(dataSourceType,
+                "COLUMNS(mapped = element_at({'a': 1, 'b': 2}, 'b'))", job -> {
+                    List<MapLiteral> maps = Lists.newArrayList();
+                    job.getColumnExprDescs().descs.get(0).getExpr().collect(MapLiteral.class, maps);
+                    Assertions.assertEquals(1, maps.size());
+                    MapLiteral map = maps.get(0);
+                    Assertions.assertEquals(4, map.getChildren().size());
+                    Assertions.assertEquals("a", ((LiteralExpr) map.getChild(0)).getStringValue());
+                    Assertions.assertEquals(1, ((LiteralExpr) map.getChild(1)).getLongValue());
+                    Assertions.assertEquals("b", ((LiteralExpr) map.getChild(2)).getStringValue());
+                    Assertions.assertEquals(2, ((LiteralExpr) map.getChild(3)).getLongValue());
+                });
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = LoadDataSourceType.class, names = {"KAFKA", "KINESIS"})
+    public void testQuotedLambdaSurvivesAlterReplayAndImage(LoadDataSourceType dataSourceType) throws Exception {
+        String columns = "COLUMNS(mapped = array_map(`x-y` -> `x-y` + 1, [1, 2]), "
+                + "paired = array_map((`x``y`, `select`) -> `x``y` + `select`, [1, 2], [3, 4]))";
+        assertExpressionSurvivesAlterReplayAndImage(dataSourceType, columns, job -> {
+            assertLambdaNames(job.getColumnExprDescs().descs.get(0).getExpr(), List.of("x-y"));
+            assertLambdaNames(job.getColumnExprDescs().descs.get(1).getExpr(), List.of("x`y", "select"));
+        });
+    }
+
+    private static void assertLambdaNames(Expr expression, List<String> expectedNames) {
+        List<LambdaFunctionExpr> lambdas = Lists.newArrayList();
+        expression.collect(LambdaFunctionExpr.class, lambdas);
+        Assertions.assertEquals(1, lambdas.size());
+        Assertions.assertEquals(expectedNames, lambdas.get(0).getNames());
+        List<ColumnRefExpr> references = Lists.newArrayList();
+        lambdas.get(0).getSlotExprs().get(0).collect(ColumnRefExpr.class, references);
+        Assertions.assertEquals(expectedNames, references.stream().map(ColumnRefExpr::getName)
+                .collect(Collectors.toList()));
+    }
+
+    private void assertExpressionSurvivesAlterReplayAndImage(LoadDataSourceType dataSourceType, String loadClause,
+            Consumer<RoutineLoadJob> assertExpression) throws Exception {
+        mockCatalog("current_table");
+        RoutineLoadJob initial = newPausedJob(dataSourceType, 5004L, "expression_job");
+        initial.origStmt = createOriginStatement(dataSourceType, "expression_job", loadClause);
+        RoutineLoadJob leader = imageRoundTrip(initial);
+        RoutineLoadJob follower = imageRoundTrip(initial);
+        Assertions.assertEquals(JobState.PAUSED, leader.getState());
+        assertExpression.accept(leader);
+
+        // Change only the separator: every existing expression must survive rebuilding the full CREATE.
+        OriginStatement alterStatement = new OriginStatement(
+                "ALTER ROUTINE LOAD FOR expression_job COLUMNS TERMINATED BY '|'", 0);
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.hasLoadProperty()).thenReturn(true);
+        Mockito.when(command.getOriginStatement()).thenReturn(alterStatement);
+        Mockito.when(command.getSqlMode()).thenReturn(SqlModeHelper.MODE_DEFAULT);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(new RoutineLoadDesc(new Separator("|", "|"), null,
+                null, null, null, null, null, LoadTask.MergeType.APPEND, null));
+        ConnectContext ctx = new ConnectContext();
+        ctx.setDatabase("legacy_db");
+        ctx.setEnv(env);
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        try {
+            ctx.setThreadLocalInfo();
+            leader.modifyProperties(command);
+        } finally {
+            ctx.cleanup();
+        }
+
+        ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+        Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+        AlterRoutineLoadJobOperationLog log;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(serialize(logCaptor.getValue())))) {
+            log = AlterRoutineLoadJobOperationLog.read(in);
+        }
+        follower.replayModifyProperties(log);
+        Assertions.assertEquals(leader.origStmt.originStmt, follower.origStmt.originStmt);
+        for (RoutineLoadJob job : List.of(leader, follower, imageRoundTrip(leader), imageRoundTrip(follower))) {
+            Assertions.assertEquals(JobState.PAUSED, job.getState());
+            Assertions.assertEquals("|", job.getColumnSeparator().getSeparator());
+            assertExpression.accept(job);
+        }
     }
 
     @ParameterizedTest
