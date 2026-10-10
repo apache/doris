@@ -376,6 +376,10 @@ public final class ConnectorColumnConverter {
                     return ScalarType.createVarbinaryType(precision);
                 }
                 return ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH);
+            case "GEOMETRY":
+                return ScalarType.createGeometryType();
+            case "GEOGRAPHY":
+                return ScalarType.createGeographyType();
             case "JSONB":
                 return ScalarType.createType("JSON");
             case "VARIANT_COMPUTE_V2":

@@ -126,6 +126,10 @@ public final class IcebergTypeMapping {
             case UUID:
                 // Preserve logical UUID semantics independently of the binary mapping option.
                 return ConnectorType.of("UUID");
+            case GEOMETRY:
+                return ConnectorType.of("GEOMETRY");
+            case GEOGRAPHY:
+                return ConnectorType.of("GEOGRAPHY");
             case BINARY:
                 // Iceberg BINARY is unbounded. Emit VARBINARY with NO explicit length so
                 // ConnectorColumnConverter applies ScalarType.MAX_VARBINARY_LENGTH — byte-identical to
@@ -184,6 +188,10 @@ public final class IcebergTypeMapping {
         switch (name) {
             case "UUID":
                 return Types.UUIDType.get();
+            case "GEOMETRY":
+                return Types.GeometryType.crs84();
+            case "GEOGRAPHY":
+                return Types.GeographyType.crs84();
             case "BOOLEAN":
                 return Types.BooleanType.get();
             case "INT":

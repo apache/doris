@@ -291,3 +291,6 @@ Iceberg V3 schema
 - 已在 `TScalarType` / `PTypeNode` 预留 CRS 与 geography algorithm 元数据字段，并在 FE `ScalarType` 中加入默认值、构造、SQL 展示、Thrift 序列化、反序列化和相等性语义。
 - 当前仍未把空间类型接入表 DDL、Connector SPI、BE 物理列、Arrow/Parquet 读写或函数绑定；这些必须在基础类型编译通过后分阶段推进。
 - 风险控制：不直接 cherry-pick 旧 PR 后续提交；旧 PR 使用的 FE 路径和类型编号已与 master 发生漂移，后续只提取语义并按当前 SPI/模块边界重写。
+
+- FE 构建验证：`./build.sh --fe` 成功；Thrift/Proto 生成和 FE 全模块编译通过。
+- Connector SPI 适配：Iceberg V3 GEOMETRY/GEOGRAPHY 读方向不再统一降级为 `UNSUPPORTED`；写方向映射到 Iceberg `GeometryType.crs84()` / `GeographyType.crs84()`；FE connector 转换器可生成对应 Doris `ScalarType`。当前 ConnectorType 仍只传递类型名，CRS/algorithm 的完整保真将在后续写入请求元数据时处理，暂不宣称已完成端到端语义。
