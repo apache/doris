@@ -5306,6 +5306,47 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * Whether a parsed statement pins a materialized view / rollup with an explicit
+     * {@code INDEX <name>} clause on any of its base relations.
+     *
+     * The pin is a SEMANTIC choice of the user, not an optimizer decision: Doris forces
+     * the named index, and on an aggregate-key table a coarser rollup returns aggregated
+     * rows where the base table returns one row per record. The frozen text cannot carry
+     * it - the physical scan only knows the SELECTED index id (set by every optimizer-side
+     * rollup / MV choice as well, so it cannot tell the user pin from an optimizer choice)
+     * and the decompiled {@code FROM t} would read the base table while the caller's
+     * pinned query matched the baseline (the bind digest includes INDEX, so only callers
+     * with that very pin match). The replan probe does not catch it either: the text IS
+     * valid, it just reads different data, and the schema fingerprint hashes table identity
+     * / base columns only. Freezing is therefore DECLINED for such a statement (see
+     * SPMPlanner#decompileFrozenPlan): the user planSql is kept and the rewrite replays the
+     * parameterized tree, which re-parses the caller's own INDEX clause.
+     *
+     * The WHOLE statement is inspected, not just children(): an INDEX on a relation inside
+     * a CTE body or an IN / EXISTS / scalar subquery must be frozen just as little (see
+     * walkPlans).
+     *
+     * @param plan the parsed bind or plan tree (may be null)
+     * @return true when any relation pins an index by name
+     */
+    public static boolean pinsExplicitIndex(Plan plan) {
+        if (plan == null) {
+            return false;
+        }
+        final boolean[] pinned = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (pinned[0]) {
+                return;
+            }
+            if (node instanceof UnboundRelation
+                    && ((UnboundRelation) node).getIndexName().isPresent()) {
+                pinned[0] = true;
+            }
+        });
+        return pinned[0];
+    }
+
+    /**
      * Visits every plan node reachable from a statement: the regular children, the plans
      * a node holds OUTSIDE children() - CTE bodies (LogicalCTE.getAliasQueries() through
      * extraPlans()), IN / EXISTS / scalar subquery plans (SubqueryExpr.queryPlan, surfaced

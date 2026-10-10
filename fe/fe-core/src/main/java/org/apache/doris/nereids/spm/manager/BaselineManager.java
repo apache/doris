@@ -283,6 +283,47 @@ public class BaselineManager {
     public static volatile IdAllocatorStoreForTest idAllocatorStoreForTest;
 
     /**
+     * Test seam routing the COMPACT HIGH-WATER-MARK slot - the id watermark, the bounded
+     * mutation clock and its OPEN-WINDOW marker (see SELECT_SLOT_STATE_SQL /
+     * SELECT_CLOCK_SQL / INSERT_HWM_SQL / PRUNE_HWM_SQL) - to a simulator, so a unit test
+     * can drive the REAL clock protocol (begin / visibility confirmation / completion /
+     * prune / fence) without an internal table. Unlike {@link IdAllocatorStoreForTest},
+     * which stands in for the whole create-time protocol, this seam models ONLY the slot
+     * store: the production decision logic stays under test. Null in production.
+     */
+    @VisibleForTesting
+    interface MutationClockStoreForTest {
+        /** SELECT_SLOT_STATE_SQL: the slot's (MAX(last_id), MAX(tick)). */
+        long[] slotState();
+
+        /** SELECT_CLOCK_SQL: (MAX(tick), COUNT(*), SUM(tick), MAX(pending)). */
+        long[] clock();
+
+        /** INSERT_HWM_SQL: appends one slot row. */
+        void append(long lastId, long tick, long pending);
+
+        /**
+         * PRUNE_HWM_SQL then PRUNE_HWM_SAME_WATERMARK_SQL, in that order: removes the
+         * rows the just-appended one supersedes. The OPEN-WINDOW guard is part of the
+         * contract (a pending row is never a victim, see PRUNE_HWM_SQL) - the seam has
+         * to mirror it, exactly like the real DELETE does.
+         */
+        void prune(long lastId, long tick);
+
+        /**
+         * PRUNE_HWM_OPEN_SQL: removes the OPEN row of the window a completed mutation
+         * closes - the row carrying this very tick in `pending`.
+         */
+        void closeWindow(long windowTick);
+
+        /** SELECT_PENDING_TICK_SQL: how many rows carry (tick, pending) = (tick, tick). */
+        long countVisiblePending(long tick);
+    }
+
+    @VisibleForTesting
+    public static volatile MutationClockStoreForTest mutationClockStoreForTest;
+
+    /**
      * Test seam for the compact id high-water-mark RECORD (the value of SELECT_HWM_SQL),
      * null = the internal table. A scripted value also stands in for the legacy history
      * read: the seam answers the whole watermark decision (see readCompactIdWatermark).
@@ -473,10 +514,16 @@ public class BaselineManager {
      * completion write leaves a pending row behind that no completion will ever close.
      * Counting it forever made every fence read non-quiet and the store unloadable; a
      * window older than this bound cannot still be mid-statement (every baseline write is
-     * bounded by BASELINE_WRITE_TIMEOUT_SECONDS), so it stops counting. Much larger than
-     * any statement timeout, so a LIVE window always poisons the fence while it is open.
+     * bounded by BASELINE_WRITE_TIMEOUT_SECONDS), so it stops counting.
+     *
+     * Deliberately only a small multiple of that statement timeout: the marker is now
+     * closed ONLY by its own completion write (see PRUNE_HWM_OPEN_SQL - a foreign append
+     * must never prune it), so a completion that is lost is no longer healed by the next
+     * mutation of any FE. The bound is what heals it instead, and it must stay long enough
+     * to cover a LIVE window (the statement plus the visibility confirmation) while a
+     * minute of retries costs far less than ten.
      */
-    private static final long MUTATION_WINDOW_MAX_AGE_SECONDS = 600L;
+    private static final long MUTATION_WINDOW_MAX_AGE_SECONDS = 60L;
 
     /**
      * The bounded MUTATION CLOCK of the paginated snapshot fence (see
@@ -493,12 +540,12 @@ public class BaselineManager {
      *
      * The fourth column is the OPEN-WINDOW marker: MAX(pending) over the rows written
      * within MUTATION_WINDOW_MAX_AGE_SECONDS. Any unclosed window poisons the fence (that
-     * is the point - a window is only closed by its completion write, see
-     * beginRowMutation), but a window WHOSE FE DIED before its completion became a
-     * PERMANENT poison: pending stayed non-null forever and every snapshot read failed,
-     * so the store could never load again. A mutation's own statements are bounded by
-     * BASELINE_WRITE_TIMEOUT_SECONDS, so a begin row older than the (much larger) window
-     * bound cannot still be mid-statement and is ignored.
+     * is the point - a window is only closed by its own completion write, see
+     * beginRowMutation / endRowMutation), but a window WHOSE FE DIED before its completion
+     * became a PERMANENT poison: pending stayed non-null forever and every snapshot read
+     * failed, so the store could never load again. A mutation's own statements are bounded
+     * by BASELINE_WRITE_TIMEOUT_SECONDS, so a begin row older than the (still larger)
+     * window bound cannot still be mid-statement and is ignored.
      */
     private static final String SELECT_CLOCK_SQL = "SELECT MAX(`tick`), COUNT(*),"
             + " SUM(`tick`), MAX(CASE WHEN `update_time` > DATE_SUB(NOW(), INTERVAL "
@@ -513,6 +560,20 @@ public class BaselineManager {
     private static final String SELECT_SLOT_STATE_SQL = "SELECT MAX(`last_id`),"
             + " MAX(`tick`) FROM " + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
 
+    /**
+     * Whether the OPEN mutation window just appended is READABLE: the row carrying the very
+     * tick this process wrote in `pending` (see beginRowMutation). A plain append can
+     * report SQL OK while its row is still unreadable - and with the window marker only
+     * readable LOCALLY, a successor's fence read (SELECT_CLOCK_SQL, the MATCHES path of
+     * updateStatus) sees a QUIET clock while this process's row statement is already in
+     * flight: the statement then publishes AFTER the successor accepted a matching read
+     * and reversed it (round-54 #3). The bounded read-back makes the statement's dispatch
+     * conditional on the window being SHARED.
+     */
+    private static final String SELECT_PENDING_TICK_SQL = "SELECT COUNT(*) FROM "
+            + SPM_BASELINES_HWM_TABLE
+            + " WHERE `id` = 1 AND `tick` = ${tick} AND `pending` = ${tick}";
+
     /** Append one high-water-mark / clock row (see SELECT_HWM_SQL, SELECT_CLOCK_SQL). */
     private static final String INSERT_HWM_SQL = "INSERT INTO " + SPM_BASELINES_HWM_TABLE
             + " (`id`, `last_id`, `update_time`, `tick`, `pending`)"
@@ -526,6 +587,24 @@ public class BaselineManager {
      * below the watermark, or same-watermark rows with an older tick, go. Correctness
      * never depends on it - the read takes the MAX - so failures are swallowed.
      *
+     * A row whose mutation window is still OPEN (pending != 0, see beginRowMutation) is
+     * NEVER a victim, whatever its watermark / tick: it is the shared proof that a row
+     * statement is in flight, and the snapshot fence only retries while some pending row
+     * is readable (SELECT_CLOCK_SQL). Deleting it made the two-master ordering of round-54
+     * #5 observe a QUIET clock while the first master's statement - and, after the
+     * handoff, the second master's paginated refresh - was still in flight: B writes the
+     * same watermark with a newer tick, prunes A's just-published pending row, then closes
+     * its own window; A's later DELETE lands between two pages of B's refresh and the
+     * id >= lastId OFFSET n continuation steps over the successor of the row group it
+     * removed. The completion write of the window itself closes (and prunes) it.
+     *
+     * The guard is the plain binary predicate `pending` = 0, NOT "pending IS NULL OR
+     * pending = 0": the delete fallback of the duplicate-key table rejects an OR predicate
+     * outright ("Where clause only supports compound predicate, binary predicate, is_null
+     * predicate or in predicate"), which silently disabled the whole prune. A NULL pending
+     * (no writer of this feature produces one - every append binds the column) then simply
+     * survives, which is the conservative direction anyway.
+     *
      * Split into TWO statements with SIMPLE predicates: the single OR form was rejected by
      * the delete fallback ("Where clause only supports compound predicate, binary
      * predicate, ..."), so the prune silently failed since its introduction and every
@@ -533,12 +612,32 @@ public class BaselineManager {
      * predicate works on the duplicate-key table.
      */
     private static final String PRUNE_HWM_SQL = "DELETE FROM " + SPM_BASELINES_HWM_TABLE
-            + " WHERE `id` = 1 AND `last_id` < ${lastId}";
+            + " WHERE `id` = 1 AND `last_id` < ${lastId}"
+            + " AND `pending` = 0";
 
     /** The same-watermark half of PRUNE_HWM_SQL (rows superseded by the newer tick). */
     private static final String PRUNE_HWM_SAME_WATERMARK_SQL = "DELETE FROM "
             + SPM_BASELINES_HWM_TABLE
-            + " WHERE `id` = 1 AND `last_id` = ${lastId} AND `tick` < ${tick}";
+            + " WHERE `id` = 1 AND `last_id` = ${lastId} AND `tick` < ${tick}"
+            + " AND `pending` = 0";
+
+    /**
+     * Closes the OPEN WINDOW of one completed mutation: removes the very row
+     * endRowMutation's completion append supersedes - the window THIS writer opened, named
+     * by the tick it was opened with (round-54 #5).
+     *
+     * The OPEN-WINDOW guard of the two prunes above keeps every pending row alive, which is
+     * what stops one master's append from erasing another master's still-open marker; the
+     * window would then poison the fence until MUTATION_WINDOW_MAX_AGE_SECONDS elapsed.
+     * Only the mutation that OPENED it may close it, and it does so with this exact-row
+     * delete - after its statement finished, never before. (The tick identifies the window
+     * cluster-wide: two FEs opening one within the same millisecond share it, the residual
+     * same-instant collision SELECT_CLOCK_SQL already documents; the completion of either
+     * then closes the marker, which can only shorten a window whose own statement is
+     * bounded by BASELINE_WRITE_TIMEOUT_SECONDS anyway.)
+     */
+    private static final String PRUNE_HWM_OPEN_SQL = "DELETE FROM " + SPM_BASELINES_HWM_TABLE
+            + " WHERE `id` = 1 AND `tick` = ${windowTick} AND `pending` = ${windowTick}";
 
     /**
      * The scoped CONFIRMATION of SELECT_HWM_SQL (see readCompactIdWatermark): the
@@ -805,8 +904,8 @@ public class BaselineManager {
      * MAX(update_time) around its page loop); the fence is now the bounded mutation clock
      * (see SELECT_CLOCK_SQL), so the bump read only needs this id's key prefix.
      */
-    private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT UNIX_TIMESTAMP(MAX(`update_time"
-            + ")) * 1000 FROM "
+    private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT UNIX_TIMESTAMP(MAX(`update_time`))"
+            + " * 1000 FROM "
             + SPM_BASELINES_TABLE + " WHERE `id` = ${id}";
 
     /**
@@ -2481,6 +2580,12 @@ public class BaselineManager {
             try {
                 assertLeaderForWrite();
                 insertWritten = persistTransitionInsert(durablePlan, previousStatus);
+            } catch (MutationWindowUnavailableException e) {
+                // The window of this flip could not be made VISIBLE, so its INSERT was never
+                // dispatched (see beginRowMutation): nothing changed, there is no ambiguous
+                // outcome to reconcile, and no fence may be kept for a statement that never
+                // ran - recording one would mask the id for the fence's whole bound.
+                throw e;
             } catch (UnconfirmedInsertException e) {
                 // The conditional INSERT WROTE the new-status row (the affected-row count /
                 // the committed-write probe is the evidence) - only its PUBLICATION lags
@@ -3085,6 +3190,7 @@ public class BaselineManager {
             pendingDroppedMarkers.clear(); // (and the unappended drop tombstones)
             statusProtocolStoreForTest = null; // and never route through a leaked test seam
             idAllocatorStoreForTest = null; // (the create-time collision seam, same reason)
+            mutationClockStoreForTest = null; // (the mutation-clock slot seam, same reason)
             hwmRecordReadForTest = null; // (the compact watermark seam, same reason)
             seqTailReadForTest = null; // (the scoped sequence-tail seam, same reason)
             leaderProbeForTest = null; // (the leadership seam, same reason)
@@ -4220,6 +4326,17 @@ public class BaselineManager {
      * accepting it would publish a status the fenced write (or the next refresh) reverts.
      * The ALTER must instead fail retryably until the fence resolves.
      *
+     * The SHARED mutation clock is consulted as well (round-54 #3): the registry above only
+     * knows THIS FE's unresolved writes, while another FE's row statement may be in flight
+     * right now - its open window is exactly what tells a MATCHING read apart from a final
+     * one. Master A's DISABLE can be dispatched after a handoff (its forwarded INSERT runs
+     * on the new master) and commit with a newer update_time than the ENABLED row the new
+     * master just accepted; the pending marker A wrote BEFORE its statement is the only
+     * shared evidence that its outcome is still open, so a matching read must not be
+     * accepted while the clock reports one. Fail CLOSED and retry (the window is one
+     * statement long, and an abandoned one stops poisoning the clock after
+     * MUTATION_WINDOW_MAX_AGE_SECONDS).
+     *
      * @param id        the baseline id
      * @param requested the status this ALTER wants to be durable
      */
@@ -4230,6 +4347,39 @@ public class BaselineManager {
                     + " baseline " + id + "; an earlier write of this id is still"
                     + " unresolved - retry the ALTER");
         }
+        if (!sharedMutationClockAvailable()) {
+            return;
+        }
+        SnapshotFence clock;
+        try {
+            clock = readSnapshotFence();
+        } catch (Exception e) {
+            throw new IllegalStateException("SPM cannot read the shared mutation clock of"
+                    + " baseline " + id + ", so a concurrent write of the baseline table"
+                    + " cannot be ruled out - retry the ALTER", e);
+        }
+        if (!clock.quiet()) {
+            throw new IllegalStateException("SPM cannot confirm the durable status of"
+                    + " baseline " + id + ": a mutation of the baseline table is still in"
+                    + " flight (" + clock + ") - retry the ALTER");
+        }
+    }
+
+    /**
+     * Whether the SHARED mutation clock can be consulted at all. It lives in the internal
+     * table (SELECT_CLOCK_SQL), which only fences a caller whose durable protocol really
+     * goes through that table: a process with persistence disabled has no durable status a
+     * concurrent writer could contradict, and a SCRIPTED store stands in for the whole
+     * protocol (the same convention beginRowMutation uses), so neither may be answered
+     * with a read of a table that does not exist there. The dedicated clock seam opts IN
+     * to the check.
+     */
+    private static boolean sharedMutationClockAvailable() {
+        if (mutationClockStoreForTest != null) {
+            return true;
+        }
+        return statusProtocolStoreForTest == null && idAllocatorStoreForTest == null
+                && persistenceEnabled();
     }
 
     /**
@@ -4472,6 +4622,38 @@ public class BaselineManager {
     }
 
     /**
+     * For tests: the high-water-mark PRUNE statements, in execution order (see
+     * PRUNE_HWM_SQL / PRUNE_HWM_SAME_WATERMARK_SQL / PRUNE_HWM_OPEN_SQL). The two history
+     * sweeps must keep an OPEN mutation window (pending != 0) - the marker that fences
+     * every snapshot read while a row statement is in flight - and only the window's own
+     * close removes it (round-54 #5).
+     */
+    @VisibleForTesting
+    public static String[] pruneHwmSqlForTest() {
+        return new String[] {PRUNE_HWM_SQL, PRUNE_HWM_SAME_WATERMARK_SQL, PRUNE_HWM_OPEN_SQL};
+    }
+
+    /**
+     * For tests: the SHARED mutation-clock fence of the running store (see
+     * readSnapshotFence) - the value requireNoContradictingStatusFence and the paginated
+     * snapshot read consult.
+     */
+    @VisibleForTesting
+    public static SnapshotFence snapshotFenceForTest() throws Exception {
+        return readSnapshotFence();
+    }
+
+    /**
+     * For tests: runs the production high-water-mark append + the two history sweeps (see
+     * writeHwmRecord) exactly like beginRowMutation / endRowMutation do, so a test can
+     * interleave a SECOND master's append with this FE's still-open window.
+     */
+    @VisibleForTesting
+    static void writeHwmRecordForTest(long lastId, long tick, long pending) {
+        writeHwmRecord(lastId, tick, pending, true);
+    }
+
+    /**
      * Appends (and prunes) the compact id high-water-mark + mutation-clock record.
      *
      * @param id      the high-water mark to record
@@ -4487,8 +4669,12 @@ public class BaselineManager {
         params.put("tick", String.valueOf(tick));
         params.put("pending", String.valueOf(pending));
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_HWM_SQL, params,
-                    BASELINE_WRITE_TIMEOUT_SECONDS));
+            if (mutationClockStoreForTest != null) {
+                mutationClockStoreForTest.append(id, tick, pending);
+            } else {
+                inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_HWM_SQL, params,
+                        BASELINE_WRITE_TIMEOUT_SECONDS));
+            }
         } catch (Exception e) {
             if (strict) {
                 throw new RuntimeException("SPM baseline id high-water-mark write failed"
@@ -4499,13 +4685,54 @@ public class BaselineManager {
             return;
         }
         try {
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_SQL, params,
-                    BASELINE_WRITE_TIMEOUT_SECONDS));
-            inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_SAME_WATERMARK_SQL, params,
-                    BASELINE_WRITE_TIMEOUT_SECONDS));
+            if (mutationClockStoreForTest != null) {
+                mutationClockStoreForTest.prune(id, tick);
+            } else {
+                inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_SQL, params,
+                        BASELINE_WRITE_TIMEOUT_SECONDS));
+                inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_SAME_WATERMARK_SQL, params,
+                        BASELINE_WRITE_TIMEOUT_SECONDS));
+            }
         } catch (Exception e) {
             LOG.debug("SPM compact high-water-mark prune skipped: {}", e.getMessage());
         }
+    }
+
+    /**
+     * The slot's (newest watermark, newest tick) - the pre-mutation read of
+     * beginRowMutation / endRowMutation (see SELECT_SLOT_STATE_SQL), or the simulator's
+     * equivalent.
+     *
+     * @return [watermark, tick]
+     */
+    private static long[] readSlotState() throws Exception {
+        if (mutationClockStoreForTest != null) {
+            return mutationClockStoreForTest.slotState();
+        }
+        List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                SELECT_SLOT_STATE_SQL, Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS));
+        if (rows == null || rows.isEmpty()) {
+            return new long[] {0L, 0L};
+        }
+        return new long[] {parseWatermark(rows.get(0).getWithDefault(0, "")),
+                parseWatermark(rows.get(0).getWithDefault(1, ""))};
+    }
+
+    /**
+     * Whether the open-window row beginRowMutation just appended is READABLE (see
+     * SELECT_PENDING_TICK_SQL): the confirmation that the window it opens is SHARED before
+     * its statement is dispatched.
+     */
+    private static boolean pendingWindowVisible(long tick) throws Exception {
+        if (mutationClockStoreForTest != null) {
+            return mutationClockStoreForTest.countVisiblePending(tick) > 0;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("tick", String.valueOf(tick));
+        List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                SELECT_PENDING_TICK_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
+        return rows != null && !rows.isEmpty()
+                && parseWatermark(rows.get(0).getWithDefault(0, "")) > 0;
     }
 
     /** A tick strictly above every tick this process handed out, never behind its wall clock. */
@@ -4536,52 +4763,120 @@ public class BaselineManager {
      * tick) and retries.
      *
      * Strict: a mutation whose window could not open fails retryably before anything
-     * changed. Bounded: one keyed read of the slot + one append + one prune.
+     * changed. Bounded: one keyed read of the slot + one append + one prune + the
+     * visibility probes of the append.
+     *
+     * The window must also be READABLE before this returns (round-54 #3). An append can
+     * report SQL OK while its row is still unreadable, and a successor that reads the
+     * clock as QUIET while the row statement is ALREADY in flight will accept a MATCHING
+     * durable read as final (see requireNoContradictingStatusFence): master A's DISABLE
+     * gets SQL OK for pending=tA, its row is invisible, the ALTER is dispatched and
+     * outlives A's demotion - the new master loads the old ENABLED row, ALTER ... ENABLE
+     * takes its MATCHES branch and reports success without writing anything, and A's
+     * DISABLED row then commits with a newer update_time and reverses it. Requiring the
+     * marker's visibility BEFORE the statement is dispatched makes the window that fences
+     * the statement shared, so the MATCHES branch of every other FE sees pending != 0 and
+     * fails retryably instead of concluding.
      */
     private static long beginRowMutation() {
-        if (idAllocatorStoreForTest != null) {
-            idAllocatorStoreForTest.bumpMutationClock();
-            return 0;
-        }
-        if (!persistenceEnabled()) {
-            return 0;
+        if (mutationClockStoreForTest == null) {
+            if (idAllocatorStoreForTest != null) {
+                idAllocatorStoreForTest.bumpMutationClock();
+                return 0;
+            }
+            if (!persistenceEnabled()) {
+                return 0;
+            }
         }
         long watermark;
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                    SELECT_SLOT_STATE_SQL, Collections.emptyMap(),
-                    INTERNAL_QUERY_TIMEOUT_SECONDS));
-            watermark = rows == null || rows.isEmpty()
-                    ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
+            watermark = readSlotState()[0];
         } catch (Exception e) {
             throw new RuntimeException("SPM mutation clock read failed (retry the"
                     + " operation): " + e.getMessage(), e);
         }
         long tick = nextMutationTick();
         writeHwmRecord(watermark, tick, tick, true);
+        try {
+            awaitMutationWindowVisible(tick);
+        } catch (MutationWindowUnavailableException e) {
+            // The statement will NOT be dispatched, so the window must not stay open: close
+            // it best effort exactly like a completed mutation would (the completion append
+            // plus the exact-row delete of THIS window). A failed append of the marker is no
+            // reason to leave every snapshot read retrying for the age bound.
+            endRowMutation(tick);
+            throw e;
+        }
         return tick;
     }
 
     /**
+     * The bounded read-back of the open-window marker beginRowMutation appended: a
+     * mutation whose window never becomes READABLE fails retryably BEFORE its statement
+     * runs, because the fence it opened is invisible to every other FE - exactly the
+     * unshared window that let a successor accept a matching read while this statement was
+     * in flight (see beginRowMutation). The row is never pruned while it is open
+     * (PRUNE_HWM_SQL), so the confirmation cannot be raced away by a concurrent append.
+     *
+     * @param tick the window tick just written
+     */
+    private static void awaitMutationWindowVisible(long tick) {
+        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
+            try {
+                if (pendingWindowVisible(tick)) {
+                    return;
+                }
+            } catch (Exception e) {
+                LOG.debug("SPM mutation window visibility probe failed: {}", e.getMessage());
+            }
+            try {
+                Thread.sleep(BASELINE_VISIBILITY_RETRY_MILLIS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        throw new MutationWindowUnavailableException("SPM mutation window " + tick
+                + " is not READABLE yet, so a concurrent ALTER / refresh could not see the"
+                + " row statement that is about to run; nothing was changed - retry the"
+                + " operation");
+    }
+
+    /**
+     * Raised when a mutation's WINDOW could not be made readable before its row statement
+     * (see beginRowMutation / awaitMutationWindowVisible): the statement was NOT
+     * dispatched. Callers must fail retryably WITHOUT the ambiguous-write handling - there
+     * is no outcome to reconcile, so no pending / confirmed mutation fence may be recorded
+     * for a write that never ran (that fence would mask the id for its whole bound).
+     */
+    private static final class MutationWindowUnavailableException extends RuntimeException {
+        MutationWindowUnavailableException(String message) {
+            super(message);
+        }
+    }
+
+    /**
      * Closes the mutation window opened by {@link #beginRowMutation()}: writes a NEWER
-     * tick with pending = 0 (the open row is pruned by the same append), so a fence read
-     * that overlapped the window observes the completion in one of its two reads.
-     * Best effort: the row statement's outcome is what the caller reports, and a lost
-     * completion write only keeps the snapshot fence retrying - fail CLOSED - until the
-     * next mutation touches the slot or the window bound elapses (see
-     * MUTATION_WINDOW_MAX_AGE_SECONDS), never forever.
+     * tick with pending = 0, so a fence read that overlapped the window observes the
+     * completion in one of its two reads, and then removes the window's own pending row
+     * (see PRUNE_HWM_OPEN_SQL) - the history sweeps keep it (a foreign append must never
+     * erase another master's open marker), so only this writer may close it.
+     *
+     * Both statements are best effort: the row statement's outcome is what the caller
+     * reports, and a lost completion only keeps the snapshot fence retrying - fail CLOSED -
+     * until the window bound elapses (see MUTATION_WINDOW_MAX_AGE_SECONDS), never forever.
      */
     private static void endRowMutation(long tick) {
-        if (tick == 0 || idAllocatorStoreForTest != null || !persistenceEnabled()) {
+        if (tick == 0) {
+            return;
+        }
+        if (mutationClockStoreForTest == null
+                && (idAllocatorStoreForTest != null || !persistenceEnabled())) {
             return;
         }
         long watermark;
         try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                    SELECT_SLOT_STATE_SQL, Collections.emptyMap(),
-                    INTERNAL_QUERY_TIMEOUT_SECONDS));
-            watermark = rows == null || rows.isEmpty()
-                    ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
+            watermark = readSlotState()[0];
         } catch (Exception e) {
             LOG.warn("SPM mutation clock completion read failed; the snapshot fence stays"
                     + " retrying until the next mutation: {}", e.getMessage());
@@ -4592,6 +4887,24 @@ public class BaselineManager {
         } catch (RuntimeException e) {
             LOG.warn("SPM mutation clock completion write failed; the snapshot fence may"
                     + " keep retrying until the next mutation: {}", e.getMessage());
+            return;
+        }
+        // the completion append does NOT prune the open row any more (the OPEN-WINDOW guard
+        // keeps every pending row alive): close THIS window with the exact-row delete (see
+        // PRUNE_HWM_OPEN_SQL). Best effort like the append itself: a lost delete only keeps
+        // the fence retrying until the age bound elapses.
+        Map<String, String> params = new HashMap<>();
+        params.put("windowTick", String.valueOf(tick));
+        try {
+            if (mutationClockStoreForTest != null) {
+                mutationClockStoreForTest.closeWindow(tick);
+            } else {
+                inInternalIoMode(() -> StatisticsUtil.execUpdate(PRUNE_HWM_OPEN_SQL, params,
+                        BASELINE_WRITE_TIMEOUT_SECONDS));
+            }
+        } catch (Exception e) {
+            LOG.warn("SPM mutation clock window {} could not be closed ({}); the snapshot"
+                    + " fence keeps retrying until its age bound", tick, e.getMessage());
         }
     }
 
@@ -5804,6 +6117,10 @@ public class BaselineManager {
 
     /** Reads SELECT_CLOCK_SQL (one all-NULL row when the slot is empty). */
     private static SnapshotFence readSnapshotFence() throws Exception {
+        if (mutationClockStoreForTest != null) {
+            long[] clock = mutationClockStoreForTest.clock();
+            return new SnapshotFence(clock[0], clock[1], clock[2], clock[3]);
+        }
         List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
                 SELECT_CLOCK_SQL, Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS));
         if (rows == null || rows.isEmpty()) {

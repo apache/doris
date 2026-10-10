@@ -1199,6 +1199,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * optimization and stop the plain user query from matching. A user-written INDEX
      * pin only survives in the user tree, so such queries never match a frozen text that
      * dropped the pin.
+     *
+     * A user-written INDEX pin is NOT lost to this asymmetry (round-54 #2): the pin is a
+     * SEMANTIC choice (on an aggregate-key table the forced rollup returns one aggregated
+     * row per rollup key while the base table returns one per record), the matching key
+     * carries it (UnboundRelation#toDigest renders "INDEX &lt;name&gt;", so only callers
+     * with the same pin match), and this method cannot reproduce it. The CREATE therefore
+     * declines the FREEZE for a statement that pins an index at all
+     * (SPMPlanTreeSupport#pinsExplicitIndex): the user planSql is kept, plan_frozen stays
+     * false, and the rewrite replays the parameterized tree, whose own analysis re-applies
+     * the pin - so the frozen-text path below is never asked to render one.
      */
     private static String renderScanModifiers(PhysicalRelation relation) {
         StringBuilder modifiers = new StringBuilder();

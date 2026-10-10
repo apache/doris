@@ -217,17 +217,30 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " LIMIT 1";
 
     /**
-     * The companion read of CHECKPOINT_SELECT_SQL: the
-     * MOST-BEHIND PENDING window, i.e. the reservation whose unconsumed prefix reaches
-     * furthest into the past. The token ordering alone HIDES such a row forever when its
-     * INSERT commits only after a later leader read the table as empty: leader A reserves
-     * [09:00,12:00), its row is still unreadable when B promotes and reads nothing, B
-     * appends [09:10,12:10) with a higher token - and A's row, once it DOES publish, is
-     * never the token-greatest one again. The 09:05 row inside A's unconsumed prefix then
-     * falls outside B's window and every later overlap: skipped permanently. A pending
-     * row (start > 0, start < end) is a window its writer has NOT fully consumed,
-     * so it is read here regardless of its token; the same-start tie prefers the writer
-     * that progressed furthest (higher token, later commit).
+     * The companion read of CHECKPOINT_SELECT_SQL: EVERY pending window (a reservation its
+     * writer has NOT fully consumed: start > 0, start < end), most-behind first, the writer
+     * that progressed furthest (higher token, later commit) first WITHIN one window.
+     *
+     * The token ordering alone HIDES such a row forever when its INSERT commits only after
+     * a later leader read the table as empty: leader A reserves [09:00,12:00), its row is
+     * still unreadable when B promotes and reads nothing, B appends [09:10,12:10) with a
+     * higher token - and A's row, once it DOES publish, is never the token-greatest one
+     * again. The 09:05 row inside A's unconsumed prefix then falls outside B's window and
+     * every later overlap: skipped permanently.
+     *
+     * The read is NOT limited to the single most-behind row. Two reservations taken under
+     * DIFFERENT filter snapshots can surface together (round-54 #4): a chain that scanned
+     * the earlier, STRICTER window under exactly its own pin has correctly consumed it,
+     * but the later window pinned a LOOSER filter whose short rows every scan of the
+     * stricter window skipped - treating the earlier row as "the" pending window hides the
+     * looser one, and the next progress prune deletes both once the (later) window end is
+     * consumed, permanently losing the short row. Every pending row is therefore read and
+     * judged by its OWN pinned filter (see chooseCheckpointRow / sweptByChain).
+     *
+     * The read stays bounded by the store: a pending row is only kept while some chain has
+     * not yet proven it consumed it (see CHECKPOINT_PRUNE_WINDOW_SQL), so the rows of one
+     * window collapse to the handful of DISTINCT (bounds, pinned filter) reservations in
+     * flight - the duplicates a chain writes while it drains one window are pruned with it.
      */
     private static final String CHECKPOINT_SELECT_PENDING_SQL =
             "SELECT " + CHECKPOINT_COLUMN_LIST + " FROM "
@@ -236,7 +249,7 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " AND `pending_window_start` > 0"
                     + " AND `pending_window_start` < `pending_window_end`"
                     + " ORDER BY `pending_window_start` ASC, `leader_epoch` DESC,"
-                    + " `write_seq` DESC, `update_time` DESC LIMIT 1";
+                    + " `write_seq` DESC, `update_time` DESC";
 
     /**
      * One APPEND of the checkpoint: a plain INSERT whose row carries the
@@ -272,27 +285,58 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " '${includePattern}', '${excludePattern}', '${scanZone}', NOW())";
 
     /**
-     * Best-effort garbage collection of the append-only checkpoint: removes
-     * the rows the just-written one supersedes - strictly older epochs, plus same-epoch
-     * rows with a lower write_seq. Correctness never depends on it (the reader's ORDER BY
+     * Best-effort garbage collection of the append-only checkpoint: removes the PROGRESS
+     * rows the just-written one supersedes - strictly older epochs, plus same-epoch rows
+     * with a lower write_seq. Correctness never depends on it (the reader's ORDER BY
      * ignores stale rows), so failures are swallowed by the caller.
      *
-     * A reservation row is EXEMPT while its window still extends BEYOND the just-written
-     * watermark: a late-committing earlier-epoch reservation must survive until a cycle
-     * can adopt it. A window the watermark has fully covered is CONSUMED - exempting it
-     * by its start alone kept a completed window selected as the earliest pending row
-     * forever: a promoted FE (scannedFromMillis reset) replayed that historical window,
-     * and the writer-zone rewind floor stayed pinned to its start, blocking old zones
-     * from retiring.
+     * A row carrying a PENDING WINDOW is never removed here: it is a reservation whose
+     * unconsumed prefix no other row accounts for, and only a chain that PROVED it consumed
+     * that window may drop it (see CHECKPOINT_PRUNE_WINDOW_SQL). The previous form kept a
+     * pending row only while the just-written watermark fell strictly INSIDE its window
+     * (start < lastScan < end), which a fresh successor (lastScan = 0) or a watermark that
+     * never reached the reservation's start (a late-committing earlier-epoch row, or one
+     * whose window reaches back below the successor's first window) matched NOWHERE: the
+     * DELETE then removed the earlier leader's ONLY readable reservation - before the
+     * adoption pass could see it - and its unconsumed prefix fell outside every later
+     * window and overlap. The rows are harmless while they linger (a chain that consumed
+     * one deletes it on its next persist), so keeping them is always safe.
      */
     private static final String CHECKPOINT_PRUNE_SQL =
             "DELETE FROM " + CHECKPOINT_TABLE
                     + " WHERE (`leader_epoch` < ${epoch}"
                     + " OR (`leader_epoch` = ${epoch} AND `write_seq` < ${seq}))"
                     + " AND NOT (`pending_window_start` > 0"
-                    + " AND `pending_window_start` < `pending_window_end`"
-                    + " AND `pending_window_start` < ${lastScan}"
-                    + " AND ${lastScan} < `pending_window_end`)";
+                    + " AND `pending_window_start` < `pending_window_end`)";
+
+    /**
+     * The reservation half of the prune: removes every superseded row of ONE pending window
+     * this chain PROVED it consumed (consumedByChain: a pass of this chain already scanned
+     * the window under EXACTLY the filter the row pins - the only sound evidence that the
+     * row's rows were judged by their own thresholds / patterns).
+     *
+     * Two properties make this safe against a late publication:
+     *
+     * - the deletion targets the (bounds, pinned filter) pair, never "everything below my
+     *   token": a reservation taken under a LOOSER filter keeps its own predicate and
+     *   survives every prune of a stricter sibling with the same bounds (whose scans
+     *   skipped exactly the rows the looser pin owns);
+     * - the victims come from an ENUMERATION (see pruneStaleCheckpointRows), so a row whose
+     *   INSERT only becomes readable between the visibility probe and this DELETE is not in
+     *   the victim set and stays readable for the adoption pass - the window a successor
+     *   must resume is never destroyed by the very row that supersedes it.
+     *
+     * The pin predicate is bound as one parameter: the four values come from the row the
+     * prune just read, and a row WITHOUT a pinned snapshot (a legacy / test fixture) only
+     * matches a NULL pin - it is never confused with a pinned window.
+     */
+    private static final String CHECKPOINT_PRUNE_WINDOW_SQL =
+            "DELETE FROM " + CHECKPOINT_TABLE
+                    + " WHERE (`leader_epoch` < ${epoch}"
+                    + " OR (`leader_epoch` = ${epoch} AND `write_seq` < ${seq}))"
+                    + " AND `pending_window_start` = ${windowStart}"
+                    + " AND `pending_window_end` = ${windowEnd}"
+                    + " AND ${pinPredicate}";
 
     private AuditLogScanner scanner = new AuditLogScanner();
 
@@ -535,6 +579,19 @@ public class PlanCaptureManager extends MasterDaemon {
      * pending window when one is still un-accounted-for (see readCheckpointRow).
      */
     private Supplier<List<ResultRow>> checkpointReader = this::readCheckpointRow;
+
+    /**
+     * The two single queries the production READ is built from (see readCheckpointRow):
+     * the token-greatest row and EVERY pending reservation. They are separate seams so a
+     * test can drive the REAL decision over a scripted store - installing only
+     * checkpointReader would skip the decision itself.
+     */
+    private Supplier<ResultRow> checkpointNewestReader =
+            () -> firstCheckpointRow(CHECKPOINT_SELECT_SQL);
+
+    /** The pending-reservation enumeration of the production read AND of the prune. */
+    private Supplier<List<ResultRow>> checkpointPendingReader =
+            () -> checkpointRows(CHECKPOINT_SELECT_PENDING_SQL);
 
     /** One checkpoint write statement. */
     @VisibleForTesting
@@ -1927,6 +1984,22 @@ public class PlanCaptureManager extends MasterDaemon {
      * window's unconsumed tail is lost permanently. The superseded rows are themselves
      * harmless while unreadable (the reader orders by token), so they stay until this
      * append is confirmed.
+     *
+     * Two statements, because a PROGRESS row and a PENDING WINDOW are not equally
+     * discardable:
+     *
+     * - every superseded row WITHOUT a pending window is removed by one token-scoped
+     *   sweep (CHECKPOINT_PRUNE_SQL): nothing durable depends on it, the reader's token
+     *   ordering already ignores it;
+     * - a superseded PENDING row is removed only when this chain PROVED it consumed that
+     *   window under the row's own pinned filter (consumedByChain, see
+     *   CHECKPOINT_PRUNE_WINDOW_SQL). The victims are enumerated HERE, from the rows the
+     *   store can currently read: a reservation whose INSERT only publishes between the
+     *   visibility probe above and the DELETE is not part of the victim set, so the
+     *   window a successor must adopt is never destroyed by the very row that supersedes
+     *   it. This is what keeps a late-committing earlier leader's reservation alive until
+     *   a cycle actually consumed it, instead of deleting it because the successor's own
+     *   watermark happened to sit outside its bounds (the reviewer's ${lastScan}=0 case).
      */
     private void pruneStaleCheckpointRows(Map<String, String> params, long epoch, long writeSeq) {
         if (!writtenCheckpointVisible(epoch, writeSeq)) {
@@ -1934,6 +2007,10 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " yet; the superseded rows stay until it is", epoch, writeSeq);
             return;
         }
+        // The progress sweep is INDEPENDENT of the enumeration below: its predicate
+        // excludes every pending window by construction (see CHECKPOINT_PRUNE_SQL), so it
+        // cannot remove a reservation whatever the enumeration returns - and a failed
+        // enumeration must not keep the plain progress rows alive.
         try {
             SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
                 try {
@@ -1948,6 +2025,90 @@ public class PlanCaptureManager extends MasterDaemon {
             // that matched 0 rows is not an error
             LOG.info("SPM capture checkpoint prune skipped: {}", pruneFailure.getMessage());
         }
+        List<ResultRow> pendingRows;
+        try {
+            pendingRows = checkpointPendingReader.get();
+        } catch (Exception readFailure) {
+            // fail closed for the RESERVATIONS: without the enumeration no pending row can
+            // be proven consumed, so none of them may be removed this time
+            LOG.info("SPM capture checkpoint reservation prune skipped: the pending"
+                    + " reservations could not be enumerated ({})", readFailure.getMessage());
+            return;
+        }
+        for (ResultRow row : pendingRows) {
+            if (!isPendingWindowRow(row) || !tokenBelow(row, epoch, writeSeq)
+                    || !consumedByChain(row)) {
+                continue;
+            }
+            Map<String, String> windowParams = new HashMap<>(params);
+            windowParams.put("windowStart", String.valueOf(parseLongValue(row.get(1))));
+            windowParams.put("windowEnd", String.valueOf(parseLongValue(row.get(2))));
+            windowParams.put("pinPredicate", pinnedFilterPredicate(row));
+            try {
+                SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
+                    try {
+                        checkpointWriter.write(CHECKPOINT_PRUNE_WINDOW_SQL, windowParams);
+                    } catch (Exception pruneFailure) {
+                        throw new RuntimeException(pruneFailure);
+                    }
+                    return null;
+                });
+            } catch (Exception pruneFailure) {
+                LOG.info("SPM capture checkpoint window prune skipped: {}",
+                        pruneFailure.getMessage());
+            }
+        }
+    }
+
+    /** Whether one stored row's write token precedes the token just written. */
+    private static boolean tokenBelow(ResultRow row, long epoch, long writeSeq) {
+        long rowEpoch = parseLongValue(row.get(14));
+        long rowSeq = parseLongValue(row.get(15));
+        return rowEpoch < epoch || (rowEpoch == epoch && rowSeq < writeSeq);
+    }
+
+    /**
+     * Whether THIS chain has PROVABLY consumed one pending row's window: a pass of the
+     * chain scanned (at least) that window under EXACTLY the filter snapshot the row pins,
+     * which is the only evidence that the row's rows were judged by their own thresholds /
+     * patterns (see sweptRangesByFilter). The weaker read-path rule - "inside the chain's
+     * contiguous coverage and pinned to the filter it applies now" (sweptByChain) - is NOT
+     * enough here: it also accepts windows the chain only WILL scan, and a reservation must
+     * survive until a cycle actually consumed it (the reviewer's publication-between-probe-
+     * and-prune case).
+     *
+     * An UNPINNED row (a legacy / test fixture that follows the globals) is consumed once
+     * the chain's contiguous coverage starts at or before its window AND the watermark has
+     * moved past its end - both durable progress this process only reaches after a scan.
+     */
+    private boolean consumedByChain(ResultRow row) {
+        long start = parseLongValue(row.get(1));
+        long end = parseLongValue(row.get(2));
+        PlanCaptureFilter pinned = pinnedFilterOf(row);
+        if (pinned != null) {
+            return coveredBySweep(filterSnapshotKey(pinned), start, end);
+        }
+        return scannedFromMillis > 0 && start >= scannedFromMillis && lastScanTimestamp >= end;
+    }
+
+    /**
+     * The SQL predicate matching one pending row's PINNED filter snapshot (see
+     * pinnedFilterOf). The values are read back from the store, so they are re-escaped for
+     * the generated statement. A row WITHOUT a pinned snapshot only matches a NULL pin: it
+     * must never be confused with a row whose pin happens to describe the same window.
+     */
+    private static String pinnedFilterPredicate(ResultRow row) {
+        PlanCaptureFilter pinned = pinnedFilterOf(row);
+        if (pinned == null) {
+            return "`min_query_time_ms` IS NULL AND `min_scan_rows` IS NULL"
+                    + " AND `include_pattern` IS NULL AND `exclude_pattern` IS NULL";
+        }
+        return "`min_query_time_ms` = " + pinned.getMinQueryTimeMs()
+                + " AND `min_scan_rows` = " + pinned.getMinScanRows()
+                + " AND `include_pattern` = '"
+                + StatisticsUtil.escapeSQL(pinned.getIncludePatternText()) + "'"
+                + " AND `exclude_pattern` = '"
+                + StatisticsUtil.escapeSQL(pinned.getExcludePatternText()) + "'";
     }
 
     /**
@@ -2237,16 +2398,18 @@ public class PlanCaptureManager extends MasterDaemon {
      * always the token-greatest one. The append-only table keeps an EARLIER leader's
      * pending reservation even when its INSERT commits only after this process's first
      * read, and the token ordering then hides it forever - see
-     * CHECKPOINT_SELECT_PENDING_SQL. The read therefore also asks for the
-     * most-behind pending window and prefers it over the newest progress unless
-     * chooseCheckpointRow decides otherwise.
+     * CHECKPOINT_SELECT_PENDING_SQL. The read therefore also asks for EVERY pending window
+     * (not merely the most-behind one: a later reservation pinned to a LOOSER filter has
+     * rows the earlier window's stricter scans skipped, round-54 #4) and prefers the
+     * most-behind window this chain has not proven consumed over the newest progress,
+     * unless chooseCheckpointRow decides otherwise.
      *
      * @return the resolved row as a one-element list (empty when the store has no row)
      */
     private List<ResultRow> readCheckpointRow() {
-        ResultRow newest = firstCheckpointRow(CHECKPOINT_SELECT_SQL);
-        ResultRow behind = firstCheckpointRow(CHECKPOINT_SELECT_PENDING_SQL);
-        ResultRow chosen = chooseCheckpointRow(newest, behind, pendingWindowStart,
+        ResultRow newest = checkpointNewestReader.get();
+        List<ResultRow> pending = checkpointPendingReader.get();
+        ResultRow chosen = chooseCheckpointRow(newest, pending, pendingWindowStart,
                 pendingWindowEnd, scannedFromMillis, activeChainFilter(), this::sweptByChain);
         if (chosen != null && chosen != newest && LOG.isDebugEnabled()) {
             LOG.debug("SPM capture checkpoint read: preferring the earlier pending window"
@@ -2258,16 +2421,22 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /** The first row of one checkpoint query; null when the store has none. */
     private static ResultRow firstCheckpointRow(String sql) {
+        List<ResultRow> rows = checkpointRows(sql);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** Every row of one checkpoint query (empty when the store holds none). */
+    private static List<ResultRow> checkpointRows(String sql) {
         List<ResultRow> rows = StatisticsUtil.executeQuery(sql, Collections.emptyMap(),
                 CHECKPOINT_IO_TIMEOUT_SECONDS);
-        return rows == null || rows.isEmpty() ? null : rows.get(0);
+        return rows == null ? Collections.emptyList() : rows;
     }
 
     /**
-     * Which of the two candidate rows a read resolves to (pure so the
+     * Which of the candidate rows a read resolves to (pure so the
      * priority is testable without a store).
      *
-     * The most-behind pending row WINS - it names a window whose unconsumed prefix no
+     * The most-behind pending window WINS - it names a window whose unconsumed prefix no
      * token-greater row accounts for - UNLESS
      *   it is not a pending window (start <= 0 or start >= end): the
      *       token row is the state to resume;
@@ -2287,10 +2456,21 @@ public class PlanCaptureManager extends MasterDaemon {
      *       reservation taken under LOOSER thresholds before a SET GLOBAL tightened
      *       them) still owns rows the chain's scans skipped, so it must be adopted /
      *       re-scanned with its saved filter instead of being called consumed
-     *       (round-52 #1);
+     *       (round-52 #1).
+     *
+     * EVERY pending row is judged, not only the most-behind one (round-54 #4): a window
+     * the chain swept hides nothing, so the iteration CONTINUES to the next window instead
+     * of falling back to the token-greatest progress. Two reservations that surface
+     * together - the earlier one under a STRICTER pin the chain scanned, the later one
+     * under a LOOSER pin whose short rows those scans skipped - therefore resolve to the
+     * looser one, which is adopted and re-scanned with its own saved filter.
+     *
+     * Rows are deduplicated by (bounds, pinned filter): they describe ONE state, and the
+     * ordering (start ASC, token DESC) makes the first occurrence the highest token of that
+     * state, i.e. the one that progressed furthest.
      *
      * @param newest the token-greatest row (null = none)
-     * @param behind the most-behind pending row (null = none)
+     * @param behind the most-behind pending row the store resolved (null = none)
      * @param currentPendingStart this process's current pending window start
      * @param currentPendingEnd this process's current pending window end
      * @param scannedFrom the earliest window start THIS process began scanning (0 = none)
@@ -2299,8 +2479,8 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public static ResultRow chooseCheckpointRow(ResultRow newest, ResultRow behind,
             long currentPendingStart, long currentPendingEnd, long scannedFrom) {
-        return chooseCheckpointRow(newest, behind, currentPendingStart, currentPendingEnd,
-                scannedFrom, null);
+        return chooseCheckpointRow(newest, pendingAsList(behind), currentPendingStart,
+                currentPendingEnd, scannedFrom, null);
     }
 
     /**
@@ -2312,7 +2492,22 @@ public class PlanCaptureManager extends MasterDaemon {
     public static ResultRow chooseCheckpointRow(ResultRow newest, ResultRow behind,
             long currentPendingStart, long currentPendingEnd, long scannedFrom,
             PlanCaptureFilter activeFilter) {
-        return chooseCheckpointRow(newest, behind, currentPendingStart, currentPendingEnd,
+        return chooseCheckpointRow(newest, pendingAsList(behind), currentPendingStart,
+                currentPendingEnd, scannedFrom, activeFilter,
+                row -> scannedFrom > 0 && parseLongValue(row.get(1)) >= scannedFrom
+                        && samePinnedFilter(row, activeFilter));
+    }
+
+    /**
+     * The list overload of the decision, with the chain's coverage record replaced by the
+     * coverage-only predicate: the pure form a test can drive (the record is per-process
+     * state the static overloads cannot see).
+     */
+    @VisibleForTesting
+    public static ResultRow chooseCheckpointRow(ResultRow newest, List<ResultRow> pending,
+            long currentPendingStart, long currentPendingEnd, long scannedFrom,
+            PlanCaptureFilter activeFilter) {
+        return chooseCheckpointRow(newest, pending, currentPendingStart, currentPendingEnd,
                 scannedFrom, activeFilter,
                 row -> scannedFrom > 0 && parseLongValue(row.get(1)) >= scannedFrom
                         && samePinnedFilter(row, activeFilter));
@@ -2320,33 +2515,57 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * The production decision: the same rule, with the CHAIN's own coverage record
-     * injected (see sweptByChain / sweptRangesByFilter). The static test overloads above
-     * keep the coverage-only predicate - the record is per-process state the pure
-     * decision cannot see.
+     * injected (see sweptByChain / sweptRangesByFilter).
      */
-    static ResultRow chooseCheckpointRow(ResultRow newest, ResultRow behind,
+    static ResultRow chooseCheckpointRow(ResultRow newest, List<ResultRow> pending,
             long currentPendingStart, long currentPendingEnd, long scannedFrom,
             PlanCaptureFilter activeFilter, Predicate<ResultRow> sweptByChain) {
-        if (behind == null || !isPendingWindowRow(behind)) {
-            return newest; // nothing behind, or the behind row is not a pending window
+        if (pending == null || pending.isEmpty()) {
+            return newest; // nothing pending: the token-greatest progress is the state
         }
-        if (newest == null) {
-            return behind;
+        Set<String> judgedWindows = new HashSet<>();
+        for (ResultRow row : pending) {
+            if (!isPendingWindowRow(row)) {
+                continue; // not a pending window (a legacy / fabricated row)
+            }
+            if (!judgedWindows.add(pendingWindowIdentity(row))) {
+                continue; // a lower-token duplicate of a window already judged
+            }
+            if (newest != null && newest.getValues().size() > 2
+                    && parseLongValue(row.get(1)) == parseLongValue(newest.get(1))
+                    && parseLongValue(row.get(2)) == parseLongValue(newest.get(2))) {
+                return newest; // the same window: the higher token is at least as new
+            }
+            if (parseLongValue(row.get(1)) == currentPendingStart
+                    && parseLongValue(row.get(2)) == currentPendingEnd) {
+                continue; // the window this process already consumes
+            }
+            if (sweptByChain.test(row)) {
+                // already swept / will be swept by this process's chain: the NEXT window is
+                // the one that can still own unjudged rows
+                continue;
+            }
+            return row;
         }
-        long behindStart = parseLongValue(behind.get(1));
-        long behindEnd = parseLongValue(behind.get(2));
-        if (newest.getValues().size() > 2
-                && behindStart == parseLongValue(newest.get(1))
-                && behindEnd == parseLongValue(newest.get(2))) {
-            return newest; // the same window: the higher token is at least as new
-        }
-        if (behindStart == currentPendingStart && behindEnd == currentPendingEnd) {
-            return newest; // the window this process already consumes
-        }
-        if (sweptByChain.test(behind)) {
-            return newest; // already swept / will be swept by this process's chain
-        }
-        return behind;
+        return newest;
+    }
+
+    /** The single-row overloads' candidate list (null = the store resolved none). */
+    private static List<ResultRow> pendingAsList(ResultRow behind) {
+        return behind == null ? Collections.emptyList() : Collections.singletonList(behind);
+    }
+
+    /**
+     * The identity of one pending window as a READ dependency: its bounds plus its PINNED
+     * filter snapshot (see pinnedFilterOf). Two rows sharing it describe one state, so the
+     * read keeps only the highest token of each (the ordering makes it the first
+     * occurrence); rows whose pin differs stay separate states - exactly the pair the
+     * deduplication must not collapse.
+     */
+    private static String pendingWindowIdentity(ResultRow row) {
+        PlanCaptureFilter pinned = pinnedFilterOf(row);
+        return parseLongValue(row.get(1)) + "|" + parseLongValue(row.get(2)) + "|"
+                + (pinned == null ? "" : filterSnapshotKey(pinned));
     }
 
     /**
@@ -2872,6 +3091,8 @@ public class PlanCaptureManager extends MasterDaemon {
         this.filter = buildFilterFromGlobal();
         // restore the production read / write seams (tests replace them)
         checkpointReader = this::readCheckpointRow;
+        checkpointNewestReader = () -> firstCheckpointRow(CHECKPOINT_SELECT_SQL);
+        checkpointPendingReader = () -> checkpointRows(CHECKPOINT_SELECT_PENDING_SQL);
         checkpointWriter = (sql, params) -> {
             QueryState state = StatisticsUtil.execUpdate(sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
             if (state != null && !checkpointWriteAccepted(state.getAffectedRows())) {
@@ -3184,6 +3405,27 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public void setCheckpointReaderForTest(Supplier<List<ResultRow>> reader) {
         this.checkpointReader = reader;
+        this.checkpointSeamsForTest = true;
+    }
+
+    /**
+     * For tests: scripts the token-greatest-row read of the PRODUCTION checkpoint read
+     * (see readCheckpointRow), so the real decision over the pending reservations stays
+     * under test. A null result means "the store holds no row".
+     */
+    @VisibleForTesting
+    public void setCheckpointNewestReaderForTest(Supplier<ResultRow> reader) {
+        this.checkpointNewestReader = reader;
+        this.checkpointSeamsForTest = true;
+    }
+
+    /**
+     * For tests: scripts the pending-reservation enumeration the production read AND the
+     * prune iterate (see readCheckpointRow / pruneStaleCheckpointRows).
+     */
+    @VisibleForTesting
+    public void setCheckpointPendingReaderForTest(Supplier<List<ResultRow>> reader) {
+        this.checkpointPendingReader = reader;
         this.checkpointSeamsForTest = true;
     }
 

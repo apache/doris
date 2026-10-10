@@ -897,6 +897,19 @@ public class SPMPlanner {
         boolean foldedSessionSensitivePayload =
                 SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(bindPlan)
                         || SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(planPlan);
+        // An explicit `FROM t INDEX mv` pin is a SEMANTIC choice (on an aggregate-key
+        // table a coarser rollup returns aggregated rows where the base table returns one
+        // per record), and the decompiled text cannot carry it: the physical scan only
+        // knows the SELECTED index id - which every optimizer-side rollup / MV choice sets
+        // as well - while the matching key DOES carry the pin (the digest renders INDEX
+        // <name>, so only callers with the same pin match). A frozen "FROM t" would then
+        // read the base table for a pinned caller, silently returning finer-grained rows;
+        // the replan probe does not catch it (the text is valid) and the schema
+        // fingerprint does not hash the selection. Decline the freeze exactly like the
+        // view / session-sensitive-payload guards: the raw planSql is kept and the rewrite
+        // replays the parameterized tree, whose own analysis re-applies the pin.
+        boolean pinsExplicitIndex = SPMPlanTreeSupport.pinsExplicitIndex(bindPlan)
+                || SPMPlanTreeSupport.pinsExplicitIndex(planPlan);
 
         SPMOptimizer.OptimizeResult optimizeResult;
         DecompiledPlan frozen;
@@ -915,7 +928,7 @@ public class SPMPlanner {
             optimizeResult = SPMOptimizer.optimize(ctx,
                     SPMPlanTreeSupport.stripCheckPolicy(parameterizedPlan), planSql);
             frozen = decompileFrozenPlan(referencesView, foldedSessionSensitivePayload,
-                    optimizeResult, planSql);
+                    pinsExplicitIndex, optimizeResult, planSql);
         } catch (UserException | RuntimeException e) {
             // When the parameterized tree cannot be planned (e.g. a placeholder cannot
             // survive some analyzer path yet), fall back to optimizing the raw planSql -
@@ -1120,13 +1133,16 @@ public class SPMPlanner {
      * planSql text is kept when the decompiler does not support the plan (recursive CTE,
      * future operators, ...), when the plan references a view (the frozen text is
      * replayed ahead of authorization, and replaying a view's base-table expansion would
-     * authorize those base tables instead of the view), or when an inline VALUES cell /
+     * authorize those base tables instead of the view), when an inline VALUES cell /
      * * REPLACE payload folds a session-zone dependent call the CALLER's session must
      * evaluate for itself (see
-     * SPMPlanTreeSupport#containsFoldedSessionSensitivePayload).
+     * SPMPlanTreeSupport#containsFoldedSessionSensitivePayload), or when the statement
+     * pins a materialized view / rollup with an explicit INDEX clause (the decompiled
+     * text cannot carry the pin, and dropping it would read the base table instead of the
+     * pinned - possibly coarser - index; see SPMPlanTreeSupport#pinsExplicitIndex).
      */
     private static DecompiledPlan decompileFrozenPlan(boolean referencesView,
-            boolean foldedSessionSensitivePayload,
+            boolean foldedSessionSensitivePayload, boolean pinsExplicitIndex,
             SPMOptimizer.OptimizeResult optimizeResult, String planSql) {
         if (referencesView) {
             LOG.info("SPM freeze skipped: the plan references a view; keeping the user planSql"
@@ -1139,6 +1155,14 @@ public class SPMPlanner {
                     + " session-time-zone dependent value; keeping the user planSql so the"
                     + " rewrite replays the parameterized tree, where the caller's own"
                     + " session evaluates the expression");
+            return new DecompiledPlan(planSql, false);
+        }
+        if (pinsExplicitIndex) {
+            LOG.info("SPM freeze skipped: the statement pins a materialized view / rollup"
+                    + " with an explicit INDEX clause, which the decompiled text cannot"
+                    + " carry (dropping it would read the base table instead of the pinned"
+                    + " index); keeping the user planSql so the rewrite replays the"
+                    + " parameterized tree, whose analysis re-applies the pin");
             return new DecompiledPlan(planSql, false);
         }
         try {

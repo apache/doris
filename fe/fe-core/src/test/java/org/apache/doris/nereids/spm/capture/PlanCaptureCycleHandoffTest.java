@@ -363,6 +363,181 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
+     * Round-54 #1: a reservation that becomes readable around the successor's FIRST prune
+     * must survive it. Master A reserves [100, 200) and its row stays unreadable while B
+     * promotes and loads an EMPTY store; B derives its own later window, and its first
+     * persist prunes the rows it supersedes. The previous exemption kept a pending row only
+     * while the just-written watermark fell strictly INSIDE its window
+     * (start &lt; lastScan &lt; end) - B's fresh watermark is 0, so NOTHING was exempt, the
+     * DELETE removed A's row, and with it the only record of the unconsumed prefix
+     * [100, ...): the 09:05 audit row of that prefix then fell outside B's window and
+     * every later overlap. The prune now removes a pending row only when THIS chain proved
+     * it consumed the window, and only rows the enumeration could SEE become victims - a
+     * row whose INSERT lands while the DELETE is already in flight is never one of them.
+     */
+    @Test
+    public void testLatePendingReservationSurvivesTheSuccessorFirstPrune() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // A's reservation: window [100, 200), pinned to its OWN snapshot
+            // (500 ms / 0 scanned rows), written with the older token 100:5
+            ResultRow deadLeader = new ResultRow(List.of("0", "100", "200", "0", "", "",
+                    "{}", "{}", "", "500", "0", "", "", "", "100", "5"));
+            AtomicBoolean published = new AtomicBoolean(false);
+            // the store holds the last row this process APPENDED; A's late row only appears
+            // in the pending enumeration, once it published (its token stays BELOW ours)
+            AtomicReference<Map<String, String>> stored = new AtomicReference<>();
+            manager.setCheckpointNewestReaderForTest(() ->
+                    stored.get() == null ? null : checkpointRow(stored.get()));
+            manager.setCheckpointPendingReaderForTest(
+                    () -> published.get() ? List.of(deadLeader) : List.of());
+            List<Map<String, String>> inserts = new ArrayList<>();
+            List<String[]> deletes = new ArrayList<>();
+            manager.setCheckpointEpochForTest(() -> 900L);
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (sql.startsWith("INSERT")) {
+                    inserts.add(new HashMap<>(params));
+                    stored.set(new HashMap<>(params));
+                    return;
+                }
+                deletes.add(new String[] {sql, params.getOrDefault("windowStart", "")});
+                // A's row lands while the DELETE is already dispatched: exactly the
+                // publication between the visibility probe / enumeration and the prune
+                published.set(true);
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+
+            // cycle 1: B loads nothing and derives its own window; its reservation persist
+            // prunes the rows that reservation supersedes - and A's row publishes exactly
+            // while that DELETE is in flight
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "the cycle must abort over the late reservation instead of scanning its"
+                            + " own window");
+            Assertions.assertFalse(deletes.isEmpty(), "the cycle pruned its superseded rows");
+            Assertions.assertTrue(published.get(),
+                    "precondition: the reservation published around the prune");
+            for (String[] delete : deletes) {
+                Assertions.assertFalse(delete[0].contains("`pending_window_start` = "),
+                        "this chain consumed no pending window, so no reservation may be"
+                                + " pruned: " + delete[0]);
+                Assertions.assertTrue(delete[0].contains("NOT (`pending_window_start` > 0"),
+                        "the progress sweep must exclude every pending reservation: "
+                                + delete[0]);
+            }
+            // the late row is ADOPTED (not pruned): its unconsumed prefix is now the window
+            // this process must consume, although its watermark already stands beyond it
+            Object[] adopted = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(100L, ((Number) adopted[1]).longValue(),
+                    "the late reservation's window is adopted");
+            Assertions.assertEquals(200L, ((Number) adopted[2]).longValue());
+            Assertions.assertEquals("500",
+                    inserts.get(inserts.size() - 1).get("minQueryTimeMs"),
+                    "the write-back keeps the reservation's OWN pinned filter");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the adopted window resumes promptly");
+
+            // cycle 2: the adopted window is consumed with ITS saved filter - and only now
+            // may its reservation row be pruned (the chain proved the consumption)
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertArrayEquals(new long[] {100L, 200L}, scanner.windows.get(0),
+                    "the late window is scanned after the adoption");
+            Assertions.assertArrayEquals(new long[] {500L, 0L}, scanner.thresholds.get(0),
+                    "the resumed window keeps its captured thresholds");
+            Assertions.assertTrue(deletes.stream().anyMatch(d -> "100".equals(d[1])),
+                    "once the window IS consumed its reservation row may be pruned: "
+                            + deletes.stream().map(d -> d[0]).collect(
+                                    java.util.stream.Collectors.toList()));
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * Round-54 #4: EVERY pending reservation must be judged by its OWN pinned filter - the
+     * most-behind one alone is not enough. F1 reserves [100, 200) with a STRICT pin
+     * (1000 ms / 1000 rows) and this chain scans exactly that window under exactly that
+     * pin, so F1 is correctly considered consumed. F0 reserves [110, 210) with a LOOSE pin
+     * (0 / 0) and surfaces in the same read: its short rows (100 ms / 10 scanned rows) were
+     * excluded by F1's SQL, so they were never captured. A read that stops at the
+     * most-behind row returns the consumed F1 row, falls back to the token-greatest
+     * progress and HIDES F0; the next progress prune then deletes both once their ends are
+     * passed, permanently losing the short row. The read must enumerate the reservations,
+     * judge each by its own pin, and adopt F0 with its saved filter.
+     */
+    @Test
+    public void testLaterPendingReservationWithALooserPinIsAdopted() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        SessionVariable global = VariableMgr.getDefaultSessionVariable();
+        try {
+            // F1 (the earlier, STRICTER reservation) and F0 (the later, LOOSER one) both
+            // stay readable; the token-greatest row is this chain's own progress
+            ResultRow strict = new ResultRow(List.of("0", "100", "200", "0", "", "",
+                    "{}", "{}", "", "1000", "1000", "", "", "", "700", "1"));
+            ResultRow loose = new ResultRow(List.of("0", "110", "210", "0", "", "",
+                    "{}", "{}", "", "0", "0", "", "", "", "650", "9"));
+            ResultRow progress = new ResultRow(List.of("200", "0", "0", "-1", "", "",
+                    "{}", "{}", "", "-1", "-1", "", "", "", "900", "1"));
+            AtomicReference<List<ResultRow>> pending = new AtomicReference<>(List.of(strict));
+            manager.setCheckpointNewestReaderForTest(() -> pending.get().size() > 1
+                    ? progress : null);
+            manager.setCheckpointPendingReaderForTest(pending::get);
+            List<Map<String, String>> inserts = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (sql.startsWith("INSERT")) {
+                    inserts.add(new HashMap<>(params));
+                }
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            // the chain's CURRENT globals differ from BOTH pins, so neither reservation is
+            // "covered by the active filter" on its start alone
+            PlanCaptureFilter tightened = new PlanCaptureFilter("", "", 300L, 0L);
+
+            // cycle 1: the chain resumes F1's window and scans it under F1's OWN pin
+            manager.runCaptureCycle(global, tightened);
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertArrayEquals(new long[] {100L, 200L}, scanner.windows.get(0),
+                    "the chain consumes F1's reservation");
+            Assertions.assertArrayEquals(new long[] {1000L, 1000L}, scanner.thresholds.get(0),
+                    "the resumed window keeps F1's pinned snapshot");
+
+            // F0 surfaces in the SAME read as the consumed F1 row
+            pending.set(List.of(strict, loose));
+            manager.runCaptureCycle(global, tightened);
+            Assertions.assertEquals(1, scanner.calls.get(),
+                    "the cycle must abort and adopt F0 instead of consuming its own window"
+                            + " over it");
+            Object[] adopted = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(110L, ((Number) adopted[1]).longValue(),
+                    "the LATER reservation is adopted: the consumed earlier one must not"
+                            + " hide it");
+            Assertions.assertEquals(210L, ((Number) adopted[2]).longValue());
+            Assertions.assertEquals("0",
+                    inserts.get(inserts.size() - 1).get("minQueryTimeMs"),
+                    "the write-back keeps F0's OWN loose pin");
+
+            // cycle 3: F0 is re-scanned with ITS saved filter, so the short rows F1's
+            // stricter SQL skipped are captured after all
+            manager.runCaptureCycle(global, tightened);
+            Assertions.assertEquals(2, scanner.calls.get());
+            Assertions.assertArrayEquals(new long[] {110L, 210L}, scanner.windows.get(1));
+            Assertions.assertArrayEquals(new long[] {0L, 0L}, scanner.thresholds.get(1),
+                    "the re-scan uses F0's SAVED filter, not the current globals");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
      * The zone-pass credit belongs to the WINDOW. This process staged its
      * own derived window in UTC (the pass about to run is credited at once), then adopted
      * an earlier leader's pending window whose row was RENDERED in another zone

@@ -854,14 +854,21 @@ public class PlanCaptureTest {
         manager.resetForTest();
     }
 
-    // (comment #5): a COMPLETED reservation must be pruned. Exempting a pending row by
-    // its start alone kept a consumed window (start < lastScan, end <= lastScan) selected
-    // as the earliest pending row forever: a promoted FE (scannedFromMillis reset)
-    // replayed that historical window, and the writer-zone rewind floor stayed pinned to
-    // its start, blocking old zones from retiring. Only a window still EXTENDING BEYOND
-    // the just-written watermark is exempt.
+    /**
+     * Round-54 #1 / #4: a PENDING reservation is never removed by the token-scoped
+     * progress sweep - the sweep's predicate excludes every row carrying a pending window,
+     * whatever its bounds and whatever the just-written watermark is. The previous form
+     * exempted a row only while the watermark fell strictly INSIDE its window
+     * (start &lt; lastScan &lt; end), so a successor whose fresh watermark was 0 (an empty
+     * read) deleted an earlier leader's late-committing reservation before the adoption
+     * pass could see it, losing that window's unconsumed prefix permanently. Such a row is
+     * removed only by the per-window statement, after THIS chain proved it consumed the
+     * window under the row's own pinned filter (see
+     * PlanCaptureCycleHandoffTest#testLatePendingReservationSurvivesTheSuccessorFirstPrune
+     * and #testLaterPendingReservationWithALooserPinIsAdopted).
+     */
     @Test
-    public void testCheckpointPruneKeepsOnlyWindowsStillExtendingBeyondTheWatermark() {
+    public void testCheckpointProgressSweepNeverRemovesAPendingReservation() {
         PlanCaptureManager manager = PlanCaptureManager.getInstance();
         manager.resetForTest();
         List<String> statements = new ArrayList<>();
@@ -873,9 +880,14 @@ public class PlanCaptureTest {
         String prune = statements.get(1);
         Assertions.assertTrue(prune.startsWith("DELETE FROM"), prune);
         Assertions.assertTrue(prune.contains(
-                "`pending_window_start` < ${lastScan} AND ${lastScan} < `pending_window_end`"),
-                "a reservation is exempt only while its window still extends beyond the"
-                        + " just-written watermark: " + prune);
+                "NOT (`pending_window_start` > 0"
+                        + " AND `pending_window_start` < `pending_window_end`)"),
+                "the progress sweep must exclude every pending reservation: " + prune);
+        Assertions.assertFalse(prune.contains("`lastScan`"),
+                "the sweep no longer judges a reservation by the watermark: " + prune);
+        Assertions.assertFalse(prune.contains("`pending_window_start` = "),
+                "a reservation may only be removed by a proven-consumed window prune, and"
+                        + " no window was consumed here: " + prune);
         manager.resetForTest();
     }
     // ==================== unavailable external metadata stays retryable ====================
