@@ -28,7 +28,9 @@ public interface ConnectorColumnHandle extends Serializable {
 
     /**
      * Returns a handle scoped to the stable field IDs that the engine actually projected below this
-     * top-level column. Connectors that do not use stable nested IDs keep the original opaque handle.
+     * top-level column. The engine also invokes this method with an empty set for a name-based nested
+     * projection whose schema does not publish stable field IDs. Connectors that do not need nested
+     * projection information keep the original opaque handle.
      */
     default ConnectorColumnHandle withProjectedFieldIds(Set<Integer> projectedFieldIds) {
         return this;

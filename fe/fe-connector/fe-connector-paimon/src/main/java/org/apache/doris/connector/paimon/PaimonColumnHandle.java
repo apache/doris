@@ -20,6 +20,7 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Column handle for Paimon tables.
@@ -31,10 +32,16 @@ public class PaimonColumnHandle implements ConnectorColumnHandle {
 
     private final String name;
     private final int fieldIndex;
+    private final boolean nestedProjection;
 
     public PaimonColumnHandle(String name, int fieldIndex) {
+        this(name, fieldIndex, false);
+    }
+
+    private PaimonColumnHandle(String name, int fieldIndex, boolean nestedProjection) {
         this.name = Objects.requireNonNull(name, "name");
         this.fieldIndex = fieldIndex;
+        this.nestedProjection = nestedProjection;
     }
 
     public String getName() {
@@ -47,6 +54,15 @@ public class PaimonColumnHandle implements ConnectorColumnHandle {
 
     public boolean isMetadataColumn() {
         return fieldIndex < 0;
+    }
+
+    public boolean hasNestedProjection() {
+        return nestedProjection;
+    }
+
+    @Override
+    public ConnectorColumnHandle withProjectedFieldIds(Set<Integer> fieldIds) {
+        return new PaimonColumnHandle(name, fieldIndex, true);
     }
 
     @Override

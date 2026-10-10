@@ -125,6 +125,7 @@ public:
     void collect_slot_column_ids(std::set<int>& column_ids) const override;
 
     int filter_id() const { return _filter_id; }
+    bool is_null_aware() const { return _null_aware; }
 
     std::shared_ptr<const std::vector<uint32_t>> get_bucket_prune_hashes(
             const DataTypePtr& target_type) const;
