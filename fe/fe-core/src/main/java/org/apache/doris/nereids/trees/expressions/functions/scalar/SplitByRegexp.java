@@ -23,11 +23,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -79,9 +81,15 @@ public class SplitByRegexp extends ScalarFunction
     public void checkLegalityBeforeTypeCoercion() {
         List<Expression> arguments = getArguments();
         if (arguments.size() == 3) {
-            Expression thirdArgument = getArgument(2);
-            if (!thirdArgument.isConstant() || !(thirdArgument instanceof IntegerLikeLiteral)
-                    || (((IntegerLikeLiteral) thirdArgument).getIntValue() < 0)) {
+            // validate the value FE can evaluate here, because constant folding may remove this function before
+            // any later check; the type is checked before the type coercion casts the argument to the INT
+            // signature, and the value of a constant FE cannot fold is validated by BE when it is evaluated.
+            // A typed NULL, e.g. cast(null as int), is an integral constant but not a positive one.
+            Expression thirdArgument = ExpressionUtils.foldConstantArgument(getArgument(2));
+            if (!thirdArgument.isConstant() || !thirdArgument.getDataType().isIntegralType()
+                    || thirdArgument instanceof NullLiteral
+                    || (thirdArgument instanceof IntegerLikeLiteral
+                    && ((IntegerLikeLiteral) thirdArgument).getIntValue() < 0)) {
                 throw new AnalysisException("the third parameter of "
                         + getName() + " function must be a positive constant: " + toSql());
             }

@@ -63,41 +63,86 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 3; }
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2}; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
+        DCHECK(remove_nullable(arguments[0])->get_primitive_type() == TYPE_ARRAY)
                 << "first argument for function: " << name << " should be DataTypeArray"
                 << " and arguments[0] is " << arguments[0]->get_name();
-        return arguments[0];
+        // use_default_implementation_for_nulls() is disabled below, so, unlike the usual
+        // get_return_type_impl contract, arguments here keep their original nullability and the
+        // wrapping is not automatic: replicate it by hand from every argument.
+        bool nullable = arguments[0]->is_nullable() || arguments[1]->is_nullable() ||
+                        arguments[2]->is_nullable();
+        DataTypePtr base = remove_nullable(arguments[0]);
+        return nullable ? make_nullable(base) : base;
     }
+
+    // op is validated below before the NULL check propagates it like an ordinary value, so the
+    // generic nullable-argument shortcut must not run first and silently return NULL for it.
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        ColumnPtr src_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (input_rows_count == 0) {
+            block.replace_by_position(result, block.get_by_position(result).type->create_column());
+            return Status::OK();
+        }
+
+        // op is a constant checked in FE: either a literal or a value only BE can evaluate. A
+        // literal NULL is rejected by FE, so a BE-evaluated NULL is rejected here as well, instead
+        // of silently propagating NULL through the generic nullable-argument shortcut below.
+        if (block.get_by_position(arguments[1]).column->is_null_at(0)) {
+            return Status::InvalidArgument(
+                    "array_apply(arr, op, val): op support const value only.");
+        }
+
+        const ColumnWithTypeAndName& src_with_type = block.get_by_position(arguments[0]);
+        const ColumnWithTypeAndName& val_with_type = block.get_by_position(arguments[2]);
+        bool src_nullable = src_with_type.type->is_nullable();
+        bool val_nullable = val_with_type.type->is_nullable();
+        // op is nullable-typed when one branch of a BE-only expression (e.g. an IF) is NULL, even
+        // though the branch actually taken, and thus the row-0 value read below, is not: the NULL
+        // check above already rejects an actual NULL, so op never contributes to the null map.
+        bool op_nullable = block.get_by_position(arguments[1]).type->is_nullable();
+        NullableColumnInfo src_info =
+                src_nullable ? src_with_type.get_nullable_column_info() : NullableColumnInfo {};
+        NullableColumnInfo val_info =
+                val_nullable ? val_with_type.get_nullable_column_info() : NullableColumnInfo {};
+        if ((src_nullable && src_info.only_null) || (val_nullable && val_info.only_null)) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column_const(input_rows_count,
+                                                                            Field());
+            return Status::OK();
+        }
+
+        ColumnWithTypeAndName unnested_src =
+                src_nullable ? src_with_type.unnest_nullable(src_info, false) : src_with_type;
+        const auto& [src_column, src_const] = unpack_if_const(unnested_src.column);
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
         if (!src_column_array) {
-            return Status::RuntimeError(
-                    fmt::format("unsupported types for function {}({})", get_name(),
-                                block.get_by_position(arguments[0]).type->get_name()));
+            return Status::RuntimeError(fmt::format("unsupported types for function {}({})",
+                                                    get_name(), src_with_type.type->get_name()));
         }
         const auto& src_offsets = src_column_array->get_offsets();
         const auto* src_nested_column = &src_column_array->get_data();
         DCHECK(src_nested_column != nullptr);
 
-        DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
-        auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
+        auto nested_type = assert_cast<const DataTypeArray&>(*unnested_src.type).get_nested_type();
+        // op and val are constants checked in FE, so the first row holds their values. A constant
+        // expression such as an IF one is not a ColumnConst.
         const std::string& condition =
                 block.get_by_position(arguments[1]).column->get_data_at(0).to_string();
-
-        const ColumnConst& rhs_value_column =
-                static_cast<const ColumnConst&>(*block.get_by_position(arguments[2]).column.get());
+        const IColumn& rhs_value_column = *val_with_type.column;
         ColumnPtr result_ptr;
         RETURN_IF_CATCH_EXCEPTION(
                 RETURN_IF_ERROR(_execute(*src_nested_column, nested_type, src_offsets, condition,
                                          rhs_value_column, &result_ptr)));
-        block.replace_by_position(result, std::move(result_ptr));
+        ColumnPtr dense_result = src_const ? ColumnConst::create(result_ptr, input_rows_count)
+                                           : std::move(result_ptr);
+        block.replace_by_position(
+                result, (src_nullable || op_nullable || val_nullable)
+                                ? wrap_in_nullable(dense_result, block, arguments, input_rows_count)
+                                : std::move(dense_result));
         return Status::OK();
     }
 
@@ -137,7 +182,7 @@ private:
     // need exception safety
     template <typename T, ApplyOp op>
     ColumnPtr _apply_internal(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                              const ColumnConst& cmp) const {
+                              const IColumn& cmp) const {
         T rhs_val = *reinterpret_cast<const T*>(cmp.get_data_at(0).data);
         auto column_filter = ColumnUInt8::create(src_column.size(), 0);
         auto& column_filter_data = column_filter->get_data();
@@ -177,7 +222,7 @@ private:
 
     template <ApplyOp OP>
     void dispatch_array_scalar(DataTypePtr nested_type, const IColumn& src_column,
-                               const ColumnArray::Offsets64& src_offsets, const ColumnConst& cmp,
+                               const ColumnArray::Offsets64& src_offsets, const IColumn& cmp,
                                ColumnPtr* dst) const {
         auto call = [&](const auto& type) -> bool {
             using DispatchType = std::decay_t<decltype(type)>;
@@ -197,7 +242,7 @@ private:
     // need exception safety
     Status _execute(const IColumn& nested_src, DataTypePtr nested_type,
                     const ColumnArray::Offsets64& offsets, const std::string& condition,
-                    const ColumnConst& rhs_value_column, ColumnPtr* dst) const {
+                    const IColumn& rhs_value_column, ColumnPtr* dst) const {
         if (condition == "=") {
             dispatch_array_scalar<ApplyOp::EQ>(nested_type, nested_src, offsets, rhs_value_column,
                                                dst);

@@ -23,11 +23,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -63,15 +66,35 @@ public class Sha2 extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkLegalityAfterRewrite();
+        // validate the value FE can evaluate here, because constant folding, e.g. of sha2(null, 1 + 2), may remove
+        // this function before checkLegalityAfterRewrite
+        checkDigestLength(ExpressionUtils.foldConstantArgument(getArgument(1)));
     }
 
     @Override
     public void checkLegalityAfterRewrite() {
-        if (!(child(1) instanceof IntegerLikeLiteral)) {
-            throw new AnalysisException("the second parameter of sha2 must be a literal but got: " + child(1).toSql());
+        checkDigestLength(getArgument(1));
+    }
+
+    private void checkDigestLength(Expression digestLength) {
+        if (!digestLength.isConstant()) {
+            throw new AnalysisException("the second parameter of sha2 must be a constant but got: "
+                    + digestLength.toSql());
         }
-        final int constParam = ((IntegerLikeLiteral) child(1)).getIntValue();
+        // the type is checked before the type coercion casts the argument to the INT signature, so a decimal
+        // constant is rejected like a decimal literal
+        if (!digestLength.getDataType().isIntegralType()) {
+            throw new AnalysisException("the second parameter of sha2 must be an integer but got: "
+                    + digestLength.toSql());
+        }
+        // the value of a constant FE cannot fold is validated by BE when it is evaluated
+        if (!(digestLength instanceof Literal)) {
+            return;
+        }
+        if (digestLength instanceof NullLiteral) {
+            throw new AnalysisException("sha2 functions only support digest length of " + validDigest.toString());
+        }
+        final int constParam = ((IntegerLikeLiteral) digestLength).getIntValue();
         if (!validDigest.contains(constParam)) {
             throw new AnalysisException("sha2 functions only support digest length of " + validDigest.toString());
         }

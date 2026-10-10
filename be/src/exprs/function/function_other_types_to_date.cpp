@@ -481,12 +481,20 @@ struct DateTrunc {
         if (scope != FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
+        // The time unit is a constant, but a constant expression such as an arithmetic one is not
+        // evaluated in open. Then the state is created from the first row in execute.
         if (!context->is_col_constant(DateArgIsFirst ? 1 : 0)) {
-            return Status::InvalidArgument(
-                    "date_trunc function of time unit argument must be constant.");
+            return Status::OK();
         }
-        const auto& data_str =
-                context->get_constant_col(DateArgIsFirst ? 1 : 0)->column_ptr->get_data_at(0);
+        const auto& unit_column = context->get_constant_col(DateArgIsFirst ? 1 : 0)->column_ptr;
+        // The nullable wrapper returns NULL without calling execute when the constant unit is NULL.
+        if (unit_column->is_null_at(0)) {
+            return Status::OK();
+        }
+        return create_state(context, unit_column->get_data_at(0));
+    }
+
+    static Status create_state(FunctionContext* context, const StringRef& data_str) {
         std::string lower_str(data_str.data, data_str.size);
         std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(),
                        [](unsigned char c) { return std::tolower(c); });
@@ -494,28 +502,28 @@ struct DateTrunc {
         std::shared_ptr<State> state = std::make_shared<State>();
         state->timezone = context->state()->timezone_obj();
         state->clamp_to_timestamp_ns_min = context->is_auto_partition_boundary_context();
-        if (std::strncmp("year", lower_str.data(), 4) == 0) {
+        if (lower_str == "year") {
             state->callback_function = &execute_impl_right_const<TimeUnit::YEAR>;
-        } else if (std::strncmp("quarter", lower_str.data(), 7) == 0) {
+        } else if (lower_str == "quarter") {
             state->callback_function = &execute_impl_right_const<TimeUnit::QUARTER>;
-        } else if (std::strncmp("month", lower_str.data(), 5) == 0) {
+        } else if (lower_str == "month") {
             state->callback_function = &execute_impl_right_const<TimeUnit::MONTH>;
-        } else if (std::strncmp("week", lower_str.data(), 4) == 0) {
+        } else if (lower_str == "week") {
             state->callback_function = &execute_impl_right_const<TimeUnit::WEEK>;
-        } else if (std::strncmp("day", lower_str.data(), 3) == 0) {
+        } else if (lower_str == "day") {
             state->callback_function = &execute_impl_right_const<TimeUnit::DAY>;
-        } else if (std::strncmp("hour", lower_str.data(), 4) == 0) {
+        } else if (lower_str == "hour") {
             state->callback_function = &execute_impl_right_const<TimeUnit::HOUR>;
-        } else if (std::strncmp("minute", lower_str.data(), 6) == 0) {
+        } else if (lower_str == "minute") {
             state->callback_function = &execute_impl_right_const<TimeUnit::MINUTE>;
-        } else if (std::strncmp("second", lower_str.data(), 6) == 0) {
+        } else if (lower_str == "second") {
             state->callback_function = &execute_impl_right_const<TimeUnit::SECOND>;
         } else {
             return Status::RuntimeError(
                     "Illegal second argument column of function date_trunc. now only support "
                     "[second,minute,hour,day,week,month,quarter,year]");
         }
-        context->set_function_state(scope, state);
+        context->set_function_state(FunctionContext::THREAD_LOCAL, state);
         return Status::OK();
     }
 
@@ -526,9 +534,17 @@ struct DateTrunc {
         const auto& datetime_column = block.get_by_position(arguments[DateArgIsFirst ? 0 : 1])
                                               .column->convert_to_full_column_if_const();
         auto res = ColumnType::create(input_rows_count);
+        if (input_rows_count == 0) {
+            block.replace_by_position(result, std::move(res));
+            return Status::OK();
+        }
+        if (context->get_function_state(FunctionContext::THREAD_LOCAL) == nullptr) {
+            RETURN_IF_ERROR(
+                    create_state(context, block.get_by_position(arguments[DateArgIsFirst ? 1 : 0])
+                                                  .column->get_data_at(0)));
+        }
         auto* state = reinterpret_cast<State*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
-        DCHECK(state != nullptr);
         state->callback_function(datetime_column, *res, input_rows_count, state->timezone,
                                  state->clamp_to_timestamp_ns_min);
         block.replace_by_position(result, std::move(res));

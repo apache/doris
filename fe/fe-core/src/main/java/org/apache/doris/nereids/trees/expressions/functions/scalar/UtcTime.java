@@ -25,8 +25,10 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -92,6 +94,17 @@ public class UtcTime extends ScalarFunction
                 throw new AnalysisException("UTC_TIME scale argument must be a constant literal.");
             }
         }
+    }
+
+    @Override
+    public Expression prepareBeforeTypeCoercion() {
+        // computeSignature derives the return type from the value of the scale, but only from an INT literal,
+        // and a wider literal would keep a narrowing cast to INT, so fold only a scale whose type is at most INT
+        return withChildren(scale -> {
+            DataType type = scale.getDataType();
+            return type.isTinyIntType() || type.isSmallIntType() || type.isIntegerType()
+                    ? ExpressionUtils.foldConstantArgument(scale) : scale;
+        });
     }
 
     @Override

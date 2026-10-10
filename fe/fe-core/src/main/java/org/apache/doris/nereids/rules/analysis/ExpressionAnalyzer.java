@@ -209,6 +209,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visit(Expression expr, ExpressionRewriteContext context) {
         expr = super.visit(expr, context);
 
+        expr = expr.prepareBeforeTypeCoercion();
         expr.checkLegalityBeforeTypeCoercion();
         // this cannot be removed, because some function already construct in parser.
         if (expr instanceof ImplicitCastInputTypes) {
