@@ -511,6 +511,8 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionStringFormatRound>(); }
     String get_name() const override { return name; }
 
+    bool need_replace_null_data_to_default() const override { return true; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.size() != 2) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
