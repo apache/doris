@@ -26,6 +26,7 @@
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/record_batch_queue.h"
+#include "runtime/result_queue_mgr.h"
 
 namespace doris {
 Status MemoryScratchSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -57,6 +58,16 @@ Status MemoryScratchSinkLocalState::close(RuntimeState* state, Status exec_statu
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_queue != nullptr) {
+        // Propagate the fragment failure to the result queue, so that
+        // ResultQueueMgr::fetch_result returns the real status (e.g. TIMEOUT,
+        // MEM_LIMIT_EXCEEDED) instead of treating the sentinel below as a
+        // normal end-of-stream and silently truncating the scan.
+        // Must be done before putting the sentinel: a fetcher blocked in
+        // blocking_get wakes up on the sentinel and re-checks the queue status.
+        if (!exec_status.ok()) {
+            state->exec_env()->result_queue_mgr()->update_queue_status(
+                    state->fragment_instance_id(), exec_status);
+        }
         _queue->blocking_put(nullptr);
     }
     RETURN_IF_ERROR(Base::close(state, exec_status));
