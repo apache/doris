@@ -220,6 +220,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 && targetType.isDateLikeType()) {
             boolean convertSuccess = true;
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+            // the bucket bounds of a string column are not comparable with the date min/max
+            builder.setHistogram(null);
             if (colStats.minExpr != null) {
                 try {
                     String strMin = colStats.minExpr.getStringValue();
@@ -271,7 +273,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
         builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
                 .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY)
-                .setHotValues(null);
+                .setHotValues(null).setHistogram(null);
         return builder.build();
     }
 
@@ -282,7 +284,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         }
         double literalVal = literal.getDouble();
         HashMap<Literal, Float> hotValues = Maps.newHashMap();
-        hotValues.put(literal, 100.0f);
+        hotValues.put(literal, 1.0f);
         return new ColumnStatisticBuilder()
                 .setMaxValue(literalVal)
                 .setMinValue(literalVal)

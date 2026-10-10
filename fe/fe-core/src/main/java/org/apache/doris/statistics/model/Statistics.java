@@ -345,4 +345,15 @@ public class Statistics {
         }
         return builder;
     }
+
+    public StatisticsBuilder cleanHistogram() {
+        StatisticsBuilder builder = new StatisticsBuilder(this);
+        for (Map.Entry<Expression, ColumnStatistic> entry : columnStatistics().entrySet()) {
+            if (entry.getValue().histogram != null) {
+                builder.putColumnStatistics(entry.getKey(),
+                        new ColumnStatisticBuilder(entry.getValue()).setHistogram(null).build());
+            }
+        }
+        return builder;
+    }
 }
