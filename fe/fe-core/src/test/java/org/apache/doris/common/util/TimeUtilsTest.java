@@ -196,6 +196,15 @@ public class TimeUtilsTest {
         Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("UTC"));
         Assertions.assertEquals("+08:00", TimeUtils.getCanonicalTimeZone("+08:00"));
         Assertions.assertEquals("GMT+08:00", TimeUtils.getCanonicalTimeZone("GMT+08:00"));
+        // Java names a zero offset Z or a bare GMT, which a backend resolves only from the optional Zulu or GMT
+        // zone file (Debian 13's tzdata ships no Zulu). MUTATION: returning ZoneId.getId() for these -> red.
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("+00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("-00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("GMT+00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("GMT-00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("UTC+00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("Etc/UTC"));
+        Assertions.assertEquals("-00:30", TimeUtils.getCanonicalTimeZone("-00:30"));
     }
 
     @Test
