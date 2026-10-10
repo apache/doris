@@ -685,13 +685,14 @@ public class AuditPublicationHorizonTest {
     }
 
     /**
-     * An UNRESOLVABLE identity ("-" or a label the transaction manager does not know)
-     * keeps the OLD bound as the last resort: a genuinely lost batch (the request never
-     * created a transaction) must not freeze the capture forever, while the same row
-     * inside its bound still fences.
+     * An UNRESOLVABLE identity ("-" or a label the transaction manager does not know) is
+     * NEVER released by age (the reviewer's C8): nothing can ever PROVE the batch
+     * published, and a COMMITTED one may still make its rows readable - the previous
+     * bounded release assumed it lost and let the capture checkpoint past it. Only a
+     * PROVABLE terminal state (VISIBLE / ABORTED) settles the row's share.
      */
     @Test
-    public void testUnresolvableLabelKeepsTheBoundAsTheLastResort() {
+    public void testUnresolvableLabelIsNeverReleasedByAge() {
         long now = System.currentTimeMillis();
         AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
         AuditLoader.transactionStatusForTest = label -> null;
@@ -703,16 +704,40 @@ public class AuditPublicationHorizonTest {
             Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
                     "an unresolvable identity is not proof of loss while the bound holds");
 
-            // past the bound: assumed lost, exactly like the live loader's fallback
+            // past EVERY age bound it STILL fences: only a terminal state may release it
             long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
                     - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
             AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
                     new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L, "audit_log_legacy"});
+            Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                    "an unresolvable identity is never assumed lost: its publication cannot"
+                            + " be proved OR disproved by age alone");
+
+            // ... and the PROOF releases it
+            AuditLoader.transactionStatusForTest = label -> "ABORTED";
             Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
-                    "an unresolvable identity past the retention bound is assumed lost");
+                    "an ABORTED transaction can never publish: the fence is settled");
         } finally {
             AuditLoader.transactionStatusForTest = null;
         }
+    }
+
+    /**
+     * The OVERFLOWED sentinel ("*") of a row written by an intermediate build stands for
+     * batches with NO recorded identity: like "-", it is never settled by the row's age
+     * (the reviewer's C8; the current writer keeps every label and no longer emits it).
+     */
+    @Test
+    public void testOverflowedSentinelIsNeverSettledByAge() {
+        long now = System.currentTimeMillis();
+        long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L,
+                        AuditLoader.OVERFLOWED_FENCE_LABEL});
+        Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                "an identity-less obligation is fenced until publication can be proved");
     }
 
     // ====================: stale rows keep their zones =====================

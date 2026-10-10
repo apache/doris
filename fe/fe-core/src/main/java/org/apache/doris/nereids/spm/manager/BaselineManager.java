@@ -261,6 +261,14 @@ public class BaselineManager {
             return 0;
         }
 
+        /**
+         * The simulated mutation-clock bump (see bumpMutationClock): counted by tests that
+         * assert every durable mutation is preceded by a clock advance. The default keeps
+         * simulators without a clock working.
+         */
+        default void bumpMutationClock() {
+        }
+
         void insert(BaselinePlan plan);
 
         List<BaselinePlan> readById(long id);
@@ -447,29 +455,57 @@ public class BaselineManager {
     private static final String SELECT_MAX_ID_SQL = "SELECT MAX(`id`) FROM " + SPM_BASELINES_TABLE;
 
     /**
-     * The compact id high-water mark: a tiny append-only table whose rows
-     * carry the newest allocated id. The append-only HISTORY table
-     * (InternalSchema#SPM_BASELINES_SEQ_TBL_NAME) grows by one row per create
-     * forever, so its MAX(last_id) - the only unbounded read on the create path -
-     * was replaced: every allocation also records itself here (pruning the superseded
-     * rows), and a pre-upgrade cluster only pays the legacy full read ONCE (see
-     * readPersistedWatermark).
+     * The compact id high-water mark: a tiny append-only table whose rows carry the
+     * newest allocated id AND the newest MUTATION CLOCK tick (see SELECT_CLOCK_SQL). The
+     * append-only HISTORY table (InternalSchema#SPM_BASELINES_SEQ_TBL_NAME) grows by one
+     * row per create forever, so its MAX(last_id) - the only unbounded read on the create
+     * path - was replaced: every allocation also records itself here (pruning the
+     * superseded rows), and a pre-upgrade cluster only pays the legacy full read ONCE
+     * (see readPersistedWatermark).
      */
     private static final String SELECT_HWM_SQL = "SELECT MAX(`last_id`) FROM "
             + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
 
-    /** Append one high-water-mark row (see SELECT_HWM_SQL). */
-    private static final String INSERT_HWM_SQL = "INSERT INTO " + SPM_BASELINES_HWM_TABLE
-            + " (`id`, `last_id`, `update_time`) VALUES (1, ${lastId}, NOW())";
+    /**
+     * The bounded MUTATION CLOCK of the paginated snapshot fence (see
+     * readStableRawSnapshot): MAX(tick) plus the slot's row count / tick sum. Every
+     * spm_baselines mutation (create / delete / status flip) appends a clock row with a
+     * strictly increasing tick BEFORE its own statement, so the token changes whenever
+     * the durable table changes - without any table-wide aggregate on the read path. The
+     * count / sum stay as tie-breakers for an append whose tick collides with the current
+     * maximum (skewed clocks): an append raises MAX(tick) or the pair (count, sum), so a
+     * fence read around a paginated snapshot observes the mutation and retries instead of
+     * publishing a mixed state (a residual collision of two same-instant appends from
+     * different FEs converges on the next refresh, like the fence's second-precision
+     * predecessor).
+     */
+    private static final String SELECT_CLOCK_SQL = "SELECT MAX(`tick`), COUNT(*),"
+            + " SUM(`tick`) FROM " + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
 
     /**
-     * Best-effort prune of the compact high-water-mark rows (see SELECT_HWM_SQL):
-     * removes the rows the just-written one supersedes, so the surviving MAX read
-     * stays a scan of a handful of rows. Correctness never depends on it - the read takes
-     * the MAX - so failures are swallowed.
+     * The slot's newest watermark AND clock tick; the pre-mutation bump of a delete /
+     * status flip reads it to keep the recorded watermark untouched while advancing the
+     * clock (see bumpMutationClock). One bounded keyed read.
+     */
+    private static final String SELECT_SLOT_STATE_SQL = "SELECT MAX(`last_id`),"
+            + " MAX(`tick`) FROM " + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
+
+    /** Append one high-water-mark / clock row (see SELECT_HWM_SQL, SELECT_CLOCK_SQL). */
+    private static final String INSERT_HWM_SQL = "INSERT INTO " + SPM_BASELINES_HWM_TABLE
+            + " (`id`, `last_id`, `update_time`, `tick`)"
+            + " VALUES (1, ${lastId}, NOW(), ${tick})";
+
+    /**
+     * Best-effort prune of the compact high-water-mark rows (see SELECT_HWM_SQL): removes
+     * the rows the just-written one supersedes, so the surviving MAX read stays a scan of
+     * a handful of rows. A row carrying a HIGHER watermark is never touched (it was
+     * written by a faster master - deleting it would REWIND the allocator); only rows
+     * below the watermark, or same-watermark rows with an older tick, go. Correctness
+     * never depends on it - the read takes the MAX - so failures are swallowed.
      */
     private static final String PRUNE_HWM_SQL = "DELETE FROM " + SPM_BASELINES_HWM_TABLE
-            + " WHERE `last_id` < ${lastId}";
+            + " WHERE `id` = 1 AND (`last_id` < ${lastId}"
+            + " OR (`last_id` = ${lastId} AND `tick` < ${tick}))";
 
     /**
      * The scoped CONFIRMATION of SELECT_HWM_SQL (see readCompactIdWatermark): the
@@ -627,22 +663,15 @@ public class BaselineManager {
             + " AND `plan_sql_hash` = ${planSqlHash} AND `unconfirmed` = 1"
             + " AND `last_id` = ${lastId}";
 
-    /**
-     * The consistency fence of the paginated snapshot read (see
-     * readStableSnapshot): the id high-water mark, the row count and the newest
-     * update_time of the WHOLE table, read before AND after the page loop. An internal
-     * paginated snapshot issues one SELECT per page and the internal table has no
-     * long-lived read view, so a CREATE / ALTER / DROP committing between two pages would
-     * otherwise be merged into a state no single point in time ever had (the reviewer's
-     * example: a follower reads ENABLED low-id A on page 1, the master drops A and creates
-     * high-id B before page 2 - the published cache then contains BOTH, SHOW reports the
-     * completed DROP and matching replays A until the next refresh). MAX(id) catches every
-     * CREATE, COUNT(*) catches a pure DROP, MAX(update_time) catches a status flip (SECOND
-     * precision: a flip within the same second as the previous write remains a residual
-     * window, closed by the refresh daemon).
-     */
-    private static final String SELECT_SNAPSHOT_FENCE_SQL = "SELECT MAX(`id`), COUNT(*),"
-            + " MAX(`update_time`) FROM " + SPM_BASELINES_TABLE;
+    // The consistency fence of the paginated snapshot read USED to live here as the
+    // table-wide "SELECT MAX(id), COUNT(*), MAX(update_time)" aggregate: an internal
+    // paginated snapshot issues one SELECT per page and the internal table has no
+    // long-lived read view, so a CREATE / ALTER / DROP committing between two pages would
+    // otherwise be merged into a state no single point in time ever had. The aggregate
+    // itself had to scan the WHOLE table on every refresh / status change, so it is
+    // replaced by the bounded mutation clock (SELECT_CLOCK_SQL) of
+    // SPM_BASELINES_HWM_TABLE, which every mutation advances BEFORE its own statement,
+    // and by the end probe of the pagination loop (see readStableRawSnapshot).
 
     /**
      * Reads every durable row carrying ONE id - the collision probe of a create (see
@@ -688,10 +717,17 @@ public class BaselineManager {
             + " AND `plan_sql` = '${planSql}'"
             + " AND IFNULL(`schema_fingerprint`, '') = '${schemaFingerprint}'";
 
-    /** Removes one baseline row by id + its previous status (status UPDATE support). */
+    /**
+     * Removes one baseline row by id + previous status + its identity (status UPDATE
+     * support). The SCHEMA FINGERPRINT completes the identity like it does in
+     * DELETE_BY_IDENTITY_SQL: matching (id, status, digest, planSql) alone deleted a
+     * NEWER incarnation's row that shared the same id / digest / planSql under a
+     * different fingerprint.
+     */
     private static final String DELETE_BY_ID_AND_STATUS_SQL = "DELETE FROM " + SPM_BASELINES_TABLE
             + " WHERE `id` = ${id} AND `status` = '${status}'"
-            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
+            + " AND IFNULL(`schema_fingerprint`, '') = '${schemaFingerprint}'";
 
     /**
      * INSERT half of a STATUS FLIP, CONDITIONAL on the previous-status row: the SELECT
@@ -717,20 +753,25 @@ public class BaselineManager {
             + " ${planSqlMode}, ${planFrozen}, '${schemaFingerprint}', '${planSqlDigest}' FROM "
             + SPM_BASELINES_TABLE + " WHERE `id` = ${id} AND `status` = '${previousStatus}'"
             + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
+            + " AND IFNULL(`schema_fingerprint`, '') = '${schemaFingerprint}'"
             + " LIMIT 1";
 
     /** Reconciliation read of the ambiguous status-update path: how many durable rows
-     *  currently carry (id, status). */
+     *  currently carry (id, status) AND the identity's schema fingerprint. */
     private static final String COUNT_BY_ID_AND_STATUS_SQL = "SELECT COUNT(*) FROM "
-            + SPM_BASELINES_TABLE + " WHERE `id` = ${id} AND `status` = '${status}'";
+            + SPM_BASELINES_TABLE + " WHERE `id` = ${id} AND `status` = '${status}'"
+            + " AND IFNULL(`schema_fingerprint`, '') = '${schemaFingerprint}'";
 
     /**
-     * The newest stored update_time of the WHOLE table: the status-flip bump advances
-     * the new row past this value (see updateStatus), which is what makes every flip move
-     * the SELECT_SNAPSHOT_FENCE_SQL fence.
+     * The newest stored update_time of THIS id's rows: the status-flip bump advances the
+     * new row past this value (see updateStatus), which keeps the flipped row the durable
+     * winner among the id's lingering rows (pickDurableWinner prefers the later stored
+     * second). A former table-wide read served the OLD snapshot fence (which compared
+     * MAX(update_time) around its page loop); the fence is now the bounded mutation clock
+     * (see SELECT_CLOCK_SQL), so the bump read only needs this id's key prefix.
      */
     private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT MAX(`update_time`) FROM "
-            + SPM_BASELINES_TABLE;
+            + SPM_BASELINES_TABLE + " WHERE `id` = ${id}";
 
     /**
      * DATETIME column format (internal table create_time / update_time). The columns are
@@ -859,6 +900,10 @@ public class BaselineManager {
      */
     private static final Map<Long, PendingDropMarker> pendingDroppedMarkers =
             new ConcurrentHashMap<>();
+
+    /** The process-local monotonic source of mutation-clock ticks (see SELECT_CLOCK_SQL). */
+    private static final java.util.concurrent.atomic.AtomicLong lastMutationTick =
+            new java.util.concurrent.atomic.AtomicLong();
 
     // ==================== priority ordering ====================
 
@@ -1251,7 +1296,8 @@ public class BaselineManager {
                     return duplicate.getId();
                 } else if (idAllocatorStoreForTest == null && statusProtocolStoreForTest != null) {
                     // count-only seam: it cannot compare the durable identity
-                    if (durableRowCount(duplicate.getId(), duplicate.getStatus()) > 0) {
+                    if (durableRowCount(duplicate.getId(), duplicate.getSchemaFingerprint(),
+                            duplicate.getStatus()) > 0) {
                         return duplicate.getId(); // exact duplicate -> skip
                     }
                 } else if (probeDurableRow(duplicate.getId(), duplicate.getBindSqlDigest(),
@@ -1393,6 +1439,17 @@ public class BaselineManager {
                     markSeqPendingUnconfirmed(plan);
                     throw unconfirmed;
                 }
+                // The INSERT can COMMIT after the check above: an internal write of a
+                // demoted FE FORWARDS to the new master and lands there, so a
+                // successful statement is not proof that THIS FE still owns the write
+                // epoch. The promoted master that read MAX(id) concurrently gave its
+                // own create for the SAME key id N+1, and both rows are durable now -
+                // publishing / returning the id here would place an UNOWNED row into
+                // this cache on top of (the same-key twins are hidden by
+                // collapseDuplicateKeyRows and repaired on a master-side publish, and
+                // this check keeps this side from publishing its half; the retry then
+                // adopts the surviving row).
+                assertLeaderForWrite();
                 if (idAllocatorStoreForTest == null && !persistenceEnabled()) {
                     // Phase 2: publish (the only state-lock section of a create).
                     publishBaseline(plan);
@@ -1919,8 +1976,18 @@ public class BaselineManager {
             // Even a CONFIRMED identity delete can stay unreadable to a later local read
             // (its publication lags the confirmation): the fence keeps the refresh / a
             // SHOW reload from re-adding the dropped row until the table shows it gone
-
+            //
+            // The fence is recorded BEFORE the tombstone confirmation: when the
+            // confirmation cannot make the append readable, the DROP fails retryably and
+            // the fence keeps this FE's cache at "dropped" until the retry / daemon
+            // converges.
             recordPendingMutationFence(id, null, 0);
+            // The tombstone appends above only WARN on the wire: report the DROP only
+            // once they are readable, or a delayed write of the removed row - or the
+            // unreadable loser of a handoff collision - revives the dropped baseline on
+            // every FE whose filter lived in process memory (see
+            // confirmDropTombstonesDurable).
+            confirmDropTombstonesDurable(List.of(removed), id);
             return true;
         }
     }
@@ -1979,6 +2046,8 @@ public class BaselineManager {
         }
         noteDroppedIdState(id);
         recordPendingMutationFence(id, null, 0);
+        // prove the tombstones readable before reporting the DROP (see dropBaseline)
+        confirmDropTombstonesDurable(durable, id);
         LOG.info("SPM dropped baseline {} from the durable table while the local cache did"
                 + " not have it (promotion reload / stale snapshot window)", id);
         return true;
@@ -2100,8 +2169,12 @@ public class BaselineManager {
         }
         if (!persistenceEnabled()) {
             if (statusProtocolStoreForTest != null) {
-                int rows = durableRowCount(id, BaselineStatus.ENABLED)
-                        + durableRowCount(id, BaselineStatus.DISABLED);
+                // ANY row of the id counts here (the seam cannot hand out content): the
+                // caller needs a presence answer, not the instance's fingerprint
+                int rows = statusProtocolStoreForTest.countByIdAndStatus(id,
+                        BaselineStatus.ENABLED)
+                        + statusProtocolStoreForTest.countByIdAndStatus(id,
+                        BaselineStatus.DISABLED);
                 if (rows > 0) {
                     // the status-protocol seam cannot hand out the row CONTENT an identity
                     // delete needs: fail closed instead of reporting a false absence
@@ -2261,20 +2334,18 @@ public class BaselineManager {
             // EQUAL durable timestamps, and pickDurableWinner prefers DISABLED on such a
             // tie - a later ENABLE would then be reversed by the next refresh / restart
             // while this FE temporarily served ENABLED. Advancing the new row past the
-            // newest EXISTING stored second keeps the durable order ("the later intent
-            // wins") exact at the stored precision, so the row this statement writes is
-            // always the durable winner once it is written.
+            // newest stored second OF THIS ID keeps the durable order ("the later intent
+            // wins") exact at the stored precision among the id's own rows, so the row
+            // this statement writes is always the durable winner once it is written.
             //
-            // The bump reads the newest stored second of the WHOLE TABLE, not just the
-            // rows of this id: after rapid flips gave another baseline B a
-            // future stored update_time, flipping A and C kept update_time = now -
-            // dwarfed by B - so NEITHER MAX(id), COUNT(*) nor MAX(update_time) (the
-            // paginated snapshot fence) changed, and a refresh could merge pages of two
-            // different states while a matching fence accepted the mix (refresh kept
-            // replaying A after its successful DISABLE). Bumping past the table-wide
-            // maximum makes EVERY flip move MAX(update_time), so the fence always
-            // observes it.
-            long newestSecond = readNewestStoredUpdateSecond();
+            // The read is BOUNDED to this id's key prefix: the former table-wide read
+            // existed to make every flip move the old MAX(update_time)-based snapshot
+            // fence, which the bounded mutation clock (see bumpMutationClock) now
+            // replaces. A same-key twin under ANOTHER id (the handoff window the write
+            // checks cannot close completely) is collapsed deterministically at load (see
+            // collapseDuplicateKeyRows), and a further flip / create of either id
+            // re-resolves it durably.
+            long newestSecond = readNewestStoredUpdateSecond(id);
             if (newUpdateTime / 1000L <= newestSecond) {
                 newUpdateTime = (newestSecond + 1) * 1000L;
             }
@@ -2575,9 +2646,16 @@ public class BaselineManager {
         return inInternalIoMode(SqlModeHelper::currentMode);
     }
 
-    /** Number of durable rows currently carrying (id, status). */
-    private static int durableRowCount(long id, BaselineStatus status) {
+    /**
+     * Number of durable rows currently carrying (id, status) AND the identity's schema
+     * fingerprint: the status protocol must never read a REUSED id's newer incarnation
+     * as if it were the row it wrote (see DELETE_BY_ID_AND_STATUS_SQL).
+     */
+    private static int durableRowCount(long id, String schemaFingerprint,
+            BaselineStatus status) {
         if (statusProtocolStoreForTest != null) {
+            // the count-only seam cannot compare fingerprints; its rows carry only one
+            // incarnation per id
             return statusProtocolStoreForTest.countByIdAndStatus(id, status);
         }
         if (!persistenceEnabled()) {
@@ -2586,6 +2664,8 @@ public class BaselineManager {
         Map<String, String> params = new HashMap<>();
         params.put("id", String.valueOf(id));
         params.put("status", status.name());
+        params.put("schemaFingerprint", StatisticsUtil.escapeSQL(
+                schemaFingerprint == null ? "" : schemaFingerprint));
         try {
             List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
                     COUNT_BY_ID_AND_STATUS_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
@@ -2974,6 +3054,10 @@ public class BaselineManager {
                         t.getMessage());
                 return;
             }
+            // Converge the same-key twins of a handoff BEFORE the snapshot is settled /
+            // published: the durable repair as well as the fence settlement below run I/O
+            // and therefore stay outside the state lock (see collapseDuplicateKeyRows).
+            repairDuplicateKeyLosers(snapshot);
             // Settle the mutation-fence obligations BEFORE the write lock: the
             // tombstone append is internal-table I/O with its own timeout, and doing
             // it under the store's write lock blocked every concurrent SPM candidate
@@ -3134,6 +3218,11 @@ public class BaselineManager {
         for (Long fencedId : fenced) {
             loadedPlans.remove(fencedId);
         }
+        // No FE may match / show two baselines for one key (see
+        // collapseDuplicateKeyRows): the twins a handoff can leave behind collapse to the
+        // deterministic owner here - the repair already ran outside the lock, but the
+        // loser must leave the published map even when that best-effort repair failed.
+        loadedPlans = collapseDuplicateKeyRows(loadedPlans);
         Map<Long, List<Long>> loadedIndex = new HashMap<>();
         long maxId = 0;
         for (BaselinePlan p : loadedPlans.values()) {
@@ -3722,7 +3811,10 @@ public class BaselineManager {
      */
     public boolean applyRefreshedSnapshotIfUnchanged(long versionAtRead,
             Map<Long, BaselinePlan> persisted) {
-        // Settle the fence obligations outside the lock (see doLoadFromTable).
+        // Converge the same-key twins outside the lock (the repair I/O must not run under
+        // the state lock; see collapseDuplicateKeyRows), then settle the fence
+        // obligations (see doLoadFromTable).
+        repairDuplicateKeyLosers(persisted);
         Set<Long> fenced = resolvePendingMutationFences(persisted);
         stateLock.writeLock().lock();
         try {
@@ -3765,7 +3857,10 @@ public class BaselineManager {
      * was in flight (see refreshFromInternalTable). Public for unit tests.
      */
     public void applyRefreshedBaselines(Map<Long, BaselinePlan> persisted) {
-        // Settle the fence obligations outside the lock (see doLoadFromTable).
+        // Converge the same-key twins outside the lock (the repair I/O must not run under
+        // the state lock; see collapseDuplicateKeyRows), then settle the fence obligations
+        // (see doLoadFromTable).
+        repairDuplicateKeyLosers(persisted);
         Set<Long> fenced = resolvePendingMutationFences(persisted);
         stateLock.writeLock().lock();
         try {
@@ -3775,9 +3870,114 @@ public class BaselineManager {
         }
     }
 
+    /**
+     * Converges the SAME-KEY TWINS a leader handoff can leave behind: an already-demoted
+     * master's forwarded CREATE can commit right after its last leadership check while the
+     * promoted master completes the same key under its own id - its MAX(id) read happened
+     * before the old reservation landed, so each FE's by-id collision probe saw only its
+     * own id and BOTH enabled rows were durable under one key. Every publish path routes
+     * the snapshot through here: the deterministic owner is the LATER allocation (the
+     * larger id - the allocation order every writer agrees on), the other row(s) leave the
+     * published map so no FE matches / shows two baselines for one key, and a master
+     * additionally repairs the losers away durably (a follower read cannot write; the next
+     * master-side publish converges - until then the loser stays hidden by this collapse,
+     * never resurrected).
+     *
+     * Only rows with an identical (bind_sql_digest, plan_sql, schema_fingerprint) collapse:
+     * a different fingerprint is a DIFFERENT incarnation (the staleness rules own it), and
+     * rows a completed DROP covered were already removed by the tombstone filter
+     * (filterResurrectedRowsById runs before this collapse).
+     */
+    private static Map<Long, BaselinePlan> collapseDuplicateKeyRows(
+            Map<Long, BaselinePlan> snapshot) {
+        if (snapshot == null || snapshot.size() < 2) {
+            return snapshot;
+        }
+        Map<String, List<BaselinePlan>> groups = null;
+        for (BaselinePlan row : snapshot.values()) {
+            if (row.getBindSqlDigest() == null || row.getPlanSql() == null) {
+                continue;
+            }
+            String key = row.getBindSqlDigest() + '\u0000' + row.getPlanSql() + '\u0000'
+                    + (row.getSchemaFingerprint() == null ? "" : row.getSchemaFingerprint());
+            if (groups == null) {
+                groups = new HashMap<>();
+            }
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(row);
+        }
+        if (groups == null) {
+            return snapshot;
+        }
+        Map<Long, BaselinePlan> collapsed = null;
+        for (List<BaselinePlan> group : groups.values()) {
+            if (group.size() < 2) {
+                continue;
+            }
+            BaselinePlan owner = group.get(0);
+            for (BaselinePlan row : group) {
+                if (row.getId() > owner.getId()) {
+                    owner = row;
+                }
+            }
+            for (BaselinePlan row : group) {
+                if (row.getId() == owner.getId()) {
+                    continue;
+                }
+                if (collapsed == null) {
+                    collapsed = new HashMap<>(snapshot);
+                }
+                collapsed.remove(row.getId());
+                LOG.warn("SPM same-key twin of baseline (digest {}) at id {} is superseded"
+                                + " by the later allocation at id {}; hiding the loser",
+                        row.getBindSqlDigest(), row.getId(), owner.getId());
+            }
+        }
+        return collapsed == null ? snapshot : collapsed;
+    }
+
+    /** Best-effort durable repair of the twins hidden by collapseDuplicateKeyRows. */
+    private static void repairDuplicateKeyLosers(Map<Long, BaselinePlan> snapshot) {
+        if (snapshot == null || snapshot.size() < 2) {
+            return;
+        }
+        Map<Long, BaselinePlan> collapsed = collapseDuplicateKeyRows(snapshot);
+        if (collapsed == snapshot) {
+            return; // no twins
+        }
+        for (Map.Entry<Long, BaselinePlan> entry : snapshot.entrySet()) {
+            if (!collapsed.containsKey(entry.getKey())) {
+                repairDuplicateKeyLoser(entry.getValue());
+            }
+        }
+    }
+
+    /** Repairs one hidden twin away durably when this FE may write (see the collapse). */
+    private static void repairDuplicateKeyLoser(BaselinePlan loser) {
+        if (idAllocatorStoreForTest == null) {
+            if (!persistenceEnabled()) {
+                return;
+            }
+            if (Env.getCurrentEnv() != null && !Env.getCurrentEnv().isMaster()) {
+                return; // a follower read cannot write; the next master refresh converges
+            }
+        }
+        try {
+            persistDeleteByIdentity(loser);
+            LOG.warn("SPM repaired the same-key twin of baseline (digest {}) away"
+                    + " (superseded id {})", loser.getBindSqlDigest(), loser.getId());
+        } catch (RuntimeException e) {
+            LOG.warn("SPM could not repair the same-key twin of baseline (digest {}, id {})"
+                    + " (retried on the next refresh): {}",
+                    loser.getBindSqlDigest(), loser.getId(), e.getMessage());
+        }
+    }
+
     /** Applies a snapshot; the caller must hold the write lock (see refreshFromInternalTable). */
     private void applyRefreshedBaselinesLocked(Map<Long, BaselinePlan> persisted,
             Set<Long> fenced) {
+        // Never merge two rows of one key into the cache (see collapseDuplicateKeyRows;
+        // the durable repair ran before the lock).
+        persisted = collapseDuplicateKeyRows(persisted);
         long maxId = 0;
         int added = 0;
         int updated = 0;
@@ -4153,15 +4353,18 @@ public class BaselineManager {
     }
 
     /**
-     * Appends (and prunes) the compact id high-water-mark record.
+     * Appends (and prunes) the compact id high-water-mark + mutation-clock record.
      *
      * @param id     the high-water mark to record
      * @param strict whether a failed write must fail the caller (a create that consumed
-     *               an id cannot leave the record behind it); the seed path is best effort
+     *               an id cannot leave the record behind it, and a mutation may not
+     *               proceed without its clock tick, see bumpMutationClock); the seed path
+     *               is best effort
      */
     private static void writeHwmRecord(long id, boolean strict) {
         Map<String, String> params = new HashMap<>();
         params.put("lastId", String.valueOf(id));
+        params.put("tick", String.valueOf(nextMutationTick()));
         try {
             inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_HWM_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
@@ -4180,6 +4383,49 @@ public class BaselineManager {
         } catch (Exception e) {
             LOG.debug("SPM compact high-water-mark prune skipped: {}", e.getMessage());
         }
+    }
+
+    /** A tick strictly above every tick this process handed out, never behind its wall clock. */
+    private static long nextMutationTick() {
+        long now = System.currentTimeMillis();
+        long last;
+        long next;
+        do {
+            last = lastMutationTick.get();
+            next = Math.max(now, last + 1);
+        } while (!lastMutationTick.compareAndSet(last, next));
+        return next;
+    }
+
+    /**
+     * Advances the durable mutation clock (see SELECT_CLOCK_SQL) WITHOUT touching the id
+     * watermark: every spm_baselines mutation that is not a create - deletes, status
+     * flips, collision repairs - calls this STRICTLY BEFORE its own statement, so a
+     * paginated snapshot read around the mutation observes the clock move and retries
+     * instead of publishing a mixed state. The append is STRICT: a mutation whose clock
+     * could not advance fails retryably before anything changed. Bounded: one keyed read
+     * of the slot + one append + one prune.
+     */
+    private static void bumpMutationClock() {
+        if (idAllocatorStoreForTest != null) {
+            idAllocatorStoreForTest.bumpMutationClock();
+            return;
+        }
+        if (!persistenceEnabled()) {
+            return;
+        }
+        long watermark;
+        try {
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_SLOT_STATE_SQL, Collections.emptyMap(),
+                    INTERNAL_QUERY_TIMEOUT_SECONDS));
+            watermark = rows == null || rows.isEmpty()
+                    ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
+        } catch (Exception e) {
+            throw new RuntimeException("SPM mutation clock read failed (retry the"
+                    + " operation): " + e.getMessage(), e);
+        }
+        writeHwmRecord(watermark, true);
     }
 
     /** One watermark cell of an aggregate read (blank / NULL = 0). */
@@ -4329,8 +4575,21 @@ public class BaselineManager {
      */
     private static void writeDroppedMarker(long id, String bindSqlDigest, long planSqlHash) {
         if (idAllocatorStoreForTest != null) {
-            idAllocatorStoreForTest.appendDroppedMarker(id, bindSqlDigest, planSqlHash,
-                    System.currentTimeMillis());
+            try {
+                idAllocatorStoreForTest.appendDroppedMarker(id, bindSqlDigest, planSqlHash,
+                        System.currentTimeMillis());
+                pendingDroppedMarkers.remove(id);
+            } catch (RuntimeException e) {
+                // the simulator stands in for the durable append: a failed outcome takes
+                // the SAME path as the real one - the identity stays masked for THIS
+                // process and the append is retried from the next scoped read
+                pendingDroppedMarkers.put(id, new PendingDropMarker(bindSqlDigest,
+                        planSqlHash));
+                LOG.warn("SPM could not persist the drop tombstone of baseline {} (an"
+                        + " in-flight status write may revive it); the identity stays"
+                        + " filtered on this FE and the append is retried: {}",
+                        id, e.getMessage());
+            }
             return;
         }
         if (!persistenceEnabled()) {
@@ -4379,9 +4638,46 @@ public class BaselineManager {
      * @param ids the ids to look up (an empty collection skips the query entirely)
      */
     private static Set<String> readDroppedIdentities(Collection<Long> ids) {
+        return readDroppedIdentities(ids, true);
+    }
+
+    /**
+     * readDroppedIdentities(ids) with the process-local half under a switch (see
+     * readDroppedIdentitiesDurable).
+     */
+    private static Set<String> readDroppedIdentities(Collection<Long> ids,
+            boolean includeLocalPending) {
         if (ids == null || ids.isEmpty()) {
             return Set.of();
         }
+        Set<String> markers = readDurableDroppedIdentities(ids);
+        // The tombstones this FE failed to append durably (see writeDroppedMarker) still
+        // mask their identity - the caller asked about these very ids, so without the
+        // in-memory half the delayed-commit row revived on THIS FE; the append is also
+        // retried here, bounded to the ids being read. A DURABLE-ONLY read
+        // (readDroppedIdentitiesDurable) skips this half: the local marker IS the failed
+        // append the caller must not mistake for a readable one.
+        if (includeLocalPending && !pendingDroppedMarkers.isEmpty()) {
+            Set<Long> scoped = new java.util.HashSet<>(ids);
+            for (Map.Entry<Long, PendingDropMarker> entry : pendingDroppedMarkers.entrySet()) {
+                if (!scoped.contains(entry.getKey())) {
+                    continue;
+                }
+                markers.add(entry.getKey() + "|" + entry.getValue().bindSqlDigest + "|"
+                        + entry.getValue().planSqlHash);
+                writeDroppedMarker(entry.getKey(), entry.getValue().bindSqlDigest,
+                        entry.getValue().planSqlHash);
+            }
+        }
+        return markers;
+    }
+
+    /**
+     * The durable half of readDroppedIdentities: the table / allocator-seam tombstones of
+     * the given ids, WITHOUT the process-local pendingDroppedMarkers fold and without any
+     * retry side effect (see readDroppedIdentitiesDurable).
+     */
+    private static Set<String> readDurableDroppedIdentities(Collection<Long> ids) {
         if (idAllocatorStoreForTest != null) {
             return new java.util.HashSet<>(idAllocatorStoreForTest.droppedMarkers());
         }
@@ -4414,23 +4710,25 @@ public class BaselineManager {
             throw new RuntimeException("SPM durable drop-marker read failed (retry the"
                     + " operation): " + e.getMessage(), e);
         }
-        // The tombstones this FE failed to append durably (see writeDroppedMarker) still
-        // mask their identity - the caller asked about these very ids, so without the
-        // in-memory half the delayed-commit row revived on THIS FE; the append is also
-        // retried here, bounded to the ids being read.
-        if (!pendingDroppedMarkers.isEmpty()) {
-            Set<Long> scoped = new java.util.HashSet<>(ids);
-            for (Map.Entry<Long, PendingDropMarker> entry : pendingDroppedMarkers.entrySet()) {
-                if (!scoped.contains(entry.getKey())) {
-                    continue;
-                }
-                markers.add(entry.getKey() + "|" + entry.getValue().bindSqlDigest + "|"
-                        + entry.getValue().planSqlHash);
-                writeDroppedMarker(entry.getKey(), entry.getValue().bindSqlDigest,
-                        entry.getValue().planSqlHash);
-            }
-        }
         return markers;
+    }
+
+    /**
+     * The DURABLE tombstones only (no process-local fallback, no retry side effect): for
+     * a caller that must PROVE an append is readable - the condemnation confirmation
+     * before a fresh id is allocated and the DROP confirmation before success is
+     * reported. The pendingDroppedMarkers fallback of the scoped read marks the very
+     * append the caller just failed to make as present, so the confirmation would pass
+     * with the marker living in this process only (see confirmDroppedMarkerDurable).
+     */
+    private static Set<String> readDroppedIdentitiesDurable(Collection<Long> ids) {
+        return readDroppedIdentities(ids, false);
+    }
+
+    /** Test seam: the scoped tombstone read, durable-only or with the local mask. */
+    @VisibleForTesting
+    static Set<String> droppedIdentitiesForTest(Collection<Long> ids, boolean durableOnly) {
+        return durableOnly ? readDroppedIdentitiesDurable(ids) : readDroppedIdentities(ids);
     }
 
     /** One scoped page of the tombstone read (see readDroppedIdentities). */
@@ -4848,7 +5146,12 @@ public class BaselineManager {
         // and sorts the append-only sequence history by digest / plan hash on EVERY create:
         // that unbounded read grew with the table, and a read timeout blocked the CREATE
         // before its row was even attempted.
-        Set<String> tombstones = readDroppedIdentities(Set.of(reservation.id));
+        // DURABLE tombstones only: a process-local pending marker (a failed append) must
+        // not turn "already resolved by a completed DROP / condemnation" into a
+        // fresh-id allocation - the marker is not readable for any other FE, so the
+        // same retry elsewhere would defer or condemn instead of allocating
+        // (see readDroppedIdentitiesDurable).
+        Set<String> tombstones = readDroppedIdentitiesDurable(Set.of(reservation.id));
         if (tombstones.contains(droppedIdentityKey(reservation.id,
                 plan.getBindSqlDigest(), planSqlHash))
                 || tombstones.contains(droppedIdKey(reservation.id))) {
@@ -4986,13 +5289,71 @@ public class BaselineManager {
         String key = droppedIdentityKey(id, bindSqlDigest, planSqlHash);
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
             writeDroppedMarker(id, bindSqlDigest, planSqlHash);
-            if (readDroppedIdentities(Set.of(id)).contains(key)) {
+            // DURABLE-ONLY read: the process-local fallback of the scoped read marks
+            // the very append this loop just failed to make as present (the failure put
+            // the entry there), so the confirmation could pass without one readable
+            // marker - and the caller would allocate a fresh id next to the abandoned,
+            // possibly COMMITTED write.
+            if (readDroppedIdentitiesDurable(Set.of(id)).contains(key)) {
                 return;
             }
             sleepBeforeVisibilityRetry();
         }
         throw new IllegalStateException("SPM cannot confirm the condemnation tombstone of"
                 + " the abandoned baseline id " + id + "; retry the CREATE");
+    }
+
+    /**
+     * Confirms the tombstones of a COMPLETED drop are READABLE before the DROP reports
+     * success (see confirmDroppedMarkerDurable): the marker append is best effort on the
+     * wire (writeDroppedMarker only warns), so a dropped id whose append never landed lets
+     * a delayed write of the removed row - or the unreadable loser of a handoff collision -
+     * revive the dropped baseline on every FE that filtered it in memory only. Retried
+     * bounded, then the DROP is surfaced as retryable: the durable row is already gone, so
+     * the retry converges by re-appending the same markers.
+     *
+     * @param removed the rows this FE removed (one identity tombstone each)
+     * @param id      the dropped id (the id-scoped tombstone)
+     */
+    private static void confirmDropTombstonesDurable(Collection<BaselinePlan> removed,
+            long id) {
+        if (idAllocatorStoreForTest == null && !persistenceEnabled()) {
+            return; // in-memory only: no tombstone store exists
+        }
+        List<BaselinePlan> identities = new ArrayList<>();
+        for (BaselinePlan row : removed) {
+            if (row != null && row.getBindSqlDigest() != null && row.getPlanSql() != null) {
+                identities.add(row);
+            }
+        }
+        Set<Long> scoped = new java.util.HashSet<>();
+        scoped.add(id);
+        for (BaselinePlan row : identities) {
+            scoped.add(row.getId());
+        }
+        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
+            // read FIRST: the callers above already appended their markers, so the
+            // healthy path needs no extra write at all - only a marker that is NOT
+            // readable yet is re-appended (bounded, see confirmDroppedMarkerDurable)
+            Set<String> readable = readDroppedIdentitiesDurable(scoped);
+            boolean complete = readable.contains(droppedIdKey(id));
+            for (BaselinePlan row : identities) {
+                complete &= readable.contains(droppedIdentityKey(row.getId(),
+                        row.getBindSqlDigest(), identityPlanSqlHash(row)));
+            }
+            if (complete) {
+                return;
+            }
+            writeDroppedMarker(id, "", 0L);
+            for (BaselinePlan row : identities) {
+                writeDroppedMarker(row.getId(), row.getBindSqlDigest(),
+                        identityPlanSqlHash(row));
+            }
+            sleepBeforeVisibilityRetry();
+        }
+        throw new IllegalStateException("SPM cannot confirm the drop tombstones of baseline id "
+                + id + " (the row is gone but its filter markers are not readable);"
+                + " retry the DROP");
     }
 
     /**
@@ -5081,9 +5442,9 @@ public class BaselineManager {
 
     /**
      * Reads the paginated snapshot only if the table was UNCHANGED for the whole read
-     * (see SELECT_SNAPSHOT_FENCE_SQL): the fence is read before and after the page
-     * loop and the read is retried while it moved. The publisher of the returned map can
-     * therefore treat it as a single-point-in-time state.
+     * (see SELECT_CLOCK_SQL): the fence is read before and after the page loop and the
+     * read is retried while it moved. The publisher of the returned map can therefore
+     * treat it as a single-point-in-time state.
      *
      * DDL is rare compared to refreshes, so one retry normally converges; a table that
      * never stays stable (a write storm) fails CLOSED with a retryable exception instead of
@@ -5111,21 +5472,21 @@ public class BaselineManager {
         for (int attempt = 1; ; attempt++) {
             SnapshotFence before = fenceReader.readFence();
             AtomicLong rowsRead = new AtomicLong();
+            SnapshotCompletion completion = new SnapshotCompletion();
             Map<Long, List<BaselinePlan>> snapshot =
-                    collectSnapshotRows(reader, SNAPSHOT_PAGE_SIZE, rowsRead);
+                    collectSnapshotRows(reader, SNAPSHOT_PAGE_SIZE, rowsRead, completion);
             SnapshotFence after = fenceReader.readFence();
-            // BOTH conditions are required: the fence proves the table did not change around
-            // the read, and the row count proves every row of the fenced state was actually
-            // READ. The second check is what turns a silently TRUNCATED read (e.g. an
-            // internal-query row limit cancelling a page - a partial result looks exactly
-            // like a short, completed page) into a retryable failure instead of a snapshot
-            // that drops baselines from the cache.
-            if (before.matches(after) && rowsRead.get() == before.rowCount) {
+            // BOTH conditions are required: the fence proves no mutation landed around the
+            // read, and the END PROBE proves the loop really reached the table's end (see
+            // collectSnapshotRows: a silently TRUNCATED read - an internal-query row limit
+            // cancelling a page - looks exactly like a short, completed page, and the probe
+            // is the bounded replacement of the former table-wide row-count cross-check).
+            if (before.matches(after) && completion.endProven) {
                 return snapshot;
             }
             LOG.warn("SPM baseline table changed while its paginated snapshot was read"
-                            + " ({} -> {}, rows read {}/{}, attempt {}/{})",
-                    before, after, rowsRead.get(), before.rowCount, attempt,
+                            + " ({} -> {}, rows read {}, end proven {}, attempt {}/{})",
+                    before, after, rowsRead.get(), completion.endProven, attempt,
                     SNAPSHOT_STABILITY_ATTEMPTS);
             if (attempt >= SNAPSHOT_STABILITY_ATTEMPTS) {
                 throw new IllegalStateException("SPM baseline table kept changing while its"
@@ -5138,25 +5499,25 @@ public class BaselineManager {
     /** The fence of one paginated snapshot read (see readStableSnapshot). */
     @VisibleForTesting
     static final class SnapshotFence {
-        final long maxId;
-        final long rowCount;
-        final String maxUpdateTime;
+        final long tickMax;
+        final long tickCount;
+        final long tickSum;
 
-        SnapshotFence(long maxId, long rowCount, String maxUpdateTime) {
-            this.maxId = maxId;
-            this.rowCount = rowCount;
-            this.maxUpdateTime = maxUpdateTime == null ? "" : maxUpdateTime;
+        SnapshotFence(long tickMax, long tickCount, long tickSum) {
+            this.tickMax = tickMax;
+            this.tickCount = tickCount;
+            this.tickSum = tickSum;
         }
 
         boolean matches(SnapshotFence other) {
-            return maxId == other.maxId && rowCount == other.rowCount
-                    && maxUpdateTime.equals(other.maxUpdateTime);
+            return tickMax == other.tickMax && tickCount == other.tickCount
+                    && tickSum == other.tickSum;
         }
 
         @Override
         public String toString() {
-            return "(maxId=" + maxId + ", rows=" + rowCount
-                    + ", maxUpdateTime=" + maxUpdateTime + ")";
+            return "(clock=" + tickMax + ", ticks=" + tickCount
+                    + ", tickSum=" + tickSum + ")";
         }
     }
 
@@ -5166,22 +5527,18 @@ public class BaselineManager {
         SnapshotFence readFence() throws Exception;
     }
 
-    /** Reads SELECT_SNAPSHOT_FENCE_SQL (one all-NULL row when the table is empty). */
+    /** Reads SELECT_CLOCK_SQL (one all-NULL row when the slot is empty). */
     private static SnapshotFence readSnapshotFence() throws Exception {
         List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                SELECT_SNAPSHOT_FENCE_SQL, Collections.emptyMap(),
-                INTERNAL_QUERY_TIMEOUT_SECONDS));
+                SELECT_CLOCK_SQL, Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS));
         if (rows == null || rows.isEmpty()) {
-            return new SnapshotFence(0, 0, "");
+            return new SnapshotFence(0, 0, 0);
         }
         ResultRow row = rows.get(0);
-        String maxId = row.getWithDefault(0, "");
-        String count = row.getWithDefault(1, "");
-        String maxUpdateTime = row.getValues().size() > 2 ? row.getWithDefault(2, "") : "";
         return new SnapshotFence(
-                maxId == null || maxId.isEmpty() ? 0 : Long.parseLong(maxId.trim()),
-                count == null || count.isEmpty() ? 0 : Long.parseLong(count.trim()),
-                maxUpdateTime == null ? "" : maxUpdateTime.trim());
+                parseWatermark(row.getWithDefault(0, "")),
+                parseWatermark(row.getWithDefault(1, "")),
+                parseWatermark(row.getValues().size() > 2 ? row.getWithDefault(2, "") : ""));
     }
 
     /**
@@ -5231,21 +5588,48 @@ public class BaselineManager {
         return collectSnapshotPages(reader, pageSize, new AtomicLong());
     }
 
+    /** Whether readStableRawSnapshot's pagination loop PROVED it reached the table's end. */
+    static final class SnapshotCompletion {
+        boolean endProven;
+    }
+
+    @VisibleForTesting
+    static Map<Long, List<BaselinePlan>> collectSnapshotRows(SnapshotPageReader reader,
+            int pageSize, AtomicLong rowsReadSink) throws Exception {
+        return collectSnapshotRows(reader, pageSize, rowsReadSink, null);
+    }
+
     /**
      * The pagination loop itself: the RAW rows of the whole table grouped per id. The
      * per-id winner is picked AFTER the tombstone filter (see
      * filterResurrectedRowsById), so a tombstoned row never hides a valid twin. Invalid
      * rows are skipped with a warning.
+     *
+     * When the caller passes a completion sink, every short / empty page is followed by an
+     * end probe (the same page read started one position past the last consumed row): only
+     * an empty probe proves the read was not silently TRUNCATED - an internal-query row
+     * limit cancelling a page looks exactly like a completed one, and the probe is the
+     * bounded replacement of the former table-wide row-count cross-check (see
+     * readStableRawSnapshot).
      */
     @VisibleForTesting
     static Map<Long, List<BaselinePlan>> collectSnapshotRows(SnapshotPageReader reader,
-            int pageSize, AtomicLong rowsReadSink) throws Exception {
+            int pageSize, AtomicLong rowsReadSink, SnapshotCompletion completion) throws Exception {
         Map<Long, List<BaselinePlan>> rowsById = new HashMap<>();
         Long bound = null;
         long skipped = 0;
+        if (completion != null) {
+            completion.endProven = false;
+        }
         while (true) {
             List<ResultRow> rows = reader.readPage(bound, skipped);
             if (rows == null || rows.isEmpty()) {
+                if (completion != null) {
+                    // a re-read of the same cursor must stay empty, or rows the first read
+                    // swallowed (a cancelled query) would end the snapshot early
+                    List<ResultRow> probe = reader.readPage(bound, skipped);
+                    completion.endProven = probe == null || probe.isEmpty();
+                }
                 return rowsById;
             }
             rowsReadSink.addAndGet(rows.size());
@@ -5254,7 +5638,13 @@ public class BaselineManager {
             }
             String lastRowId = rows.get(rows.size() - 1).getWithDefault(0, "");
             if (rows.size() < pageSize || lastRowId.isEmpty()) {
-                return rowsById; // a short page ends the snapshot
+                // a short page ends the snapshot - but only when nothing follows it
+                if (completion != null) {
+                    completion.endProven = lastRowId.isEmpty()
+                            ? true // an id-less row: the cursor cannot advance
+                            : probeSnapshotEnd(reader, rows, lastRowId, bound, skipped);
+                }
+                return rowsById;
             }
             long pageLastId = Long.parseLong(lastRowId.trim());
             long trailing = 0;
@@ -5272,6 +5662,27 @@ public class BaselineManager {
                 skipped = trailing;
             }
         }
+    }
+
+    /**
+     * The end probe of a short page (see collectSnapshotRows): reads the page started one
+     * position past the page's last consumed row and reports whether the continuation is
+     * empty, i.e. the short page really was the end of the table.
+     */
+    private static boolean probeSnapshotEnd(SnapshotPageReader reader, List<ResultRow> rows,
+            String lastRowId, Long bound, long skipped) throws Exception {
+        long pageLastId = Long.parseLong(lastRowId.trim());
+        long trailing = 0;
+        for (int i = rows.size() - 1; i >= 0; i--) {
+            String rowId = rows.get(i).getWithDefault(0, "");
+            if (rowId.isEmpty() || Long.parseLong(rowId.trim()) != pageLastId) {
+                break;
+            }
+            trailing++;
+        }
+        long probeOffset = bound != null && pageLastId == bound ? skipped + trailing : trailing;
+        List<ResultRow> probe = reader.readPage(pageLastId, probeOffset);
+        return probe == null || probe.isEmpty();
     }
 
     /** Reads one page of the snapshot (see collectSnapshotPages). */
@@ -5835,6 +6246,8 @@ public class BaselineManager {
                 && statusProtocolStoreForTest == null) {
             return true; // in-memory only (no durable status rows exist)
         }
+        // clock first, exactly like persistInsert (see bumpMutationClock)
+        bumpMutationClock();
         if (idAllocatorStoreForTest != null) {
             idAllocatorStoreForTest.insert(p);
         } else if (statusProtocolStoreForTest != null) {
@@ -5881,6 +6294,9 @@ public class BaselineManager {
             BaselineStatus previousStatus) {
         Map<String, String> params = insertParams(p);
         params.put("previousStatus", previousStatus.name());
+        // insertParams already bound schemaFingerprint: the WHERE predicate couples the
+        // previous-status row to the CACHED row's fingerprint, so a reused id carrying a
+        // DIFFERENT incarnation's (digest, planSql, fingerprint) cannot be flipped
         try {
             QueryState state = inInternalIoMode(() -> StatisticsUtil.execUpdate(
                     INSERT_IF_PREVIOUS_STATUS_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS));
@@ -5916,6 +6332,11 @@ public class BaselineManager {
     }
 
     private static void persistInsert(BaselinePlan p) {
+        // Advance the mutation clock BEFORE the row write (see bumpMutationClock): the
+        // tick tuple a stable-snapshot read compares must be ordered before every durable
+        // baseline mutation, or a snapshot could certify stability next to a mutation
+        // that committed but is still invisible to the page reads.
+        bumpMutationClock();
         if (idAllocatorStoreForTest != null) {
             try {
                 idAllocatorStoreForTest.insert(p);
@@ -6097,20 +6518,21 @@ public class BaselineManager {
      * failure) although the flip had already landed - the durable winner is the
      * freshly inserted new-status row.
      *
-     * @param id     the baseline id
+     * @param p      the removed row (its id AND schema fingerprint scope the probe)
      * @param status the status whose row must be gone
      */
-    private static void confirmStatusRowGone(long id, BaselineStatus status) {
+    private static void confirmStatusRowGone(BaselinePlan p, BaselineStatus status) {
         if (durableVisibilityProbeForTest == null
                 && (idAllocatorStoreForTest != null || statusProtocolStoreForTest != null)) {
             return;
         }
+        long id = p.getId();
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
             boolean gone;
             try {
                 gone = durableVisibilityProbeForTest != null
                         ? !durableVisibilityProbeForTest.isReadable(id, status)
-                        : durableRowCount(id, status) == 0;
+                        : durableRowCount(id, p.getSchemaFingerprint(), status) == 0;
             } catch (RuntimeException e) {
                 gone = false; // unconfirmable: retry, then treat the reported success as final
             }
@@ -6286,7 +6708,7 @@ public class BaselineManager {
      *
      * @return the newest stored second
      */
-    private static long readNewestStoredUpdateSecond() {
+    private static long readNewestStoredUpdateSecond(long id) {
         if (idAllocatorStoreForTest != null) {
             return idAllocatorStoreForTest.newestStoredUpdateSecond();
         }
@@ -6296,16 +6718,17 @@ public class BaselineManager {
         if (!persistenceEnabled()) {
             return 0;
         }
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(id));
         try {
             List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                    SELECT_MAX_UPDATE_TIME_SQL, Collections.emptyMap(),
-                    INTERNAL_QUERY_TIMEOUT_SECONDS));
+                    SELECT_MAX_UPDATE_TIME_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             if (rows == null || rows.isEmpty()) {
                 return 0;
             }
             String text = rows.get(0).getWithDefault(0, "");
             if (text == null || text.isEmpty()) {
-                return 0; // an empty table yields one NULL MAX(update_time)
+                return 0; // no row of this id yields one NULL MAX(update_time)
             }
             return fromTs(text.trim()) / 1000L;
         } catch (Exception e) {
@@ -6320,6 +6743,10 @@ public class BaselineManager {
         // handoff could erase a row the NEW master just created once the id was reused.
         // Fence like the create path.
         assertLeaderForWrite();
+        // Advance the mutation clock BEFORE the delete (see bumpMutationClock): a strict
+        // failure fails the DROP, so a delete that may have committed is never preceded
+        // by a missing tick.
+        bumpMutationClock();
         try {
             if (idAllocatorStoreForTest != null) {
                 idAllocatorStoreForTest.deleteByIdentity(p);
@@ -6378,6 +6805,8 @@ public class BaselineManager {
      */
     private static void persistDeleteByIdAndStatus(BaselinePlan p, BaselineStatus status) {
         assertLeaderForWrite();
+        // clock first, exactly like the other mutation helpers (see bumpMutationClock)
+        bumpMutationClock();
         long id = p.getId();
         if (statusProtocolStoreForTest != null) {
             statusProtocolStoreForTest.deleteByIdAndStatus(id, status);
@@ -6391,6 +6820,8 @@ public class BaselineManager {
         params.put("status", status.name());
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
         params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
+        params.put("schemaFingerprint", StatisticsUtil.escapeSQL(
+                p.getSchemaFingerprint() == null ? "" : p.getSchemaFingerprint()));
         try {
             inInternalIoMode(() -> {
                 StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params,
@@ -6401,7 +6832,7 @@ public class BaselineManager {
             // Ambiguous commit: only a READABLE zero row count proves the delete landed.
             // An unconfirmable probe must surface as the original write failure.
             try {
-                if (durableRowCount(id, status) == 0) {
+                if (durableRowCount(id, p.getSchemaFingerprint(), status) == 0) {
                     LOG.warn("SPM persist (delete by status) reported {} but no row carries"
                             + " ({}, {}); treating it as deleted", e.getMessage(), id, status);
                     return;
@@ -6416,7 +6847,7 @@ public class BaselineManager {
         // Success is confirmed like the insert half: the flip may only be published once
         // the old-status row is provably gone from every read - and a lagging publication
         // is treated as the committed delete it is (see confirmStatusRowGone).
-        confirmStatusRowGone(id, status);
+        confirmStatusRowGone(p, status);
     }
 
     /**

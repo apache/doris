@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -89,6 +90,18 @@ public class BaselineManagerConcurrencyTest {
          * exactly the durable state the baselines table's own MAX(id) loses.
          */
         private long reservedHighWater;
+        /**
+         * The DROP TOMBSTONES this FE appended, as id|digest|planSqlHash - the readable
+         * shape production's scoped tombstone read returns (see appendDroppedMarker).
+         */
+        private final List<String> droppedMarkerRows =
+                new java.util.concurrent.CopyOnWriteArrayList<>();
+        /** When set, every tombstone append FAILS BEFORE landing (the DROP confirmation). */
+        private boolean failMarkerAppend;
+        /** Every mutation-clock advance requested by a mutation helper. */
+        private int clockBumps;
+        /** Invoked after a successful row INSERT (the handoff hook of the create tests). */
+        private Runnable onInsert;
         /**
          * The LATEST identity record of each key, in the shape production reads it
          * ((last_id, reserve_time, unconfirmed, dropped)): the plain pre-INSERT
@@ -151,8 +164,22 @@ public class BaselineManagerConcurrencyTest {
         @Override
         public void appendDroppedMarker(long id, String bindSqlDigest, long planSqlHash,
                 long atMillis) {
+            if (failMarkerAppend) {
+                throw new RuntimeException("spm_baselines_seq append timed out");
+            }
             keyedReservations.put(seqKey(bindSqlDigest, planSqlHash),
                     new long[] {id, atMillis, 0, 1});
+            droppedMarkerRows.add(id + "|" + bindSqlDigest + "|" + planSqlHash);
+        }
+
+        @Override
+        public List<String> droppedMarkers() {
+            return new ArrayList<>(droppedMarkerRows);
+        }
+
+        @Override
+        public void bumpMutationClock() {
+            clockBumps++;
         }
 
         @Override
@@ -222,6 +249,9 @@ public class BaselineManagerConcurrencyTest {
                 updated.add(plan);
                 return updated;
             });
+            if (onInsert != null) {
+                onInsert.run();
+            }
         }
 
         @Override
@@ -1247,7 +1277,8 @@ public class BaselineManagerConcurrencyTest {
 
         Map<Long, BaselinePlan> snapshot = BaselineManager.readStableSnapshot(
                 tieReorderingReader(table, 2000),
-                () -> new BaselineManager.SnapshotFence(2000L, 2001L, ""));
+                // a STABLE mutation clock: this test only exercises the pagination order
+                () -> new BaselineManager.SnapshotFence(7L, 2001L, 14007L));
         Assertions.assertEquals(BaselineStatus.DISABLED, snapshot.get(2000L).getStatus(),
                 "the NEWER row of the straddling group must win even though the engine's"
                         + " tie order differs between the two pages (the duplicate/skip pair"
@@ -1349,24 +1380,29 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * (fail-closed side): the fence alone cannot see a TRUNCATED page - a
-     * partial result looks exactly like a short, completed page. The loop reads every row
-     * exactly once, so the rows it read must equal the fence's row count; when they do not
-     * (e.g. an internal-query row limit cancelled a page and dropped its whole result),
-     * the snapshot must NOT be published.
+     * (fail-closed side): the fence alone cannot see a TRUNCATED page - a partial result
+     * looks exactly like a short, completed page. Every empty / short page is therefore
+     * followed by an END PROBE (a re-read of the same cursor): a probe that returns rows
+     * the swallowed read hid proves the truncation, the snapshot must NOT be published,
+     * and the read must fail closed after its bounded retries.
      */
     @Test
     public void testSnapshotReadFailsClosedWhenPagesAreTruncated() {
         int[] fenceReads = {0};
+        AtomicInteger calls = new AtomicInteger();
         IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
                 () -> BaselineManager.readStableSnapshot(
-                        // the first page comes back EMPTY although the fence counts rows
-                        (pageStart, offset) -> List.of(),
+                        // the page read swallows its rows (e.g. a cancelled internal query)
+                        // and only the END PROBE of the same cursor reveals them - on
+                        // EVERY attempt, so no read may ever be published
+                        (pageStart, offset) -> calls.getAndIncrement() % 2 == 0
+                                ? List.of()
+                                : List.of(rowOf(withId(baseline("d9", "select k from t9"),
+                                        5L))),
                         () -> {
                             fenceReads[0]++;
-                            // a fence that does NOT move: only the completeness check can
-                            // reject this read
-                            return new BaselineManager.SnapshotFence(2, 2, "t");
+                            // a fence that does NOT move: only the end probe can reject
+                            return new BaselineManager.SnapshotFence(2L, 2L, 2L);
                         }));
         Assertions.assertTrue(failure.getMessage().contains("truncated read"),
                 "the failure must name the incomplete read: " + failure.getMessage());
@@ -1494,6 +1530,7 @@ public class BaselineManagerConcurrencyTest {
         Map<Long, List<BaselinePlan>> table = new java.util.LinkedHashMap<>();
         table.put(1L, List.of(withId(baseline("dA", "select k from ta"), 1L)));
         boolean[] ddlDone = {false};
+        long[] tick = {0};
         List<String> fenceCalls = new ArrayList<>();
         Map<Long, BaselinePlan> snapshot;
         try {
@@ -1507,16 +1544,14 @@ public class BaselineManagerConcurrencyTest {
                 if (!rows.isEmpty() && !ddlDone[0]) {
                     // the master DROPs A and CREATEs B while this page is being read
                     ddlDone[0] = true;
+                    tick[0]++; // the mutation clock moves with both writes
                     table.clear();
                     table.put(9L, List.of(withId(baseline("dB", "select k from tb"), 9L)));
                 }
                 return rows;
             }, () -> {
                 fenceCalls.add("fence");
-                return new BaselineManager.SnapshotFence(
-                        table.keySet().stream().mapToLong(Long::longValue).max().orElse(0L),
-                        table.values().stream().mapToLong(List::size).sum(),
-                        table.keySet().toString());
+                return new BaselineManager.SnapshotFence(tick[0], tick[0], tick[0]);
             });
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -1542,7 +1577,8 @@ public class BaselineManagerConcurrencyTest {
         int[] fenceReads = {0};
         IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
                 () -> BaselineManager.readStableSnapshot((pageStart, offset) -> List.of(),
-                        () -> new BaselineManager.SnapshotFence(++fenceReads[0], 1, "t")));
+                        () -> new BaselineManager.SnapshotFence(++fenceReads[0], 1L,
+                                fenceReads[0])));
         Assertions.assertTrue(failure.getMessage().contains("kept changing"),
                 "the failure must say the table moved and the operation is retryable:"
                         + " " + failure.getMessage());
@@ -1598,9 +1634,184 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * Identity store whose INSERT drops the mastership (the handoff lands between the
-     * create's INSERT and its collision repair) and which injects a competing row into the
-     * FIRST by-id probe.
+     * The create's LAST leadership check must follow its row write: an internal INSERT of
+     * a demoted FE FORWARDS to the new master and can commit right after the check before
+     * the write, so the row exists durably while this FE no longer owns the write epoch -
+     * and the promoted master's concurrent create for the SAME key (its MAX(id) read
+     * predates this reservation) allocated another id, leaving two same-key rows that each
+     * by-id probe sees alone (the reviewer's handoff twin). Publishing / returning the id
+     * must therefore fail retryably once the write is observed on a drained leader.
+     */
+    @Test
+    public void testCreateIsRefusedWhenTheRowWriteWinsTheDemotionRace() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        AtomicBoolean rowWritten = new AtomicBoolean();
+        try {
+            store.onInsert = () -> rowWritten.set(true);
+            BaselineManager.idAllocatorStoreForTest = store;
+            // every check BEFORE the row write passes; the store flips the mastership
+            // while the INSERT is in flight
+            BaselineManager.leaderProbeForTest = () -> !rowWritten.get();
+
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(baseline("aa-late-demotion", "select 11")));
+            Assertions.assertTrue(failure.getMessage().contains("no longer the master"),
+                    failure.getMessage());
+            Assertions.assertTrue(store.watermark() > 0,
+                    "the forwarded INSERT landed durably");
+            Assertions.assertTrue(manager.getAllBaselines().isEmpty(),
+                    "a drained leader must not publish the row it can no longer own: "
+                            + manager.getAllBaselines().size() + " published");
+        } finally {
+            BaselineManager.leaderProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The same-key twins of a handoff window must converge on ONE baseline: the
+     * deterministic owner is the LATER allocation (the larger id - the allocation order
+     * every writer agrees on), the loser leaves the published map on every FE, and a
+     * master-side publish also REPAIRS the loser away durably - otherwise a DROP of the
+     * owner (or any reload) let the twin resurface and silently resurrect a "dropped"
+     * baseline.
+     */
+    @Test
+    public void testSameKeyTwinsCollapseToTheLaterAllocationAndAreRepaired() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselinePlan loser = withId(baseline("d-twin", "select twin"), 40L);
+            BaselinePlan owner = withId(baseline("d-twin", "select twin"), 41L);
+            store.insert(loser);
+            store.insert(owner);
+
+            manager.applyRefreshedBaselines(new java.util.HashMap<>(
+                    Map.of(40L, loser, 41L, owner)));
+
+            Assertions.assertNotNull(manager.getBaseline(41L),
+                    "the later allocation owns the key");
+            Assertions.assertNull(manager.getBaseline(40L),
+                    "the twin must never be publishable: two enabled rows of one key"
+                            + " (each by-id probe sees only its own id)");
+            Assertions.assertTrue(store.rowsOf(40L).isEmpty(),
+                    "the master-side publish repairs the loser durably: " + store.rowsOf(40L));
+            Assertions.assertEquals(1, store.rowsOf(41L).size(),
+                    "the owner's row is untouched");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * Every durable mutation helper must bump the bounded mutation clock BEFORE its
+     * statement: the stable-snapshot fence compares the (MAX(tick), COUNT(*), SUM(tick))
+     * tuple around its paginated read, so a mutation that committed while the tick was
+     * missed is invisible to the fence and a mixed snapshot could be certified stable
+     * (the reviewer's C1). One bump per CREATE, status flip and DROP is the contract.
+     */
+    @Test
+    public void testEveryMutationHelperAdvancesTheMutationClock() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-clock", "select clock"));
+            int afterCreate = store.clockBumps;
+            Assertions.assertTrue(afterCreate > 0, "the CREATE advanced the clock");
+
+            manager.updateStatus(id, BaselineStatus.DISABLED);
+            int afterFlip = store.clockBumps;
+            Assertions.assertTrue(afterFlip > afterCreate,
+                    "the status flip advanced the clock: " + afterCreate + " -> " + afterFlip);
+
+            Assertions.assertTrue(manager.dropBaseline(id), "the DROP must succeed");
+            Assertions.assertTrue(store.clockBumps > afterFlip,
+                    "the DROP advanced the clock: " + afterFlip + " -> " + store.clockBumps);
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * A DROP may only report success once its tombstones are READABLE (the reviewer's C4:
+     * the best-effort appends previously only warned and the DROP succeeded, so a delayed
+     * write of the removed row - or the unreadable loser of a handoff collision - revived
+     * the "dropped" baseline on every FE whose filter lived in process memory), and the
+     * process-local pending marker must NEVER fake that readability (C5): the scoped read
+     * masks, the durable read stays empty, and with the append failing the DROP is
+     * retryable while the row itself is already gone.
+     */
+    @Test
+    public void testDropFailsWhenTheTombstonesCannotBeConfirmedDurably() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-marker", "select marker"));
+            store.failMarkerAppend = true;
+
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.dropBaseline(id));
+            Assertions.assertTrue(failure.getMessage().contains("retry the DROP"),
+                    failure.getMessage());
+            Assertions.assertTrue(store.readById(id).isEmpty(),
+                    "the delete itself landed: the marker is the only unresolved half");
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the fenced DROP must stop replaying the removed row");
+            // C5: the failed append lives in THIS process only - and must not be
+            // mistakable for a durable tombstone
+            Assertions.assertTrue(
+                    BaselineManager.droppedIdentitiesForTest(Set.of(id), true).isEmpty(),
+                    "the DURABLE read must not see the failed append");
+            Assertions.assertFalse(
+                    BaselineManager.droppedIdentitiesForTest(Set.of(id), false).isEmpty(),
+                    "the scoped read still masks the id locally (fail closed)");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The status protocol must be scoped by the FULL identity: matching (id, status)
+     * alone let a REUSED id's newer incarnation (same id, different digest / planSql /
+     * fingerprint) be read, flipped or counted as if it were the row this FE wrote (the
+     * reviewer's C9). All three statements therefore bind the schema fingerprint exactly
+     * like the identity delete does.
+     */
+    @Test
+    public void testStatusProtocolSqlIsScopedByTheFullIdentity() throws Exception {
+        for (String name : List.of("DELETE_BY_ID_AND_STATUS_SQL",
+                "INSERT_IF_PREVIOUS_STATUS_SQL", "COUNT_BY_ID_AND_STATUS_SQL")) {
+            java.lang.reflect.Field field = BaselineManager.class.getDeclaredField(name);
+            field.setAccessible(true);
+            String sql = (String) field.get(null);
+            Assertions.assertTrue(
+                    sql.contains("IFNULL(`schema_fingerprint`, '') = '${schemaFingerprint}'"),
+                    name + " must match the schema fingerprint: " + sql);
+            if (!name.startsWith("COUNT")) {
+                Assertions.assertTrue(sql.contains("`bind_sql_digest` = '${bindSqlDigest}'"),
+                        name + " must match the identity: " + sql);
+                Assertions.assertTrue(sql.contains("`plan_sql` = '${planSql}'"),
+                        name + " must match the identity: " + sql);
+            }
+        }
+    }
+
+    /**
+     * Identity store whose mastership drops while the by-id collision PROBE runs (the
+     * handoff lands between the create's INSERT and its collision repair) and which
+     * injects a competing row into the FIRST post-insert by-id probe.
      */
     private static class DemotingIdentityStore
             implements BaselineManager.IdAllocatorStoreForTest {
@@ -1623,15 +1834,17 @@ public class BaselineManagerConcurrencyTest {
         public void insert(BaselinePlan plan) {
             rows.computeIfAbsent(plan.getId(), id -> new ArrayList<>()).add(plan);
             insertedId = plan.getId();
-            leader.set(false); // the handoff lands right after OUR insert
         }
 
         @Override
         public List<BaselinePlan> readById(long id) {
-            if (foreign != null && !injected) {
+            if (insertedId > 0 && foreign != null && !injected) {
                 injected = true;
                 foreign.setId(id);
                 rows.computeIfAbsent(id, k -> new ArrayList<>()).add(foreign);
+                // the handoff lands as the collision probe / repair is about to run:
+                // nothing of the competing row may be touched from here on
+                leader.set(false);
             }
             return new ArrayList<>(rows.getOrDefault(id, List.of()));
         }
@@ -2016,6 +2229,8 @@ public class BaselineManagerConcurrencyTest {
         private final List<String> dropped = new java.util.concurrent.CopyOnWriteArrayList<>();
         private boolean failDelete;
         private boolean failRead;
+        /** When set, every tombstone append fails before landing (the DROP confirmation). */
+        private boolean failMarkerAppend;
 
         /** Appends the tombstone a completed DROP of row would have written. */
         void appendTombstone(BaselinePlan row) {
@@ -2031,6 +2246,9 @@ public class BaselineManagerConcurrencyTest {
         @Override
         public void appendDroppedMarker(long id, String bindSqlDigest, long planSqlHash,
                 long atMillis) {
+            if (failMarkerAppend) {
+                throw new RuntimeException("spm_baselines_seq append timed out");
+            }
             dropped.add(id + "|" + bindSqlDigest + "|" + planSqlHash);
         }
 

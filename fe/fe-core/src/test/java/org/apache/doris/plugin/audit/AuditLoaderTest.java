@@ -910,19 +910,24 @@ public class AuditLoaderTest {
             Assertions.assertTrue(labels.startsWith("label-0;"),
                     "the overflowed batch's label must come first: " + labels);
 
-            // taking the aggregate past the label bound contributes the OVERFLOWED marker
-            // (round-50: distinct from the no-identity marker and never settled by the
-            // row's age - the omitted batch may still publish) instead of losing identities
+            // taking the aggregate past the label bound must PRESERVE every identity (the
+            // reviewer's C6/C8: the old overflow marker carried none, so nothing could
+            // ever resolve the omitted batch - the identity list may exceed the cap while
+            // that many batches are simultaneously unresolved)
             for (int i = 0; i < AuditLoader.MAX_AGGREGATED_FENCE_LABELS + 1; i++) {
                 Deencapsulation.invoke(loader, "retainPublishFence", 50_000L + i,
                         "qid-b" + i, "label-b" + i);
             }
             labels = AuditLoader.oldestCommittedPublishFenceLabels();
-            Assertions.assertTrue(Arrays.asList(labels.split(";", -1))
-                            .contains(AuditLoader.OVERFLOWED_FENCE_LABEL),
-                    "a lost label must be carried as the overflow marker: " + labels);
-            Assertions.assertFalse(Arrays.asList(labels.split(";", -1)).contains("-"),
-                    "the overflow marker is DISTINCT from the no-identity marker: "
+            java.util.List<String> encoded = Arrays.asList(labels.split(";", -1));
+            Assertions.assertFalse(encoded.contains(AuditLoader.OVERFLOWED_FENCE_LABEL),
+                    "identities must no longer be replaced by an identity-less marker: "
+                            + labels);
+            Assertions.assertFalse(encoded.contains("-"),
+                    "no identity was lost, so the no-identity marker must not appear: "
+                            + labels);
+            Assertions.assertTrue(encoded.contains("label-b0"),
+                    "the batch evicted past the bound keeps its resolvable identity: "
                             + labels);
 
             // round-50: at the bound the OLDEST identities that already resolved TERMINAL
@@ -945,15 +950,15 @@ public class AuditLoaderTest {
     }
 
     /**
-     * Round-51 (#7): the overflowed sentinel must NOT pin the aggregate forever. The
-     * previous code re-armed the survival window on every expiry, so the shared row's "*"
-     * kept a DEAD writer FE's horizon fenced until the end of time - every later capture
-     * window stayed pinned even after all resolvable loads turned VISIBLE. The
-     * unresolvable obligations (an unknown label, or the sentinel) now share ONE absolute
-     * window: past it they are assumed LOST and the aggregate retires.
+     * The reviewer's C6/C8: the aggregate must never be released by AGE while it carries
+     * an unresolvable obligation - a bounded-out batch may be COMMITTED with its
+     * publication still pending, and a zero report then let the capture checkpoint past an
+     * unreadable batch. Every identity is preserved (no sentinel), unresolvable labels
+     * keep the aggregate indefinitely, and the PROVABLE terminal state of every retained
+     * label is what releases it.
      */
     @Test
-    public void testOverflowedSentinelRetiresAfterItsBoundedWindow() throws Exception {
+    public void testUnresolvedAggregateIsNeverRetiredByAge() throws Exception {
         AuditLoader loader = new AuditLoader();
         setRunningLoader(loader);
         long base = 1_000_000_000L;
@@ -966,28 +971,34 @@ public class AuditLoaderTest {
                         "qid-" + i, "label-" + i);
             }
             String labels = AuditLoader.oldestCommittedPublishFenceLabels();
-            Assertions.assertTrue(Arrays.asList(labels.split(";", -1))
+            Assertions.assertFalse(Arrays.asList(labels.split(";", -1))
                             .contains(AuditLoader.OVERFLOWED_FENCE_LABEL),
-                    "the bound must have overflowed: " + labels);
+                    "identities are preserved, no sentinel: " + labels);
 
-            // past the re-check window: the first resolution ARMS the absolute window
+            // arbitrary age: the unresolvable obligations (the transaction manager knows no
+            // such load here) keep the aggregate - no age bound releases them
             AuditLoader.publishFenceClockForTest =
-                    () -> base + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS;
-            AuditLoader.oldestCommittedPublishFenceEventTime();
-            // past the absolute window: the unresolvable obligations (here: all labels are
-            // unknown to the transaction manager, plus the sentinel) are assumed LOST
-            AuditLoader.publishFenceClockForTest = () -> base
-                    + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS
-                    + AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS + 1;
-            AuditLoader.oldestCommittedPublishFenceEventTime();
-            // The overflowed aggregate retires; the plain pending batches keep their
-            // own (unconfirmable here) settlement path - only the SENTINEL must be gone.
-            String retired = AuditLoader.oldestCommittedPublishFenceLabels();
-            Assertions.assertFalse(Arrays.asList(retired.split(";", -1))
-                            .contains(AuditLoader.OVERFLOWED_FENCE_LABEL),
-                    "the sentinel must not survive the aggregate: " + retired);
+                    () -> base + 10 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS;
+            Assertions.assertNotEquals(0L,
+                    AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "an unresolvable aggregate is never assumed lost");
+
+            // the PROOF releases the AGGREGATE: every retained label resolves terminal.
+            // The still-PENDING batches keep their own per-batch fences (each is resolved
+            // individually by confirmPublishFence), so the overall value moves to the
+            // pending list's oldest instead of zero - asserting it moved PAST the
+            // aggregate's own event time proves the aggregate was the part that released.
+            AuditLoader.transactionStatusForTest = label -> "ABORTED";
+            AuditLoader.publishFenceClockForTest =
+                    () -> base + 12 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS;
+            long released = AuditLoader.oldestCommittedPublishFenceEventTime();
+            Assertions.assertTrue(released > 20_000L,
+                    "terminal outcomes of every retained label must release the aggregate:"
+                            + " the remaining fence may only be the pending batches' own ("
+                            + released + ")");
         } finally {
             AuditLoader.publishFenceClockForTest = null;
+            AuditLoader.transactionStatusForTest = null;
             setRunningLoader(null);
         }
     }

@@ -547,11 +547,13 @@ class InternalSchemaInitializerTest {
                 "the compact record carries the newest allocated id: " + sql);
         Assertions.assertTrue(sql.contains("`update_time`"),
                 "the record's write instant is kept: " + sql);
+        Assertions.assertTrue(sql.contains("`tick`"),
+                "the slot carries the bounded mutation clock: " + sql);
         Assertions.assertFalse(sql.contains("UNIQUE KEY"),
                 "the record is append-only (a superseded row never regresses the MAX): " + sql);
-        Assertions.assertEquals(3, InternalSchema.getCopiedSchema(
+        Assertions.assertEquals(4, InternalSchema.getCopiedSchema(
                         InternalSchema.SPM_BASELINES_HWM_TBL_NAME).size(),
-                "the copied schema carries exactly id / last_id / update_time");
+                "the copied schema carries exactly id / last_id / update_time / tick");
         Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
                         .contains(InternalSchema.SPM_BASELINES_HWM_TBL_NAME),
                 "losing the hosting BE must not make the id watermark unreadable");

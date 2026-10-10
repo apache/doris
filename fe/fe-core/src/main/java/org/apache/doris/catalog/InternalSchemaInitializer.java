@@ -135,6 +135,10 @@ public class InternalSchemaInitializer extends Thread {
         // create's identity and the horizon rows carry each FE's audit
         // writer zone history; the writers always fill them.
         ensureSpmBaselinesSeqColumnsExist();
+        // ... and the HWM slot gains its bounded mutation-clock column (tick): every
+        // baseline mutation advances it (see BaselineManager#bumpMutationClock) and the
+        // paginated snapshot read compares it around its page loop.
+        ensureSpmBaselinesHwmColumnsExist();
         ensureSpmAuditHorizonColumnsExist();
         for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
             modifyTblReplicaCount(database, tblName);
@@ -1345,6 +1349,18 @@ public class InternalSchemaInitializer extends Thread {
      * unpublished write after a leader handoff / restart.
      */
     @VisibleForTesting
+    /**
+     * Upgrade column of the spm_baselines_hwm table: the bounded mutation clock (tick,
+     * see BaselineManager#bumpMutationClock). A pre-existing slot without the column
+     * reads as tick = 0 and is re-written by the next mutation.
+     */
+    static final Map<String, ScalarType> SPM_BASELINES_HWM_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        SPM_BASELINES_HWM_UPGRADE_COLUMNS.put("tick",
+                ScalarType.createType(PrimitiveType.BIGINT));
+    }
+
     static final Map<String, ScalarType> SPM_BASELINES_SEQ_UPGRADE_COLUMNS = new LinkedHashMap<>();
 
     static {
@@ -1400,6 +1416,15 @@ public class InternalSchemaInitializer extends Thread {
     static void ensureSpmBaselinesSeqColumnsExist() {
         ensureSpmUpgradeColumns(SPM_BASELINES_SEQ_UPGRADE_COLUMNS, "spm_baselines_seq",
                 InternalSchema.SPM_BASELINES_SEQ_TBL_NAME);
+    }
+
+    /**
+     * Waits until the spm_baselines_hwm table carries every column of
+     * SPM_BASELINES_HWM_UPGRADE_COLUMNS.
+     */
+    static void ensureSpmBaselinesHwmColumnsExist() {
+        ensureSpmUpgradeColumns(SPM_BASELINES_HWM_UPGRADE_COLUMNS, "spm_baselines_hwm",
+                InternalSchema.SPM_BASELINES_HWM_TBL_NAME);
     }
 
     /**

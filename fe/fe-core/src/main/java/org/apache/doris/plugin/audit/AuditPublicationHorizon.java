@@ -660,26 +660,20 @@ public final class AuditPublicationHorizon {
         for (String label : labelsCsv.split(";", -1)) {
             String trimmed = label.trim();
             if (AuditLoader.OVERFLOWED_FENCE_LABEL.equals(trimmed)) {
-                // The writer overflowed its aggregated identity list: at least one
-                // dropped-publish-timeout batch has NO resolvable identity, so the fence
-                // cannot be settled by a label lookup. The writer retires it itself once
-                // those batches' own publish-fence window plus the identity-survival
-                // window elapsed (see AuditLoader#liveDroppedPublishFence); for a row this
-                // process reads - a DEAD writer cannot re-report - the same bound is
-                // applied to the row's AGE here. Keeping the sentinel FOREVER let a dead
-                // FE's horizon pin every later capture window even after every resolvable
-                // batch had turned VISIBLE / ABORTED.
-                if (now - updatedAt <= AuditLoader.PUBLISH_FENCE_MAX_MILLIS
-                        + COMMITTED_FENCE_SURVIVAL_MILLIS) {
-                    return false;
-                }
-                continue;
+                // The marker stands for at least one dropped-publish-timeout batch with
+                // NO resolvable identity: nothing can ever PROVE its publication, so the
+                // fence is never settled by age (the previous bounded release assumed
+                // those batches lost, but a COMMITTED one may still publish - the
+                // reviewer's C8 finding). The loader no longer emits the sentinel
+                // (identities are never dropped from the aggregate), so this branch only
+                // keeps rows written by an intermediate build fenced.
+                return false;
             }
             if (trimmed.isEmpty() || "-".equals(trimmed)) {
-                if (now - updatedAt <= COMMITTED_FENCE_SURVIVAL_MILLIS) {
-                    return false; // unknown identity: keep fencing until the bound
-                }
-                continue;
+                // no identity was recorded: a label lookup can NEVER settle it, and the
+                // batch may be COMMITTED with its publication pending - keep fencing
+                // instead of releasing on age alone (the reviewer's C8 finding)
+                return false;
             }
             String status = AuditLoader.transactionStatusForLabel(trimmed);
             if (AuditLoader.isTerminalTransactionStatus(status)) {
@@ -688,9 +682,9 @@ public final class AuditPublicationHorizon {
             if ("COMMITTED".equals(status) || "PRECOMMITTED".equals(status)) {
                 return false; // the publish daemon may still make its rows readable
             }
-            if (now - updatedAt <= COMMITTED_FENCE_SURVIVAL_MILLIS) {
-                return false; // unresolvable and young: the same last resort as above
-            }
+            // unresolvable (a lookup failure / a not-yet-known label): keep fencing -
+            // only a PROVABLE terminal state may settle the row's share
+            return false;
         }
         return true;
     }

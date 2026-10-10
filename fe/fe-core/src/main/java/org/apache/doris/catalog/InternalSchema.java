@@ -414,6 +414,13 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        // The bounded mutation clock (see BaselineManager#bumpMutationClock): every
+        // baseline mutation advances it BEFORE its row write, and a snapshot read compares
+        // (MAX(tick), COUNT(*), SUM(tick)) around its page loop. NULLABLE: a slot written
+        // before the column existed (an upgraded cluster) carries NULL and simply reads
+        // as 0 - the next mutation re-writes the slot with a real tick.
+        SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("tick",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
 
         // SPM plan-capture checkpoint (APPEND-ONLY, every row carries the
         // fixed id = 1): the truncated window bounds, the FULL cursor (time, query_time,
