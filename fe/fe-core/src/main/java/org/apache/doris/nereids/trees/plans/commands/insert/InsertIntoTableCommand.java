@@ -627,7 +627,8 @@ public class InsertIntoTableCommand extends Command
                             (UnboundConnectorTableSink<?>) originLogicalQuery;
                     if (pluginSink.hasStaticPartition()) {
                         pluginCtx.setStaticPartitionSpecFromExpressions(
-                                pluginSink.getStaticPartitionKeyValues());
+                                pluginSink.getStaticPartitionKeyValues(),
+                                InsertUtils.connectorWriteSchema(targetTableIf, true));
                     }
                 }
                 return ExecutorFactory.from(planner, dataSink, physicalSink,

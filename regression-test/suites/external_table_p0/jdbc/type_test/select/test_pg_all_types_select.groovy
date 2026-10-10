@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_pg_all_types_select", "p0,external") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -37,6 +40,48 @@ suite("test_pg_all_types_select", "p0,external") {
         sql """use pg_all_type_test.catalog_pg_test"""
 
         qt_desc_all_types_null """desc catalog_pg_test.extreme_test;"""
+
+        // Range conversion and local filtering must agree, including before a pushed LIMIT.
+        order_qt_extreme_nulls "select timestamptz_val is null from catalog_pg_test.extreme_test"
+        order_qt_extreme_null_ids "select id from catalog_pg_test.extreme_test where timestamptz_val is null"
+        order_qt_extreme_non_null_ids "select id from catalog_pg_test.extreme_test where timestamptz_val is not null"
+        order_qt_extreme_null_limit """select id from catalog_pg_test.extreme_test
+                                     where timestamptz_val is null order by id limit 1"""
+
+        // Keep the remote table after the run so failed range conversions can be inspected.
+        def executeRangeDdl = { String statement ->
+            sql("CALL EXECUTE_STMT('pg_all_type_test', '" + statement.replace("'", "''") + "')")
+        }
+        executeRangeDdl("DROP TABLE IF EXISTS catalog_pg_test.timestamp_range_nullability")
+        executeRangeDdl("CREATE TABLE catalog_pg_test.timestamp_range_nullability " +
+                "(id INT NOT NULL, event_time TIMESTAMPTZ NOT NULL, other_time TIMESTAMPTZ NOT NULL)")
+        executeRangeDdl("INSERT INTO catalog_pg_test.timestamp_range_nullability VALUES " +
+                "(1, '9999-12-31 23:59:59-08', '10000-01-02 00:00:00+00'), " +
+                "(2, '2023-11-05 08:30:00+00', '2023-11-05 08:30:00+00'), " +
+                "(3, 'infinity', '-infinity'), (4, '-infinity', 'infinity'), " +
+                "(5, '0002-01-01 00:00:00+00 BC', '0002-01-02 00:00:00+00 BC'), " +
+                "(6, '99999-01-01 00:00:00+00', '99999-01-02 00:00:00+00')")
+        order_qt_range_nulls "select id, event_time is null from catalog_pg_test.timestamp_range_nullability"
+        order_qt_range_null_ids """select id from catalog_pg_test.timestamp_range_nullability
+                                  where event_time is null"""
+        order_qt_range_non_null_ids """select id from catalog_pg_test.timestamp_range_nullability
+                                      where event_time is not null"""
+        order_qt_range_null_safe_equal """select id from catalog_pg_test.timestamp_range_nullability
+                                         where event_time <=> other_time"""
+        order_qt_range_equal """select id from catalog_pg_test.timestamp_range_nullability
+                               where event_time = other_time"""
+        order_qt_range_null_limit """select id from catalog_pg_test.timestamp_range_nullability
+                                    where event_time is null order by id limit 1"""
+        order_qt_range_count "select count(event_time) from catalog_pg_test.timestamp_range_nullability"
+
+        // PostgreSQL 1 BC is Java/Doris year zero, which remains valid in scalar and array JNI values.
+        executeRangeDdl("DROP TABLE IF EXISTS catalog_pg_test.timestamp_year_zero")
+        executeRangeDdl("CREATE TABLE catalog_pg_test.timestamp_year_zero " +
+                "(id INT, event_time TIMESTAMPTZ, events TIMESTAMPTZ[])")
+        executeRangeDdl("INSERT INTO catalog_pg_test.timestamp_year_zero VALUES " +
+                "(1, '0001-01-01 00:00:00+00 BC', ARRAY['0001-01-01 00:00:00+00 BC'::timestamptz, " +
+                "NULL, '0001-01-01 00:00:00.000001+00 BC'::timestamptz]), (2, NULL, NULL)")
+        order_qt_year_zero "SELECT * FROM catalog_pg_test.timestamp_year_zero"
 
         qt_select_all_types_null """SELECT 
                                     id,
@@ -87,7 +132,9 @@ suite("test_pg_all_types_select", "p0,external") {
         sql """SET time_zone = '+08:00';"""
         sql """use pg_timestamp_tz_type_test.test_timestamp_tz_db"""
         sql """ CALL EXECUTE_STMT("pg_timestamp_tz_type_test", "ALTER TABLE test_timestamp_tz_db.ts_test REPLICA IDENTITY FULL") """
-        sql """ CALL EXECUTE_STMT("pg_timestamp_tz_type_test", "delete from test_timestamp_tz_db.ts_test where id in (3, 4)") """
+        // Keep the write round trip repeatable without changing the preinstalled seed rows.
+        sql """CALL EXECUTE_STMT('pg_timestamp_tz_type_test',
+                'DELETE FROM test_timestamp_tz_db.ts_test WHERE id IN (3, 4)')"""
         qt_desc_timestamp_tz """desc ts_test;"""
         qt_select_timestamp_tz """select * from ts_test order by id;"""
         qt_select_timestamp_tz2 """insert into ts_test values(3,"1999-10-10 12:00:00+08:00","1999-10-10 12:00:00");"""

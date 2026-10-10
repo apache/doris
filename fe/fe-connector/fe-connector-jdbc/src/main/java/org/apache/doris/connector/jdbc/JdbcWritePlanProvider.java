@@ -138,7 +138,27 @@ public class JdbcWritePlanProvider implements ConnectorWritePlanProvider {
         }
         return JdbcIdentifierQuoter.buildInsertSql(client.getDbType(),
                 jdbcHandle.getRemoteDbName(), jdbcHandle.getRemoteTableName(),
-                remoteColumnNames, columnNames);
+                remoteColumnNames, columnNames, columns.stream().map(column -> {
+                    if ("UUID".equalsIgnoreCase(column.getType().getTypeName())
+                            && (client.getDbType() == JdbcDbType.TRINO || client.getDbType() == JdbcDbType.PRESTO)) {
+                        // A VARCHAR bind needs an explicit remote UUID conversion.
+                        return "CAST(? AS UUID)";
+                    }
+                    if ("TIMESTAMPTZ".equalsIgnoreCase(column.getType().getTypeName())) {
+                        // These drivers accept VARCHAR binds but cannot bind JDBC's zoned type code.
+                        if (client.getDbType() == JdbcDbType.PRESTO) {
+                            // PrestoSQL supports microseconds; PrestoDB uses its fixed timestamp precision.
+                            return "io.prestosql.jdbc.PrestoDriver".equals(props.getDriverClass())
+                                    ? "CAST(? AS TIMESTAMP(6) WITH TIME ZONE)"
+                                    : "CAST(? AS TIMESTAMP WITH TIME ZONE)";
+                        }
+                        if (client.getDbType() == JdbcDbType.ORACLE
+                                || client.getDbType() == JdbcDbType.OCEANBASE_ORACLE) {
+                            return "TO_TIMESTAMP_TZ(?, 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM')";
+                        }
+                    }
+                    return "?";
+                }).collect(Collectors.toList()));
     }
 
     private boolean useTransaction(ConnectorSession session) {

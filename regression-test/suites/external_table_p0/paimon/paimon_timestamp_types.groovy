@@ -24,6 +24,8 @@ suite("paimon_timestamp_types", "p0,external") {
     }
 
     def originalTimeZone = sql("SELECT @@time_zone")[0][0]
+    def originalScannerV2 = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
+    def originalForceJni = sql("SHOW VARIABLES LIKE 'force_jni_scanner'")[0][1]
     try {
         String catalog_name = "paimon_timestamp_types"
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
@@ -150,28 +152,57 @@ suite("paimon_timestamp_types", "p0,external") {
         test_scale("2024-01-02 10:04:05.123456")
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")
-        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 10:12:34.123456")
+        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 10:12:34.123456+08:00")
         // test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet")
 
         // Native ORC rounds scales 7-9 to microseconds; JNI truncates. Native Parquet uses
         // Paimon history semantics for high-precision INT96 instead of the session timezone.
         sql """set force_jni_scanner=false"""
+        // Precision-aware native predicates use V2; V1 compares raw nanoseconds before truncation.
+        // SELECT * still falls back to JNI because it includes legacy ORC LTZ fields.
+        sql """set enable_file_scanner_v2=true"""
         test_scale("2024-01-02 10:04:05.123457")
+        // Keep testing legacy LTZ fallback with V2 disabled independently of the NTZ predicate tests.
+        sql """set enable_file_scanner_v2=false"""
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")
-        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 02:12:34.123456")
-        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet", "2024-01-02 10:12:34.123456")
+        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 10:12:34.123456+08:00")
+        test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet", "2024-01-02 10:12:34.123456+08:00")
+
+        // Legacy ORC LTZ needs Paimon's compatibility conversion. Reader selection must
+        // preserve LTZ instants and NTZ civil fields, including inside containers.
+        for (def zone : ["UTC", "Asia/Shanghai", "America/New_York"]) {
+            sql "set time_zone = '${zone}'"
+            for (def scannerV2 : [false, true]) {
+                sql "set enable_file_scanner_v2 = ${scannerV2}"
+                sql "set force_jni_scanner = true"
+                def scalarSql = """select cast(ts6 as string), cast(ts16 as string),
+                        unix_timestamp(ts16) from ts_scale_orc"""
+                def nestedSql = """select cast(cmap1 as string), cast(cmap2 as string),
+                        cast(carray1 as string), cast(carray2 as string), cast(crow as string)
+                        from test_timestamp_ntz_ltz_simple_orc"""
+                def expectedScalar = sql(scalarSql)
+                def expectedNested = sql(nestedSql)
+                "qt_scalar_${zone.replace('/', '_')}_${scannerV2}" scalarSql
+                sql "set force_jni_scanner = false"
+                assertEquals(expectedScalar, sql(scalarSql))
+                assertEquals(expectedNested, sql(nestedSql))
+                if (scannerV2) {
+                    // LTZ fallback must retain file metadata in the same projection as the decoded instant.
+                    "qt_ltz_metadata_${zone.replace('/', '_')}" """select cast(ts16 as string),
+                        __paimon_file_path like '%.orc', __paimon_row_index from ts_scale_orc
+                        order by __paimon_row_index"""
+                }
+            }
+        }
     } finally {
-        sql """set force_jni_scanner=false"""
+        sql """set force_jni_scanner=${originalForceJni}"""
+        sql """set enable_file_scanner_v2=${originalScannerV2}"""
         sql """set time_zone = '${originalTimeZone}'"""
     }
 
     // TODO:
-    // 2. paimon bugs: native read + orc + timestamp_ltz.
-    //                 In the Shanghai time zone, the read data will be 8 hours less, 
-    //                 because the data written by Flink to the orc file is UTC, but the time zone saved in the orc file is Shanghai.
-    //                 Currently, Paimon will not fix this problem, but recommends using the parquet format.
-    // 3. paimon bugs: jni read + parquet + row types + timestamp.
+    // paimon bugs: jni read + parquet + row types + timestamp.
     //                 Data of the timestamp type should be converted to the timestamp type, but paimon converted it to the long type.
     //                 Will be fixed in paimon0.9
 

@@ -540,6 +540,46 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void nativeBinaryPartitionsKeepAllPathValues(@TempDir Path warehouse) throws Exception {
+        for (String format : Arrays.asList("parquet", "orc")) {
+            try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                    new org.apache.paimon.fs.Path(warehouse.resolve(format).toUri()))) {
+                catalog.createDatabase("db", false);
+                Identifier id = Identifier.create("db", "binary_parts");
+                catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                        .column("key", DataTypes.BYTES()).column("region", DataTypes.STRING())
+                        .partitionKeys("key", "region").option("bucket", "-1")
+                        .option("file.format", format).build(), false);
+                Table table = catalog.getTable(id);
+                BatchWriteBuilder writer = table.newBatchWriteBuilder();
+                try (BatchTableWrite write = writer.newWrite()) {
+                    write.write(GenericRow.of(1, new byte[] {0, (byte) 255},
+                            org.apache.paimon.data.BinaryString.fromString("east")));
+                    try (BatchTableCommit commit = writer.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+                ops.table = table;
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                        PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+                PaimonTableHandle handle = new PaimonTableHandle("db", "binary_parts",
+                        Collections.emptyList(), Collections.emptyList());
+                List<ConnectorScanRange> ranges = provider.planScan(
+                        sessionWithProps(Collections.emptyMap(), new TestStatementScope()),
+                        ConnectorScanRequest.builder(handle, Arrays.asList(new PaimonColumnHandle("id", 0),
+                                new PaimonColumnHandle("key", 1), new PaimonColumnHandle("region", 2))).build());
+                Assertions.assertFalse(ranges.isEmpty());
+                for (ConnectorScanRange range : ranges) {
+                    PaimonScanRange split = (PaimonScanRange) range;
+                    Assertions.assertEquals("0x00FF", split.getPartitionValues().get("key"));
+                    Assertions.assertEquals("east", split.getPartitionValues().get("region"));
+                }
+            }
+        }
+    }
+
+    @Test
     public void planScanPushesLimitIntoPaimonSplitPlanning(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
@@ -2739,6 +2779,255 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertEquals((hugeTotal + maxNum - 1L) / maxNum,
                 PaimonScanPlanProvider.determineTargetSplitSize(0L, init, max, initNum, maxNum, hugeTotal),
                 "max_file_split_num floor (ceil(total/maxNum)) must raise the target above 64MB");
+    }
+
+    @Test
+    public void legacyPrimaryKeyFilesCannotExposePhysicalMetadata(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "events");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT().notNull())
+                    .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
+                    .primaryKey("id").option("bucket", "1")
+                    .option("file.format", "orc").option("orc.timestamp-ltz.legacy-type", "true")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder builder = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = builder.newWrite()) {
+                write.write(GenericRow.of(1, org.apache.paimon.data.Timestamp.fromEpochMillis(1000)));
+                List<CommitMessage> messages = new ArrayList<>();
+                for (CommitMessage message : write.prepareCommit()) {
+                    org.apache.paimon.table.sink.CommitMessageImpl original =
+                            (org.apache.paimon.table.sink.CommitMessageImpl) message;
+                    List<DataFileMeta> files = new ArrayList<>();
+                    for (DataFileMeta file : original.newFilesIncrement().newFiles()) {
+                        // Older manifests omit deleteRowCount even when the split is raw-convertible.
+                        files.add(DataFileMeta.create(file.fileName(), file.fileSize(), file.rowCount(),
+                                file.minKey(), file.maxKey(), file.keyStats(), file.valueStats(),
+                                file.minSequenceNumber(), file.maxSequenceNumber(), file.schemaId(), file.level(),
+                                file.extraFiles(), null, file.embeddedIndex(), file.fileSource().orElse(null),
+                                file.valueStatsCols(), file.externalPath().orElse(null), file.firstRowId(),
+                                file.writeCols()));
+                    }
+                    messages.add(new org.apache.paimon.table.sink.CommitMessageImpl(original.partition(),
+                            original.bucket(), original.totalBuckets(),
+                            new org.apache.paimon.io.DataIncrement(files,
+                                    original.newFilesIncrement().deletedFiles(),
+                                    original.newFilesIncrement().changelogFiles()), original.compactIncrement()));
+                }
+                try (BatchTableCommit commit = builder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            DataSplit split = (DataSplit) table.newReadBuilder().newScan().plan().splits().get(0);
+            Assertions.assertTrue(split.convertToRawFiles().isPresent());
+            Assertions.assertFalse(split.dataFiles().get(0).deleteRowCount().isPresent());
+            try (RecordReader<InternalRow> reader = table.newReadBuilder().newRead().createReader(split)) {
+                RecordReader.RecordIterator<InternalRow> batch = reader.readBatch();
+                Assertions.assertNotNull(batch.next());
+                Assertions.assertFalse(batch instanceof org.apache.paimon.reader.FileRecordIterator);
+                batch.releaseBatch();
+            }
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "events", Collections.emptyList(), Collections.emptyList());
+            for (String metadata : Arrays.asList(PAIMON_FILE_PATH_COL, PAIMON_ROW_POSITION_COL)) {
+                Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(
+                        sessionWithProps(Collections.emptyMap()), ConnectorScanRequest.builder(handle, Arrays.asList(
+                                new PaimonColumnHandle("event_time", 1),
+                                new PaimonColumnHandle(metadata, -1))).build()));
+            }
+            Assertions.assertFalse(provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("event_time", 1))).build()).isEmpty());
+        }
+    }
+
+    @Test
+    public void addedLtzColumnKeepsHistoricalOrcFilesOnNativeReader(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "events");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT().notNull())
+                    .primaryKey("id").option("bucket", "1")
+                    .option("file.format", "orc").option("orc.timestamp-ltz.legacy-type", "true")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder builder = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = builder.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = new ArrayList<>();
+                for (CommitMessage message : write.prepareCommit()) {
+                    org.apache.paimon.table.sink.CommitMessageImpl original =
+                            (org.apache.paimon.table.sink.CommitMessageImpl) message;
+                    List<DataFileMeta> files = new ArrayList<>();
+                    for (DataFileMeta file : original.newFilesIncrement().newFiles()) {
+                        // Older manifests omit deleteRowCount even when the split is raw-convertible.
+                        files.add(DataFileMeta.create(file.fileName(), file.fileSize(), file.rowCount(),
+                                file.minKey(), file.maxKey(), file.keyStats(), file.valueStats(),
+                                file.minSequenceNumber(), file.maxSequenceNumber(), file.schemaId(), file.level(),
+                                file.extraFiles(), null, file.embeddedIndex(), file.fileSource().orElse(null),
+                                file.valueStatsCols(), file.externalPath().orElse(null), file.firstRowId(),
+                                file.writeCols()));
+                    }
+                    messages.add(new org.apache.paimon.table.sink.CommitMessageImpl(original.partition(),
+                            original.bucket(), original.totalBuckets(),
+                            new org.apache.paimon.io.DataIncrement(files,
+                                    original.newFilesIncrement().deletedFiles(),
+                                    original.newFilesIncrement().changelogFiles()), original.compactIncrement()));
+                }
+                try (BatchTableCommit commit = builder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            catalog.alterTable(id, Collections.singletonList(SchemaChange.addColumn("event_time",
+                    new org.apache.paimon.types.LocalZonedTimestampType(6))), false);
+            Table evolved = catalog.getTable(id);
+            DataSplit split = (DataSplit) evolved.newReadBuilder().newScan().plan().splits().get(0);
+            Assertions.assertTrue(split.convertToRawFiles().isPresent());
+            Assertions.assertFalse(split.dataFiles().get(0).deleteRowCount().isPresent());
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = evolved;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            for (String metadata : Arrays.asList(PAIMON_FILE_PATH_COL, PAIMON_ROW_POSITION_COL)) {
+                PaimonTableHandle handle = new PaimonTableHandle(
+                        "db", "events", Collections.emptyList(), Collections.emptyList());
+                List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                        ConnectorScanRequest.builder(handle, Arrays.asList(
+                                new PaimonColumnHandle("event_time", 1),
+                                new PaimonColumnHandle(metadata, -1))).build());
+                Assertions.assertFalse(ranges.isEmpty());
+                Assertions.assertTrue(ranges.stream().allMatch(range -> range.getPath().isPresent()),
+                        "An added nullable LTZ column has no legacy timestamp bytes in historical files");
+            }
+        }
+    }
+
+    @Test
+    public void fallbackOrcUsesEachBranchOptionsAndSchemas(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            List<FileStoreTable> branches = new ArrayList<>();
+            for (int branch = 0; branch < 2; branch++) {
+                Identifier id = Identifier.create("db", "branch_" + branch);
+                catalog.createTable(id, Schema.newBuilder()
+                        .column("id", DataTypes.INT())
+                        .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
+                        .partitionKeys("id").option("file.format", "orc")
+                        .option(org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key(),
+                                String.valueOf(branch == 1))
+                        .build(), false);
+                if (branch == 1) {
+                    // A fallback branch can own schema IDs that never existed on the primary branch.
+                    catalog.alterTable(id, Collections.singletonList(SchemaChange.addColumn("unused", DataTypes.INT())),
+                            false);
+                    catalog.alterTable(id, Collections.singletonList(SchemaChange.dropColumn("unused")), false);
+                }
+                FileStoreTable branchTable = (FileStoreTable) catalog.getTable(id);
+                BatchWriteBuilder writer = branchTable.newBatchWriteBuilder();
+                try (BatchTableWrite write = writer.newWrite()) {
+                    write.write(GenericRow.of(branch, org.apache.paimon.data.Timestamp.fromEpochMillis(1000)));
+                    try (BatchTableCommit commit = writer.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+                branches.add(branchTable);
+            }
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = new org.apache.paimon.table.FallbackReadFileStoreTable(
+                    branches.get(0), branches.get(1), true);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "branch_0", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("event_time", 1))).build());
+            Assertions.assertEquals(2, ranges.size());
+            Assertions.assertEquals(1, ranges.stream().filter(range -> range.getPath().isPresent()).count());
+            ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("id", 0))).build());
+            Assertions.assertEquals(2, ranges.size());
+            Assertions.assertTrue(ranges.stream().allMatch(range -> range.getPath().isPresent()));
+        }
+    }
+
+    @Test
+    public void unusedLegacyOrcTimestampKeepsNativeMetadataScan(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "events");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
+                    .option("file.format", "orc")
+                    .option("orc.timestamp-ltz.legacy-type", "true")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder builder = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = builder.newWrite()) {
+                write.write(GenericRow.of(1, org.apache.paimon.data.Timestamp.fromEpochMillis(1000)));
+                try (BatchTableCommit commit = builder.newCommit()) {
+                    commit.commit(write.prepareCommit());
+                }
+            }
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "events", Collections.emptyList(), Collections.emptyList());
+            ConnectorSession session = sessionWithProps(Collections.emptyMap());
+            List<ConnectorColumnHandle> metadataProjection = Arrays.asList(
+                    new PaimonColumnHandle("id", 0), new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1));
+            List<ConnectorScanRange> nativeRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, metadataProjection).build());
+            Assertions.assertFalse(nativeRanges.isEmpty());
+            Assertions.assertTrue(nativeRanges.stream().allMatch(range -> range.getPath().isPresent()));
+
+            List<ConnectorScanRange> timestampRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("event_time", 1))).build());
+            Assertions.assertFalse(timestampRanges.isEmpty());
+            Assertions.assertTrue(timestampRanges.stream().noneMatch(range -> range.getPath().isPresent()));
+            List<ConnectorScanRange> filterRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("id", 0)))
+                    .filter(Optional.of(new org.apache.doris.connector.spi.pushdown.ConnectorIsNull(
+                            new ConnectorColumnRef("event_time", ConnectorType.of("TIMESTAMPTZ", 6, -1)), true)))
+                    .build());
+            Assertions.assertFalse(filterRanges.isEmpty());
+            Assertions.assertTrue(filterRanges.stream().noneMatch(range -> range.getPath().isPresent()));
+
+            List<ConnectorScanRange> mixedRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, Arrays.asList(
+                            new PaimonColumnHandle("event_time", 1),
+                            new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1),
+                            new PaimonColumnHandle("__paimon_row_index", -1))).build());
+            Assertions.assertFalse(mixedRanges.isEmpty());
+            Assertions.assertTrue(mixedRanges.stream().noneMatch(range -> range.getPath().isPresent()));
+
+            // Historical files can retain a dropped LTZ column that the current scan never decodes.
+            catalog.alterTable(id, Collections.singletonList(SchemaChange.dropColumn("event_time")), false);
+            ops.table = catalog.getTable(id);
+            List<ConnectorScanRange> historicalRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(new PaimonTableHandle(
+                            "db", "events", Collections.emptyList(), Collections.emptyList()), metadataProjection)
+                    .build());
+            Assertions.assertFalse(historicalRanges.isEmpty());
+            Assertions.assertTrue(historicalRanges.stream().allMatch(range -> range.getPath().isPresent()));
+        }
     }
 
     @Test

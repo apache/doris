@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -263,11 +264,9 @@ public class CreateViewTest extends TestWithFeService {
     }
 
     @Test
-    public void testViewRejectVarbinary() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(
-                org.apache.doris.common.AnalysisException.class,
-                "View does not support VARBINARY type: vb",
-                () -> createView("create view test.vb_view as select X'AB' as vb;"));
+    public void testViewPreservesVarbinary() throws Exception {
+        createView("create view test.vb_view as select X'AB' as vb;");
+        PlanChecker.from(connectContext).analyze("select * from test.vb_view").rewrite();
     }
 
     @Test

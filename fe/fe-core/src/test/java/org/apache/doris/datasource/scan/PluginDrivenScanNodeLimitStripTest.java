@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
 import org.junit.jupiter.api.Assertions;
@@ -40,6 +42,20 @@ import org.junit.jupiter.api.Test;
  * (incl. CAST) predicate was present. BE still applies the LIMIT.</p>
  */
 public class PluginDrivenScanNodeLimitStripTest {
+
+    @Test
+    public void timestampCastsKeepSessionSemanticsLocal() {
+        StringLiteral instant = new StringLiteral("2020-01-02 00:00:00");
+        instant.setType(ScalarType.createTimeStampTzType(6));
+        CastExpr toWallClock = new CastExpr(ScalarType.createDatetimeV2Type(6), instant, false);
+        Assertions.assertTrue(PluginDrivenScanNode.containsTimestampTzCast(
+                new IsNullPredicate(toWallClock, false)));
+        Assertions.assertTrue(PluginDrivenScanNode.containsTimestampTzCast(
+                new CastExpr(ScalarType.createTimeStampTzType(6), new StringLiteral("2020-01-02 00:00:00"), false)));
+        Assertions.assertFalse(PluginDrivenScanNode.containsTimestampTzCast(
+                new CastExpr(Type.INT, new StringLiteral("1"), false)));
+        Assertions.assertFalse(PluginDrivenScanNode.containsTimestampTzCast(instant));
+    }
 
     @Test
     public void strippedConjunctsSuppressSourceLimit() {

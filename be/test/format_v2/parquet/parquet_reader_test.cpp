@@ -1818,10 +1818,7 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                             std::vector<format::ColumnDefinition> schema;
                             ASSERT_TRUE(reader->get_schema(&schema).ok());
                             ASSERT_EQ(schema.size(), 1);
-                            auto expected_type = preserve_binary_uuid ? TYPE_STRING : TYPE_UUID;
-                            if (mapping) {
-                                expected_type = TYPE_VARBINARY;
-                            }
+                            auto expected_type = TYPE_UUID;
                             EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(),
                                       expected_type);
                             auto request = std::make_shared<format::FileScanRequest>();
@@ -1844,20 +1841,9 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
                                     if (expected_null) {
                                         continue;
                                     }
-                                    if (mapping || preserve_binary_uuid) {
-                                        const auto value =
-                                                column.get_nested_column().get_data_at(row);
-                                        EXPECT_EQ(value.size, bytes.size());
-                                        EXPECT_EQ(value.to_string(),
-                                                  std::string(reinterpret_cast<const char*>(
-                                                                      bytes.data()),
-                                                              bytes.size()));
-                                    } else {
-                                        EXPECT_EQ(remove_nullable(schema[0].type)
-                                                          ->to_string(column.get_nested_column(),
-                                                                      row),
-                                                  "00112233-4455-6677-8899-aabbccddeeff");
-                                    }
+                                    EXPECT_EQ(remove_nullable(schema[0].type)
+                                                      ->to_string(column.get_nested_column(), row),
+                                              "00112233-4455-6677-8899-aabbccddeeff");
                                 }
                                 total += rows;
                             }

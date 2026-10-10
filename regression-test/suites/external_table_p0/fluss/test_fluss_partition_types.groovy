@@ -22,7 +22,7 @@
 // only ASCII letters, digits, '_' and '-' there -- so a value holding anything else
 // is rewritten on the way in and cannot be recovered. Which types survive that is
 // not a matter of taste, and every verdict below was established against this
-// cluster: STRING, CHAR, BOOLEAN, the integer family, DATE and (as text) BINARY come
+// cluster: STRING, CHAR, BOOLEAN, the integer family, DATE and BINARY come
 // back as written; FLOAT, DOUBLE, TIME and the timestamps do not.
 //
 // The other suites partition by STRING only, which is also the one type that cannot
@@ -90,11 +90,8 @@ suite("test_fluss_partition_types", "p0,external") {
     // not read by the scanner at all: FE declares them and BE fills each one in from
     // the range it came with, so a value on the wrong split shows up only here.
     //
-    // p_bin records as the hex of "0102" rather than of the bytes 0x01 0x02, and that is
-    // the truth of a partitioned BINARY rather than a defect: what fluss kept is the
-    // NAME it gave the partition, which is the hex text, and the value in the row is
-    // that text. A non-partitioned BINARY column, whose bytes are stored in the row
-    // itself, reads back as the bytes -- covered in the type suites.
+    // Fluss stores binary partition values as hex in the name. Decode that text so
+    // partition columns expose the same bytes as non-partitioned BINARY columns.
     order_qt_part_rows """
         select id, name, p_str, p_char, p_bool, p_tiny, p_small, p_int, p_big, p_date,
                p_bin, hex(p_bin) as p_bin_hex
@@ -162,10 +159,7 @@ suite("test_fluss_partition_types", "p0,external") {
     // its user has to change is the one this shows.
     qt_desc_part_ts """desc part_ts"""
 
-    // --- the type whose verdict the catalog decides ---------------------------
-    // Fluss names a BINARY partition with the hex text of the bytes. Read as text that
-    // is exactly what was written; asked for as a VARBINARY it is not a literal of
-    // anything, so the same table is readable through one catalog and not the other.
+    // The deprecated property must not change the default raw-byte partition mapping.
     sql """drop catalog if exists ${varbinaryCatalog}"""
     sql """
         create catalog ${varbinaryCatalog} properties (
@@ -174,10 +168,9 @@ suite("test_fluss_partition_types", "p0,external") {
             "enable.mapping.varbinary" = "true"
         );
     """
-    test {
-        sql """select id from ${varbinaryCatalog}.fluss_test.part_types"""
-        exception "enable.mapping.varbinary"
-    }
+    order_qt_binary_property_ignored """
+        select id, hex(p_bin) from ${varbinaryCatalog}.fluss_test.part_types order by id
+    """
 
     // --- a non-STRING partition under a union read ----------------------------
     // Concatenating a lake with the log written after it needs no partition value
@@ -265,8 +258,4 @@ suite("test_fluss_partition_types", "p0,external") {
     order_qt_lake_pk_part_int_pruned """select id, name from lake_pk_part_int where p_int = 1"""
 
     sql """switch internal"""
-    sql """drop catalog if exists ${catalogName}"""
-    sql """drop catalog if exists ${varbinaryCatalog}"""
-    sql """drop catalog if exists ${unionCatalog}"""
-    sql """drop catalog if exists ${flussOnlyCatalog}"""
 }

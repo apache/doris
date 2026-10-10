@@ -136,6 +136,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return Type.FLOAT;
             case "float8":
                 return Type.DOUBLE;
+            case "uuid":
+                return Type.UUID;
             case "bpchar":
                 return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "timestamp": {
@@ -147,12 +149,15 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case "timestamptz": {
+                // Range conversion can create NULL even when PostgreSQL declares the source NOT NULL.
+                // Propagate that possibility to planner slots and the JNI column's null map.
+                fieldSchema.setAllowNull(true);
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
+                // Never discard the instant semantics declared by PostgreSQL timestamptz.
+                return ScalarType.createTimeStampTzType(scale);
             }
             case "date":
                 return ScalarType.createDateV2Type();
@@ -181,15 +186,13 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "macaddr":
             case "macaddr8":
             case "varbit":
-            case "uuid":
             case "xml":
             case "hstore":
             case "json":
             case "jsonb":
                 return ScalarType.createStringType();
             case "bytea": // https://www.postgresql.org/docs/12/datatype-binary.html#DATATYPE-BINARY-TABLE
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             default: {
                 if (fieldSchema.getDataType() == Types.ARRAY && pgType.startsWith("_")) {
                     return convertArrayType(fieldSchema);
