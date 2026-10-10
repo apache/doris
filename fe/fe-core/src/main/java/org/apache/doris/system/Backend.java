@@ -119,6 +119,9 @@ public class Backend implements Writable {
     // the max tablet compaction score of this backend.
     // this field is set by tablet report, and just for metric monitor, no need to persist.
     private volatile long tabletMaxCompactionScore = 0;
+    // Bytes of query spill this BE currently holds in object storage, from its latest disk report
+    // (cloud mode, spill_storage_type=s3). Like the disk capacity, only the master FE keeps it.
+    private volatile long remoteSpillBytes = 0;
 
     // additional backendStatus information for BE, display in JSON format
     @SerializedName("backendStatus")
@@ -912,6 +915,10 @@ public class Backend implements Writable {
                 this.beMemory = hbResponse.getBeMemory();
             }
 
+            if (hbResponse.getBeStartTime() > 0 && this.lastStartTime != hbResponse.getBeStartTime()) {
+                // A restarted BE no longer holds the spill of its previous run.
+                this.remoteSpillBytes = 0;
+            }
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
@@ -977,6 +984,14 @@ public class Backend implements Writable {
 
     public long getTabletMaxCompactionScore() {
         return tabletMaxCompactionScore;
+    }
+
+    public void setRemoteSpillBytes(long remoteSpillBytes) {
+        this.remoteSpillBytes = remoteSpillBytes;
+    }
+
+    public long getRemoteSpillBytes() {
+        return remoteSpillBytes;
     }
 
     private long getDiskNumByStorageMedium(TStorageMedium storageMedium) {

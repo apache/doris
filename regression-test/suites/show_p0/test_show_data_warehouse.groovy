@@ -165,6 +165,34 @@ suite("test_show_data_warehouse") {
         for (row : result) {
             assertTrue(row[0].toString() != "__remote_spill__")
         }
+
+        // SHOW DATA without a database lists every database and, in cloud mode, the spill row too.
+        def noDbJdbcUrl = context.config.jdbcUrl.replaceFirst(/(jdbc:mysql:\/\/[^\/]+\/)[^?]*/, '$1')
+        result = connect(context.config.jdbcUser, context.config.jdbcPassword, noDbJdbcUrl) {
+            sql """ show data """
+        }
+        log.info("show data of all databases result: ${result}");
+        long sumSize = 0
+        long totalSize = -1
+        spillRows = 0
+        for (row : result) {
+            // |DbId|DbName|Size|RemoteSize|BinlogSize|RecycleSize|RecycleRemoteSize|
+            assertEquals(7, row.size())
+            if (row[0].toString() == "Total") {
+                totalSize = row[2].toLong()
+                continue
+            }
+            if (row[1].toString() == "__remote_spill__") {
+                spillRows++
+                assertTrue(row[2].toLong() >= 0)
+                for (int i = 3; i < 7; i++) {
+                    assertEquals("0", row[i].toString())
+                }
+            }
+            sumSize += row[2].toLong()
+        }
+        assertEquals(isCloudMode() ? 1 : 0, spillRows)
+        assertEquals(sumSize, totalSize)
     } finally {
         sql """ DROP DATABASE IF EXISTS ${db1Name} FORCE;"""
         sql """ DROP DATABASE IF EXISTS ${db2Name} FORCE;"""

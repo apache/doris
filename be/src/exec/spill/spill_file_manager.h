@@ -146,8 +146,8 @@ public:
     size_t pending_delete_dir_count();
 
     /// Bytes of completed spill objects this process currently holds in object storage;
-    /// uncommitted capacity reservations are excluded. Served to the FEs through
-    /// get_be_resource, which every FE polls for SHOW DATA.
+    /// uncommitted capacity reservations are excluded. Sent to the master FE with every disk
+    /// report (cloud mode) for SHOW DATA.
     int64_t remote_spill_data_bytes();
 
 private:
