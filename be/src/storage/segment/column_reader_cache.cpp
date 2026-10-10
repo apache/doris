@@ -60,6 +60,15 @@ std::shared_ptr<ColumnReader> ColumnReaderCache::_lookup(const ColumnReaderCache
 
 void ColumnReaderCache::_insert_locked_nocheck(const ColumnReaderCacheKey& key,
                                                const std::shared_ptr<ColumnReader>& reader) {
+    // Replacing an existing key updates its node in place. Pushing a second node for the same key
+    // would leave the first one unreachable in the list while eviction erases the map entry of
+    // whichever copy reaches the tail, dropping the live reader from the map.
+    if (auto it = _cache_map.find(key); it != _cache_map.end()) {
+        it->second->reader = reader;
+        it->second->last_access = std::chrono::steady_clock::now();
+        _lru_list.splice(_lru_list.begin(), _lru_list, it->second);
+        return;
+    }
     // If capacity exceeded, remove least recently used (tail)
     if (_cache_map.size() >= config::max_segment_partial_column_cache_size) {
         g_segment_column_reader_cache_count << -1;
@@ -98,8 +107,12 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
                                             OlapReaderStatistics* stats,
                                             const io::IOContext* source_io_ctx,
                                             std::optional<Field> const_value) {
-    // Attempt to find in cache
-    if (auto cached = _lookup({col_uid, {}})) {
+    // A caller that passes const_value reads a column whose on-disk value is a placeholder, so it
+    // must not be served the on-disk reader that a caller without const_value cached earlier: that
+    // reader would hand back the placeholder both as row data and as a zone map. Fall through and
+    // build the constant reader, replacing the cached entry so later callers get the real value too.
+    if (auto cached = _lookup({col_uid, {}});
+        cached != nullptr && (!const_value.has_value() || cached->is_constant())) {
         *column_reader = cached;
         return Status::OK();
     }
