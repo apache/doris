@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
@@ -75,6 +74,6 @@ public class ExplodeSplitOuter extends TableGeneratingFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        return new ExplodeOuter(new SplitByString(children.get(0), children.get(1)));
+        return new ExplodeOuter(ExplodeSplit.splitToArray(children.get(0), children.get(1)));
     }
 }

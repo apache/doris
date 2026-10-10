@@ -72,4 +72,27 @@ suite("explode_split", "arrow_flight_sql") {
 
     qt_explode_split_empty_delimiter """ select e1 from (select 1 k1) as t lateral view explode_split("aaa", "") tmp1 as e1; """
 
+    // An empty string is expanded to one empty-string row, while a NULL string or a NULL delimiter
+    // is expanded to no row (explode_split) or to one NULL row (explode_split_outer).
+    sql """ DROP TABLE IF EXISTS test_explode_split_empty_str """
+    sql """
+        CREATE TABLE test_explode_split_empty_str (k1 INT, k2 STRING, k3 STRING)
+        DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """ INSERT INTO test_explode_split_empty_str VALUES
+            (1, 'a,b', ','), (2, '', ','), (3, NULL, ','), (4, '', NULL), (5, '', ''), (6, ',', ',') """
+
+    order_qt_explode_split_empty_str """ select k1, e1 from test_explode_split_empty_str
+                        lateral view explode_split(k2, k3) tmp1 as e1 """
+
+    order_qt_explode_split_outer_empty_str """ select k1, e1 from test_explode_split_empty_str
+                        lateral view explode_split_outer(k2, k3) tmp1 as e1 """
+
+    qt_explode_split_empty_str_literal """ select k1, e1 from (select 1 k1) as t
+                        lateral view explode_split("", ",") tmp1 as e1 """
+
+    qt_explode_split_outer_empty_str_literal """ select k1, e1 from (select 1 k1) as t
+                        lateral view explode_split_outer("", ",") tmp1 as e1 """
+
 }
