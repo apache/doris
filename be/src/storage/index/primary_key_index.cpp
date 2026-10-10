@@ -112,12 +112,16 @@ Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
                                           OlapReaderStatistics* pk_index_load_stats,
                                           const io::IOContext* source_io_ctx) {
     // parse primary key index
-    _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
-    _index_reader->set_is_pk_index(true);
+    auto index_reader = std::make_unique<segment_v2::IndexedColumnReader>(file_reader,
+                                                                          meta.primary_key_index());
+    index_reader->set_is_pk_index(true);
     auto io_ctx = create_index_io_context(source_io_ctx, pk_index_load_stats);
-    RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false,
-                                        pk_index_load_stats, &io_ctx));
+    RETURN_IF_ERROR(index_reader->load(!config::disable_pk_storage_page_cache, false,
+                                       pk_index_load_stats, &io_ctx));
 
+    // A failed initialization must not leave partially loaded root pages pinned in
+    // a cached segment without a corresponding eviction charge.
+    _index_reader = std::move(index_reader);
     _index_parsed = true;
     return Status::OK();
 }

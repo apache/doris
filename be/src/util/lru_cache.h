@@ -193,6 +193,10 @@ public:
     // REQUIRES: handle must have been returned by a method on *this.
     virtual void release(Handle* handle) = 0;
 
+    // Grow an entry's eviction charge after lazy initialization, without changing its
+    // memory tracker. The caller must hold a live handle. Stale smaller charges are ignored.
+    virtual void update_charge(Handle* handle, size_t charge) = 0;
+
     // Return the value encapsulated in a handle returned by a
     // successful lookup().
     // REQUIRES: handle must not have been released yet.
@@ -348,6 +352,7 @@ public:
                           CachePriority priority = CachePriority::NORMAL);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
+    void update_charge(Cache::Handle* handle, size_t charge);
     void erase(const CacheKey& key, uint32_t hash);
     PrunedInfo prune();
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false);
@@ -420,6 +425,7 @@ public:
                    CachePriority priority = CachePriority::NORMAL) override;
     Handle* lookup(const CacheKey& key) override;
     void release(Handle* handle) override;
+    void update_charge(Handle* handle, size_t charge) override;
     void erase(const CacheKey& key) override;
     void* value(Handle* handle) override;
     uint64_t new_id() override;
@@ -484,6 +490,7 @@ public:
                    CachePriority priority = CachePriority::NORMAL) override;
     Handle* lookup(const CacheKey& key) override { return nullptr; };
     void release(Handle* handle) override;
+    void update_charge(Handle* handle, size_t charge) override {}
     void erase(const CacheKey& key) override {};
     void* value(Handle* handle) override;
     uint64_t new_id() override { return 0; };
