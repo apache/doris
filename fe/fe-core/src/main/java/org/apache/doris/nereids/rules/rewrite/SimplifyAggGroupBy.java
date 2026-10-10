@@ -20,117 +20,99 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Add;
-import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsInf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * Simplify Aggregate group by Multiple to One. For example
+ * Remove deterministic grouping expressions whose inputs are already bare grouping slots.
  * <p>
- * GROUP BY ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3
+ * GROUP BY ClientIP, ClientIP + 1, ClientIP + 2
  * -->
  * GROUP BY ClientIP
+ *
+ * <p>Retain existing bare slots so aggregate outputs can still reference them. A cast group key
+ * cannot generally provide its original slot to those outputs. Never synthesize a slot from
+ * derived keys, since doing so can split groups formed by non-injective expressions.</p>
  */
 public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
-    private static final ImmutableSet<Class<? extends Expression>> supportedFunctions
-            = ImmutableSet.of(Add.class, Subtract.class, Multiply.class, Divide.class);
-
     @Override
     public Rule build() {
         return logicalAggregate()
-                .when(agg -> agg.getGroupByExpressions().size() > 1
-                        && ExpressionUtils.allMatch(agg.getGroupByExpressions(),
-                        SimplifyAggGroupBy::isBinaryArithmeticSlot))
+                .when(agg -> agg.getGroupByExpressions().size() > 1)
                 .then(agg -> {
-                    List<Expression> groupByExpressions = agg.getGroupByExpressions();
-                    ImmutableSet.Builder<Expression> inputSlots
-                            = ImmutableSet.builderWithExpectedSize(groupByExpressions.size());
-                    for (Expression groupByExpression : groupByExpressions) {
-                        inputSlots.addAll(groupByExpression.getInputSlots());
-                    }
-                    Set<Expression> slots = inputSlots.build();
-                    if (slots.size() != 1) {
+                    List<Expression> simplified = simplifyGroupBy(agg.getGroupByExpressions());
+                    if (simplified == null) {
                         return null;
                     }
-                    return agg.withGroupByAndOutput(Utils.fastToImmutableList(slots), agg.getOutputExpressions());
+                    return agg.withGroupByAndOutput(simplified, agg.getOutputExpressions());
                 })
                 .toRule(RuleType.SIMPLIFY_AGG_GROUP_BY);
     }
 
     @VisibleForTesting
-    protected static boolean isBinaryArithmeticSlot(Expression expr) {
-        if (expr instanceof Slot) {
+    protected static List<Expression> simplifyGroupBy(List<Expression> groupByExpressions) {
+        Set<Expression> distinctGroupBy = new LinkedHashSet<>(groupByExpressions);
+        Set<Expression> determinants = distinctGroupBy.stream()
+                .filter(Slot.class::isInstance).collect(ImmutableSet.toImmutableSet());
+        // Keep at least one key: removing all constant keys changes the result for empty input.
+        if (!determinants.isEmpty()) {
+            distinctGroupBy.removeIf(expression -> !(expression instanceof Slot)
+                    && !expression.containsVolatileOrNoneMovableExpression()
+                    && !expression.containsNondeterministic()
+                    && determinants.containsAll(expression.getInputSlots())
+                    && preservesGroupingEquality(expression));
+        }
+        return distinctGroupBy.size() == groupByExpressions.size() ? null : ImmutableList.copyOf(distinctGroupBy);
+    }
+
+    /**
+     * Doris grouping equality merges signed zeros and NaN payloads. A dependent expression
+     * can be removed only if it maps each such equivalence class to one grouping result.
+     * Addition, subtraction, multiplication, abs, floating casts, isnan, and isinf
+     * preserve those classes. Signbit, atan2, pow, and string casts can distinguish
+     * their members, so unreviewed float-dependent operations stay.
+     */
+    private static boolean preservesGroupingEquality(Expression expression) {
+        Set<Slot> inputSlots = expression.getInputSlots();
+        if (inputSlots.stream().anyMatch(slot -> !hasExactGroupingEquality(slot)
+                && !slot.getDataType().isFloatLikeType())) {
+            return false;
+        }
+        if (inputSlots.stream().noneMatch(slot -> slot.getDataType().isFloatLikeType())) {
             return true;
         }
-        if (!(expr instanceof BinaryArithmetic)) {
+        if (expression instanceof Slot || expression instanceof Literal) {
+            return true;
+        }
+        if (expression instanceof Cast && !expression.getDataType().isFloatLikeType()) {
             return false;
         }
-        if (!supportedFunctions.contains(expr.getClass())) {
+        if (!(expression instanceof Cast || expression instanceof Add || expression instanceof Subtract
+                || expression instanceof Multiply || expression instanceof Abs
+                || expression instanceof IsNan || expression instanceof IsInf)) {
             return false;
         }
-
-        // Float/double arithmetic: precision loss for all operations
-        if (expr.child(0).getDataType().isFloatLikeType()
-                || expr.child(1).getDataType().isFloatLikeType()) {
-            return false;
-        }
-
-        Expression slotExpr;
-        Literal literal;
-        if (expr.child(0) instanceof Literal) {
-            literal = (Literal) expr.child(0);
-            slotExpr = expr.child(1);
-        } else if (expr.child(1) instanceof Literal) {
-            literal = (Literal) expr.child(1);
-            slotExpr = expr.child(0);
-        } else {
-            return false;
-        }
-
-        if (!canExtractSlot(slotExpr)) {
-            return false;
-        }
-
-        return checkLiteral((BinaryArithmetic) expr, literal);
+        return expression.children().stream().allMatch(SimplifyAggGroupBy::preservesGroupingEquality);
     }
 
-    @VisibleForTesting
-    protected static boolean checkLiteral(BinaryArithmetic expr, Literal literal) {
-        if (literal.isNullLiteral()) {
-            return false;
-        }
-        if (expr instanceof Multiply || expr instanceof Divide) {
-            if (literal.isZero()) {
-                return false;
-            }
-        }
-        return true;
+    private static boolean hasExactGroupingEquality(Slot slot) {
+        DataType type = slot.getDataType();
+        return type.isIntegralType() || type.isDecimalLikeType() || type.isBooleanType();
     }
-
-    @VisibleForTesting
-    protected static boolean canExtractSlot(Expression expr) {
-        while (expr instanceof Cast) {
-            Cast cast = (Cast) expr;
-            Expression inner = cast.child();
-            if (!inner.getDataType().isInjectiveCastTo(cast.getDataType())) {
-                return false;
-            }
-            expr = inner;
-        }
-        return expr instanceof Slot;
-    }
-
 }
