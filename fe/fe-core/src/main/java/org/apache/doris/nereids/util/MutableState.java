@@ -29,6 +29,32 @@ public interface MutableState {
     String KEY_PARENT = "parent";
     String KEY_RF_JUMP = "rf-jump";
     String KEY_PUSH_TOPN_TO_AGG = "pushTopnToAgg";
+    /** hbo fingerprint attached at planning time for explain printing */
+    String KEY_HBO_FP = "hbo-fingerprint";
+    /**
+     * hbo constant agnostic fingerprint attached at planning time for explain printing; only filter
+     * nodes carry both forms (exact + shape), join / aggregation carry the constant agnostic one
+     */
+    String KEY_HBO_FP_NO_LITERAL = "hbo-fingerprint-no-literal";
+    /** hbo simplified struct info canonical string attached at planning time for explain printing */
+    String KEY_HBO_STRUCT = "hbo-struct";
+    /**
+     * hbo struct info of the same node in the constant agnostic form, built by the group traversal
+     * (never by folding the literal carrying form of {@link #KEY_HBO_STRUCT} as text)
+     */
+    String KEY_HBO_STRUCT_NO_LITERAL = "hbo-struct-no-literal";
+    /**
+     * why no struct info was attached to this node, when it was refused by a limit instead of being
+     * unsupported (e.g. its sub tree reads more scans than {@code hbo_max_scans_per_group}); printed
+     * by the explain annotation so a missing fingerprint can be told from a broken one
+     */
+    String KEY_HBO_STRUCT_SKIP = "hbo-struct-skip";
+    /** canonical string of the join equality conditions (join nodes, for HBO SET EXPANSION) */
+    String KEY_HBO_COND = "hbo-cond";
+    /** fingerprint of the join equality conditions (join nodes, the expansion injection key) */
+    String KEY_HBO_COND_FP = "hbo-cond-fp";
+    /** applied injected join expansion, e.g. {@code exp=200x} */
+    String KEY_HBO_EXPANSION = "hbo-expansion";
 
     <T> Optional<T> get(String key);
 

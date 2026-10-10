@@ -31,6 +31,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
 import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -466,18 +467,25 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 }
             }
 
-            // hbo to adjust bc cost parameter to reduce bc cost
+            // hbo to adjust bc cost parameter to reduce bc cost. The lookup key contains the hbo
+            // fingerprint of this join, which is only worth building when some learned entry exists
+            // at all (this repository has no pinned fallback here: the skew ratios are measurements)
             if (context.getSessionVariable() != null
-                    && context.getSessionVariable().isEnableHboOptimization()) {
-                PlanNodeAndHash planNodeAndHash = null;
+                    && context.getSessionVariable().isEnableHboOptimization()
+                    && hboPlanStatisticsProvider.hasAnyHboPlanStats()) {
+                Optional<PlanNodeAndHash> planNodeAndHashOpt;
                 try {
-                    planNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
+                    // join keys are always constant agnostic: the read side and the publish path
+                    // use this mode, and a literal carrying join entry can not exist
+                    planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(physicalHashJoin,
+                            GroupStructInfo.LiteralMode.NO_LITERAL);
                 } catch (IllegalStateException e) {
                     LOG.warn("failed to get plan node hash", e);
+                    planNodeAndHashOpt = Optional.empty();
                 }
-                if (planNodeAndHash != null) {
+                if (planNodeAndHashOpt.isPresent()) {
                     RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(
-                            planNodeAndHash);
+                            planNodeAndHashOpt.get());
                     PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
                             context.getStatementContext().getConnectContext());
                     if (matchedPlanStatistics != null) {

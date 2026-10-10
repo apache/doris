@@ -390,10 +390,11 @@ public class Profile {
             Map<Integer, PhysicalPlan> idToPlanMap = planInfoProvider.getIdToPlanMap(queryId);
             Map<PhysicalPlan, Integer> planToIdMap = planInfoProvider.getPlanToIdMap(queryId);
             Map<RelationId, Set<Expression>> scanToFilterMap = planInfoProvider.getScanToFilterMap(queryId);
+            Map<Integer, String> nodeFingerprints = planInfoProvider.getNodeIdToFingerprintMap(queryId);
 
             if (!idToPlanMap.isEmpty() && idToPlanMap.size() == planToIdMap.size()) {
                 Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> curPlanStatistics = HboUtils.genPlanStatisticsMap(
-                        idToPlanMap, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats);
+                        idToPlanMap, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats, nodeFingerprints);
                 Map<PlanNodeAndHash, RecentRunsPlanStatistics> recentRunsPlanStatisticsMap =
                         hboPlanStatisticsProvider.getHboPlanStats(
                                 curPlanStatistics.keySet().stream().collect(Collectors.toList()));

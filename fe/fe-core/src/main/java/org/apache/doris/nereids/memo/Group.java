@@ -22,6 +22,7 @@ import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -85,6 +86,17 @@ public class Group {
     private List<Integer> chosenEnforcerIdList = new ArrayList<>();
 
     private StructInfoMap structInfoMap = new StructInfoMap();
+
+    /**
+     * Cached simplified struct info (and its fingerprint) used by HBO. Computed lazily on the
+     * first HBO lookup; all group expressions of this group share the same struct info.
+     * Null means not computed yet; {@link GroupStructInfo#INVALID} means the group content is
+     * not supported by the simplified struct info.
+     */
+    private GroupStructInfo hboStructInfo;
+    private GroupStructInfo hboStructInfoNoLiteral;
+    /** The mode independent structural summary of this group, computed on first hbo lookup. */
+    private GroupStructInfo.HboStructSummary hboStructSummary;
 
     /**
      * Constructor for Group.
@@ -169,6 +181,66 @@ public class Group {
         Preconditions.checkArgument(logicalExpressions.size() == 1,
                 "There should be only one Logical Expression in Group");
         return logicalExpressions.get(0);
+    }
+
+    /**
+     * Get the simplified HBO struct info of this group, computing and caching it on first use.
+     * <p>
+     * NOTE: optimization is single threaded, so no synchronization is needed; the field is not
+     * volatile by design (group objects never leave the planner thread).
+     */
+    public GroupStructInfo getOrComputeHboStructInfo() {
+        return getOrComputeHboStructInfo(GroupStructInfo.LiteralMode.WITH_LITERAL);
+    }
+
+    /**
+     * Lazily compute and cache the simplified struct info of this group in the given literal mode.
+     * Both modes are cached separately (at most two computations per group per query), so the memo
+     * stays the single source of truth for the hbo fingerprints.
+     *
+     * <p>A failure which is a property of the plan ({@link GroupStructInfo#INVALID}) is cached: the
+     * next lookup of the same group would fail the same way. A failure which came from reading the
+     * catalog ({@link GroupStructInfo#TRANSIENT_FAILURE}, e.g. a cloud rpc error) is <b>not</b>
+     * cached, so the next lookup retries instead of disabling hbo struct info for the whole query.
+     */
+    public GroupStructInfo getOrComputeHboStructInfo(GroupStructInfo.LiteralMode mode) {
+        if (mode == GroupStructInfo.LiteralMode.NO_LITERAL) {
+            if (hboStructInfoNoLiteral != null) {
+                return hboStructInfoNoLiteral;
+            }
+            GroupStructInfo computed = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.NO_LITERAL);
+            hboStructInfoNoLiteral = cacheable(computed);
+            return computed;
+        }
+        if (hboStructInfo != null) {
+            return hboStructInfo;
+        }
+        GroupStructInfo computed = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.WITH_LITERAL);
+        hboStructInfo = cacheable(computed);
+        return computed;
+    }
+
+    /** The value to cache: null for a failure which a later lookup may survive. */
+    private static GroupStructInfo cacheable(GroupStructInfo structInfo) {
+        return structInfo == GroupStructInfo.TRANSIENT_FAILURE ? null : structInfo;
+    }
+
+    /**
+     * Lazily compute and cache the structural summary of this group (see
+     * {@link GroupStructInfo.HboStructSummary}): how many scan tokens the struct info of this group
+     * would contain and which tables it reads.
+     *
+     * <p>It is mode independent (the shape of a sub tree does not depend on literals) and is built
+     * from the children's cached summaries, so it costs one step per group. It gates the canonical
+     * string, which is far more expensive: a group whose sub tree exceeds
+     * {@code hbo_max_scans_per_group} never renders one, and a group whose relation key can not match
+     * any injected entry does not render one either.
+     */
+    public GroupStructInfo.HboStructSummary getOrComputeHboStructSummary() {
+        if (hboStructSummary == null) {
+            hboStructSummary = GroupStructInfo.summaryOf(this);
+        }
+        return hboStructSummary;
     }
 
     public GroupExpression getFirstLogicalExpression() {

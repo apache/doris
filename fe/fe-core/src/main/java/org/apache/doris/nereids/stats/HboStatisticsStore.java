@@ -1,0 +1,287 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.stats;
+
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.statistics.repository.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
+
+import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Persistence of manually injected (pinned) hbo statistics into the internal database
+ * ({@code __internal_schema.hbo_statistics}), controlled by
+ * {@code Config.hbo_persist_pinned_to_internal_db}.
+ *
+ * <p>The in-memory {@link HboPlanStatisticsManager} stays authoritative on the read path;
+ * SET/DELETE are written through synchronously (best effort, failures only logged) and a FE
+ * loads the whole table into memory lazily on first use, so pinned entries survive a FE
+ * restart. All FEs share the table through the backend storage.
+ */
+public class HboStatisticsStore {
+    private static final Logger LOG = LogManager.getLogger(HboStatisticsStore.class);
+
+    private static final String INTERNAL_DB = FeConstants.INTERNAL_DB_NAME;
+    private static final String TABLE = "hbo_statistics";
+    private static final String FULL_QUALIFIED =
+            InternalCatalog.INTERNAL_CATALOG_NAME + "." + INTERNAL_DB + "." + TABLE;
+    /** max length (bytes) of the struct_info varchar column */
+    private static final int STRUCT_MAX_BYTES = 65533;
+
+    /**
+     * Whether a canonical struct info fits the {@code struct_info} column without truncation.
+     * A truncated struct info would keep its fingerprint but lose its scan tokens (the baseline is
+     * printed after the conditions), which silently disables both the freshness verdict and the
+     * relation pre filter for that entry, so such an entry must not be accepted at all.
+     */
+    public static boolean fitsStructColumn(String structCanonical) {
+        return structCanonical == null
+                || structCanonical.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= STRUCT_MAX_BYTES;
+    }
+    /** creation time of an entry, as a datetime(3) column like the other internal tables */
+    private static final String CREATE_TIME_COLUMN = "create_time";
+    /** fan-out factor of a PinnedType.JOIN_EXPANSION entry, NULL for a row count entry */
+    private static final String EXPANSION_COLUMN = "expansion";
+    /** which struct info the entry is keyed by (with_literal / no_literal) */
+    private static final String LITERAL_MODE_COLUMN = "literal_mode";
+    /** the columns this version writes and reads, checked once per FE (see verifySchema) */
+    private static final List<String> COLUMNS = ImmutableList.of("fingerprint", "row_count", "stats_type",
+            LITERAL_MODE_COLUMN, "struct_info", EXPANSION_COLUMN, CREATE_TIME_COLUMN);
+    // the DDL and the schema check are done once per FE: the table can only change by a FE upgrade,
+    // and both cost a round trip to the internal table (a forwarded DDL on a follower FE)
+    private static volatile boolean tableCreated = false;
+    private static volatile boolean schemaVerified = false;
+
+    private HboStatisticsStore() {
+    }
+
+    /** Create the table if it does not exist, and check that its schema is the current one. */
+    public static void ensureTable() throws Exception {
+        if (!tableCreated) {
+            StatisticsUtil.execUpdate(createDdl());
+            tableCreated = true;
+        }
+        if (!schemaVerified) {
+            verifySchema();
+        }
+    }
+
+    /**
+     * Check that the table has every column this version reads and writes, by looking at its metadata
+     * in the FE catalog. A query would be cheaper to write but wrong to interpret: it fails both when
+     * the table has an old schema and when the internal schema is simply not ready yet, and the two
+     * need opposite reactions (drop the table vs wait).
+     *
+     * <p>A table created by an older FE version (e.g. with a {@code create_time_ms} column) cannot be
+     * written by this version, and because it is created with {@code CREATE TABLE IF NOT EXISTS} it
+     * stays broken; the check therefore logs the fix and forgets that the table was "created", so
+     * that the DDL runs again - and recreates the table - after the operator dropped it. Without
+     * that, persistence would stay dead until the FE restarts.
+     */
+    private static void verifySchema() throws Exception {
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(INTERNAL_DB);
+        TableIf table = db == null ? null : db.getTableNullable(TABLE);
+        if (table == null) {
+            // the DDL succeeded but the table is not visible yet (a follower waiting for the journal,
+            // or an internal schema which is not ready): retry later, do not blame the table
+            throw new IllegalStateException("the internal table " + FULL_QUALIFIED + " is not visible yet");
+        }
+        List<String> missing = new ArrayList<>();
+        for (String column : COLUMNS) {
+            if (table.getColumn(column) == null) {
+                missing.add(column);
+            }
+        }
+        if (!missing.isEmpty()) {
+            tableCreated = false;
+            LOG.warn("the internal table {} has no {} column: it was created by an older FE version and"
+                    + " has to be dropped so that it is recreated (DROP TABLE {})",
+                    FULL_QUALIFIED, missing, FULL_QUALIFIED);
+            throw new IllegalStateException("the internal table " + FULL_QUALIFIED + " has an old schema");
+        }
+        schemaVerified = true;
+    }
+
+    /**
+     * Upsert one pinned entry (UNIQUE KEY fingerprint replaces on conflict).
+     */
+    public static void persist(String fingerprint, long rows,
+            HboPlanStatisticsManager.PinnedType type, String structCanonical, double expansion,
+            HboPlanStatisticsManager.LiteralMode literalMode, long createTimeMs) {
+        try {
+            ensureTable();
+            HboPlanStatisticsManager.PinnedType statsType = type == null
+                    ? HboPlanStatisticsManager.PinnedType.EXACT : type;
+            String struct = truncateUtf8(structCanonical == null ? "" : structCanonical, STRUCT_MAX_BYTES);
+            // the fingerprint kind is only known after the entry was applied once, so the stored
+            // value stays UNKNOWN (it is reported by HBO SHOW from the in-memory entry)
+            String sql = "INSERT INTO " + FULL_QUALIFIED
+                    + " (`fingerprint`, `row_count`, `stats_type`, `" + LITERAL_MODE_COLUMN + "`, `struct_info`,"
+                    + " `" + EXPANSION_COLUMN + "`, `" + CREATE_TIME_COLUMN + "`) VALUES ('"
+                    + StatisticsUtil.escapeSQL(fingerprint) + "', " + rows + ", '"
+                    + StatisticsUtil.escapeSQL(statsType.name().toLowerCase(java.util.Locale.ROOT)) + "', '"
+                    + StatisticsUtil.escapeSQL((literalMode == null
+                            ? HboPlanStatisticsManager.LiteralMode.NO_LITERAL : literalMode)
+                            .name().toLowerCase(java.util.Locale.ROOT))
+                    + "', '" + StatisticsUtil.escapeSQL(struct) + "', "
+                    + (expansion > 0 ? String.valueOf(expansion) : "NULL")
+                    + ", '" + createTimeLiteral(createTimeMs) + "')";
+            StatisticsUtil.execUpdate(sql);
+        } catch (Exception t) {
+            LOG.warn("failed to persist hbo pinned statistics for fingerprint {}", fingerprint, t);
+        }
+    }
+
+    /**
+     * Remove a pinned entry.
+     *
+     * @return true when the row was removed (or the table had no such row), false when the
+     *         best-effort removal failed (e.g. internal schema not ready yet)
+     */
+    public static boolean delete(String fingerprint) {
+        try {
+            ensureTable();
+            String sql = "DELETE FROM " + FULL_QUALIFIED + " WHERE `fingerprint` = '"
+                    + StatisticsUtil.escapeSQL(fingerprint) + "'";
+            StatisticsUtil.execUpdate(sql);
+            return true;
+        } catch (Exception t) {
+            LOG.warn("failed to delete hbo pinned statistics for fingerprint {}", fingerprint, t);
+            return false;
+        }
+    }
+
+    /**
+     * Load all pinned entries from the internal table.
+     *
+     * @return the loaded entries, or {@code null} when the load failed (e.g. the internal schema
+     *         is not ready yet); the caller decides when to retry
+     */
+    public static List<HboPlanStatisticsManager.PinnedHboStatistics> loadAll() {
+        List<HboPlanStatisticsManager.PinnedHboStatistics> result = new ArrayList<>();
+        try {
+            ensureTable();
+            List<ResultRow> rows = StatisticsUtil.execStatisticQueryOrThrow(
+                    "SELECT `fingerprint`, `row_count`, `stats_type`, `struct_info`, `" + EXPANSION_COLUMN
+                            + "`, `" + LITERAL_MODE_COLUMN + "`, `" + CREATE_TIME_COLUMN + "` FROM "
+                            + FULL_QUALIFIED);
+            for (ResultRow row : rows) {
+                try {
+                    HboPlanStatisticsManager.PinnedType type =
+                            HboPlanStatisticsManager.PinnedType.fromName(row.get(2));
+                    result.add(new HboPlanStatisticsManager.PinnedHboStatistics(
+                            row.get(0),
+                            Long.parseLong(row.get(1)),
+                            type == null ? HboPlanStatisticsManager.PinnedType.EXACT : type,
+                            row.get(3) == null ? "" : row.get(3),
+                            parseExpansion(row.get(4)),
+                            parseLiteralMode(row.get(5)),
+                            parseCreateTime(row.get(6))));
+                } catch (RuntimeException e) {
+                    LOG.warn("skip malformed hbo pinned statistics row {}", row, e);
+                }
+            }
+            return result;
+        } catch (Exception t) {
+            LOG.warn("failed to load hbo pinned statistics from internal table", t);
+            return null;
+        }
+    }
+
+    private static String createDdl() {
+        // follow the internal-table convention (see InternalSchemaInitializer) so that CREATE
+        // never fails on clusters whose min_replication_num_per_tablet exceeds 1
+        int replication = Math.max(1, Config.min_replication_num_per_tablet);
+        return "CREATE TABLE IF NOT EXISTS `" + InternalCatalog.INTERNAL_CATALOG_NAME + "`.`" + INTERNAL_DB
+                + "`.`" + TABLE + "` (\n"
+                + "  `fingerprint` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `row_count` bigint NOT NULL COMMENT \"\",\n"
+                + "  `stats_type` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `literal_mode` varchar(16) NOT NULL COMMENT \"\",\n"
+                + "  `struct_info` varchar(" + STRUCT_MAX_BYTES + ") NULL COMMENT \"\",\n"
+                + "  `expansion` double NULL COMMENT \"\",\n"
+                + "  `create_time` datetime(3) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "UNIQUE KEY(`fingerprint`)\n"
+                + "COMMENT \"Doris internal hbo pinned statistics table, DO NOT MODIFY IT\"\n"
+                + "DISTRIBUTED BY HASH(`fingerprint`)\n"
+                + "BUCKETS 1\n"
+                + "PROPERTIES (\"replication_num\" = \"" + replication + "\")";
+    }
+
+    /** Render a creation time as the datetime literal the internal table stores. */
+    private static String createTimeLiteral(long createTimeMs) {
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").format(
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(createTimeMs), ZoneId.systemDefault()));
+    }
+
+    /** The literal mode of an entry; older rows (unknown) fall back to the constant agnostic one. */
+    private static HboPlanStatisticsManager.LiteralMode parseLiteralMode(String value) {
+        HboPlanStatisticsManager.LiteralMode mode = value == null ? null
+                : HboPlanStatisticsManager.LiteralMode.valueOf(value.toUpperCase(java.util.Locale.ROOT));
+        return mode == null ? HboPlanStatisticsManager.LiteralMode.NO_LITERAL : mode;
+    }
+
+    /** The fan-out factor of an entry, 0 when the entry is a row count. */
+    private static double parseExpansion(String value) {
+        return value == null || value.isEmpty() ? 0 : Double.parseDouble(value);
+    }
+
+    /**
+     * Parse the creation time column back into epoch milliseconds. Doris drops trailing zeros of the
+     * fractional part, so the value is parsed as ISO date time (which accepts 1 to 9 fraction
+     * digits) instead of with the fixed pattern used for writing.
+     */
+    private static long parseCreateTime(String value) {
+        return LocalDateTime.parse(value.trim().replace(' ', 'T'))
+                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    /**
+     * Truncate to at most {@code maxBytes} UTF-8 bytes without splitting a multi-byte character
+     * (the varchar column limit is byte-based).
+     */
+    private static String truncateUtf8(String value, int maxBytes) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= maxBytes) {
+            return value;
+        }
+        // a cut inside a multi-byte sequence points at a continuation byte; back off to the
+        // preceding lead byte so that only complete characters are kept
+        int end = maxBytes;
+        while (end > 0 && (bytes[end] & 0xC0) == 0x80) {
+            end--;
+        }
+        return new String(bytes, 0, end, StandardCharsets.UTF_8);
+    }
+}
