@@ -294,3 +294,5 @@ Iceberg V3 schema
 
 - FE 构建验证：`./build.sh --fe` 成功；Thrift/Proto 生成和 FE 全模块编译通过。
 - Connector SPI 适配：Iceberg V3 GEOMETRY/GEOGRAPHY 读方向不再统一降级为 `UNSUPPORTED`；写方向映射到 Iceberg `GeometryType.crs84()` / `GeographyType.crs84()`；FE connector 转换器可生成对应 Doris `ScalarType`。当前 ConnectorType 仍只传递类型名，CRS/algorithm 的完整保真将在后续写入请求元数据时处理，暂不宣称已完成端到端语义。
+
+- 阶段 2 验证：Nereids 空间类型类已加入，`./build.sh --fe` 再次成功；当前只完成类型分派与元数据保留，空间字面量、函数参数绑定和表达式求值仍属于阶段 4。
