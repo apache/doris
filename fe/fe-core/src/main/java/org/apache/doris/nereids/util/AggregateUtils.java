@@ -134,7 +134,7 @@ public class AggregateUtils {
     public static boolean hasUnknownStatistics(Collection<Expression> expressions,
             Statistics inputStatistics, boolean requireHotValues) {
         for (Expression gbyExpr : expressions) {
-            ColumnStatistic colStats = inputStatistics.findColumnStatistics(gbyExpr);
+            ColumnStatistic colStats = inputStatistics.findColumnStatisticsOrNull(gbyExpr);
             if (colStats == null) {
                 colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
             }

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.qe.SessionVariable;
 
 import java.text.DecimalFormat;
 import java.util.Comparator;
@@ -77,7 +78,41 @@ public class Statistics {
         this(rowCount, widthInJoinCluster, expressionToColumnStats, 0, false);
     }
 
+    /**
+     * Returns the statistics of the given expression.
+     *
+     * <p>Statistics are not necessarily derived for every expression of a plan, either because the
+     * expression is not used by any estimation critical operator (e.g. an expression is not an
+     * operative slot of a scan, see {@code OperativeColumnDerive}) or because the statistics of the
+     * expression are simply unknown. Missing statistics therefore degrade to
+     * {@link ColumnStatistic#UNKNOWN} instead of breaking the query.
+     *
+     * <p>Absence of statistics is however always a potential bug of the statistics derivation: when
+     * {@code fe_debug} is on (as in the pipeline test environment) it is turned into a
+     * NullPointerException so that the bug fails the test instead of silently degrading the plan,
+     * while the production environment keeps returning unknown statistics.
+     *
+     * <p>Use {@link #findColumnStatisticsOrNull} when the absence of statistics is an expected case
+     * that the caller explicitly handles.
+     */
     public ColumnStatistic findColumnStatistics(Expression expression) {
+        ColumnStatistic columnStatistic = expressionToColumnStats.get(expression);
+        if (columnStatistic != null) {
+            return columnStatistic;
+        }
+        if (SessionVariable.isFeDebug()) {
+            throw new NullPointerException("Statistics of " + expression + " is not derived, rowCount="
+                    + rowCount + ", derived expressions: " + expressionToColumnStats.keySet());
+        }
+        return ColumnStatistic.UNKNOWN;
+    }
+
+    /**
+     * Returns the statistics of the given expression, or null when no statistics are recorded for
+     * it. Use this method instead of {@link #findColumnStatistics} only when the caller really
+     * needs to distinguish "no statistics are recorded" from "the statistics are unknown".
+     */
+    public ColumnStatistic findColumnStatisticsOrNull(Expression expression) {
         return expressionToColumnStats.get(expression);
     }
 
@@ -279,7 +314,7 @@ public class Statistics {
      */
     public void updateNdv(Statistics other) {
         for (Expression expr : expressionToColumnStats.keySet()) {
-            ColumnStatistic otherColStats = other.findColumnStatistics(expr);
+            ColumnStatistic otherColStats = other.findColumnStatisticsOrNull(expr);
             if (otherColStats != null) {
                 ColumnStatistic thisColStats = expressionToColumnStats.get(expr);
                 if (thisColStats.ndv > otherColStats.ndv) {
