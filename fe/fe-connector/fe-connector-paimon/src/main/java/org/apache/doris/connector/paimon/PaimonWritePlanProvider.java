@@ -152,7 +152,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         }
         PaimonConnectorTransaction transaction = currentTransaction(session);
         PaimonWriteBinding binding = PaimonWriteBinding.create(
-                tableHandle, table, buildHadoopConfig(), handle, session.getTimeZone());
+                tableHandle, table, buildHadoopConfig(), handle);
         transaction.bind(binding);
 
         TPaimonTableSink sink = new TPaimonTableSink();

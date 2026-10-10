@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 
@@ -30,7 +29,6 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Collections;
@@ -63,8 +61,8 @@ final class PaimonWriteBinding {
     }
 
     static PaimonWriteBinding create(PaimonTableHandle handle, FileStoreTable table,
-            Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle, String sessionTimeZone) {
-        Map<String, String> staticPartition = resolveStaticPartition(table, writeHandle, sessionTimeZone);
+            Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle) {
+        Map<String, String> staticPartition = resolveStaticPartition(table, writeHandle);
         FileStoreTable writeTable = configureTableForWrite(table, writeHandle.isOverwrite(), staticPartition);
         return new PaimonWriteBinding(handle.getDatabaseName() + "." + handle.getTableName(),
                 writeTable, hadoopConfig, writeHandle.isOverwrite(), staticPartition);
@@ -89,8 +87,7 @@ final class PaimonWriteBinding {
      * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
      * column type.
      */
-    static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle,
-            String sessionTimeZone) {
+    static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle) {
         Map<String, String> canonicalNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String partitionKey : table.partitionKeys()) {
             canonicalNames.put(partitionKey, partitionKey);
@@ -112,8 +109,7 @@ final class PaimonWriteBinding {
                     () -> "missing the cast value of static partition column " + key);
             if (table.rowType().getField(canonicalName).type().getTypeRoot()
                     == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
-                value = toSdkLocalTime(canonicalName, value, isTimestampTz(writeHandle, canonicalName),
-                        sessionTimeZone, writeHandle.isOverwrite());
+                value = toSdkLocalTime(canonicalName, value, writeHandle.isOverwrite());
             }
             if (writeHandle.isOverwrite() && defaultPartitionName.equals(value)) {
                 // Paimon's static overwrite reads this string as the NULL partition of any partition type, so
@@ -127,45 +123,17 @@ final class PaimonWriteBinding {
         return result;
     }
 
-    private static boolean isTimestampTz(ConnectorWriteHandle writeHandle, String columnName) {
-        for (ConnectorColumn column : writeHandle.getBoundTargetColumns()) {
-            if (column.getName().equalsIgnoreCase(columnName)) {
-                return "TIMESTAMPTZ".equalsIgnoreCase(column.getType().getTypeName());
-            }
-        }
-        throw new DorisConnectorException("Paimon partition column is missing from the write schema: "
-                + columnName);
-    }
-
     /**
      * Paimon parses a static overwrite value of a TIMESTAMP WITH LOCAL TIME ZONE column as local time in the FE
-     * JVM's default zone, so the value is moved there from the zone it was written in: the session zone for a
-     * DATETIMEV2 value, UTC for a TIMESTAMPTZ value, which carries its offset. Paimon's parser takes a space,
-     * not ISO's 'T', between the date and the time.
-     *
-     * <p>An overwrite rejects a value that names no single instant on one side of that move. A session-local
-     * time that a DST change skips: Java moves it past the gap, while the BE writes the rows at the instant of
-     * the change. An instant whose local time a DST change repeats in the JVM zone: both instants of the overlap
-     * format to the same value, which Paimon reads as the earlier one.
+     * JVM's default zone. Doris binds such a column as TIMESTAMPTZ, so the cast value is the instant in UTC with
+     * its offset; it is moved to the JVM zone, with a space between the date and the time as Paimon's parser
+     * needs. An overwrite rejects an instant whose local time a DST change repeats there: both instants of the
+     * overlap format to the same value, which Paimon reads as the earlier one.
      */
-    private static String toSdkLocalTime(String column, String value, boolean timestampTz, String sessionTimeZone,
-            boolean overwrite) {
-        String isoValue = value.replace(' ', 'T');
-        ZonedDateTime instant;
-        if (timestampTz) {
-            instant = OffsetDateTime.parse(isoValue, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toZonedDateTime();
-        } else {
-            LocalDateTime sessionLocal = LocalDateTime.parse(isoValue, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            ZoneId sessionZone = ZoneId.of(sessionTimeZone, PaimonConnectorMetadata.SESSION_TIME_ZONE_ALIASES);
-            if (overwrite && sessionZone.getRules().getValidOffsets(sessionLocal).isEmpty()) {
-                throw new DorisConnectorException("Static LTZ partition value for column '" + column
-                        + "' does not exist in session time zone " + sessionZone
-                        + " and cannot be represented in a static overwrite");
-            }
-            instant = sessionLocal.atZone(sessionZone);
-        }
+    private static String toSdkLocalTime(String column, String value, boolean overwrite) {
         ZoneId sdkZone = ZoneId.systemDefault();
-        LocalDateTime sdkLocal = instant.withZoneSameInstant(sdkZone).toLocalDateTime();
+        LocalDateTime sdkLocal = OffsetDateTime.parse(value.replace(' ', 'T'), DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                .atZoneSameInstant(sdkZone).toLocalDateTime();
         if (overwrite && sdkZone.getRules().getValidOffsets(sdkLocal).size() > 1) {
             throw new DorisConnectorException("Static LTZ partition value for column '" + column
                     + "' is ambiguous in FE JVM time zone " + sdkZone
