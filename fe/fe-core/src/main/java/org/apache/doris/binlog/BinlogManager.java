@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BarrierLog;
@@ -260,6 +261,15 @@ public class BinlogManager {
     }
 
     public void addDropTableRecord(DropTableRecord record) {
+        // The binlogs of a temporary table are filtered by looking the table up in the catalog, but a dropped
+        // table is already gone when its DROP_TABLE binlog is added. Recognize it by its name instead, which
+        // is persisted in the edit log, so the leader and every replaying frontend make the same decision.
+        if (Util.isTempTable(record.getTableName())) {
+            LOG.debug("filter the temporary table drop binlog, db {}, table {}, commit seq {}",
+                    record.getDbId(), record.getTableId(), record.getCommitSeq());
+            return;
+        }
+
         long dbId = record.getDbId();
         List<Long> tableIds = Lists.newArrayList();
         tableIds.add(record.getTableId());
