@@ -260,11 +260,13 @@ public final class HiveCatalogProperties {
     }
 
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        // Legacy properties remain parseable, but binary values always retain their bytes.
+        return true;
     }
 
     public boolean isEnableMappingTimestampTz() {
-        return enableMappingTimestampTz;
+        // Instant types cannot be downgraded to session-local wall clocks.
+        return true;
     }
 
     /** The catalog property map verbatim. Callers that reach the HMS client want {@link #getHmsClientProperties()}. */

@@ -44,7 +44,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -290,14 +289,41 @@ public class TrinoPredicateConverter {
                 }
                 return Long.parseLong(String.valueOf(value));
             }
-            case "ShortTimestampType": {
-                if (value instanceof LocalDateTime) {
-                    LocalDateTime ldt = (LocalDateTime) value;
-                    long epochSecond = ldt.toEpochSecond(ZoneOffset.UTC);
-                    long micros = ldt.get(ChronoField.MICRO_OF_SECOND);
-                    return epochSecond * 1_000_000L + micros;
+            case "ShortTimestampType":
+            case "LongTimestampType": {
+                // Doris retains microseconds; an exact remote bound would discard finer values
+                // that decode to the same Doris timestamp.
+                if (((io.trino.spi.type.TimestampType) type).getPrecision() > 6) {
+                    throw new UnsupportedOperationException("Timestamp precision exceeds Doris precision");
                 }
-                return Long.parseLong(String.valueOf(value));
+                LocalDateTime dateTime = (LocalDateTime) value;
+                long micros = dateTime.toEpochSecond(ZoneOffset.UTC) * 1_000_000L
+                        + dateTime.getNano() / 1000;
+                return typeName.equals("ShortTimestampType") ? micros
+                        : new io.trino.spi.type.LongTimestamp(micros, 0);
+            }
+            case "ShortTimestampWithTimeZoneType":
+            case "LongTimestampWithTimeZoneType": {
+                if (((io.trino.spi.type.TimestampWithTimeZoneType) type).getPrecision() > 6) {
+                    throw new UnsupportedOperationException("Timestamp precision exceeds Doris precision");
+                }
+                // The engine normalizes TIMESTAMPTZ literals to UTC before crossing the SPI.
+                if (!"TIMESTAMPTZ".equalsIgnoreCase(literal.getType().getTypeName())) {
+                    throw new UnsupportedOperationException("Zoned pushdown requires an instant literal");
+                }
+                java.time.Instant instant = ((LocalDateTime) value).toInstant(ZoneOffset.UTC);
+                long millis = instant.toEpochMilli();
+                int picosOfMilli = (instant.getNano() % 1_000_000) * 1000;
+                if (typeName.equals("ShortTimestampWithTimeZoneType")) {
+                    // Truncating a range bound could exclude matching rows at the source.
+                    if (picosOfMilli != 0) {
+                        throw new UnsupportedOperationException("Sub-millisecond bound in a millisecond domain");
+                    }
+                    return io.trino.spi.type.DateTimeEncoding.packDateTimeWithZone(
+                            millis, io.trino.spi.type.TimeZoneKey.UTC_KEY);
+                }
+                return io.trino.spi.type.LongTimestampWithTimeZone.fromEpochMillisAndFraction(
+                        millis, picosOfMilli, io.trino.spi.type.TimeZoneKey.UTC_KEY);
             }
             default:
                 throw new UnsupportedOperationException(

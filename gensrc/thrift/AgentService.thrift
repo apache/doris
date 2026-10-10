@@ -213,6 +213,8 @@ struct TBinlogConfig {
     4: optional i64 max_history_nums;
     5: optional TBinlogFormat binlog_format;
     6: optional bool need_historical_value;
+    // Monotonic FE-journaled generation; reject delayed ROW retention updates.
+    7: optional i64 config_version;
 }
 
 struct TCreateTabletReq {

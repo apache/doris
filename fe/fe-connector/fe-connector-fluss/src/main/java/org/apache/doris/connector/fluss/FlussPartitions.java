@@ -18,6 +18,8 @@
 package org.apache.doris.connector.fluss;
 
 import org.apache.fluss.metadata.PartitionInfo;
+import org.apache.fluss.types.DataType;
+import org.apache.fluss.types.DataTypeRoot;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,12 +48,18 @@ final class FlussPartitions {
      * per-column values, in partition-key order (fe-core zips values against the partition columns
      * positionally).
      */
-    static FlussScanRange.Partition toScanPartition(PartitionInfo partition, List<String> partitionKeys) {
+    static FlussScanRange.Partition toScanPartition(PartitionInfo partition, List<String> partitionKeys,
+            Map<String, DataType> keyColumnTypes) {
         Map<String, String> spec = partition.getPartitionSpec().getSpecMap();
         Map<String, String> values = new LinkedHashMap<>();
         StringBuilder name = new StringBuilder();
         for (String partitionKey : partitionKeys) {
             String value = spec.get(partitionKey);
+            DataTypeRoot type = keyColumnTypes.get(partitionKey).getTypeRoot();
+            if (type == DataTypeRoot.BINARY || type == DataTypeRoot.BYTES) {
+                // Fluss stores raw bytes as hex text; both FE pruning and BE constants expect 0x hex.
+                value = "0x" + value;
+            }
             values.put(partitionKey, value);
             if (name.length() > 0) {
                 name.append('/');

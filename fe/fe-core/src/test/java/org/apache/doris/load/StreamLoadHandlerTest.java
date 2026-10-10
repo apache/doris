@@ -29,9 +29,20 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TDataSink;
+import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TOlapTableIndexTablets;
+import org.apache.doris.thrift.TOlapTableLocationParam;
+import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TOlapTablePartitionParam;
+import org.apache.doris.thrift.TOlapTableSink;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TTabletLocation;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -143,6 +154,151 @@ public class StreamLoadHandlerTest {
             ConnectContext.remove();
             Config.cloud_unique_id = originalCloudUniqueId;
         }
+    }
+
+    @Test
+    public void testAssignAdaptiveRandomBucketRoutesPartitionToTabletOwner() {
+        // The load runs on backend 20, but the only tablet of the partition lives on backend 10,
+        // so the sink has to route the partition to backend 10 instead of assuming self ownership.
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setBackendId(20L);
+        StreamLoadHandler handler = new StreamLoadHandler(
+                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+
+        TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
+        handler.assignAdaptiveRandomBucket(params);
+
+        TOlapTablePartition partition = getSinglePartition(params);
+        Assertions.assertEquals(10L, partition.getBucketBeId());
+        Assertions.assertEquals(0L, partition.getLoadTabletIdx());
+        Assertions.assertEquals(Lists.newArrayList(0), partition.getLocalBucketSeqs());
+        Assertions.assertEquals(10L, partition.getIndexes().get(0).getBucketBeId());
+        Assertions.assertEquals(Lists.newArrayList(0), partition.getIndexes().get(0).getLocalBucketSeqs());
+    }
+
+    @Test
+    public void testAssignAdaptiveRandomBucketKeepsLocalBucketWhenSinkOwnsTablet() {
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setBackendId(10L);
+        StreamLoadHandler handler = new StreamLoadHandler(
+                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+
+        TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
+        handler.assignAdaptiveRandomBucket(params);
+
+        TOlapTablePartition partition = getSinglePartition(params);
+        Assertions.assertEquals(10L, partition.getBucketBeId());
+        Assertions.assertEquals(Lists.newArrayList(0), partition.getLocalBucketSeqs());
+    }
+
+    @Test
+    public void testAssignAdaptiveRandomBucketFallsBackWithoutBackendId() {
+        // An old client does not report the executing backend, so no assignment consistent with the
+        // receiver side can be computed. Adaptive mode must be turned off to keep the legacy routing.
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setDb("test_db");
+        request.setTbl("test_tbl");
+        StreamLoadHandler handler = new StreamLoadHandler(
+                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+
+        TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
+        handler.assignAdaptiveRandomBucket(params);
+
+        TOlapTableSink sink = params.getFragment().getOutputSink().getOlapTableSink();
+        Assertions.assertFalse(sink.isSetEnableAdaptiveRandomBucket());
+        TOlapTablePartition partition = getSinglePartition(params);
+        Assertions.assertFalse(partition.isSetBucketBeId());
+        Assertions.assertFalse(partition.getIndexes().get(0).isSetBucketBeId());
+    }
+
+    @Test
+    public void testAssignAdaptiveRandomBucketFallsBackWhenNothingCanBeAssigned() {
+        // A partition the FE cannot assign (here: without a load tablet index) would leave the sink
+        // in adaptive mode without any routing, so adaptive mode has to be turned off.
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setBackendId(20L);
+        StreamLoadHandler handler = new StreamLoadHandler(
+                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+
+        TOlapTableSink sink = createSingleBucketSink();
+        sink.getPartition().getPartitions().get(0).unsetLoadTabletIdx();
+        TPipelineFragmentParams params = buildStreamLoadParams(sink);
+        handler.assignAdaptiveRandomBucket(params);
+
+        Assertions.assertFalse(sink.isSetEnableAdaptiveRandomBucket());
+    }
+
+    @Test
+    public void testAssignAdaptiveRandomBucketKeepsAdaptiveForFakePartitions() {
+        // Auto partition tables get their real partitions, and their assignments, while the load
+        // runs, so an empty plan time assignment must keep adaptive mode enabled.
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setBackendId(20L);
+        StreamLoadHandler handler = new StreamLoadHandler(
+                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+
+        TOlapTableSink sink = createSingleBucketSink();
+        sink.getPartition().setPartitionsIsFake(true);
+        sink.getPartition().getPartitions().get(0).unsetLoadTabletIdx();
+        TPipelineFragmentParams params = buildStreamLoadParams(sink);
+        handler.assignAdaptiveRandomBucket(params);
+
+        Assertions.assertTrue(sink.isSetEnableAdaptiveRandomBucket());
+        Assertions.assertTrue(sink.isEnableAdaptiveRandomBucket());
+    }
+
+    @Test
+    public void testAssignAdaptiveRandomBucketIgnoresNonOlapTableSink() {
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setBackendId(20L);
+        StreamLoadHandler handler = new StreamLoadHandler(
+                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+
+        TPipelineFragmentParams params = new TPipelineFragmentParams();
+        TPlanFragment fragment = new TPlanFragment();
+        fragment.setOutputSink(new TDataSink(TDataSinkType.DATA_STREAM_SINK));
+        params.setFragment(fragment);
+
+        handler.assignAdaptiveRandomBucket(params);
+        Assertions.assertNull(params.getFragment().getOutputSink().getOlapTableSink());
+    }
+
+    /**
+     * Creates a random distribution sink with one bucket, whose only tablet is located on backend 10.
+     */
+    private static TOlapTableSink createSingleBucketSink() {
+        TOlapTablePartition partition = new TOlapTablePartition();
+        partition.setId(1000L);
+        partition.setNumBuckets(1);
+        partition.setLoadTabletIdx(0);
+        partition.addToIndexes(new TOlapTableIndexTablets(1L, Lists.newArrayList(100L)));
+        TOlapTablePartitionParam partitionParam = new TOlapTablePartitionParam();
+        partitionParam.addToPartitions(partition);
+
+        TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
+        locationParam.addToTablets(new TTabletLocation(100L, Lists.newArrayList(10L)));
+
+        TOlapTableSink sink = new TOlapTableSink();
+        sink.setEnableAdaptiveRandomBucket(true);
+        sink.setLoadToSingleTablet(false);
+        sink.setPartition(partitionParam);
+        sink.setLocation(locationParam);
+        return sink;
+    }
+
+    private static TPipelineFragmentParams buildStreamLoadParams(TOlapTableSink sink) {
+        TPipelineFragmentParams params = new TPipelineFragmentParams();
+        TPlanFragment fragment = new TPlanFragment();
+        TDataSink tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
+        tDataSink.setOlapTableSink(sink);
+        fragment.setOutputSink(tDataSink);
+        params.setFragment(fragment);
+        return params;
+    }
+
+    private static TOlapTablePartition getSinglePartition(TPipelineFragmentParams params) {
+        return params.getFragment().getOutputSink().getOlapTableSink()
+                .getPartition().getPartitions().get(0);
     }
 
     private Backend createBackend(long id, String host) {

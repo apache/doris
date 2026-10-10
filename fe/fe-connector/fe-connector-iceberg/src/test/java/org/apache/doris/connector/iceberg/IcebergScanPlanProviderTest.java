@@ -95,6 +95,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -627,6 +628,116 @@ public class IcebergScanPlanProviderTest {
                 "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
                         + "actual reader is JNI",
                 ex.getMessage());
+    }
+
+    @Test
+    public void statementReuseKeepsScansWithDifferentPlanningInputsApart() {
+        // The memo caches the final range list, so every handle or request fact those ranges depend on must be
+        // in the reuse key. COUNT pushdown, the ref and the rewrite scope change the ranges themselves: sharing
+        // the plan would hand a COUNT's single collapsed range, the latest snapshot's files, or the whole table
+        // to a scan that must read something else. MUTATION: dropping any fact from IcebergScanReuseKey (or the
+        // catalog id from the memo key) makes that scan return an earlier plan -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().createTag("tag1", s1).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2000, null, null)).commit();
+        long s2 = table.currentSnapshot().snapshotId();
+        int schemaAtS2 = table.schema().schemaId();
+        table.updateSchema().addColumn("extra", Types.IntegerType.get()).commit();
+        int laterSchema = table.schema().schemaId();
+        IcebergScanPlanProvider provider = providerOver(table);
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = reuseSession(scope, 0L);
+        IcebergTableHandle latest = new IcebergTableHandle("db1", "t1");
+        IcebergTableHandle pinnedS2 = latest.withSnapshot(s2, null, schemaAtS2);
+
+        List<ConnectorScanRange> plain = provider.planScan(session, scanOf(latest).build());
+        Assertions.assertEquals(2, plain.size());
+        Assertions.assertSame(plain, provider.planScan(session, scanOf(latest).build()));
+        List<ConnectorScanRange> atS2 = provider.planScan(session, scanOf(pinnedS2).build());
+        Assertions.assertEquals(2, atS2.size());
+        List<ConnectorScanRange> atS1 = provider.planScan(session,
+                scanOf(latest.withSnapshot(s1, null, schemaAtS2)).build());
+        Assertions.assertEquals(1, atS1.size());
+        List<ConnectorScanRange> viaTag = provider.planScan(session,
+                scanOf(latest.withSnapshot(s2, "tag1", schemaAtS2)).build());
+        Assertions.assertEquals(1, viaTag.size(), "the tag reads only f1 although the handle names s2");
+        List<ConnectorScanRange> laterSchemaAtS2 = provider.planScan(session,
+                scanOf(latest.withSnapshot(s2, null, laterSchema)).build());
+        List<ConnectorScanRange> filtered = provider.planScan(session,
+                scanOf(latest).filter(Optional.of(equalIdFilter(1))).build());
+        List<ConnectorScanRange> otherFilter = provider.planScan(session,
+                scanOf(latest).filter(Optional.of(equalIdFilter(2))).build());
+        List<ConnectorScanRange> otherTable = provider.planScan(session,
+                scanOf(new IcebergTableHandle("db1", "t2")).build());
+        List<ConnectorScanRange> count = provider.planScan(session, scanOf(latest).countPushdown(true).build());
+        Assertions.assertEquals(1, count.size());
+        Assertions.assertEquals(30L, count.get(0).getPushDownRowCount());
+        List<ConnectorScanRange> rewriteGroup = provider.planScan(session,
+                scanOf(latest.withRewriteFileScope(ImmutableSet.of("s3://b/db/t1/f1.parquet"))).build());
+        Assertions.assertEquals(1, rewriteGroup.size());
+        Assertions.assertEquals("s3://b/db/t1/f1.parquet",
+                ((IcebergScanRange) rewriteGroup.get(0)).getOriginalPath());
+        List<ConnectorScanRange> otherCatalog = provider.planScan(reuseSession(scope, 1L), scanOf(latest).build());
+
+        List<List<ConnectorScanRange>> plans = Arrays.asList(plain, atS2, atS1, viaTag, laterSchemaAtS2,
+                filtered, otherFilter, otherTable, count, rewriteGroup, otherCatalog);
+        Set<List<ConnectorScanRange>> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
+        distinct.addAll(plans);
+        Assertions.assertEquals(plans.size(), distinct.size(), "scans with different inputs must not share a plan");
+    }
+
+    @Test
+    public void statementReuseNeverMemoizesSystemTables() {
+        // System tables plan through their own readers and are never reused. MUTATION: dropping the system-table
+        // bypass in planScan -> the statement scope gains the reuse memo -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        for (String systemTable : new String[] {"snapshots", "position_deletes"}) {
+            TestStatementScope scope = new TestStatementScope();
+            ConnectorSession session = reuseSession(scope, 0L);
+            ConnectorScanRequest request = scanOf(
+                    IcebergTableHandle.forSystemTable("db1", "t1", systemTable, -1L, null, -1L)).build();
+
+            provider.planScan(session, request);
+            provider.planScan(session, request);
+
+            Assertions.assertFalse(scope.contains(IcebergScanPlanProvider.SCAN_REUSE_NAMESPACE + ":0:q"),
+                    systemTable + " must not be planned through the statement reuse memo");
+        }
+    }
+
+    @Test
+    public void statementReuseDoesNotKeepAFailedPlan() {
+        // A plan that fails is not memoized: the next equivalent scan plans again and its result is reused.
+        // MUTATION: memoizing a failed plan as empty -> the retry returns no ranges -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        RecordingIcebergCatalogOps ops = opsReturning(table);
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), ops);
+        ConnectorSession session = reuseSession(new TestStatementScope(), 0L);
+        ConnectorScanRequest request = scanOf(new IcebergTableHandle("db1", "t1")).build();
+
+        ops.throwOnLoadTable = true;
+        Assertions.assertThrows(RuntimeException.class, () -> provider.planScan(session, request));
+        ops.throwOnLoadTable = false;
+        List<ConnectorScanRange> retried = provider.planScan(session, request);
+
+        Assertions.assertEquals(1, retried.size());
+        Assertions.assertSame(retried, provider.planScan(session, request));
+    }
+
+    private static ConnectorSession reuseSession(TestStatementScope scope, long catalogId) {
+        return new FakeScanSession("UTC", Collections.singletonMap("enable_external_scan_task_reuse", "true"))
+                .withScope(scope)
+                .withCatalogId(catalogId);
+    }
+
+    private static ConnectorScanRequest.Builder scanOf(IcebergTableHandle handle) {
+        return ConnectorScanRequest.builder(handle, Collections.emptyList());
     }
 
     private static ConnectorExpression equalIdFilter(long value) {
@@ -2876,6 +2987,7 @@ public class IcebergScanPlanProviderTest {
         private final String timeZone;
         private final Map<String, String> sessionProperties;
         private ConnectorStatementScope statementScope = ConnectorStatementScope.NONE;
+        private long catalogId;
 
         FakeScanSession(String timeZone, Map<String, String> sessionProperties) {
             this.timeZone = timeZone;
@@ -2885,6 +2997,12 @@ public class IcebergScanPlanProviderTest {
         /** Installs a memoizing per-statement scope; share one instance across sessions to mimic one statement. */
         FakeScanSession withScope(ConnectorStatementScope scope) {
             this.statementScope = scope;
+            return this;
+        }
+
+        /** Plans as another catalog; two catalogs can share one statement's scope. */
+        FakeScanSession withCatalogId(long catalogId) {
+            this.catalogId = catalogId;
             return this;
         }
 
@@ -2915,7 +3033,7 @@ public class IcebergScanPlanProviderTest {
 
         @Override
         public long getCatalogId() {
-            return 0;
+            return catalogId;
         }
 
         @Override

@@ -4731,21 +4731,21 @@ TEST_F(NewOrcReaderTest, UuidBinaryRequiresLogicalTypeAttribute) {
     EXPECT_EQ(remove_nullable(array_type.get_nested_type())->get_primitive_type(), TYPE_UUID);
 }
 
-TEST_F(NewOrcReaderTest, BinaryMappingOverridesUuidAnnotation) {
+TEST_F(NewOrcReaderTest, UuidAnnotationOverridesBinaryMapping) {
     auto reader = create_reader(nullptr, std::nullopt, true);
     auto binary = ::orc::createPrimitiveType(::orc::BINARY);
     EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
               TYPE_VARBINARY);
     binary->setAttribute("doris.logical_type", "uuid");
     EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
-              TYPE_VARBINARY);
+              TYPE_UUID);
     auto string = ::orc::createPrimitiveType(::orc::STRING);
     string->setAttribute("doris.logical_type", "uuid");
     EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*string))->get_primitive_type(),
               TYPE_STRING);
 }
 
-TEST_F(NewOrcReaderTest, BinaryMappingOverridesNestedUuidAnnotations) {
+TEST_F(NewOrcReaderTest, NestedUuidAnnotationsOverrideBinaryMapping) {
     auto reader = create_reader(nullptr, std::nullopt, true);
     const auto uuid_type = [] {
         auto binary = ::orc::createPrimitiveType(::orc::BINARY);
@@ -4755,19 +4755,19 @@ TEST_F(NewOrcReaderTest, BinaryMappingOverridesNestedUuidAnnotations) {
     auto list = ::orc::createListType(uuid_type());
     const auto array = remove_nullable(reader->_convert_to_doris_type(*list));
     const auto& array_type = assert_cast<const DataTypeArray&>(*array);
-    EXPECT_EQ(remove_nullable(array_type.get_nested_type())->get_primitive_type(), TYPE_VARBINARY);
+    EXPECT_EQ(remove_nullable(array_type.get_nested_type())->get_primitive_type(), TYPE_UUID);
 
     auto map = ::orc::createMapType(uuid_type(), uuid_type());
     const auto mapped = remove_nullable(reader->_convert_to_doris_type(*map));
     const auto& map_type = assert_cast<const DataTypeMap&>(*mapped);
-    EXPECT_EQ(remove_nullable(map_type.get_key_type())->get_primitive_type(), TYPE_VARBINARY);
-    EXPECT_EQ(remove_nullable(map_type.get_value_type())->get_primitive_type(), TYPE_VARBINARY);
+    EXPECT_EQ(remove_nullable(map_type.get_key_type())->get_primitive_type(), TYPE_UUID);
+    EXPECT_EQ(remove_nullable(map_type.get_value_type())->get_primitive_type(), TYPE_UUID);
 
     auto structure = ::orc::createStructType();
     structure->addStructField("uuid", uuid_type());
     const auto converted = remove_nullable(reader->_convert_to_doris_type(*structure));
     const auto& struct_type = assert_cast<const DataTypeStruct&>(*converted);
-    EXPECT_EQ(remove_nullable(struct_type.get_elements()[0])->get_primitive_type(), TYPE_VARBINARY);
+    EXPECT_EQ(remove_nullable(struct_type.get_elements()[0])->get_primitive_type(), TYPE_UUID);
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownReturnsCountFromFileMetadata) {

@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -98,5 +100,19 @@ class CaseWhenToCompoundPredicateTest extends ExpressionRewriteTestHelper {
 
         setExpressionOnFilter();
         Assertions.assertInstanceOf(ShortCircuitIf.class, executor.rewrite(guarded, context));
+    }
+
+    @Test
+    void testOuterIfCanBeRewrittenWithoutRewritingNestedShortCircuitIf() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(CaseWhenToCompoundPredicate.INSTANCE)));
+        ShortCircuitIf guarded = new ShortCircuitIf(
+                BooleanLiteral.TRUE, BooleanLiteral.TRUE, BooleanLiteral.FALSE);
+        If outer = new If(guarded, BooleanLiteral.TRUE, BooleanLiteral.FALSE);
+
+        Expression rewritten = executor.rewrite(outer, context);
+
+        Assertions.assertNotEquals(outer, rewritten);
+        Assertions.assertTrue(rewritten.anyMatch(ShortCircuitIf.class::isInstance));
     }
 }

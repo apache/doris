@@ -126,8 +126,8 @@ public class IcebergCatalogPropertiesTest {
         // read false and silently drop the BINARY->VARBINARY / TIMESTAMPTZ mapping for every table.
         // MUTATION: binding an underscore key name -> red.
         IcebergCatalogProperties off = IcebergCatalogProperties.of(Collections.emptyMap());
-        Assertions.assertFalse(off.isEnableMappingVarbinary());
-        Assertions.assertFalse(off.isEnableMappingTimestampTz());
+        Assertions.assertTrue(off.isEnableMappingVarbinary());
+        Assertions.assertTrue(off.isEnableMappingTimestampTz());
 
         IcebergCatalogProperties on = IcebergCatalogProperties.of(props(
                 "enable.mapping.varbinary", "true", "enable.mapping.timestamp_tz", "TRUE"));

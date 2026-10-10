@@ -48,7 +48,6 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -57,7 +56,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * Builds the native-reader schema dictionary ({@code current_schema_id} + {@code history_schema_info}) so BE
@@ -374,12 +372,12 @@ public final class IcebergSchemaUtils {
 
         // #65502: carry each field's iceberg initial default so BE can materialize an equality-delete key
         // (or any column) that is absent from an old data file with its typed default instead of NULL.
-        // Binary-like values (UUID/BINARY/FIXED) go through a lossless Base64 carrier flagged for BE, because
+        // Binary values (BINARY/FIXED) go through a lossless Base64 carrier flagged for BE, because
         // their Doris type (STRING/CHAR when varbinary-mapping is off) can't tell BE to decode bytes; other
         // values use the Doris FE string form (timestamp normalized to DATETIMEV2 spacing).
         if (isBinaryLike(field.type())) {
             // Complex defaults use Iceberg single-value JSON. Mark binary leaves even when the leaf itself has
-            // no field-level default so BE decodes UUID/FIXED/BINARY values nested in the parent's JSON.
+            // no field-level default so BE decodes FIXED/BINARY values nested in the parent's JSON.
             tField.setInitialDefaultValueIsBase64(true);
         }
         if (field.initialDefault() != null) {
@@ -477,16 +475,15 @@ public final class IcebergSchemaUtils {
                 columnType.setType(TPrimitiveType.STRING);
                 break;
             case UUID:
+                columnType.setType(TPrimitiveType.UUID);
+                break;
             case BINARY:
-                // Legacy ScalarType.toColumnTypeThrift omits len for VARBINARY, including UUID(16) and
+                // Legacy ScalarType.toColumnTypeThrift omits len for VARBINARY, including
                 // unbounded BINARY. Keep that carrier shape; BE only needs the primitive class here.
-                columnType.setType(enableVarbinary ? TPrimitiveType.VARBINARY : TPrimitiveType.STRING);
+                columnType.setType(TPrimitiveType.VARBINARY);
                 break;
             case FIXED:
-                columnType.setType(enableVarbinary ? TPrimitiveType.VARBINARY : TPrimitiveType.CHAR);
-                if (!enableVarbinary) {
-                    columnType.setLen(((Types.FixedType) type).length());
-                }
+                columnType.setType(TPrimitiveType.VARBINARY);
                 break;
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) type;
@@ -504,8 +501,7 @@ public final class IcebergSchemaUtils {
                 columnType.setType(TPrimitiveType.DATEV2);
                 break;
             case TIMESTAMP:
-                boolean timestampTz = enableTimestampTz
-                        && ((Types.TimestampType) type).shouldAdjustToUTC();
+                boolean timestampTz = ((Types.TimestampType) type).shouldAdjustToUTC();
                 columnType.setType(timestampTz ? TPrimitiveType.TIMESTAMPTZ : TPrimitiveType.DATETIMEV2);
                 columnType.setPrecision(18);
                 columnType.setScale(IcebergTypeMapping.ICEBERG_DATETIME_SCALE_MS);
@@ -528,25 +524,21 @@ public final class IcebergSchemaUtils {
         if (type.typeId() == TypeID.TIMESTAMP) {
             // Iceberg prints ISO-8601 (2024-01-01T00:00:00); Doris DATETIMEV2 needs a space separator.
             String dorisValue = humanValue.replace('T', ' ');
-            if (((Types.TimestampType) type).shouldAdjustToUTC() && !enableTimestampTz) {
-                // timestamptz human form carries a trailing offset; DATETIMEV2 has no offset carrier, so keep
-                // the displayed UTC wall time and drop the suffix (only when tz-mapping is off).
-                return dorisValue.replaceFirst("(Z|[+-]\\d{2}:\\d{2})$", "");
-            }
+            // Preserve the offset through the FE-to-BE transport independently of legacy flags.
             return dorisValue;
         }
         return humanValue;
     }
 
     private static boolean isBinaryLike(Type type) {
-        return type.typeId() == TypeID.UUID || type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED;
+        return type.typeId() == TypeID.BINARY || type.typeId() == TypeID.FIXED;
     }
 
     /**
      * The Doris FE default-value string for a field's WRITE default (iceberg {@code writeDefault}, applied to
      * new rows), used to fill an INSERT-omitted column and to render the column default in DESCRIBE — or
      * {@code null} when there is nothing to surface. Only flat scalar defaults map to a Doris {@code Column}
-     * default string, so complex types (STRUCT/LIST/MAP) and binary-like types (UUID/BINARY/FIXED) — whose
+     * default string, so complex types (STRUCT/LIST/MAP) and binary types (BINARY/FIXED) — whose
      * value can't be carried as a plain unquoted literal that DESCRIBE / INSERT re-parse — return null.
      * Non-binary scalars reuse the same human-string form as the read-side initial default (timestamp
      * normalized to DATETIMEV2 spacing, timestamptz offset handling honored) so a write default displays
@@ -561,15 +553,7 @@ public final class IcebergSchemaUtils {
     }
 
     private static String serializeBinaryInitialDefault(Type type, Object value) {
-        if (type.typeId() != TypeID.UUID) {
-            // BINARY/FIXED: iceberg's identity human form is already Base64 of the raw bytes.
-            return Transforms.identity(type).toHumanString(type, value);
-        }
-        UUID uuid = (UUID) value;
-        ByteBuffer bytes = ByteBuffer.allocate(16);
-        bytes.putLong(uuid.getMostSignificantBits());
-        bytes.putLong(uuid.getLeastSignificantBits());
-        return Base64.getEncoder().encodeToString(bytes.array());
+        return Transforms.identity(type).toHumanString(type, value);
     }
 
     private static void addField(TStructField structField, TField child) {

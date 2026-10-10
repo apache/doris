@@ -30,6 +30,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmInfo;
@@ -53,10 +54,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -65,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromStr
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -651,6 +655,233 @@ class IvmNormalizeMTMVTest {
 
         // Row-id determinism: grouped agg → deterministic
         Assertions.assertTrue(rewriteResult.isDeterministic(rowIdAlias.toSlot()));
+    }
+
+    /**
+     * Builds {@code Project(id, f(aggOutput)) → Aggregate(id, aggOutput)}: the aggregate output only
+     * feeds an upper expression, which is the shape that made the visible aggregate column disappear
+     * from the MV ({@code SELECT id, SUM(name) * 100}).
+     */
+    private LogicalProject<Plan> buildProjectedAggExpr(Alias aggAlias, Alias secondAggAlias,
+            Alias exprAlias) {
+        Slot idSlot = scan.getOutput().get(0);
+        List<NamedExpression> aggOutputs = secondAggAlias == null
+                ? ImmutableList.of(idSlot, aggAlias)
+                : ImmutableList.of(idSlot, aggAlias, secondAggAlias);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                ImmutableList.of(idSlot), aggOutputs, true, java.util.Optional.empty(), scan);
+        return new LogicalProject<>(ImmutableList.of(idSlot, exprAlias), agg);
+    }
+
+    @Test
+    void testDroppedVisibleAggColumnGetsMaterializedStateCarrier() {
+        Slot nameSlot = scan.getOutput().get(1);
+        // SELECT id, SUM(name) * 100 AS s100 FROM t GROUP BY id
+        Alias sumAlias = new Alias(new Sum(nameSlot), "sum(name)");
+        Alias s100 = new Alias(new org.apache.doris.nereids.trees.expressions.Multiply(
+                sumAlias.toSlot(), new IntegerLiteral(100)), "s100");
+        LogicalProject<Plan> project = buildProjectedAggExpr(sumAlias, null, s100);
+
+        JobContext jobContext = newJobContextForRoot(project, true);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(project, jobContext);
+
+        String carrierName = IvmUtil.ivmAggHiddenColumnName(0, "SUM");
+        List<String> outputNames = result.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertTrue(outputNames.contains(carrierName), "outputs=" + outputNames);
+        Assertions.assertFalse(outputNames.contains(sumAlias.toSlot().getName()));
+
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
+        Assertions.assertEquals(1, aggMeta.getAggTargets().size());
+        IvmAggTarget target = aggMeta.getAggTargets().get(0);
+        Assertions.assertEquals(carrierName, target.getValueStateColumnName());
+        Assertions.assertNotNull(target.getValueStateSlot());
+        Assertions.assertFalse(target.getHiddenStateSlots().containsKey(IvmAggStateKey.SUM));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
+
+        // The carrier is a bare pass-through of the aggregate's visible output, so the merge result
+        // apply computes for that column is exactly the state the MV stores.
+        Alias carrier = ((LogicalProject<?>) result).getProjects().stream()
+                .filter(Alias.class::isInstance)
+                .map(Alias.class::cast)
+                .filter(alias -> carrierName.equals(alias.getName()))
+                .findFirst()
+                .get();
+        Assertions.assertEquals(sumAlias.toSlot(), carrier.child());
+    }
+
+    @Test
+    void testProjectedVisibleAggColumnKeepsCarryingItsOwnState() {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        // SELECT id, SUM(name) AS s, SUM(name) * 100 AS s100 FROM t GROUP BY id: the visible SUM column
+        // is projected, so it carries the state itself and no hidden SUM carrier is added.
+        Alias sumAlias = new Alias(new Sum(nameSlot), "s");
+        Alias s100 = new Alias(new org.apache.doris.nereids.trees.expressions.Multiply(
+                sumAlias.toSlot(), new IntegerLiteral(100)), "s100");
+        LogicalProject<Plan> project = buildProjectedAggExpr(sumAlias, null, s100)
+                .withProjects(ImmutableList.of(idSlot, sumAlias.toSlot(), s100));
+
+        JobContext jobContext = newJobContextForRoot(project, true);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(project, jobContext);
+
+        List<String> outputNames = result.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList());
+        Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "SUM")),
+                "outputs=" + outputNames);
+
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
+        IvmAggTarget target = aggMeta.getAggTargets().get(0);
+        // The projected column is the state column itself, so apply reads it under the same name.
+        Assertions.assertEquals("s", target.getValueStateColumnName());
+    }
+
+    @Test
+    void testReusedHiddenStateFollowsDroppedVisibleColumnOntoItsCarrier() {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        // SELECT id, SUM(name) * 100 AS s100, AVG(name) * 2 AS a2 FROM t GROUP BY id: AVG's hidden SUM
+        // state reuses the visible SUM column (column pool), which the upper expressions then drop, so
+        // AVG must follow that column onto the single materialized carrier.
+        Alias sumAlias = new Alias(new Sum(nameSlot), "sum(name)");
+        Alias avgAlias = new Alias(new Avg(nameSlot), "avg(name)");
+        Alias s100 = new Alias(new org.apache.doris.nereids.trees.expressions.Multiply(
+                sumAlias.toSlot(), new IntegerLiteral(100)), "s100");
+        Alias a2 = new Alias(new org.apache.doris.nereids.trees.expressions.Multiply(
+                avgAlias.toSlot(), new IntegerLiteral(2)), "a2");
+        LogicalProject<Plan> project = buildProjectedAggExpr(sumAlias, avgAlias, s100);
+        project = project.withProjects(ImmutableList.of(idSlot, s100, a2));
+
+        JobContext jobContext = newJobContextForRoot(project, true);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(project, jobContext);
+
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
+        Assertions.assertEquals(2, aggMeta.getAggTargets().size());
+        IvmAggTarget sumTarget = aggMeta.getAggTargets().get(0);
+        IvmAggTarget avgTarget = aggMeta.getAggTargets().get(1);
+        Assertions.assertEquals(IvmUtil.ivmAggHiddenColumnName(0, "SUM"), sumTarget.getValueStateColumnName());
+        Assertions.assertEquals(sumTarget.getValueStateSlot().getExprId(),
+                avgTarget.getHiddenStateSlot(IvmAggStateKey.SUM).getExprId());
+        // AVG's hidden COUNT still shares the SUM target's hidden COUNT column.
+        Assertions.assertEquals(sumTarget.getHiddenStateSlot(IvmAggStateKey.COUNT).getExprId(),
+                avgTarget.getHiddenStateSlot(IvmAggStateKey.COUNT).getExprId());
+
+        // Both targets share one carrier column, so the MV gains exactly one column for the SUM state.
+        Assertions.assertEquals(1, result.getOutput().stream()
+                .filter(slot -> slot.getName().equals(IvmUtil.ivmAggHiddenColumnName(0, "SUM")))
+                .count());
+    }
+
+    /** Hidden aggregate columns of the normalized plan output, in plan order. */
+    private List<String> hiddenAggColumnNames(Plan normalizedPlan) {
+        String aggPrefix = Column.IVM_HIDDEN_COLUMN_PREFIX + "AGG_";
+        return normalizedPlan.getOutput().stream()
+                .map(Slot::getName)
+                .filter(name -> name.startsWith(aggPrefix))
+                .collect(Collectors.toList());
+    }
+
+    @Test
+    void testWrappedAggStateCarriersPerFunction() {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        List<String> groupCount = ImmutableList.of(Column.IVM_AGG_COUNT_COL);
+
+        // Every wrapped shape materializes exactly the state its apply stage merges: the column
+        // carrying the aggregate's own value when the upper expression drops the visible column,
+        // and always the hidden state columns (a hidden state column is hidden-named, so it reaches
+        // the MV without help). AVG, BITMAP_UNION_COUNT and COUNT(*) derive the visible value from
+        // hidden state or from the group count, so wrapping them adds nothing.
+        List<Pair<AggregateFunction, List<String>>> shapes = ImmutableList.of(
+                Pair.of(new Sum(nameSlot), concat(groupCount,
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), IvmUtil.ivmAggHiddenColumnName(0, "SUM"))),
+                Pair.of(new Count(nameSlot), concat(groupCount,
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"))),
+                Pair.of(new Min(nameSlot), concat(groupCount,
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), IvmUtil.ivmAggHiddenColumnName(0, "MIN"))),
+                Pair.of(new Max(nameSlot), concat(groupCount,
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), IvmUtil.ivmAggHiddenColumnName(0, "MAX"))),
+                Pair.of(new CollectList(nameSlot), concat(groupCount,
+                        IvmUtil.ivmAggHiddenColumnName(0, "COLLECT_LIST"))),
+                Pair.of(new BitmapUnion(new BitmapFromString(nameSlot)), concat(groupCount,
+                        IvmUtil.ivmAggHiddenColumnName(0, "BITMAP_UNION"))),
+                Pair.of(new Avg(nameSlot), concat(groupCount,
+                        IvmUtil.ivmAggHiddenColumnName(0, "SUM"), IvmUtil.ivmAggHiddenColumnName(0, "COUNT"))),
+                Pair.of(new BitmapUnionCount(new BitmapFromString(nameSlot)), concat(groupCount,
+                        IvmUtil.ivmAggHiddenColumnName(0, "BITMAP_UNION"))),
+                Pair.of(new Count(), groupCount));
+
+        for (Pair<AggregateFunction, List<String>> shape : shapes) {
+            AggregateFunction function = shape.first;
+            Alias aggAlias = new Alias(function, "wrapped");
+            Alias exprAlias = new Alias(new org.apache.doris.nereids.trees.expressions.Multiply(
+                    aggAlias.toSlot(), new IntegerLiteral(100)), "out");
+            LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                    ImmutableList.of(idSlot), ImmutableList.of(idSlot, aggAlias), true,
+                    java.util.Optional.empty(), scan);
+            LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(idSlot, exprAlias), agg);
+
+            Plan result = new IvmNormalizeMTMV().rewriteRoot(project, newJobContextForRoot(project, true));
+            Assertions.assertEquals(shape.second, hiddenAggColumnNames(result),
+                    "unexpected hidden layout for wrapped " + function.getName());
+        }
+    }
+
+    private List<String> concat(List<String> head, String... tail) {
+        return ImmutableList.<String>builder().addAll(head).add(tail).build();
+    }
+
+    @Test
+    void testWrappedScalarAggMaterializesStateCarrier() {
+        Slot nameSlot = scan.getOutput().get(1);
+        // SELECT SUM(name) * 100 FROM t — no GROUP BY.
+        Alias sumAlias = new Alias(new Sum(nameSlot), "sum(name)");
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(sumAlias), true, java.util.Optional.empty(), scan);
+        Alias s100 = new Alias(new org.apache.doris.nereids.trees.expressions.Multiply(
+                sumAlias.toSlot(), new IntegerLiteral(100)), "s100");
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(s100), agg);
+
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(project, newJobContextForRoot(project, true));
+
+        Assertions.assertEquals(ImmutableList.of(Column.IVM_AGG_COUNT_COL,
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "SUM")),
+                hiddenAggColumnNames(result));
+    }
+
+    @Test
+    void testRefreshLayoutComesFromTheMvSchema() {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        // SELECT id, SUM(name) * 100 AS s100 FROM t GROUP BY id, refreshed as an existing MV.
+        Alias sumAlias = new Alias(new Sum(nameSlot), "sum(name)");
+        Alias s100 = new Alias(new org.apache.doris.nereids.trees.expressions.Multiply(
+                sumAlias.toSlot(), new IntegerLiteral(100)), "s100");
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                ImmutableList.of(idSlot), ImmutableList.of(idSlot, sumAlias), true,
+                java.util.Optional.empty(), scan);
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(idSlot, s100), agg);
+        String carrierName = IvmUtil.ivmAggHiddenColumnName(0, "SUM");
+
+        // An MV that has the carrier keeps it: the observable output and state column do not change.
+        MTMV layoutWithCarrier = Mockito.mock(MTMV.class);
+        Mockito.when(layoutWithCarrier.getColumn(carrierName)).thenReturn(new Column());
+        Plan withCarrier = new IvmNormalizeMTMV().rewriteRoot(project,
+                newJobContextForRoot(project, true, Collections.emptySet(),
+                        java.util.Optional.of(IvmRewriteContext.normalize(layoutWithCarrier))));
+        Assertions.assertTrue(withCarrier.getOutput().stream()
+                .anyMatch(slot -> carrierName.equals(slot.getName())));
+
+        // An MV without it owns which columns exist, so the refresh must not add one the MV does not
+        // have; apply then reads the MV's own visible column instead.
+        MTMV layoutWithoutCarrier = Mockito.mock(MTMV.class);
+        Mockito.when(layoutWithoutCarrier.getColumn(carrierName)).thenReturn(null);
+        Plan withoutCarrier = new IvmNormalizeMTMV().rewriteRoot(project,
+                newJobContextForRoot(project, true, Collections.emptySet(),
+                        java.util.Optional.of(IvmRewriteContext.normalize(layoutWithoutCarrier))));
+        Assertions.assertFalse(withoutCarrier.getOutput().stream()
+                .anyMatch(slot -> carrierName.equals(slot.getName())));
     }
 
     @Test

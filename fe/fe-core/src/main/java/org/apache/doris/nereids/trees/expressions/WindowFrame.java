@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -30,6 +31,9 @@ import java.util.Optional;
  * window frame
  */
 public class WindowFrame extends Expression implements PropagateNullable, LeafExpression {
+
+    // Bound explicit ROWS and LEAD/LAG offsets to leave headroom for BE row-position and exclusive-end arithmetic.
+    public static final BigDecimal MAX_ROWS_OFFSET = BigDecimal.valueOf(Integer.MAX_VALUE);
 
     private final FrameUnitsType frameUnits;
 

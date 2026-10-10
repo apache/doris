@@ -35,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
@@ -170,6 +171,19 @@ public class DropColumnOp extends AlterTableOp {
     @Override
     public boolean needChangeMTMVState() {
         return true;
+    }
+
+    @Override
+    public Set<String> queryJudgedColumnNames() {
+        return Collections.singleton(getColName());
+    }
+
+    @Override
+    public boolean hasReachedTheTable(OlapTable table) {
+        // A path into a column leaves the column itself in place, so what the table holds is the container
+        // of the part this asks about: dropping the part cannot be told apart from a change that has not
+        // been applied, and that is the answer which keeps the views invalidated.
+        return !columnPath.isNested() && table.getColumn(getColName()) == null;
     }
 
     @Override

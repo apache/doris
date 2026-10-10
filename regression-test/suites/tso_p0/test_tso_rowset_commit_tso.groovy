@@ -39,6 +39,9 @@ suite("test_tso_rowset_commit_tso", "nonConcurrent") {
         """
 
     sql """INSERT INTO ${tableName} VALUES (1), (2), (3)"""
+    // Cloud information_schema.rowsets only lists cached rowsets. A data read
+    // synchronizes the committed rowset before checking its TSO in that cache.
+    sql """SELECT id FROM ${tableName} ORDER BY id"""
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
     assertTrue(tablets.size() > 0)

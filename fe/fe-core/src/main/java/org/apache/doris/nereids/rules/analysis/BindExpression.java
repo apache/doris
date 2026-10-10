@@ -128,6 +128,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -1941,9 +1942,17 @@ public class BindExpression implements AnalysisRuleFactory {
     private Expression bindWithOrdinal(
             Expression unbound, SimpleExprAnalyzer analyzer, List<? extends Expression> boundSelectOutput) {
         if (unbound instanceof IntegerLikeLiteral) {
-            int ordinal = ((IntegerLikeLiteral) unbound).getIntValue();
-            if (ordinal >= 1 && ordinal <= boundSelectOutput.size()) {
-                Expression boundSelectItem = boundSelectOutput.get(ordinal - 1);
+            // Decide positional-vs-constant on the value the user actually wrote.
+            // getIntValue() is getNumber().intValue(), which truncates a BIGINT or a
+            // LARGEINT to its low 32 bits, so an ordinal congruent to a valid one
+            // modulo 2^32 passed this test and bound to a real select item:
+            // `GROUP BY 4294967297` silently became `GROUP BY <select item 1>`.
+            // LargeIntLiteral overrides getBigDecimalValue but not getLongValue, so
+            // the BigDecimal form is the only one that is width independent.
+            BigDecimal ordinal = ((IntegerLikeLiteral) unbound).getBigDecimalValue();
+            if (ordinal.compareTo(BigDecimal.ONE) >= 0
+                    && ordinal.compareTo(BigDecimal.valueOf(boundSelectOutput.size())) <= 0) {
+                Expression boundSelectItem = boundSelectOutput.get(ordinal.intValue() - 1);
                 return boundSelectItem instanceof Alias ? boundSelectItem.child(0) : boundSelectItem;
             } else {
                 return unbound; // bound literal

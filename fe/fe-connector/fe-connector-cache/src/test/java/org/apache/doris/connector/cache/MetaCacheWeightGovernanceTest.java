@@ -39,6 +39,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 class MetaCacheWeightGovernanceTest {
+    // ScopedMetaCache charges every admitted value this fixed overhead on top of its estimate.
+    private static final long ENTRY_OVERHEAD = 512L;
+
     @Test
     void exactInvalidationCleanupPreservesNewGenerationReservation() {
         MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(4096L));
@@ -485,6 +488,165 @@ class MetaCacheWeightGovernanceTest {
                 Collections.singletonMap(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY, "1KB"))) {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> owner.create(unestimatedStringDefinition("catalog")));
+        }
+    }
+
+    @Test
+    void zeroOrIncompleteEstimateReturnsTheValueWithoutCachingIt() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(4096L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                manager, 19L, "hive", Collections.emptyMap())) {
+            MetaCache<String, String> zero = owner.create(MetaCacheDefinition
+                    .<String, String>builder("zero", CacheSpec.of(true, -1L, 100L), ignored -> ScopePath.catalog())
+                    .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(0L))
+                    .build());
+            MetaCache<String, String> incomplete = owner.create(MetaCacheDefinition
+                    .<String, String>builder("incomplete", CacheSpec.of(true, -1L, 100L),
+                            ignored -> ScopePath.catalog())
+                    .sizeEstimator((key, value) -> MetaCacheSizeEstimate.incomplete("unclassified_field"))
+                    .build());
+
+            Assertions.assertEquals("value", zero.get("key", ignored -> "value"));
+            Assertions.assertNull(zero.getIfPresent("key"), "a zero estimate is a failed estimate, not a free value");
+            Assertions.assertEquals(1L, zero.metrics().getWeightRejectCount());
+            Assertions.assertEquals("invalid_zero_estimate", zero.metrics().getLastWeightRejectReason());
+
+            Assertions.assertEquals("value", incomplete.get("key", ignored -> "value"));
+            Assertions.assertNull(incomplete.getIfPresent("key"));
+            Assertions.assertEquals(1L, incomplete.metrics().getWeightRejectCount());
+            Assertions.assertEquals("incomplete_estimate:unclassified_field",
+                    incomplete.metrics().getLastWeightRejectReason());
+            Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
+        }
+    }
+
+    @Test
+    void disabledWeightedEntryNeverEstimates() {
+        AtomicInteger estimates = new AtomicInteger();
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(4096L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                manager, 20L, "hive", Collections.emptyMap())) {
+            MetaCache<String, String> entry = owner.create(MetaCacheDefinition
+                    .<String, String>builder("file", CacheSpec.ofWeight(false, -1L, 100L, 2048L),
+                            ignored -> ScopePath.catalog())
+                    .sizeEstimator((key, value) -> {
+                        estimates.incrementAndGet();
+                        return MetaCacheSizeEstimate.complete(512L);
+                    })
+                    .build());
+
+            Assertions.assertFalse(entry.isEnabled());
+            Assertions.assertEquals("value", entry.get("key", ignored -> "value"));
+            entry.put("other", "value");
+            Assertions.assertNull(entry.getIfPresent("key"));
+            Assertions.assertNull(entry.getIfPresent("other"));
+            Assertions.assertEquals(0, estimates.get(), "a disabled entry must not pay for estimation");
+            Assertions.assertEquals(0L, entry.metrics().getWeightRejectCount());
+            Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
+        }
+    }
+
+    @Test
+    void oversizedValueIsRejectedWithoutEvictingCachedValues() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(8192L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                manager, 21L, "iceberg", Collections.emptyMap())) {
+            MetaCache<String, Integer> entry = owner.create(MetaCacheDefinition
+                    .<String, Integer>builder("manifest", CacheSpec.ofWeight(true, -1L, 100L, 2048L),
+                            ignored -> ScopePath.catalog())
+                    .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(value.longValue()))
+                    .build());
+
+            entry.put("first", 256);
+            entry.put("second", 256);
+            entry.put("oversized", 4096);
+
+            Assertions.assertEquals(Integer.valueOf(256), entry.getIfPresent("first"));
+            Assertions.assertEquals(Integer.valueOf(256), entry.getIfPresent("second"));
+            Assertions.assertNull(entry.getIfPresent("oversized"));
+            Assertions.assertEquals(2L * (ENTRY_OVERHEAD + 256L), entry.metrics().getEstimatedWeight());
+            Assertions.assertEquals(0L, entry.metrics().getEvictionCount(),
+                    "a value that can never fit must not push useful values out");
+            Assertions.assertEquals(1L, entry.metrics().getWeightRejectCount());
+            Assertions.assertEquals("entry_too_large", entry.metrics().getLastWeightRejectReason());
+        }
+    }
+
+    @Test
+    void sameKeyReplacementChargesExactlyTheCurrentGeneration() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(4096L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                manager, 22L, "iceberg", Collections.emptyMap())) {
+            MetaCache<String, Integer> entry = owner.create(MetaCacheDefinition
+                    .<String, Integer>builder("table", CacheSpec.of(true, -1L, 100L), ignored -> ScopePath.catalog())
+                    .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(value.longValue()))
+                    .build());
+
+            Assertions.assertEquals(Integer.valueOf(30), entry.get("key", ignored -> 30));
+            Assertions.assertEquals(ENTRY_OVERHEAD + 30L, manager.getGlobalUsedWeight());
+            entry.put("key", 40);
+            Assertions.assertEquals(Integer.valueOf(40), entry.getIfPresent("key"));
+            Assertions.assertEquals(ENTRY_OVERHEAD + 40L, manager.getGlobalUsedWeight());
+            entry.put("key", 10);
+            Assertions.assertEquals(Integer.valueOf(10), entry.getIfPresent("key"));
+            Assertions.assertEquals(ENTRY_OVERHEAD + 10L, manager.getGlobalUsedWeight(),
+                    "a smaller generation gives back the difference once it is published");
+            Assertions.assertEquals(ENTRY_OVERHEAD + 10L, entry.metrics().getEstimatedWeight());
+
+            entry.invalidateKey("key");
+            Assertions.assertNull(entry.getIfPresent("key"));
+            Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
+        }
+    }
+
+    @Test
+    void peerReclaimFreesGlobalBudgetHeldByAnotherCatalog() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(2048L));
+        try (CatalogMetaCache first = new CatalogMetaCache(manager, 23L, "iceberg", Collections.emptyMap());
+                CatalogMetaCache second = new CatalogMetaCache(manager, 24L, "paimon", Collections.emptyMap())) {
+            MetaCache<String, String> firstEntry = weightedStringEntry(first, "table", 512L);
+            MetaCache<String, String> secondEntry = weightedStringEntry(second, "table", 512L);
+            firstEntry.put("a", "value");
+            firstEntry.put("b", "value");
+            Assertions.assertEquals(2048L, manager.getGlobalUsedWeight());
+
+            secondEntry.put("c", "value");
+            Assertions.assertNull(secondEntry.getIfPresent("c"));
+            Assertions.assertEquals("budget_exceeded", secondEntry.metrics().getLastWeightRejectReason());
+            // Only the global quota is short, so the other catalog's cold value is reclaimed for the next admission.
+            awaitReclaimed(firstEntry, 1L, 1024L);
+            secondEntry.put("c", "value");
+
+            Assertions.assertEquals("value", secondEntry.getIfPresent("c"));
+            Assertions.assertEquals(2048L, manager.getGlobalUsedWeight());
+        }
+    }
+
+    @Test
+    void failedRefreshKeepsTheCachedGenerationAndItsReservation() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(4096L));
+        AtomicInteger loads = new AtomicInteger();
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                manager, 25L, "default", Collections.emptyMap())) {
+            MetaCache<String, String> entry = owner.create(MetaCacheDefinition
+                    .<String, String>builder("schema", CacheSpec.of(true, -1L, 100L), ignored -> ScopePath.catalog())
+                    .loader(key -> {
+                        if (loads.incrementAndGet() > 1) {
+                            throw new IllegalStateException("temporary metastore failure");
+                        }
+                        return "v1";
+                    })
+                    .refreshAfterWrite(Duration.ofNanos(1L), Runnable::run)
+                    .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(512L))
+                    .build());
+
+            Assertions.assertEquals("v1", entry.get("key"));
+            Assertions.assertEquals("v1", entry.get("key"));
+            Assertions.assertEquals(2, loads.get(), "the second read must have triggered a refresh");
+            Assertions.assertEquals("v1", entry.getIfPresent("key"));
+            Assertions.assertEquals(1L, entry.metrics().getLoadFailureCount());
+            Assertions.assertEquals(0L, entry.metrics().getWeightRejectCount());
+            Assertions.assertEquals(ENTRY_OVERHEAD + 512L, manager.getGlobalUsedWeight());
         }
     }
 

@@ -16,7 +16,7 @@
 // under the License.
 
 // Checklist: G09 G11 G13 H08.
-// Parquet/ORC output maps UUID leaves to strings; target UUID columns restore the type.
+// UUID annotations survive nested file export and direct reload into native UUID columns.
 suite("test_uuid_export", "p0,external") {
 
     String localPath = context.config.otherConfigs.get("uuidLocalExportPath")

@@ -23,6 +23,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "core/column/column_varbinary.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
@@ -192,6 +193,16 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                                        array_builder->type()->name());
     }
     return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    // VARBINARY expression lengths are metadata, not fixed byte widths; casts can leave them unbounded.
+    // The Arrow writer checks every non-null value against the remote fixed/UUID width instead.
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
 }
 
 Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,

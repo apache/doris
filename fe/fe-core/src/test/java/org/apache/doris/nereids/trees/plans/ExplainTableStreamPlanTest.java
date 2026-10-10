@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.binlog.BinlogUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -38,6 +40,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -64,6 +67,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.normalize.QueryCacheNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -109,6 +113,8 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 + "properties(\"replication_num\"=\"1\","
                 + "\"enable_unique_key_merge_on_write\"=\"true\","
                 + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\","
+                // Offset/plan tests below deliberately use historical timestamps.
+                + "\"binlog.ttl_seconds\"=\"9223372036854775807\","
                 + "\"binlog.need_historical_value\"=\"true\")";
         createTable(createBaseTable);
 
@@ -139,6 +145,10 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 + "properties(\"replication_num\"=\"1\","
                 + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\")";
         createTable(createDuplicateBaseTable);
+        createTable("create table test_stream.tbl_dup_stream_ttl (k1 int, k2 int) "
+                + "duplicate key(k1) distributed by hash(k1) buckets 1 properties("
+                + "\"replication_num\"=\"1\",\"binlog.enable\"=\"true\","
+                + "\"binlog.format\"=\"ROW\",\"binlog.ttl_seconds\"=\"10\")");
         OlapTable duplicateBaseTable = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_base");
         bumpPartitionsAndReplicas(duplicateBaseTable, 1001L);
         String createDuplicateInitialStream =
@@ -461,6 +471,32 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testStreamReadModesRejectArgumentsWithoutChangingOffsets() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        for (String streamName : new String[] {"s2", "s_dup"}) {
+            OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException(streamName);
+            OlapTable baseTable = stream.getBaseTableNullable();
+            Map<Long, Pair<Long, Long>> offsets = new java.util.HashMap<>();
+            for (Partition partition : baseTable.getPartitions()) {
+                offsets.put(partition.getId(), stream.getStreamUpdate(partition.getId()));
+            }
+            for (String mode : new String[] {"snapshot", "reset"}) {
+                for (String arguments : new String[] {"'unknown'='x'", "x", "`x`", "x,y"}) {
+                    String sql = "select * from test_stream." + streamName + "@" + mode + "(" + arguments + ")";
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            () -> PlanChecker.from(connectContext).analyze(sql));
+                    Assertions.assertTrue(error.getMessage().contains(mode + " does not accept parameters"),
+                            sql + ": " + error.getMessage());
+                    for (Partition partition : baseTable.getPartitions()) {
+                        Assertions.assertEquals(offsets.get(partition.getId()),
+                                stream.getStreamUpdate(partition.getId()));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     public void testAppendOnlyStreamSnapshotCanBePlanned() throws Exception {
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
@@ -635,6 +671,65 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testRowBinlogTtlCutoffPropagatesToScanRanges() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        String sql = "explain select * from test_stream.tbl_dup_stream_ttl"
+                + "@incr('incrementType' = 'DETAIL')";
+        long referenceTso = TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis() + 60_000);
+        long expectedStartTso = TSOTimestamp.nextTso(TSOTimestamp.calculateCutoff(referenceTso, 10));
+
+        StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
+        statementContext.getOrRegisterRowBinlogReferenceTso(() -> referenceTso);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(ctx);
+        PhysicalPlan plan = planner.planWithLock(logicalPlan, PhysicalProperties.ANY);
+        PlanFragment fragment = new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext()))
+                .translatePlan(plan);
+
+        List<OlapScanNode> scanNodes = new ArrayList<>();
+        collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
+        List<TPaloScanRange> ranges = scanNodes.stream()
+                .filter(scan -> scan.getOlapTable() instanceof RowBinlogTableWrapper)
+                .flatMap(scan -> scan.getScanRangeLocations(Long.MAX_VALUE).stream())
+                .map(location -> location.getScanRange().getPaloScanRange())
+                .collect(java.util.stream.Collectors.toList());
+        Assertions.assertFalse(ranges.isEmpty());
+        ranges.forEach(range -> Assertions.assertEquals(expectedStartTso, range.getStartTso()));
+    }
+
+    @Test
+    public void testRowBinlogTtlRejectsExpiredMinDeltaOffset() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        String sql = "explain select * from test_stream.tbl_dup_stream_ttl@incr("
+                + "'startTimestamp' = '1971-01-01 00:00:00', 'incrementType' = 'MIN_DELTA')";
+        StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
+        statementContext.getOrRegisterRowBinlogReferenceTso(
+                () -> TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(ctx);
+
+        org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> planner.planWithLock(logicalPlan, PhysicalProperties.ANY));
+        Assertions.assertTrue(exception.getMessage().contains(BinlogUtils.ROW_BINLOG_OFFSET_EXPIRED));
+    }
+
+    @Test
+    public void testRowBinlogTtlDisablesQueryCache() throws Exception {
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        PlanFragment fragment = getFragment(ctx, "explain select count(*) "
+                + "from test_stream.tbl_dup_stream_ttl@incr('incrementType' = 'DETAIL')");
+
+        Assertions.assertTrue(new QueryCacheNormalizer(fragment, new DescriptorTable())
+                .normalize(ctx).isEmpty());
+    }
+
+    @Test
     public void testRecordPlanForMvPreRewriteNormalizesStreamScanInsideCte() throws Exception {
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
@@ -683,8 +778,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     private void assertTimeTravelBoundary(String table, String snapshot, long exclusiveBound, boolean mow) {
-        Plan plan = PlanChecker.from(connectContext)
-                .analyze("select * from test_stream." + table + " for " + snapshot)
+        Plan plan = analyzeTimeTravel("select * from test_stream." + table + " for " + snapshot)
                 .getCascadesContext().getRewritePlan();
         Set<LogicalFilter<?>> filters = plan.collect(node -> node instanceof LogicalFilter);
         List<Expression> commitPredicates = new ArrayList<>();
@@ -713,8 +807,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
     @Test
     public void testMowTimeTravelBranchProjectionPreservesQualifier() {
-        Plan plan = PlanChecker.from(connectContext)
-                .analyze("select * from test_stream.tbl_stream_base for version as of 1001")
+        Plan plan = analyzeTimeTravel("select * from test_stream.tbl_stream_base for version as of 1001")
                 .getCascadesContext().getRewritePlan();
         Set<LogicalUnion> unions = plan.collect(node -> node instanceof LogicalUnion);
         Assertions.assertEquals(1, unions.size());
@@ -738,16 +831,22 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     public void testMowTimeTravelQualifiedColumnCanBind() {
         // MOW time-travel goes through a union whose outputs are rebuilt with empty qualifiers.
         // The union must be wrapped in a subquery alias so qualified columns still bind.
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
-                .analyze("select tbl_stream_base.k1, tbl_stream_base.k2 "
+        Assertions.assertDoesNotThrow(() -> analyzeTimeTravel("select tbl_stream_base.k1, tbl_stream_base.k2 "
                         + "from test_stream.tbl_stream_base for version as of 1001"));
     }
 
     @Test
     public void testMowTimeTravelQualifiedStarCanBind() {
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
-                .analyze("select tbl_stream_base.* "
+        Assertions.assertDoesNotThrow(() -> analyzeTimeTravel("select tbl_stream_base.* "
                         + "from test_stream.tbl_stream_base for version as of 1001"));
+    }
+
+    private PlanChecker analyzeTimeTravel(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+        // Direct analyzer tests bypass the planner's statement reference initialization.
+        checker.getCascadesContext().getStatementContext().getOrRegisterRowBinlogReferenceTso(
+                () -> TSOTimestamp.composePhysicalTimestamp(1700000000001L));
+        return checker.analyze();
     }
 
     @Test

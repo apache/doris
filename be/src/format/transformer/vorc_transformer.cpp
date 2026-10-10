@@ -424,6 +424,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         };
         switch (nested_field->field_type()->type_id()) {
         case iceberg::TypeID::UUID:
+            // Native UUID serde already writes network-order bytes; retain its ORC annotation.
+            if (primitive_type == TYPE_UUID) {
+                type->setAttribute(ICEBERG_BINARY_TYPE, "UUID");
+                break;
+            }
             use_iceberg_binary_type("UUID");
             break;
         case iceberg::TypeID::FIXED:
@@ -916,6 +921,11 @@ static Status normalize_iceberg_binary_column(const ColumnPtr& column, const Dat
 
     switch (nested_field.field_type()->type_id()) {
     case iceberg::TypeID::UUID:
+        if (type->get_primitive_type() == TYPE_UUID) {
+            // Native UUID SerDe emits network-order bytes; do not reinterpret its in-memory layout.
+            *normalized_column = column;
+            return Status::OK();
+        }
         return normalize_iceberg_uuid_column(column, normalized_column, skipped_rows);
     case iceberg::TypeID::FIXED:
         return normalize_iceberg_fixed_column(column, nested_field, normalized_column,
