@@ -2731,10 +2731,11 @@ Status StringFileColumnIterator::set_access_paths(
         const TColumnAccessPaths& predicate_access_paths) {
     RETURN_IF_ERROR(FileColumnIterator::set_access_paths(all_access_paths, predicate_access_paths));
     // OFFSET_ONLY mode is fundamentally incompatible with CHAR columns:
-    // CHAR is stored padded to its declared length (see
-    // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
-    // recorded in dict word info / page headers is always the padded length
-    // (e.g. 25 for CHAR(25)) — never the logical length expected by length().
+    // segments written before CHAR stopped being zero-padded store it padded to
+    // its declared length, so the per-row length recorded in dict word info /
+    // page headers is the padded length (e.g. 25 for CHAR(25)) — never the
+    // logical length expected by length() — and a reader cannot tell such a
+    // segment from a newer one.
     // Recovering the logical length requires scanning the chars buffer with
     // strnlen() (shrink_padding_chars), which OFFSET_ONLY by definition skips.
     // There is no partial-benefit path: any optimization that still produces

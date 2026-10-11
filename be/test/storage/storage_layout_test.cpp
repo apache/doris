@@ -22,7 +22,11 @@
 #include <bit>
 #include <cstdint>
 #include <limits>
+#include <string>
 
+#include "core/column/column_decimal.h"
+#include "core/column/column_vector.h"
+#include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h"
@@ -114,6 +118,56 @@ TEST(StorageLayoutTest, BitCastStoresThePrimitiveBytes) {
 
     EXPECT_EQ(StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL32>::to_storage(Decimal32(-12345)),
               -12345);
+}
+
+TEST(StorageLayoutTest, StorageAtConvertsOneRowOfAColumn) {
+    auto ints = ColumnInt32::create();
+    ints->insert_value(7);
+    ints->insert_value(-3);
+    EXPECT_EQ(StorageLayout<FieldType::OLAP_FIELD_TYPE_INT>::storage_at(*ints, 1), -3);
+
+    auto floats = ColumnFloat32::create();
+    floats->insert_value(std::bit_cast<float>(0x7FC12345U));
+    EXPECT_EQ(std::bit_cast<uint32_t>(
+                      StorageLayout<FieldType::OLAP_FIELD_TYPE_FLOAT>::storage_at(*floats, 0)),
+              0x7FC00000U);
+
+    VecDateTimeValue date;
+    ASSERT_TRUE(date.from_date_int64(20200101));
+    auto dates = ColumnDate::create();
+    dates->insert_value(date);
+    EXPECT_EQ(static_cast<uint32_t>(
+                      StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::storage_at(*dates, 0)),
+              (2020U << 9) | (1U << 5) | 1U);
+
+    VecDateTimeValue datetime;
+    ASSERT_TRUE(datetime.from_date_int64(20200101123045));
+    auto datetimes = ColumnDateTime::create();
+    datetimes->insert_value(datetime);
+    EXPECT_EQ(StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME>::storage_at(*datetimes, 0),
+              20200101123045);
+
+    auto decimals = ColumnDecimal128V2::create(0, 9);
+    decimals->insert_value(DecimalV2Value(123, 456000000));
+    const decimal12_t stored =
+            StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>::storage_at(*decimals, 0);
+    EXPECT_EQ(stored.integer, 123);
+    EXPECT_EQ(stored.fraction, 456000000);
+}
+
+TEST(StorageLayoutTest, CharIsPaddedToTheDeclaredLength) {
+    using Layout = StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>;
+    std::string out = "key:";
+    Layout::append_padded(StringRef("ab"), 5, &out);
+    EXPECT_EQ(out, std::string("key:ab\0\0\0", 9));
+
+    out.clear();
+    Layout::append_padded(StringRef("hello"), 5, &out);
+    EXPECT_EQ(out, "hello");
+
+    out.clear();
+    Layout::append_padded(StringRef(), 5, &out);
+    EXPECT_EQ(out, std::string(5, '\0'));
 }
 
 } // namespace doris

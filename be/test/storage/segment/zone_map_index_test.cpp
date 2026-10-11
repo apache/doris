@@ -253,11 +253,10 @@ public:
                 DataTypeFactory::instance().create_data_type(TYPE_CHAR, true, 0, 0, length);
         auto tab_col = create_char_key(0, true, length);
         const TabletColumn* field = tab_col.get();
-        // ZoneMap writer stores whatever slice bytes it receives. In production
-        // OlapColumnDataConvertorChar pads CHAR slices to the declared length
-        // before they reach the writer; from_olap_string strnlens at read time
-        // so the materialized Field is always unpadded. This test passes raw
-        // shorter slices directly to the writer to exercise the strnlen path.
+        // ZoneMap writer stores whatever slice bytes it receives; from_olap_string
+        // strnlens at read time, so a bound an old segment stored padded still
+        // materializes unpadded. This test passes raw shorter slices directly to
+        // the writer to exercise the strnlen path.
         std::string s_less_than_char_len1(length - 1, 'a');
         std::string s_less_than_char_len2(length - 2, 'b');
         std::unique_ptr<ZoneMapIndexWriter> writer;
@@ -584,8 +583,8 @@ public:
     // A STRING / VARCHAR value may hold '\0' in the middle, and the zone map
     // bound has to keep those bytes. A bound cut at the '\0' is smaller than the data it
     // stands for, so a pushed-down comparison prunes pages that do hold matching rows.
-    // CHAR is the exception: it is zero-padded to the schema length on write and the page
-    // read path cuts every CHAR value at its first '\0', so its bound is cut here too.
+    // CHAR is the exception: the page read path cuts every CHAR value at its first '\0'
+    // (older segments store it zero-padded), so its bound is cut here too.
     template <PrimitiveType PType>
     void test_embedded_nul_bound(const std::string& testname, bool bound_is_cut) {
         // 'a' '\0' 'b' -- a value whose middle byte is '\0'.
@@ -1724,8 +1723,8 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
 TEST_F(ColumnZoneMapTest, EmbeddedNulKeepsStringBound) {
     test_embedded_nul_bound<TYPE_STRING>("embedded_nul_string", /*bound_is_cut=*/false);
     test_embedded_nul_bound<TYPE_VARCHAR>("embedded_nul_varchar", /*bound_is_cut=*/false);
-    // CHAR pads with '\0' on write and cuts at the first '\0' on read, so its bound is
-    // cut the same way and stays comparable with the rows the page returns.
+    // The page read path cuts CHAR at its first '\0', so its bound is cut the same
+    // way and stays comparable with the rows the page returns.
     test_embedded_nul_bound<TYPE_CHAR>("embedded_nul_char", /*bound_is_cut=*/true);
 }
 

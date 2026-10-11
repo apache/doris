@@ -30,10 +30,9 @@
 // and walk the varint lengths once to fill the offsets array.
 //
 // V3 stores exactly the same bytes as V1/V2 — only the on-disk layout differs. In
-// particular, CHAR values keep their trailing '\0' padding on disk (as written by
-// OlapColumnDataConvertorChar); that padding is stripped on read by
-// BinaryPlainPageV3PreDecoder<true>, selected for (CHAR, PLAIN_ENCODING_V3), exactly
-// mirroring PLAIN_ENCODING_V2.
+// particular, CHAR values in segments old enough to carry trailing '\0' padding keep
+// it on disk; that padding is stripped on read by BinaryPlainPageV3PreDecoder<true>,
+// selected for (CHAR, PLAIN_ENCODING_V3), exactly mirroring PLAIN_ENCODING_V2.
 
 #pragma once
 
@@ -84,8 +83,7 @@ public:
             }
 
             // Append the data straight into the contiguous data buffer. V3 stores the same
-            // bytes as V1/V2 (CHAR keeps its '\0' padding, VARCHAR does not); only the layout
-            // differs. CHAR padding is stripped on read by BinaryPlainPageV3PreDecoder<true>.
+            // bytes as V1/V2; only the layout differs.
             RETURN_IF_CATCH_EXCEPTION(_data_buffer.append(src->data, src->size));
 
             // Encode varuint length into a scratch buffer, then append.

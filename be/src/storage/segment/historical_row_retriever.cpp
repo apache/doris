@@ -33,7 +33,6 @@
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
 #include "storage/data_dir.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
 #include "storage/mow/key_probe.h"
@@ -102,11 +101,9 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
     PartialUpdateStats discarded_stats;
 
     for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
-        // After converting to olap column, [0, num_rows) in the result column is corresponding to
-        // [row_pos, row_pos + num_rows) in the original block
         size_t delta_pos = block_pos - row_pos;
         std::string key = encode_mow_key_invalidate_cache(
-                *_key_encoder, _key_columns, _seq_column, delta_pos, _seq_column != nullptr,
+                *_key_encoder, _key_columns, _seq_column, block_pos, _seq_column != nullptr,
                 _context.tablet->tablet_id(), *tablet_schema, _context.write_type);
 
         // mark key with delete sign as deleted.
@@ -194,10 +191,10 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
     }
     DCHECK_EQ(insert_after_delete_flags.size(), num_rows);
 
-    std::vector<IOlapColumnDataAccessor*> key_columns;
-    RETURN_IF_ERROR(aggregator.convert_pk_columns(block, 0, num_rows, key_columns));
-    IOlapColumnDataAccessor* seq_column = nullptr;
-    RETURN_IF_ERROR(aggregator.convert_seq_column(block, 0, num_rows, seq_column));
+    std::vector<const IColumn*> key_columns;
+    aggregator.collect_pk_columns(*block, key_columns);
+    const IColumn* seq_column = nullptr;
+    aggregator.collect_seq_column(*block, seq_column);
 
     auto* skip_bitmaps =
             &get_mutable_skip_bitmap_column(block, tablet_schema->skip_bitmap_col_idx())

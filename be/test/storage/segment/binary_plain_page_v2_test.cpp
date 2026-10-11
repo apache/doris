@@ -556,7 +556,7 @@ TEST_F(BinaryPlainPageV2Test, TestSeekAndRead) {
 }
 
 // CHAR-specific roundtrip: write padded slices (the on-disk format produced
-// by OlapColumnDataConvertorChar) through both CHAR-strip pre-decoders and
+// by an old segment's CHAR page) through both CHAR-strip pre-decoders and
 // confirm the post-decode column surfaces the unpadded logical content.
 
 namespace {

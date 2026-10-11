@@ -80,7 +80,7 @@ public:
     }
 
     // Build the Slices fed to the builder. For CHAR, pad every value to a fixed declared
-    // length with trailing '\0' (as OlapColumnDataConvertorChar does) so the IS_CHAR read path
+    // length with trailing '\0' (as an old segment's CHAR page does) so the IS_CHAR read path
     // is exercised; `backing` owns the padded bytes and must outlive the returned Slices.
     // Decoded values must still equal the logical src_strings (callers must not pass embedded
     // '\0' in CHAR inputs).
@@ -365,12 +365,12 @@ TEST_F(BinaryPlainPageV3Test, TestEncodeDecodeAggState) {
             {"agg_state_1", "", std::string("\x01\x02\x00\x03", 4), "another_state"});
 }
 
-// CHAR padding handling. OlapColumnDataConvertorChar pads CHAR values to their declared
+// CHAR padding handling. Segments old enough to pad CHAR store values at their declared
 // length with trailing '\0'. V3 (like V1/V2) stores the padded bytes verbatim; the padding
 // is stripped on read by BinaryPlainPageV3PreDecoder<true>.
 namespace {
 // Build a fixed-length CHAR slice payload: each logical value padded with '\0' to
-// padded_len, exactly as the convertor hands it to the page builder.
+// padded_len, as an older segment stored it.
 std::vector<std::string> make_padded_char_backing(const std::vector<std::string>& logical,
                                                   size_t padded_len) {
     std::vector<std::string> padded;

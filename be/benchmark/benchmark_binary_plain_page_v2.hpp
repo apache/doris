@@ -241,9 +241,9 @@ BENCHMARK(BM_BinaryPlainPageV3_PreDecode_256KiB)->Apply(V2V3PreDecodeFixedPageAr
 // effect of the V3 layout (contiguous data + contiguous varint lengths) on ZSTD's ratio.
 // Two corpora:
 //   - VARCHAR (variable length, no padding).
-//   - CHAR (fixed length, '\0'-padded as OlapColumnDataConvertorChar does): both V2 and V3
-//     keep the padding on disk, so this measures the layout effect on highly compressible
-//     padded data.
+//   - CHAR (fixed length, '\0'-padded as segments written before CHAR stopped being
+//     padded store it): both V2 and V3 keep the padding on disk, so this measures the
+//     layout effect on highly compressible padded data.
 // ===========================================================================
 
 // Build a CHAR corpus: each value is exactly `value_len` bytes (padded), with a

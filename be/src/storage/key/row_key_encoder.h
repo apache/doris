@@ -24,8 +24,7 @@
 
 namespace doris {
 
-class IOlapColumnDataAccessor;
-class KeyCoder;
+class IColumn;
 class TabletColumn;
 class TabletSchema;
 
@@ -38,25 +37,22 @@ public:
     RowKeyEncoder(const TabletSchema& schema, bool mow);
 
     // Encode the sort key columns at `pos` with full length.
-    std::string full_encode(const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                            size_t pos) const;
+    std::string full_encode(const std::vector<const IColumn*>& key_columns, size_t pos) const;
 
     // Encode the primary key columns at `pos` with full length, producing the key stored in and
     // probed against the primary key index. Every mow table builds this view; a table with cluster
     // keys is the case where it differs from full_encode(), which follows the segment's sort order.
-    std::string full_encode_primary_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
+    std::string full_encode_primary_keys(const std::vector<const IColumn*>& key_columns,
                                          size_t pos) const;
 
     // Encode the short key columns at `pos`, each column truncated to its
     // index length.
-    std::string encode_short_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                  size_t pos) const;
+    std::string encode_short_keys(const std::vector<const IColumn*>& key_columns, size_t pos) const;
 
     // Append the encoded sequence column at `pos` to `encoded_keys`. A null
     // sequence value is encoded as the minimal value of the column length so
     // that it sorts first in the primary key index.
-    void append_seq_suffix(std::string* encoded_keys, const IOlapColumnDataAccessor* seq_column,
-                           size_t pos) const;
+    void append_seq_suffix(std::string* encoded_keys, const IColumn* seq_column, size_t pos) const;
 
     // Append the encoded row id to `encoded_keys`, only used by mow tables
     // with cluster keys.
@@ -65,9 +61,23 @@ public:
     size_t num_sort_key_columns() const { return _sort_key_coders.size(); }
 
 private:
-    static std::string _full_encode(const std::vector<const KeyCoder*>& key_coders,
-                                    const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                    size_t pos);
+    // Encodes row `pos` of a key column that is not NULL there: its StorageValue
+    // through the KeyCoder of its FieldType, except CHAR, which is zero padded
+    // to `length` straight into the key. Bound to the FieldType at init, so a
+    // row costs no type switch.
+    struct KeyColumnCoder {
+        void (*full_encode_ascending)(const IColumn& column, size_t pos, size_t length,
+                                      std::string* buf) = nullptr;
+        void (*encode_ascending)(const IColumn& column, size_t pos, size_t length,
+                                 size_t index_size, std::string* buf) = nullptr;
+        // Declared length of the column: a CHAR key is padded to it, and a null
+        // sequence value encodes to this many filler bytes.
+        size_t length = 0;
+    };
+    static KeyColumnCoder _key_column_coder(const TabletColumn& column);
+
+    static std::string _full_encode(const std::vector<KeyColumnCoder>& key_coders,
+                                    const std::vector<const IColumn*>& key_columns, size_t pos);
 
     void _init_mow(const TabletSchema& schema);
     void _init_non_mow(const TabletSchema& schema);
@@ -77,16 +87,14 @@ private:
     // The sort-key view: whatever the segment sorts by. Cluster key columns
     // for mow tables with cluster keys, primary key columns otherwise. Used by
     // full_encode() and encode_short_keys().
-    std::vector<const KeyCoder*> _sort_key_coders;
+    std::vector<KeyColumnCoder> _sort_key_coders;
     std::vector<uint16_t> _sort_key_index_size;
     // The primary-key view, built for every mow table. It coincides with the
     // sort-key view unless the table has cluster keys, where the segment sorts
     // by those while its primary key index stays on the schema key columns.
-    std::vector<const KeyCoder*> _primary_key_coders;
-    // Mow-only suffix coders for the primary key index.
-    const KeyCoder* _seq_coder = nullptr;
-    const KeyCoder* _rowid_coder = nullptr;
-    size_t _seq_col_length = 0;
+    std::vector<KeyColumnCoder> _primary_key_coders;
+    // Mow-only: the sequence column suffix of the primary key index.
+    KeyColumnCoder _seq_coder;
     size_t _num_short_key_columns = 0;
 };
 

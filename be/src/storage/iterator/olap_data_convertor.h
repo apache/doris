@@ -162,57 +162,6 @@ private:
         Status convert_to_olap() override;
     };
 
-    class OlapColumnDataConvertorChar : public OlapColumnDataConvertorBase {
-    public:
-        OlapColumnDataConvertorChar(size_t length);
-        ~OlapColumnDataConvertorChar() override = default;
-
-        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
-                               size_t num_rows) override;
-        const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
-        Status convert_to_olap() override;
-
-    private:
-        static bool should_padding(const ColumnString* column, size_t padding_length) {
-            // Check sum of data length, including terminating zero.
-            return column->size() * padding_length != column->chars.size();
-        }
-
-        static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length,
-                                           const UInt8* null_map = nullptr) {
-            auto column = ColumnString::create();
-
-            column->offsets.resize(input->size());
-            column->chars.resize(input->size() * padding_length);
-            memset(column->chars.data(), 0, input->size() * padding_length);
-
-            for (size_t i = 0; i < input->size(); i++) {
-                column->offsets[i] = cast_set<uint32_t, size_t, false>((i + 1) * padding_length);
-
-                auto str = input->get_data_at(i);
-
-                if (null_map && null_map[i]) {
-                    continue;
-                }
-
-                DCHECK(str.size <= padding_length)
-                        << "char type data length over limit, padding_length=" << padding_length
-                        << ", real=" << str.size;
-
-                if (str.size) {
-                    memcpy(column->chars.data() + i * padding_length, str.data, str.size);
-                }
-            }
-
-            return column;
-        }
-
-        size_t _length;
-        PaddedPODArray<Slice> _slice;
-        ColumnPtr _column = nullptr;
-    };
-
     class OlapColumnDataConvertorVarChar : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorVarChar(bool check_length, bool is_jsonb = false);

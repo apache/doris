@@ -32,7 +32,6 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/data_dir.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
@@ -627,19 +626,14 @@ protected:
         return std::make_shared<MowContext>(version, /*txn_id=*/1, rsids, rowsets, delete_bitmap);
     }
 
-    // Encodes a primary key (single INT key column = `k`) the same way the fill stage does: convert
-    // a 1-row block then RowKeyEncoder::full_encode_primary_keys.
+    // Encodes a primary key (single INT key column = `k`) the same way the fill stage does: a
+    // 1-row block then RowKeyEncoder::full_encode_primary_keys.
     std::string encode_key(const TabletSchemaSPtr& schema, const RowKeyEncoder& encoder,
                            int32_t k) {
         Block block = schema->create_storage_block({0});
         block.get_by_position(0).column->assert_mutable()->insert_data(
                 reinterpret_cast<const char*>(&k), sizeof(int32_t));
-        OlapBlockDataConvertor convertor;
-        convertor.add_column_data_convertor(schema->column(0));
-        convertor.set_source_content(&block, 0, 1);
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_TRUE(st.ok()) << st;
-        std::vector<IOlapColumnDataAccessor*> key_columns {accessor};
+        std::vector<const IColumn*> key_columns {block.get_by_position(0).column.get()};
         return encoder.full_encode_primary_keys(key_columns, 0);
     }
 
@@ -653,17 +647,9 @@ protected:
                 reinterpret_cast<const char*>(&k), sizeof(int32_t));
         block.get_by_position(1).column->assert_mutable()->insert_data(
                 reinterpret_cast<const char*>(&seq), sizeof(int32_t));
-        OlapBlockDataConvertor convertor;
-        convertor.add_column_data_convertor(schema->column(0));
-        convertor.add_column_data_convertor(schema->column(seq_idx));
-        convertor.set_source_content(&block, 0, 1);
-        auto [st0, key_acc] = convertor.convert_column_data(0);
-        EXPECT_TRUE(st0.ok()) << st0;
-        auto [st1, seq_acc] = convertor.convert_column_data(1);
-        EXPECT_TRUE(st1.ok()) << st1;
-        std::vector<IOlapColumnDataAccessor*> key_columns {key_acc};
+        std::vector<const IColumn*> key_columns {block.get_by_position(0).column.get()};
         std::string key = encoder.full_encode_primary_keys(key_columns, 0);
-        encoder.append_seq_suffix(&key, seq_acc, 0);
+        encoder.append_seq_suffix(&key, block.get_by_position(1).column.get(), 0);
         return key;
     }
 

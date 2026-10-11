@@ -38,7 +38,6 @@
 #include "core/extended_types.h"
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h" // IWYU pragma: keep
 #include "storage/tablet/tablet_schema_helper.h"
@@ -48,7 +47,7 @@
 // The tests are organized as three orthogonal axes plus two suffix cases:
 //
 //   axis A (types):     the all-type matrix uses ONE explicit data table whose
-//                       key contains all 17 default-converted physical key-column
+//                       key contains all 17 physical key-column
 //                       types, then runs it through every relevant schema path.
 //   axis B (encodings): the full RowKeyEncoder surface - full_encode (sort
 //                       view), full_encode_primary_keys (primary view),
@@ -57,7 +56,7 @@
 //                       through each corresponding production schema path.
 //   axis C (counts):    one primary key, four cluster keys and a two-column
 //                       short-key prefix, proving that each encoding view
-//                       consumes its own accessor count.
+//                       consumes its own column count.
 //
 //   SeqSuffix           sequence-column suffix over every seq-eligible type.
 //   RowidSuffix         rowid as the duplicate-PK tie-breaker, including the
@@ -547,8 +546,8 @@ std::vector<SeqCase> seq_cases() {
 
 } // namespace
 
-// A small holder so the convertor (which the accessors point into) and the
-// source block stay alive until after the encode calls.
+// A small holder so the source block, which the key columns point into, stays
+// alive until after the encode calls.
 class RowKeyEncoderTest : public testing::Test {
 protected:
     void build(const TabletSchemaSPtr& schema, size_t num_rows,
@@ -559,19 +558,13 @@ protected:
             auto guard = _block.mutate_columns_scoped();
             fill(guard.mutable_columns());
         }
-        _convertor = std::make_unique<OlapBlockDataConvertor>(schema.get());
-        _convertor->set_source_content(&_block, 0, num_rows);
+        EXPECT_EQ(_block.rows(), num_rows);
     }
 
-    IOlapColumnDataAccessor* acc(uint32_t cid) {
-        auto [st, accessor] = _convertor->convert_column_data(cid);
-        EXPECT_TRUE(st.ok()) << st;
-        return accessor;
-    }
+    const IColumn* acc(uint32_t cid) const { return _block.get_by_position(cid).column.get(); }
 
     TabletSchemaSPtr _schema;
     Block _block;
-    std::unique_ptr<OlapBlockDataConvertor> _convertor;
 };
 
 // The all-key-types data table has all 17 current key-column types, one column
@@ -746,18 +739,16 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
                                                schema_case.has_cluster_keys));
             }
         }
-        _convertor = std::make_unique<OlapBlockDataConvertor>(_schema.get());
-        _convertor->set_source_content(&_block, 0, kAllKeyData.size());
 
-        // 4. Build the data accessors and encode every row into the applicable
+        // 4. Collect the key columns and encode every row into the applicable
         // full, primary, short-key and primary-index views.
-        std::vector<IOlapColumnDataAccessor*> primary_columns;
+        std::vector<const IColumn*> primary_columns;
         primary_columns.reserve(kNumKeyColumns);
         for (size_t key = 0; key < kNumKeyColumns; ++key) {
             primary_columns.push_back(acc(key));
         }
 
-        std::vector<IOlapColumnDataAccessor*> sort_columns;
+        std::vector<const IColumn*> sort_columns;
         sort_columns.reserve(kNumKeyColumns);
         if (schema_case.has_cluster_keys) {
             for (const auto uid : schema->cluster_key_uids()) {
@@ -782,7 +773,7 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
             return false;
         };
 
-        IOlapColumnDataAccessor* sequence_column = nullptr;
+        const IColumn* sequence_column = nullptr;
         if (schema_case.has_sequence) {
             sequence_column = acc(static_cast<uint32_t>(schema->sequence_col_idx()));
         }
@@ -980,7 +971,7 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
     }
 
     // 6. Cover a supported cluster-key schema whose primary, sort and short-key
-    // accessor counts are all different, then include every encoded view in the
+    // column counts are all different, then include every encoded view in the
     // same byte-level snapshot as the all-type matrix above.
     {
         auto schema = different_key_count_schema();
@@ -992,8 +983,8 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
             fill_int(columns, 4, {13});
         });
 
-        std::vector<IOlapColumnDataAccessor*> primary_columns {acc(0)};
-        std::vector<IOlapColumnDataAccessor*> sort_columns {acc(1), acc(2), acc(3), acc(4)};
+        std::vector<const IColumn*> primary_columns {acc(0)};
+        std::vector<const IColumn*> sort_columns {acc(1), acc(2), acc(3), acc(4)};
         auto short_key_columns = sort_columns;
         short_key_columns.resize(schema->num_short_key_columns());
 
@@ -1061,7 +1052,7 @@ TEST_F(RowKeyEncoderTest, SeqSuffix) {
             c[2]->insert_default(); // row 1: NULL sequence value
         });
         RowKeyEncoder enc(*_schema, /*mow=*/true);
-        IOlapColumnDataAccessor* seq = acc(2);
+        const IColumn* seq = acc(2);
 
         std::string normal;
         enc.append_seq_suffix(&normal, seq, 0);
@@ -1110,7 +1101,7 @@ TEST_F(RowKeyEncoderTest, TimestampNsKeyEncodingAllTableModels) {
         });
 
         RowKeyEncoder encoder(*schema, schema_case.mow);
-        std::vector<IOlapColumnDataAccessor*> key_columns {acc(0)};
+        std::vector<const IColumn*> key_columns {acc(0)};
         std::string previous_key;
         for (size_t row = 0; row < kValues.size(); ++row) {
             const std::string full_key = encoder.full_encode(key_columns, row);
@@ -1146,8 +1137,8 @@ TEST_F(RowKeyEncoderTest, PrimaryKeyViewDiffersFromSortKeyViewWithClusterKeys) {
     ASSERT_EQ(_schema->cluster_key_uids().size(), 4);
 
     RowKeyEncoder encoder(*_schema, /*mow=*/true);
-    std::vector<IOlapColumnDataAccessor*> primary_key_columns {acc(0)};
-    std::vector<IOlapColumnDataAccessor*> sort_key_columns {acc(1), acc(2), acc(3), acc(4)};
+    std::vector<const IColumn*> primary_key_columns {acc(0)};
+    std::vector<const IColumn*> sort_key_columns {acc(1), acc(2), acc(3), acc(4)};
     for (size_t row = 0; row < 2; ++row) {
         const std::string primary_key = encoder.full_encode_primary_keys(primary_key_columns, row);
         EXPECT_FALSE(primary_key.empty());
@@ -1174,7 +1165,7 @@ TEST_F(RowKeyEncoderTest, PrimaryKeyViewEqualsSortKeyViewWithoutClusterKeys) {
     ASSERT_TRUE(_schema->cluster_key_uids().empty());
 
     RowKeyEncoder encoder(*_schema, /*mow=*/true);
-    std::vector<IOlapColumnDataAccessor*> key_columns {acc(0), acc(1)};
+    std::vector<const IColumn*> key_columns {acc(0), acc(1)};
     for (size_t row = 0; row < 2; ++row) {
         const std::string sort_key = encoder.full_encode(key_columns, row);
         EXPECT_FALSE(sort_key.empty());
@@ -1196,7 +1187,7 @@ TEST_F(RowKeyEncoderTest, NonMowBuildsNoPrimaryKeyView) {
     });
 
     RowKeyEncoder encoder(*_schema, /*mow=*/false);
-    std::vector<IOlapColumnDataAccessor*> key_columns {acc(0)};
+    std::vector<const IColumn*> key_columns {acc(0)};
     EXPECT_FALSE(encoder.full_encode(key_columns, 0).empty());
     EXPECT_TRUE(encoder.full_encode_primary_keys({}, 0).empty());
 }
@@ -1241,9 +1232,9 @@ TEST_F(RowKeyEncoderTest, RowidSuffix) {
     });
 
     RowKeyEncoder encoder(*schema, /*mow=*/true);
-    std::vector<IOlapColumnDataAccessor*> sort_columns {acc(1)};
-    std::vector<IOlapColumnDataAccessor*> primary_columns {acc(0)};
-    IOlapColumnDataAccessor* sequence_column = acc(2);
+    std::vector<const IColumn*> sort_columns {acc(1)};
+    std::vector<const IColumn*> primary_columns {acc(0)};
+    const IColumn* sequence_column = acc(2);
     std::string previous_sort_key;
     std::string previous_primary_index_key;
     for (size_t row = 0; row < kRows.size(); ++row) {

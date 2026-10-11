@@ -147,7 +147,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorHLL>();
     }
     case FieldType::OLAP_FIELD_TYPE_CHAR: {
-        return std::make_unique<OlapColumnDataConvertorChar>(column.length());
+        return std::make_unique<OlapColumnDataConvertorVarChar>(false);
     }
     case FieldType::OLAP_FIELD_TYPE_VARCHAR: {
         return std::make_unique<OlapColumnDataConvertorVarChar>(false);
@@ -512,61 +512,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
         ++hll_value_cur;
     }
     assert(slice == _slice.get_end_ptr());
-    return Status::OK();
-}
-
-// class OlapBlockDataConvertor::OlapColumnDataConvertorChar
-OlapBlockDataConvertor::OlapColumnDataConvertorChar::OlapColumnDataConvertorChar(size_t length)
-        : _length(length) {
-    assert(length > 0);
-}
-
-void OlapBlockDataConvertor::OlapColumnDataConvertorChar::set_source_column(
-        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
-    OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
-                                                                           num_rows);
-    _slice.resize(num_rows);
-}
-
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data() const {
-    return _slice.data();
-}
-
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data_at(size_t offset) const {
-    UInt8 null_flag = 0;
-    if (get_nullmap()) {
-        null_flag = get_nullmap()[offset];
-    }
-    return null_flag ? nullptr : _slice.data() + offset;
-}
-
-Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
-    assert(_typed_column.column);
-    const ColumnString* column_string = nullptr;
-    if (_nullmap) {
-        const auto* nullable_column =
-                assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_string =
-                assert_cast<const ColumnString*>(nullable_column->get_nested_column_ptr().get());
-    } else {
-        column_string = assert_cast<const ColumnString*>(_typed_column.column.get());
-    }
-
-    // If column_string is not padded to full, we should do padding here.
-    if (should_padding(column_string, _length)) {
-        _column = clone_and_padding(column_string, _length, _nullmap);
-        column_string = assert_cast<const ColumnString*>(_column.get());
-    }
-
-    for (size_t i = 0; i < _num_rows; i++) {
-        if (!_nullmap || !_nullmap[i + _row_pos]) {
-            _slice[i] = column_string->get_data_at(i + _row_pos).to_slice();
-            DCHECK(_slice[i].size == _length)
-                    << "char type data length not equal to schema, schema=" << _length
-                    << ", real=" << _slice[i].size;
-        }
-    }
-
     return Status::OK();
 }
 

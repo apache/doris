@@ -838,18 +838,6 @@ Result<std::vector<std::string>> storage_cells(const TabletColumn& column,
     return cells;
 }
 
-// The strings a nullable string column holds; NULL rows are left empty.
-std::vector<std::string> string_cells(const IColumn& column) {
-    const auto& nullable = assert_cast<const ColumnNullable&>(column);
-    std::vector<std::string> cells(nullable.size());
-    for (size_t row = 0; row < cells.size(); ++row) {
-        if (!nullable.is_null_at(row)) {
-            cells[row] = nullable.get_nested_column().get_data_at(row).to_string();
-        }
-    }
-    return cells;
-}
-
 // Reads the column back the way a Segment reads it and checks that it holds the rows written.
 Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
                         const std::string& path) {
@@ -903,15 +891,6 @@ Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
                     cell = BitmapValue(cell.data()).to_string();
                 }
             }
-        }
-    }
-    // CHAR is written padded to its length and read back without the padding, which loading a page
-    // strips, except from a PREFIX page, which no writer writes for CHAR. storage_cells() would pad
-    // the rows read back again, so CHAR is compared as it reads back.
-    if (input.column.type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-        actual.value() = string_cells(*read_data.column);
-        if (written.meta.encoding() != PREFIX_ENCODING) {
-            expected.value() = string_cells(*input.data.column);
         }
     }
     const auto [actual_cell, expected_cell] =
