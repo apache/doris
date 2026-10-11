@@ -19,6 +19,7 @@
 
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -197,12 +198,25 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
                 block.insert(block.get_by_position(arguments[0]));
             }
 
-            const NullMap::value_type* arg_null_map = nullptr;
+            // FILE validation must also skip values hidden by an enclosing NULL container.
+            const NullMap::value_type* arg_null_map = (contains_file_type(from_type_not_nullable) ||
+                                                       contains_file_type(to_type_not_nullable))
+                                                              ? null_map
+                                                              : nullptr;
+            NullMap combined_null_map;
             if (source_info.is_nullable) {
                 arg_null_map = block.get_by_position(arguments[0])
                                        .get_nullable_null_map_column()
                                        ->get_data()
                                        .data();
+                if (null_map && (contains_file_type(from_type_not_nullable) ||
+                                 contains_file_type(to_type_not_nullable))) {
+                    combined_null_map.resize(input_rows_count);
+                    for (size_t row = 0; row < input_rows_count; ++row) {
+                        combined_null_map[row] = arg_null_map[row] | null_map[row];
+                    }
+                    arg_null_map = combined_null_map.data();
+                }
             }
             RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable)(
                     context, block, {nested_source_index}, nested_result_index, input_rows_count,
@@ -232,6 +246,17 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     auto from_type = get_serialized_type(origin_from_type);
     if (from_type->equals(*to_type)) {
         return create_identity_wrapper(from_type);
+    }
+
+    if (from_type->get_primitive_type() == TYPE_FILE ||
+        to_type->get_primitive_type() == TYPE_FILE) {
+        return create_file_wrapper(from_type, to_type);
+    }
+    if ((contains_file_type(from_type) || contains_file_type(to_type)) &&
+        (from_type->get_primitive_type() == TYPE_VARIANT ||
+         to_type->get_primitive_type() == TYPE_VARIANT ||
+         is_string_type(from_type->get_primitive_type()))) {
+        return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
     }
 
     const auto* from_variant_v1 =

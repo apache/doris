@@ -77,6 +77,20 @@ Status FileSystem::file_size(const Path& file, int64_t* file_size) const {
     FILESYSTEM_M(file_size_impl(path, file_size));
 }
 
+Status FileSystem::stat(const Path& path, FileStat* metadata, FileStatContext* context) const {
+    if (context && context->is_cancelled && context->is_cancelled()) {
+        return Status::Cancelled("File stat cancelled");
+    }
+    Path fs_path;
+    RETURN_IF_ERROR(absolute_path(path, fs_path));
+    FileStatContext local_context;
+    FILESYSTEM_M(stat_impl(fs_path, metadata, context ? context : &local_context));
+}
+
+Status FileSystem::stat_impl(const Path& path, FileStat* metadata, FileStatContext* context) const {
+    return Status::NotSupported("FileSystem::stat metadata is not supported by this backend");
+}
+
 Status FileSystem::list(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                         bool* exists) {
     Path path;

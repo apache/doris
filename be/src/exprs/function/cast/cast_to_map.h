@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
+
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "exprs/function/cast/cast_base.h"
 
@@ -98,6 +101,25 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
                                         from_column->get_name());
         }
 
+        NullMap child_null_map;
+        const auto* nested_null_map = null_map;
+        if (null_map &&
+            (contains_file_type(from_kv_types[0]) || contains_file_type(from_kv_types[1]) ||
+             contains_file_type(to_kv_types[0]) || contains_file_type(to_kv_types[1]))) {
+            // Both keys and values use entry rows rather than map rows.
+            child_null_map.resize(from_col_map->get_keys_ptr()->size(), 0);
+            const auto& offsets = from_col_map->get_offsets();
+            size_t begin = 0;
+            for (size_t row = 0; row < from_col_map->size(); ++row) {
+                const auto end = offsets[row];
+                if (null_map[row]) {
+                    std::fill(child_null_map.begin() + begin, child_null_map.begin() + end, 1);
+                }
+                begin = end;
+            }
+            nested_null_map = child_null_map.data();
+        }
+
         Columns converted_columns(2);
         ColumnsWithTypeAndName columnsWithTypeAndName(2);
         columnsWithTypeAndName[0] = {from_col_map->get_keys_ptr(), from_kv_types[0], ""};
@@ -109,7 +131,8 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
             auto element_result = block.columns();
             block.insert({to_kv_types[i], ""});
             RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
-                                           columnsWithTypeAndName[i].column->size(), null_map));
+                                           columnsWithTypeAndName[i].column->size(),
+                                           nested_null_map));
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 

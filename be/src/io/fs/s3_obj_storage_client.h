@@ -49,6 +49,8 @@ public:
                                      size_t* size_return) override;
     ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
                                        std::vector<FileInfo>* files) override;
+    ObjectStorageListPageResponse list_objects_page(const ObjectStoragePathOptions& opts,
+                                                    std::string_view continuation_token) override;
     ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
                                          std::vector<std::string> objs) override;
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;

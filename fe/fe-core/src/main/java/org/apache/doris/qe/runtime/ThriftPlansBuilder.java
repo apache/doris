@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.nereids.StatementContext;
@@ -71,6 +72,7 @@ import org.apache.doris.thrift.TRecCTETarget;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
+import org.apache.doris.thrift.TS3Resource;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TTopnFilterDesc;
 
@@ -237,6 +239,26 @@ public class ThriftPlansBuilder {
             aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
         }
         return aiResourceMap;
+    }
+
+    public static TS3Resource resolveS3Resource(ConnectContext context, String resourceName) {
+        StatementContext statement = context.getStatementContext();
+        // Bind once per execution, including reused prepared statements. Cache the wire value
+        // directly; callers receive their own copy because Thrift objects are mutable.
+        TS3Resource resource = statement.getOrRegisterCache(S3Resource.class.getName() + ":" + resourceName,
+                Suppliers.memoize(() -> S3Resource.checkResource(resourceName, context).toThrift()));
+        return resource.deepCopy();
+    }
+
+    public static Map<String, TS3Resource> collectS3Resources(ConnectContext context) {
+        Map<String, TS3Resource> resources = Maps.newLinkedHashMap();
+        if (context == null || context.getStatementContext() == null) {
+            return resources;
+        }
+        for (String name : context.getStatementContext().getUsedS3ResourceNames()) {
+            resources.put(name, resolveS3Resource(context, name));
+        }
+        return resources;
     }
 
     private static void setParamsForOlapTableSink(List<PipelineDistributedPlan> distributedPlans,
@@ -520,6 +542,7 @@ public class ThriftPlansBuilder {
 
             // Only used for AI Functions
             params.setAiResources(collectAiResources(connectContext));
+            params.setS3Resources(collectS3Resources(connectContext));
 
             return params;
         });

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IPv4Type;
@@ -355,6 +356,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        if (targetType.isAggStateType() && targetType.typeContainsFile()) {
+            return false;
+        }
+        if (originalType.isFileType() || targetType.isFileType()) {
+            return checkFileCast(originalType, targetType);
+        }
+        if ((originalType.isStringLikeType() || originalType.isVariantType() || targetType.isVariantType())
+                && (originalType.typeContainsFile() || targetType.typeContainsFile())) {
+            return false;
+        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;
@@ -401,6 +412,10 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType(),
                     isStrictMode);
         } else if (originalType instanceof MapType && targetType instanceof MapType) {
+            if (((MapType) originalType).getKeyType().typeContainsFile()
+                    || ((MapType) targetType).getKeyType().typeContainsFile()) {
+                return false;
+            }
             return check(((MapType) originalType).getKeyType(), ((MapType) targetType).getKeyType(), isStrictMode)
                     && check(((MapType) originalType).getValueType(), ((MapType) targetType).getValueType(),
                     isStrictMode);
@@ -433,6 +448,37 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else {
             return true;
         }
+    }
+
+    private static boolean checkFileCast(DataType source, DataType target) {
+        if (source.isNullType() || source.equals(target)) {
+            return true;
+        }
+        DataType publicType = source.isFileType() ? target : source;
+        if (publicType.isJsonType() || publicType.isVariantType()) {
+            return true;
+        }
+        if (!(publicType instanceof StructType)) {
+            return false;
+        }
+        List<StructField> fields = ((StructType) publicType).getFields();
+        StructType canonical = FileType.INSTANCE.publicStructType();
+        if (fields.size() != canonical.getFields().size()) {
+            return false;
+        }
+        Set<String> names = Sets.newHashSet();
+        for (StructField field : fields) {
+            StructField expected = canonical.getField(field.getName());
+            DataType fieldType = field.getDataType();
+            if (expected == null || !names.add(field.getName())
+                    || (source.isFileType() && !field.isNullable())
+                    || !(fieldType.equals(expected.getDataType())
+                            || (fieldType.isStringLikeType() && expected.getDataType().isStringLikeType())
+                            || (!source.isFileType() && fieldType.isNullType()))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

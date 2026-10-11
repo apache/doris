@@ -38,8 +38,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
@@ -101,6 +104,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             RuleType.CHECK_ANALYSIS.build(
                 any().then(plan -> {
                     checkExpressionInputTypes(plan);
+                    CheckAnalysis.checkFilePlan(plan);
                     checkUnexpectedExpressions(plan);
                     checkDistinctSetOperation(plan);
                     return null;
@@ -113,6 +117,32 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 })
             )
         );
+    }
+
+    /** Validate operator keys and FILE execution versions after expression binding. */
+    public static void checkFilePlan(Plan plan) {
+        if (plan instanceof LogicalRelation && !(plan instanceof LogicalOneRowRelation)) {
+            plan.getOutput().forEach(Expression::checkFileExecutionVersion);
+        } else {
+            // Inspect bound expressions without materializing output slots and recomputing their types.
+            plan.getExpressions().forEach(Expression::checkFileExecutionVersion);
+        }
+        if (plan instanceof LogicalSort) {
+            ((LogicalSort<?>) plan).getOrderKeys()
+                    .forEach(key -> Expression.checkFileKey(key.getExpr(), "ORDER BY"));
+        }
+        if (plan instanceof LogicalAggregate) {
+            ((LogicalAggregate<?>) plan).getGroupByExpressions()
+                    .forEach(key -> Expression.checkFileKey(key, "GROUP BY"));
+        }
+        if (plan instanceof LogicalRepeat) {
+            ((LogicalRepeat<?>) plan).getGroupByExpressions()
+                    .forEach(key -> Expression.checkFileKey(key, "GROUPING SETS"));
+        }
+        if (plan instanceof LogicalSetOperation
+                && (!(plan instanceof LogicalUnion) || ((LogicalSetOperation) plan).getQualifier() != Qualifier.ALL)) {
+            plan.getOutput().forEach(key -> Expression.checkFileKey(key, plan.getType().toString()));
+        }
     }
 
     private void checkUnexpectedExpressions(Plan plan) {

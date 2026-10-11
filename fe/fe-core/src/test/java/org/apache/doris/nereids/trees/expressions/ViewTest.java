@@ -28,12 +28,14 @@ import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -81,6 +83,27 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
     @Override
     protected void runBeforeEach() throws Exception {
         StatementScopeIdGenerator.clear();
+    }
+
+    @Test
+    public void testDecimal256DivisionViewWithDecimal256Disabled() throws Exception {
+        boolean previous = connectContext.getSessionVariable().isEnableDecimal256();
+        try {
+            connectContext.getSessionVariable().enableDecimal256 = true;
+            createTable("CREATE TABLE view_decimal_division (id INT, a DECIMAL(38,10), b DECIMAL(38,10)) "
+                    + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                    + "PROPERTIES ('replication_num' = '1')");
+            createView("CREATE VIEW view_decimal256_division AS "
+                    + "SELECT a / b AS quotient FROM view_decimal_division");
+            connectContext.getSessionVariable().enableDecimal256 = false;
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze("SELECT * FROM view_decimal256_division");
+            DecimalV3Type type = (DecimalV3Type) checker.getPlan().getOutput().get(0).getDataType();
+            Assertions.assertTrue(type.getPrecision() > DecimalV3Type.MAX_DECIMAL128_PRECISION);
+            Assertions.assertFalse(connectContext.getSessionVariable().isEnableDecimal256());
+        } finally {
+            connectContext.getSessionVariable().enableDecimal256 = previous;
+        }
     }
 
     @Test
