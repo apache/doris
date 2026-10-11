@@ -33,6 +33,9 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -53,6 +56,7 @@ import org.mockito.Mockito;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -681,6 +685,45 @@ public class StmtExecutorTest extends TestWithFeService {
         Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
         getStmtForLoggingBeforeParse.setAccessible(true);
         Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testLoadCommandDoesNotGenerateStmtProfileAndSummaryIsMasked() throws Exception {
+        useDatabase("testDb");
+        String accessKey = "profile-test-access-key";
+        String secretKey = "profile-test-secret-key";
+        String loadSql = "LOAD LABEL profile_mask_test("
+                + " DATA INFILE(\"s3://bucket/path\")"
+                + " INTO TABLE target_table"
+                + ") WITH S3("
+                + " \"provider\" = \"S3\","
+                + " \"AWS_ENDPOINT\" = \"s3.test\","
+                + " \"AWS_ACCESS_KEY\" = \"" + accessKey + "\","
+                + " \"AWS_SECRET_KEY\" = \"" + secretKey + "\","
+                + " \"AWS_REGION\" = \"test-region\""
+                + ")";
+
+        StatementBase parsedStmt = new NereidsParser().parseSQL(loadSql).get(0);
+        Assertions.assertInstanceOf(LogicalPlanAdapter.class, parsedStmt);
+        Assertions.assertInstanceOf(LoadCommand.class,
+                ((LogicalPlanAdapter) parsedStmt).getLogicalPlan());
+        parsedStmt.setOrigStmt(new OriginStatement(loadSql, 0));
+        StmtExecutor executor = new StmtExecutor(connectContext, parsedStmt);
+
+        Assertions.assertFalse(executor.isProfileSafeStmt());
+
+        connectContext.setQueryId(new TUniqueId(1L, 2L));
+        connectContext.setStartTime();
+        Method getSummaryInfo = StmtExecutor.class.getDeclaredMethod("getSummaryInfo", boolean.class);
+        getSummaryInfo.setAccessible(true);
+        Map<String, String> summary = (Map<String, String>) getSummaryInfo.invoke(executor, false);
+        String profileSql = summary.get(SummaryProfile.SQL_STATEMENT);
+
+        Assertions.assertFalse(profileSql.contains(accessKey));
+        Assertions.assertFalse(profileSql.contains(secretKey));
+        Assertions.assertTrue(profileSql.contains("\"provider\" = \"S3\""));
+        Assertions.assertEquals(loadSql, executor.getOriginStmtInString());
     }
 
     @Test
