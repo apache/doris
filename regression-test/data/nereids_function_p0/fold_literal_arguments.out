@@ -40,6 +40,9 @@ true	true
 -- !now --
 23	23	12
 
+-- !utc_time_narrow_scale --
+12	14
+
 -- !date_trunc_string_value_type --
 k	tinyint	Yes	true	\N	
 c1	datetime(6)	Yes	true	\N	

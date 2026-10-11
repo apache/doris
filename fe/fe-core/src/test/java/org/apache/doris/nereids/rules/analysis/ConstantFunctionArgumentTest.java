@@ -84,6 +84,13 @@ public class ConstantFunctionArgumentTest {
         UtcTime utcTime = analyze("select utc_time(1 + 2)", UtcTime.class);
         assertLiteral(utcTime.child(0));
         Assertions.assertEquals(TimeV2Type.of(3), utcTime.getDataType());
+        // the folded TINYINT / SMALLINT scale decides the return type like an INT literal
+        UtcTime smallIntScale = analyze("select utc_time(cast(3 as smallint))", UtcTime.class);
+        assertLiteral(smallIntScale.child(0));
+        Assertions.assertEquals(TimeV2Type.of(3), smallIntScale.getDataType());
+        UtcTime tinyIntScale = analyze("select utc_time(cast(5 as tinyint))", UtcTime.class);
+        assertLiteral(tinyIntScale.child(0));
+        Assertions.assertEquals(TimeV2Type.of(5), tinyIntScale.getDataType());
 
         // without a date argument, the literal time unit tells which argument is the date value
         DateTrunc stringColumn = analyze("select date_trunc(s, concat('mon', 'th')) from (select '2024-03-15' s) t",
@@ -126,6 +133,7 @@ public class ConstantFunctionArgumentTest {
         // wrongly accept it instead of rejecting a precision outside 0..9
         assertAnalysisError("select now(cast(4294967299 as bigint) + cast(0 as bigint))",
                 "Precision of NOW must be between 0 and");
+        assertAnalysisError("select utc_time(cast(7 as smallint))", "scale must be between 0 and 6");
     }
 
     @Test
@@ -152,6 +160,11 @@ public class ConstantFunctionArgumentTest {
         assertAnalysisError("select split_by_regexp('a,b,c', ',', 0 - 1)", "must be a positive constant");
         // a typed NULL is an integral constant, but not a positive one
         assertAnalysisError("select split_by_regexp('a,b,c', ',', cast(null as int))", "must be a positive constant");
+        // a wide literal narrowed to int would wrap into a valid digest length / a non-negative limit
+        assertAnalysisError("select sha2('abc', cast(4294967552 as bigint) + cast(0 as bigint))",
+                "sha2 functions only support digest length of");
+        assertAnalysisError("select split_by_regexp('a,b,c', ',', cast(-4294967296 as bigint) + cast(0 as bigint))",
+                "must be a positive constant");
         assertAnalysisError("select array_apply([1, 2, 3], concat('>', '>'), 2)", "op support =, >=, <=, >, <, !=");
         assertAnalysisError("select tokenize('x', concat('par', 'ser'))",
                 "tokenize second argument must be properties format");

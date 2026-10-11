@@ -53,6 +53,9 @@ suite("fold_literal_arguments") {
     order_qt_date_trunc "select k, date_trunc(dt, concat('mon', 'th')), date_trunc(concat('ye', 'ar'), dt) from fold_literal_arguments_t"
     qt_now """select length(cast(now(1 + 2) as string)), length(cast(utc_timestamp(1 + 2) as string)),
             length(cast(utc_time(1 + 2) as string))"""
+    // the folded TINYINT / SMALLINT scale decides the return type like an INT literal
+    qt_utc_time_narrow_scale """select length(cast(utc_time(cast(3 as smallint)) as string)),
+            length(cast(utc_time(cast(5 as tinyint)) as string))"""
 
     // a string date value is not folded when the time unit is already a literal,
     // so the derived return type does not change
@@ -127,6 +130,20 @@ suite("fold_literal_arguments") {
         // a typed NULL is an integral constant, but not a positive one
         sql "select split_by_regexp('a,b,c', ',', cast(null as int))"
         exception "must be a positive constant"
+    }
+    test {
+        // a wide digest length would wrap into 256 if narrowed to int before the check
+        sql "select sha2('abc', cast(4294967552 as bigint) + cast(0 as bigint))"
+        exception "sha2 functions only support digest length of"
+    }
+    test {
+        // a wide negative limit would wrap into 0 if narrowed to int before the check
+        sql "select split_by_regexp('a,b,c', ',', cast(-4294967296 as bigint) + cast(0 as bigint))"
+        exception "must be a positive constant"
+    }
+    test {
+        sql "select utc_time(cast(7 as smallint))"
+        exception "scale must be between 0 and 6"
     }
     test {
         sql "select array_apply([1, 2, 3], concat('>', '>'), 2)"

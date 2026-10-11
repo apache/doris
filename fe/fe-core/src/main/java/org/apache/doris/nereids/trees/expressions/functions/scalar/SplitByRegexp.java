@@ -88,8 +88,9 @@ public class SplitByRegexp extends ScalarFunction
             Expression thirdArgument = ExpressionUtils.foldConstantArgument(getArgument(2));
             if (!thirdArgument.isConstant() || !thirdArgument.getDataType().isIntegralType()
                     || thirdArgument instanceof NullLiteral
+                    // compare the full value: narrowing a wide literal to int would wrap it, e.g. -4294967296 into 0
                     || (thirdArgument instanceof IntegerLikeLiteral
-                    && ((IntegerLikeLiteral) thirdArgument).getIntValue() < 0)) {
+                    && ((IntegerLikeLiteral) thirdArgument).getBigDecimalValue().signum() < 0)) {
                 throw new AnalysisException("the third parameter of "
                         + getName() + " function must be a positive constant: " + toSql());
             }

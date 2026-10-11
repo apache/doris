@@ -22,7 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -73,12 +73,14 @@ public class UtcTime extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
-        if (arity() == 1 && getArgument(0) instanceof IntegerLiteral) {
-            int scale = ((IntegerLiteral) getArgument(0)).getValue();
+        if (arity() == 1 && getArgument(0) instanceof IntegerLikeLiteral) {
+            // prepareBeforeTypeCoercion folds a TINYINT or SMALLINT scale into a literal of that type, and a
+            // wider literal is read in full so that the range check rejects it instead of narrowing it
+            long scale = ((IntegerLikeLiteral) getArgument(0)).getLongValue();
             if (scale < 0 || scale > 6) {
                 throw new AnalysisException("scale must be between 0 and 6");
             }
-            return signature.withReturnType(TimeV2Type.of(scale));
+            return signature.withReturnType(TimeV2Type.of((int) scale));
         }
 
         return signature;

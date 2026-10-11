@@ -36,6 +36,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -94,8 +95,9 @@ public class Sha2 extends ScalarFunction
         if (digestLength instanceof NullLiteral) {
             throw new AnalysisException("sha2 functions only support digest length of " + validDigest.toString());
         }
-        final int constParam = ((IntegerLikeLiteral) digestLength).getIntValue();
-        if (!validDigest.contains(constParam)) {
+        // compare the full value: narrowing a wide literal to int would wrap it, e.g. 4294967552 into 256
+        BigDecimal digest = ((IntegerLikeLiteral) digestLength).getBigDecimalValue();
+        if (validDigest.stream().noneMatch(valid -> digest.compareTo(BigDecimal.valueOf(valid)) == 0)) {
             throw new AnalysisException("sha2 functions only support digest length of " + validDigest.toString());
         }
     }
