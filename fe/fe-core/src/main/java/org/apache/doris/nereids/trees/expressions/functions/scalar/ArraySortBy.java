@@ -68,6 +68,7 @@ public class ArraySortBy extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        Expression.checkFileKey(getArgument(1), "array_sortby key");
         DataType argType = getArgument(0).getDataType();
         if (argType instanceof ArrayType) {
             // Find the innermost element type for nested arrays

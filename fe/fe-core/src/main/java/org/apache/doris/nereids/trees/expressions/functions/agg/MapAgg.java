@@ -72,6 +72,11 @@ public class MapAgg extends NotNullableAggregateFunction
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        Expression.checkFileKey(getArgument(0), "MAP_AGG key");
+    }
+
+    @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }

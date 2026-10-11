@@ -266,6 +266,8 @@ ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStorage
     return ObjectStorageHeadResponse {
             .resp = resp,
             .file_size = properties.BlobSize,
+            .content_type = properties.HttpHeaders.ContentType,
+            .etag = properties.ETag.ToString(),
     };
 }
 
@@ -319,6 +321,44 @@ ObjectStorageResponse AzureObjStorageClient::list_objects(const ObjectStoragePat
 // As Azure's doc said, the batch size is 256
 // You can find out the num in https://learn.microsoft.com/en-us/rest/api/storageservices/blob-batch?tabs=microsoft-entra-id
 // > Each batch request supports a maximum of 256 subrequests.
+ObjectStorageListPageResponse AzureObjStorageClient::list_objects_page(
+        const ObjectStoragePathOptions& opts, std::string_view continuation_token) {
+    ListBlobsOptions request;
+    request.Prefix = opts.prefix.empty() ? opts.key : opts.prefix;
+    request.PageSizeHint = 1000;
+    if (!continuation_token.empty()) {
+        request.ContinuationToken = std::string(continuation_token);
+    }
+    ObjectStorageListPageResponse page;
+    page.resp = do_azure_client_call(
+            [&]() {
+                auto make_page = [&](auto response) {
+                    page.has_more = response.NextPageToken.HasValue();
+                    page.continuation_token =
+                            page.has_more ? response.NextPageToken.Value() : std::string();
+                    page.objects.reserve(response.Blobs.size());
+                    for (auto&& blob : response.Blobs) {
+                        page.objects.push_back({.key = std::move(blob.Name),
+                                                .size = blob.BlobSize,
+                                                .etag = blob.Details.ETag.ToString()});
+                    }
+                };
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+                if (opts.delimiter.empty()) {
+                    make_page(_client->ListBlobs(request));
+                } else {
+                    make_page(_client->ListBlobsByHierarchy(opts.delimiter, request));
+                }
+            },
+            opts, _tls_debug_context);
+    if (page.resp.ok() && page.has_more && page.continuation_token.empty()) {
+        page.resp = {.status = convert_to_obj_response(Status::InternalError(
+                             "Azure list response has an empty continuation token")),
+                     .http_code = 0};
+    }
+    return page;
+}
+
 ObjectStorageResponse AzureObjStorageClient::delete_objects(const ObjectStoragePathOptions& opts,
                                                             std::vector<std::string> objs) {
     // TODO(ByteYue) : use range to adate this code when compiler is ready

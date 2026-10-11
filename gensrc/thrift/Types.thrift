@@ -102,7 +102,8 @@ enum TPrimitiveType {
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
   VARBINARY = 43, // represent varbinary type
-  TIMESTAMPTZ = 44 //  timestamp with time zone
+  TIMESTAMPTZ = 44, // timestamp with time zone
+  FILE = 47
 }
 
 enum TTypeNodeType {
@@ -111,6 +112,7 @@ enum TTypeNodeType {
     MAP = 2,
     STRUCT = 3,
     VARIANT = 4,
+    FILE = 5,
 }
 
 enum TStorageBackendType {
@@ -164,7 +166,7 @@ struct TTypeNode {
     // only set for scalar types
     2: optional TScalarType scalar_type
 
-    // only used for structs; has struct_fields.size() corresponding child types
+    // used for STRUCT and FILE; has struct_fields.size() corresponding child types
     3: optional list<TStructField> struct_fields
 
     // old version used for array
@@ -376,6 +378,11 @@ struct TAggregateFunction {
 struct TDictFunction {
   1: optional i64 dictionary_id
   2: optional i64 version_id
+}
+
+// S3-compatible configuration for query execution. Credentials are not part of a FILE value.
+struct TS3Resource {
+  1: optional map<string, string> properties
 }
 
 // Represents a function in the Catalog.

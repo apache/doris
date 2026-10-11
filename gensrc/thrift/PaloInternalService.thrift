@@ -774,6 +774,7 @@ struct TPipelineFragmentParams {
   44: optional list<i32> topn_filter_source_node_ids
   45: optional map<string, TAIResource> ai_resources
   46: optional bool need_notify_close
+  47: optional map<string, Types.TS3Resource> s3_resources
 
   // For cloud
   1000: optional bool is_mow_table;

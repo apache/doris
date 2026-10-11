@@ -2293,8 +2293,10 @@ public class Config extends ConfigBase {
     /**
      * Max data version of backends serialize block.
      */
+    public static final int FILE_MIN_BE_EXEC_VERSION = 18;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 13;
+    public static int max_be_exec_version = FILE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

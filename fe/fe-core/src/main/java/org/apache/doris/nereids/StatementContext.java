@@ -348,6 +348,7 @@ public class StatementContext implements Closeable {
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
+    private final Set<String> usedS3ResourceNames = new LinkedHashSet<>();
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
     private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
@@ -550,6 +551,14 @@ public class StatementContext implements Closeable {
             throw new AnalysisException("AI resource name can not be empty");
         }
         usedAIResourceNames.add(resourceName);
+    }
+
+    public Set<String> getUsedS3ResourceNames() {
+        return Collections.unmodifiableSet(usedS3ResourceNames);
+    }
+
+    public void registerUsedS3ResourceName(String resourceName) {
+        usedS3ResourceNames.add(resourceName);
     }
 
     /**

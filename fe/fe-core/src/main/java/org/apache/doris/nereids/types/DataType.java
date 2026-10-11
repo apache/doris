@@ -385,6 +385,12 @@ public abstract class DataType {
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "file":
+                if (types.size() != 1) {
+                    throw new AnalysisException("FILE does not accept type parameters");
+                }
+                dataType = FileType.INSTANCE;
+                break;
             case "varbinary":
                 // Keep declared byte limits in table schemas and nested binary leaves.
                 if (types.size() == 1 || (types.size() == 2 && types.get(1).equals("*"))) {
@@ -420,6 +426,7 @@ public abstract class DataType {
     @Developing // should support map, struct
     public static DataType fromCatalogType(Type type) {
         switch (type.getPrimitiveType()) {
+            case FILE: return FileType.INSTANCE;
             case BOOLEAN: return BooleanType.INSTANCE;
             case TINYINT: return TinyIntType.INSTANCE;
             case SMALLINT: return SmallIntType.INSTANCE;
@@ -732,6 +739,25 @@ public abstract class DataType {
         return this instanceof VariantType;
     }
 
+    /** Inspect logical types, including unresolved signature placeholders, for a FILE leaf. */
+    public boolean typeContainsFile() {
+        if (this instanceof ArrayType) {
+            return ((ArrayType) this).getItemType().typeContainsFile();
+        } else if (this instanceof MapType) {
+            return ((MapType) this).getKeyType().typeContainsFile()
+                    || ((MapType) this).getValueType().typeContainsFile();
+        } else if (this instanceof StructType) {
+            return ((StructType) this).getFields().stream().anyMatch(field -> field.getDataType().typeContainsFile());
+        } else if (this instanceof AggStateType) {
+            return ((AggStateType) this).getSubTypes().stream().anyMatch(DataType::typeContainsFile);
+        }
+        return isFileType();
+    }
+
+    public boolean isFileType() {
+        return this instanceof FileType;
+    }
+
     public boolean isStructType() {
         return this instanceof StructType;
     }
@@ -892,8 +918,15 @@ public abstract class DataType {
         return false;
     }
 
+    /** Validate a newly created or executed type, including the FILE execution version. */
     public void validateDataType() {
-        validateCatalogDataType(toCatalogDataType());
+        Type catalogType = toCatalogDataType();
+        try {
+            org.apache.doris.catalog.FileType.checkExecutionVersion(catalogType);
+        } catch (IllegalStateException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        validateCatalogDataType(catalogType);
     }
 
     private static void validateCatalogDataType(Type catalogType) {
@@ -916,6 +949,10 @@ public abstract class DataType {
             if (catalogType.isMapType()) {
                 org.apache.doris.catalog.MapType mt =
                         (org.apache.doris.catalog.MapType) catalogType;
+                if (mt.getKeyType().typeContainsFile()) {
+                    throw new AnalysisException(
+                            "MAP key type must be a primitive type but get " + mt.getKeyType().toSql());
+                }
                 validateNestedType(catalogType, mt.getKeyType());
                 validateNestedType(catalogType, mt.getValueType());
             }
@@ -932,6 +969,9 @@ public abstract class DataType {
                     }
                 }
             }
+        } else if (catalogType.isAggStateType() && catalogType.typeContainsFile()) {
+            throw new AnalysisException("AGG_STATE does not support FILE or a type containing FILE: "
+                    + catalogType.toSql());
         }
     }
 

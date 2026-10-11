@@ -15,9 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
+
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris::CastWrapper {
@@ -67,6 +70,23 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
         const auto* from_col_array = check_and_get_column<ColumnArray>(from_column.get());
 
         if (from_col_array) {
+            NullMap child_null_map;
+            const auto* nested_null_map = null_map;
+            if (null_map &&
+                (contains_file_type(from_nested_type) || contains_file_type(to_nested_type))) {
+                // A nullable array masks rows; FILE validation reads element rows.
+                child_null_map.resize(from_col_array->get_data_ptr()->size(), 0);
+                const auto& offsets = from_col_array->get_offsets();
+                size_t begin = 0;
+                for (size_t row = 0; row < from_col_array->size(); ++row) {
+                    const auto end = offsets[row];
+                    if (null_map[row]) {
+                        std::fill(child_null_map.begin() + begin, child_null_map.begin() + end, 1);
+                    }
+                    begin = end;
+                }
+                nested_null_map = child_null_map.data();
+            }
             /// create columns for converting nested column containing original and result columns
             ColumnWithTypeAndName from_nested_column {from_col_array->get_data_ptr(),
                                                       from_nested_type, ""};
@@ -78,7 +98,8 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
             uint32_t nested_result = block.columns();
             block.insert({to_nested_type, ""});
             RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result,
-                                            from_col_array->get_data_ptr()->size(), null_map));
+                                            from_col_array->get_data_ptr()->size(),
+                                            nested_null_map));
             auto nested_result_column = block.get_by_position(nested_result).column;
 
             /// set converted nested column to result

@@ -1,0 +1,218 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.rewrite;
+
+import org.apache.doris.analysis.AccessPathInfo;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
+import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.FileType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.thrift.TAccessPathType;
+import org.apache.doris.thrift.TColumnAccessPath;
+import org.apache.doris.thrift.TDataAccessPath;
+
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Multimap;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
+
+public class FileAccessPathTest {
+    @Test
+    public void testJsonCastNeedsAllSixChildren() {
+        SlotReference file = slot("f", FileType.INSTANCE, true);
+        AccessPathInfo info = prune(file, new Cast(file, JsonType.INSTANCE), field(file, "size"));
+        Assertions.assertEquals(ImmutableList.of(data("f")), info.getAllAccessPaths());
+        Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
+        Assertions.assertEquals(6, ((FileType) info.getPrunedType()).getFields().size());
+    }
+
+    @Test
+    public void testCanonicalChildrenAndGetterPaths() {
+        SlotReference file = slot("f", FileType.INSTANCE, false);
+        for (String name : ImmutableList.of("uri", "offset", "size", "content_type", "checksum", "inline")) {
+            AccessPathInfo info = prune(file, field(file, name));
+            Assertions.assertEquals(ImmutableList.of(data("f", name)), info.getAllAccessPaths());
+            Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
+        }
+        DataTypeAccessTree tree = DataTypeAccessTree.of(FileType.INSTANCE, TAccessPathType.DATA);
+        tree.setAccessByPath(ImmutableList.of("size"), 0, TAccessPathType.DATA);
+        Assertions.assertSame(FileType.INSTANCE, tree.pruneDataType().orElseThrow(IllegalStateException::new));
+        Assertions.assertEquals(ImmutableList.of("uri", "offset", "size", "content_type", "checksum", "inline"),
+                new ArrayList<>(tree.getChildren().keySet()));
+        Assertions.assertEquals(6, ((FileType) tree.getType()).getFields().size());
+        Assertions.assertTrue(FileType.INSTANCE.getFields().stream().allMatch(StructField::isNullable));
+    }
+
+    @Test
+    public void testParentAndChildNullPaths() {
+        SlotReference file = slot("f", FileType.INSTANCE, true);
+        for (Expression expression : ImmutableList.of(new IsNull(file), new Not(new IsNull(file)))) {
+            Assertions.assertEquals(ImmutableList.of(data("f")), prune(file, expression).getAllAccessPaths());
+        }
+        for (Expression expression : ImmutableList.of(new IsNull(field(file, "size")))) {
+            Assertions.assertEquals(ImmutableList.of(data("f", "size")),
+                    prune(file, expression).getAllAccessPaths());
+        }
+    }
+
+    @Test
+    public void testNestedFilePaths() {
+        SlotReference array = slot("a", ArrayType.of(FileType.INSTANCE), true);
+        Expression item = new ElementAt(array, new IntegerLiteral(1));
+        Assertions.assertEquals(ImmutableList.of(data("a", "*", "uri")),
+                prune(array, field(item, "uri")).getAllAccessPaths());
+        Assertions.assertSame(FileType.INSTANCE, ((ArrayType) prune(array, field(item, "uri"))
+                .getPrunedType()).getItemType());
+        Assertions.assertEquals(ImmutableList.of(data("a", "*")),
+                prune(array, new IsNull(item)).getAllAccessPaths());
+
+        SlotReference struct = slot("s", new StructType(ImmutableList.of(
+                new StructField("f", FileType.INSTANCE, true, ""),
+                new StructField("unused", IntegerType.INSTANCE, true, ""))), true);
+        Expression nested = field(struct, "f");
+        AccessPathInfo info = prune(struct, field(nested, "uri"));
+        Assertions.assertEquals(ImmutableList.of(data("s", "f", "uri")), info.getAllAccessPaths());
+        Assertions.assertSame(FileType.INSTANCE, ((StructType) info.getPrunedType()).getField("f").getDataType());
+        Assertions.assertEquals(ImmutableList.of(data("s", "f")),
+                prune(struct, new IsNull(nested)).getAllAccessPaths());
+    }
+
+    @Test
+    public void testMapLookupKeepsKeysAndRoutesFileValues() {
+        SlotReference map = slot("m", MapType.of(StringType.INSTANCE, FileType.INSTANCE), true);
+        Expression value = new ElementAt(map, new StringLiteral("key"));
+        AccessPathInfo info = prune(map, field(value, "uri"));
+        Assertions.assertEquals(new TreeSet<>(ImmutableList.of(data("m", "KEYS"), data("m", "VALUES", "uri"))),
+                new TreeSet<>(info.getAllAccessPaths()));
+        Assertions.assertSame(FileType.INSTANCE, ((MapType) info.getPrunedType()).getValueType());
+        Assertions.assertEquals(new TreeSet<>(ImmutableList.of(data("m", "KEYS"), data("m", "VALUES"))),
+                new TreeSet<>(prune(map, new IsNull(value)).getAllAccessPaths()));
+    }
+
+    @Test
+    public void testFullConsumerDominatesGetterAndMetadata() {
+        SlotReference file = slot("f", FileType.INSTANCE, true);
+        AccessPathInfo info = prune(file, file, field(file, "uri"), new Count(file));
+        Assertions.assertEquals(ImmutableList.of(data("f")), info.getAllAccessPaths());
+        Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
+
+        List<CollectAccessPathResult> paths = collect(file, false, false, file);
+        paths.addAll(collect(file, true, false, new IsNull(field(file, "size"))));
+        info = prune(file, paths);
+        Assertions.assertTrue(info.getAllAccessPaths().contains(data("f")));
+        Assertions.assertEquals(ImmutableList.of(data("f", "size")), info.getPredicateAccessPaths());
+        Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
+    }
+
+    @Test
+    public void testNestedFullConsumerPreservesFileIdentity() {
+        SlotReference struct = slot("s", new StructType(ImmutableList.of(
+                new StructField("f", FileType.INSTANCE, true, ""))), true);
+        Expression file = field(struct, "f");
+        AccessPathInfo info = prune(struct, file, field(file, "size"), new IsNull(file));
+        Assertions.assertTrue(info.getAllAccessPaths().contains(data("s", "f")));
+        Assertions.assertSame(FileType.INSTANCE, ((StructType) info.getPrunedType()).getField("f").getDataType());
+        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(struct, TAccessPathType.DATA);
+        for (TColumnAccessPath path : info.getAllAccessPaths()) {
+            tree.setAccessByPath(path.getDataAccessPath().getPath(), 0, path.getType());
+        }
+        Assertions.assertTrue(tree.getChildren().get("s").getChildren().get("f").isAccessAll());
+    }
+
+    @Test
+    public void testFileCastsDoNotBecomeStructShapePruning() {
+        SlotReference file = slot("f", FileType.INSTANCE, true);
+        Assertions.assertEquals(ImmutableList.of(data("f", "size")),
+                prune(file, field(new Cast(file, FileType.INSTANCE), "size")).getAllAccessPaths());
+        Assertions.assertEquals(ImmutableList.of(data("f")),
+                prune(file, field(new Cast(file, FileType.INSTANCE.publicStructType(), true), "size"))
+                        .getAllAccessPaths());
+        for (Expression selector : ImmutableList.of(new StringLiteral("size"), new IntegerLiteral(3))) {
+            Expression rewritten = TypeCoercionUtils.processBoundFunction(new ElementAt(
+                    new Cast(file, FileType.INSTANCE.publicStructType(), true), selector));
+            Assertions.assertEquals(ImmutableList.of(data("f", "size")), prune(file, rewritten).getAllAccessPaths());
+            Assertions.assertEquals(ImmutableList.of(data("f", "size")),
+                    prune(file, new IsNull(rewritten)).getAllAccessPaths());
+        }
+        SlotReference struct = slot("s", FileType.INSTANCE.publicStructType(), true);
+        Assertions.assertEquals(ImmutableList.of(data("s")),
+                prune(struct, field(new Cast(struct, FileType.INSTANCE, true), "size")).getAllAccessPaths());
+    }
+
+    private static ElementAt field(Expression value, String name) {
+        return new ElementAt(value, new StringLiteral(name));
+    }
+
+    private static SlotReference slot(String name, DataType type, boolean nullable) {
+        return new SlotReference(name, type, nullable).withColumn(new Column(name, type.toCatalogDataType(), nullable));
+    }
+
+    private static List<CollectAccessPathResult> collect(SlotReference slot, boolean predicate,
+            boolean skipMeta, Expression... expressions) {
+        Multimap<Integer, CollectAccessPathResult> paths = ArrayListMultimap.create();
+        AccessPathExpressionCollector collector = new AccessPathExpressionCollector(null, paths, predicate);
+        for (Expression expression : expressions) {
+            collector.collect(expression);
+        }
+        return new ArrayList<>(paths.get(slot.getExprId().asInt()));
+    }
+
+    private static AccessPathInfo prune(SlotReference slot, Expression... expressions) {
+        return prune(slot, collect(slot, false, false, expressions));
+    }
+
+    private static AccessPathInfo prune(SlotReference slot, List<CollectAccessPathResult> paths) {
+        Map<Slot, List<CollectAccessPathResult>> inputs = ImmutableMap.of(slot, paths);
+        Map<Integer, AccessPathInfo> result = Deencapsulation.invoke(
+                NestedColumnPruning.class, "pruneDataType", inputs);
+        return result.get(slot.getExprId().asInt());
+    }
+
+    private static TColumnAccessPath data(String... path) {
+        return new TColumnAccessPath(TAccessPathType.DATA)
+                .setDataAccessPath(new TDataAccessPath(ImmutableList.copyOf(path)));
+    }
+
+}

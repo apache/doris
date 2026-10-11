@@ -1927,6 +1927,7 @@ primitiveColType
     | type=IPV4
     | type=IPV6
     | type=VARBINARY
+    | type=FILE
     | type=VARIANT
     | type=ALL
     ;
