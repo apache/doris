@@ -33,7 +33,9 @@ public:
                     std::string algorithm = "")
             : _primitive_type(primitive_type),
               _crs(std::move(crs)),
-              _algorithm(std::move(algorithm)) {
+              _algorithm(primitive_type == TYPE_GEOGRAPHY && algorithm.empty()
+                                 ? "spherical"
+                                 : std::move(algorithm)) {
         DCHECK(primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY);
         DCHECK(!_crs.empty());
         DCHECK(primitive_type == TYPE_GEOMETRY || !_algorithm.empty());
