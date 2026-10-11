@@ -59,14 +59,23 @@ class OracleDiagnosticsTest {
         PreparedStatement statement = (PreparedStatement) Proxy.newProxyInstance(
                 PreparedStatement.class.getClassLoader(), new Class<?>[] {PreparedStatement.class},
                 (object, method, args) -> null);
-        Connection connection = (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
+        Connection[] connectionHolder = new Connection[1];
+        Connection connection = (Connection) Proxy.newProxyInstance(OracleDiagnosticsTest.class.getClassLoader(),
                 new Class<?>[] {Connection.class}, (object, method, args) -> {
                     switch (method.getName()) {
                         case "getMetaData": throw raw;
                         case "prepareStatement": return statement;
+                        case "unwrap": {
+                            Class<?> target = (Class<?>) args[0];
+                            return target == Connection.class
+                                    ? connectionHolder[0]
+                                    : Proxy.newProxyInstance(target.getClassLoader(), new Class<?>[] {target},
+                                            (proxy, proxyMethod, proxyArgs) -> null);
+                        }
                         default: throw new UnsupportedOperationException(method.getName());
                     }
                 });
+        connectionHolder[0] = connection;
         Clob clob = (Clob) Proxy.newProxyInstance(Clob.class.getClassLoader(), new Class<?>[] {Clob.class},
                 (object, method, args) -> {
                     throw raw;
