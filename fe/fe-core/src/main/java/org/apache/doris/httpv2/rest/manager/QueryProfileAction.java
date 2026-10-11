@@ -148,6 +148,21 @@ public class QueryProfileAction extends RestBaseController {
         return dataList;
     }
 
+    private boolean requestAllFeForKill(String httpPath, Map<String, String> arguments, String authorization) {
+        ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
+                .put(NodeAction.AUTHORIZATION, authorization).build();
+        for (Pair<String, Integer> ipPort : HttpUtils.getFeList()) {
+            String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
+            try {
+                HttpUtils.parseResponse(HttpUtils.doPost(url, header, null));
+                return true;
+            } catch (Exception e) {
+                LOG.debug("failed to cancel query through {}", url, e);
+            }
+        }
+        return false;
+    }
+
     @RequestMapping(path = "/query_info", method = RequestMethod.GET)
     public Object queryInfo(HttpServletRequest request, HttpServletResponse response,
                             @RequestParam(value = QUERY_ID_PARA, required = false) String queryId,
@@ -530,12 +545,17 @@ public class QueryProfileAction extends RestBaseController {
             String httpPath = "/rest/v2/manager/query/kill/" + queryId;
             Map<String, String> arguments = Maps.newHashMap();
             arguments.put(IS_ALL_NODE_PARA, "false");
-            requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION), HttpMethod.POST);
-            return ResponseEntityBuilder.ok();
+            if (requestAllFeForKill(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION))) {
+                return ResponseEntityBuilder.ok();
+            }
+            return ResponseEntityBuilder.badRequest("Query not found or already committing: " + queryId);
         }
 
         ExecuteEnv env = ExecuteEnv.getInstance();
-        env.getScheduler().cancelQuery(queryId, new Status(TStatusCode.CANCELLED, "cancel query by rest api"));
+        if (!env.getScheduler().cancelQuery(
+                queryId, new Status(TStatusCode.CANCELLED, "cancel query by rest api"))) {
+            return ResponseEntityBuilder.badRequest("Query not found or already committing: " + queryId);
+        }
         return ResponseEntityBuilder.ok();
     }
 

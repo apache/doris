@@ -138,6 +138,8 @@ public class KillUtilsTest {
         Mockito.when(mockKillCtx.getQualifiedUser()).thenReturn("test_user");
         Mockito.when(mockCtx.getQualifiedUser()).thenReturn("test_user");
 
+        Mockito.when(mockKillCtx.kill(true)).thenReturn(true);
+
         KillUtils.killByConnectionId(mockCtx, true, connectionId);
 
         // Verify method calls
@@ -154,6 +156,8 @@ public class KillUtilsTest {
         Mockito.when(mockKillCtx.getQualifiedUser()).thenReturn("other_user");
         Mockito.when(mockCtx.getQualifiedUser()).thenReturn("admin_user");
         Mockito.when(mockAccessManager.checkGlobalPriv(mockCtx, PrivPredicate.ADMIN)).thenReturn(true);
+
+        Mockito.when(mockKillCtx.kill(true)).thenReturn(true);
 
         KillUtils.killByConnectionId(mockCtx, true, connectionId);
 
@@ -200,6 +204,8 @@ public class KillUtilsTest {
 
             // Set up user permission check to pass (same user)
             Mockito.when(mockKillQueryCtx.getQualifiedUser()).thenReturn("test_user");
+
+            Mockito.when(mockKillQueryCtx.kill(false)).thenReturn(true);
 
             // Execute the method being tested
             KillUtils.killQueryByQueryId(mockCtx, queryId, mockOriginStmt);

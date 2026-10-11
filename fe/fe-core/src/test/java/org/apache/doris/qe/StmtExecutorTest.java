@@ -28,6 +28,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
@@ -356,6 +357,56 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
         Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testCancelBeforeCoordinatorIsPublished() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Status cancelReason = new Status(TStatusCode.CANCELLED, "cancel before coordinator");
+
+        Assertions.assertTrue(stmtExecutor.cancel(cancelReason));
+        stmtExecutor.setCoord(coordinator);
+
+        Mockito.verify(coordinator).cancel(cancelReason);
+    }
+
+    @Test
+    public void testCancelWinsBeforeTransactionCommit() {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        Status cancelReason = new Status(TStatusCode.CANCELLED, "cancel before commit");
+
+        Assertions.assertTrue(stmtExecutor.cancel(cancelReason));
+        UserException exception = Assertions.assertThrows(UserException.class,
+                stmtExecutor::beginTransactionCommit);
+        Assertions.assertTrue(exception.getMessage().contains("cancel before commit"));
+    }
+
+    @Test
+    public void testTransactionCommitRejectsLateCancel() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        stmtExecutor.setCoord(coordinator);
+        stmtExecutor.beginTransactionCommit();
+        Assertions.assertFalse(stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "late cancel")));
+        Assertions.assertNull(stmtExecutor.getPendingCancelReason());
+        Mockito.verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    public void testFlightCancelResultTracksCommitBoundary() throws Exception {
+        ConnectContext flightContext = ConnectContext.forFlight("test-cancel-peer");
+        StmtExecutor cancelledExecutor = new StmtExecutor(flightContext, "");
+
+        Assertions.assertTrue(flightContext.kill(false));
+        Assertions.assertEquals(TStatusCode.CANCELLED, cancelledExecutor.getPendingCancelReason().getErrorCode());
+        Assertions.assertThrows(UserException.class, cancelledExecutor::beginTransactionCommit);
+
+        StmtExecutor committingExecutor = new StmtExecutor(flightContext, "");
+        committingExecutor.beginTransactionCommit();
+        Assertions.assertFalse(flightContext.kill(false));
+        Assertions.assertNull(committingExecutor.getPendingCancelReason());
     }
 
     @Test
