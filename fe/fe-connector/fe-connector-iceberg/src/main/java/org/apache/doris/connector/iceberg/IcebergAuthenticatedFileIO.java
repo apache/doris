@@ -20,8 +20,10 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.FileInfo;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.SupportsPrefixOperations;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -54,9 +56,10 @@ import java.util.Objects;
  * <p>The bundled {@code HadoopFileIO} additionally implements {@code DelegateFileIO} (bulk / prefix ops), used only
  * by maintenance actions (orphan-file cleanup), never by the append/rewrite commit path exercised here; a caller
  * that probes for those interfaces simply falls back to per-file operations, which route through the wrapped
- * primitives above. Kept a plain {@link FileIO} deliberately to avoid coupling to that optional surface.
+ * primitives above. Kept a plain {@link FileIO} deliberately to avoid coupling to that optional surface; the
+ * procedure path, which does need prefix listing, uses {@link #withPrefixOperations}.
  */
-final class IcebergAuthenticatedFileIO implements FileIO {
+class IcebergAuthenticatedFileIO implements FileIO {
 
     private final FileIO delegate;
     private final HadoopAuthenticator authenticator;
@@ -64,6 +67,20 @@ final class IcebergAuthenticatedFileIO implements FileIO {
     IcebergAuthenticatedFileIO(FileIO delegate, HadoopAuthenticator authenticator) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.authenticator = Objects.requireNonNull(authenticator, "authenticator");
+    }
+
+    /**
+     * Wraps {@code delegate} for an {@code ALTER TABLE EXECUTE} procedure. When the delegate lists and deletes by
+     * prefix ({@code HadoopFileIO} does), so does the result, inside the same {@code doAs}:
+     * {@code remove_orphan_files} rejects a FileIO without prefix listing. Bulk deletes stay hidden, so callers
+     * delete file by file through {@link #deleteFile}, which authenticates on any thread; {@code HadoopFileIO}'s own
+     * bulk delete would run on its private pool, outside any {@code doAs}.
+     */
+    static IcebergAuthenticatedFileIO withPrefixOperations(FileIO delegate, HadoopAuthenticator authenticator) {
+        if (delegate instanceof SupportsPrefixOperations) {
+            return new PrefixOperations((SupportsPrefixOperations) delegate, authenticator);
+        }
+        return new IcebergAuthenticatedFileIO(delegate, authenticator);
     }
 
     @Override
@@ -104,11 +121,36 @@ final class IcebergAuthenticatedFileIO implements FileIO {
         delegate.close();
     }
 
-    private <T> T doAs(PrivilegedExceptionAction<T> action) {
+    <T> T doAs(PrivilegedExceptionAction<T> action) {
         try {
             return authenticator.doAs(action);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    private static final class PrefixOperations extends IcebergAuthenticatedFileIO
+            implements SupportsPrefixOperations {
+
+        private final SupportsPrefixOperations prefixDelegate;
+
+        private PrefixOperations(SupportsPrefixOperations delegate, HadoopAuthenticator authenticator) {
+            super(delegate, authenticator);
+            this.prefixDelegate = delegate;
+        }
+
+        @Override
+        public Iterable<FileInfo> listPrefix(String prefix) {
+            // Like newInputFile: HadoopFileIO resolves the FileSystem here and the returned iterable lists through it.
+            return doAs(() -> prefixDelegate.listPrefix(prefix));
+        }
+
+        @Override
+        public void deletePrefix(String prefix) {
+            doAs(() -> {
+                prefixDelegate.deletePrefix(prefix);
+                return null;
+            });
         }
     }
 }
