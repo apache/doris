@@ -808,7 +808,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // widens and repairs its timestamp values.
         if (filter.isPresent()) {
             PaimonPredicateConverter converter = new PaimonPredicateConverter(
-                    rowType, containsTimestampType(rowType));
+                    rowType, requiresTimestampPrecisionRepair(table, paimonHandle));
             predicates = converter.convert(filter.get());
         }
 
@@ -1198,7 +1198,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (filter.isPresent()) {
             RowType rowType = table.rowType();
             PaimonPredicateConverter converter = new PaimonPredicateConverter(
-                    rowType, containsTimestampType(rowType));
+                    rowType, requiresTimestampPrecisionRepair(table, paimonHandle));
             predicates = converter.convert(filter.get());
         }
         props.put("paimon.predicate", encodeObjectToString(predicates));
@@ -1311,6 +1311,62 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (type instanceof org.apache.paimon.types.MapType) {
             org.apache.paimon.types.MapType mapType = (org.apache.paimon.types.MapType) type;
             return containsTimestampType(mapType.getKeyType()) || containsTimestampType(mapType.getValueType());
+        }
+        return false;
+    }
+
+    private boolean requiresTimestampPrecisionRepair(Table table, PaimonTableHandle handle) {
+        Table schemaTable = resolveSchemaDictTable(table, handle);
+        if (!(schemaTable instanceof FileStoreTable)) {
+            return false;
+        }
+        FileStoreTable fileStoreTable = (FileStoreTable) schemaTable;
+        RowType currentType = schemaTable.rowType();
+        SchemaManager schemaManager = fileStoreTable.schemaManager();
+        for (Long schemaId : schemaManager.listAllIds()) {
+            TableSchema historicalSchema = schemaManager.schema(schemaId);
+            if (historicalSchema != null
+                    && hasTimestampPrecisionNarrowing(historicalSchema.logicalRowType(), currentType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean hasTimestampPrecisionNarrowing(DataType historicalType, DataType currentType) {
+        if (historicalType instanceof org.apache.paimon.types.TimestampType
+                && currentType instanceof org.apache.paimon.types.TimestampType) {
+            return ((org.apache.paimon.types.TimestampType) historicalType).getPrecision()
+                    > ((org.apache.paimon.types.TimestampType) currentType).getPrecision();
+        }
+        if (historicalType instanceof org.apache.paimon.types.LocalZonedTimestampType
+                && currentType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+            return ((org.apache.paimon.types.LocalZonedTimestampType) historicalType).getPrecision()
+                    > ((org.apache.paimon.types.LocalZonedTimestampType) currentType).getPrecision();
+        }
+        if (historicalType instanceof RowType && currentType instanceof RowType) {
+            RowType historicalRow = (RowType) historicalType;
+            RowType currentRow = (RowType) currentType;
+            for (DataField historicalField : historicalRow.getFields()) {
+                DataField currentField = currentRow.getFields().stream()
+                        .filter(field -> field.id() == historicalField.id())
+                        .findFirst().orElse(null);
+                if (currentField != null
+                        && hasTimestampPrecisionNarrowing(historicalField.type(), currentField.type())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (historicalType instanceof ArrayType && currentType instanceof ArrayType) {
+            return hasTimestampPrecisionNarrowing(
+                    ((ArrayType) historicalType).getElementType(), ((ArrayType) currentType).getElementType());
+        }
+        if (historicalType instanceof MapType && currentType instanceof MapType) {
+            MapType historicalMap = (MapType) historicalType;
+            MapType currentMap = (MapType) currentType;
+            return hasTimestampPrecisionNarrowing(historicalMap.getKeyType(), currentMap.getKeyType())
+                    || hasTimestampPrecisionNarrowing(historicalMap.getValueType(), currentMap.getValueType());
         }
         return false;
     }

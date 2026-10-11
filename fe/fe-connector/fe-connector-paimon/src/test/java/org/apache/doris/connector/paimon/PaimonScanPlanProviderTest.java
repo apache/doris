@@ -148,6 +148,24 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertFalse(PaimonScanPlanProvider.containsTimestampType(plain));
     }
 
+    @Test
+    public void timestampPredicateRepairOnlyAppliesToNarrowedHistoricalSchemas() {
+        DataType current = DataTypes.ROW(
+                DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(0)),
+                DataTypes.FIELD(1, "id", DataTypes.INT()));
+        DataType samePrecision = DataTypes.ROW(
+                DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(0)),
+                DataTypes.FIELD(1, "id", DataTypes.INT()));
+        DataType widenedHistorical = DataTypes.ROW(
+                DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(6)),
+                DataTypes.FIELD(1, "id", DataTypes.INT()));
+
+        Assertions.assertFalse(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(
+                samePrecision, current));
+        Assertions.assertTrue(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(
+                widenedHistorical, current));
+    }
+
     private static final class OrderedLocalFileIO extends LocalFileIO {
         @Override
         public FileStatus[] listFiles(org.apache.paimon.fs.Path path, boolean recursive)
