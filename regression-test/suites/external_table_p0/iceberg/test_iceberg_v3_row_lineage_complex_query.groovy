@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_v3_row_lineage_complex_query",
-        "p0,external,iceberg,external_docker,external_docker_iceberg,nonConcurrent") {
+suite("test_iceberg_v3_row_lineage_complex_query", "p0,external,iceberg,external_docker,external_docker_iceberg") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("Iceberg test is disabled")

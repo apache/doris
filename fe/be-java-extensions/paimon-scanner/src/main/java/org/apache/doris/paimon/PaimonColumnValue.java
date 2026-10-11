@@ -27,14 +27,12 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.types.ArrayType;
-import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
-import org.apache.paimon.types.VarBinaryType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -177,9 +175,6 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public byte[] getStringAsBytes() {
-        if (dataType instanceof BinaryType || dataType instanceof VarBinaryType) {
-            return record.getBinary(idx);
-        }
         return record.getString(idx).toBytes();
     }
 
