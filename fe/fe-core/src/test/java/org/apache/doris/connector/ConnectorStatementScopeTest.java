@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Tests for the per-statement {@link ConnectorStatementScope}: the {@link ConnectorStatementScope#NONE} no-op,
@@ -91,6 +92,84 @@ public class ConnectorStatementScopeTest {
 
         Object b = scope.computeIfAbsent("B", Object::new);
         Assertions.assertNotSame(firstA, b, "different keys are isolated (cross-catalog / cross-table)");
+    }
+
+    @Test
+    public void nonePlanningValuesAreNeverMemoized() {
+        // Under NONE a value only planning reads is loaded on every call too, and ending planning has nothing to do.
+        // MUTATION: NONE memoizing planning values -> one load -> red.
+        AtomicInteger loads = new AtomicInteger();
+        Supplier<Object> loader = () -> {
+            loads.incrementAndGet();
+            return new Object();
+        };
+        ConnectorStatementScope none = ConnectorStatementScope.NONE;
+
+        Assertions.assertNotSame(none.computeIfAbsentForPlanning("k", loader),
+                none.computeIfAbsentForPlanning("k", loader));
+        none.endPlanning();
+        Assertions.assertEquals(2, loads.get(), "NONE must run the loader every time (no memo)");
+    }
+
+    @Test
+    public void endPlanningDropsOnlyThePlanningValues() throws Exception {
+        // Identical scans share their planned ranges only within one plan, so a value only planning reads is dropped
+        // when planning ends, while the values the statement keeps (its tables, metadata, transactions) stay until
+        // closeAll. A later plan of the same statement registers the value again, and the end of that plan drops it.
+        // MUTATION: endPlanning dropping nothing, dropping every value, or forgetting a value registered again -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AtomicInteger memoLoads = new AtomicInteger();
+        Supplier<Object> memoLoader = () -> {
+            memoLoads.incrementAndGet();
+            return new Object();
+        };
+        Object memo = scope.computeIfAbsentForPlanning("memo", memoLoader);
+        Assertions.assertSame(memo, scope.computeIfAbsentForPlanning("memo", memoLoader),
+                "within one plan the value is shared");
+        Object table = scope.computeIfAbsent("table", Object::new);
+        AtomicInteger closes = new AtomicInteger();
+        AutoCloseable metadata = () -> closes.incrementAndGet();
+        scope.computeIfAbsent("metadata", () -> metadata);
+
+        scope.endPlanning();
+
+        Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new), "statement values outlive planning");
+        Object memoOfNextPlan = scope.computeIfAbsentForPlanning("memo", memoLoader);
+        Assertions.assertNotSame(memo, memoOfNextPlan, "the next plan of the statement loads the value again");
+        scope.endPlanning();
+        Assertions.assertNotSame(memoOfNextPlan, scope.computeIfAbsentForPlanning("memo", memoLoader));
+        Assertions.assertEquals(3, memoLoads.get());
+
+        scope.closeAll();
+        Assertions.assertEquals(1, closes.get(), "closeAll still closes the statement values");
+    }
+
+    @Test
+    public void planningValueMustHoldNothingToClose() {
+        // endPlanning drops a value without closing it, so a closeable one would leak. MUTATION: dropping the check
+        // -> no exception -> red.
+        ConnectorStatementScope scope = new ConnectorStatementScopeImpl();
+        AutoCloseable closeable = () -> { };
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> scope.computeIfAbsentForPlanning("closeable", () -> closeable));
+    }
+
+    @Test
+    public void statementContextEndsThePlanningOfItsScope() {
+        // NereidsPlanner.plan ends connector planning through the statement context; a statement no connector has
+        // touched has no scope to end. MUTATION: endConnectorPlanning not reaching the scope -> red.
+        StatementContext ctx = new StatementContext();
+        ctx.endConnectorPlanning();
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
+        Object table = scope.computeIfAbsent("table", Object::new);
+
+        ctx.endConnectorPlanning();
+
+        Assertions.assertSame(scope, ctx.getOrCreateConnectorStatementScope(), "ending planning keeps the scope");
+        Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new));
+        Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
     }
 
     @Test

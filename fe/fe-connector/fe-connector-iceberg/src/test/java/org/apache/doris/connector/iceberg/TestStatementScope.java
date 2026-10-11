@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -33,12 +34,26 @@ import java.util.function.Supplier;
 final class TestStatementScope implements ConnectorStatementScope {
 
     private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+    private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean();
 
     @Override
     @SuppressWarnings("unchecked")
     public <T> T computeIfAbsent(String key, Supplier<T> loader) {
         return (T) cache.computeIfAbsent(key, k -> loader.get());
+    }
+
+    @Override
+    public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+        T value = computeIfAbsent(key, loader);
+        planningKeys.add(key);
+        return value;
+    }
+
+    @Override
+    public void endPlanning() {
+        planningKeys.forEach(cache::remove);
+        planningKeys.clear();
     }
 
     /** Whether something was memoized under {@code key}, e.g. a connector's statement reuse map. */

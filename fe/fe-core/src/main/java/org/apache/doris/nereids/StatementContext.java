@@ -827,6 +827,17 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Drops the values of this statement's connector scope that only planning reads (see
+     * {@link ConnectorStatementScope#endPlanning}), when a connector has opened the scope; unlike
+     * {@link #getOrCreateConnectorStatementScope}, it never creates one.
+     */
+    public synchronized void endConnectorPlanning() {
+        if (this.connectorStatementScope != null) {
+            this.connectorStatementScope.endPlanning();
+        }
+    }
+
+    /**
      * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
      * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
