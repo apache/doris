@@ -20,6 +20,10 @@
 // the time unit of the string forms of date_trunc). The value of any other argument FE can evaluate is validated
 // like the literal it evaluates to, and a constant expression FE cannot fold is evaluated and validated by BE.
 suite("fold_literal_arguments") {
+    // pin the FE-fold/BE-evaluate boundary: fuzzy CI randomizes this variable per connection, which would
+    // otherwise flip some constant arguments here (e.g. crc32('')) between being folded to a literal by FE
+    // and being left for BE to evaluate, nondeterministically changing which error message a case expects
+    sql "set enable_fold_constant_by_be = false"
     sql "drop table if exists fold_literal_arguments_t"
     sql """
         create table fold_literal_arguments_t (k int, v double, s varchar(64), dt datetime)
