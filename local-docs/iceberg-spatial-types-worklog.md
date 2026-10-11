@@ -344,3 +344,21 @@ Iceberg V3 schema
 - FE 构建成功；空间构造函数单测 6/6、内部表列定义单测 8/8、Iceberg 类型映射单测 13/13 通过。
 - BE 构建目前仍停在 `build.sh --be` 的第三方子模块准备阶段：apache-orc 目录已存在导致 clone 重试，随后进入 clucene clone，尚未进入 CMake/ninja 编译；因此不能把 BE 源码或 C++ 新测试标记为通过。
 - WKB 校验源码已提交为 `8618349f64e`；BE 编译和 C++ 单测仍待第三方依赖可用后执行。datasketches 子模块的工作树改写仍视为构建噪声，不纳入提交。
+
+## 执行记录：阶段 4/5（写入分析与回归补齐）
+
+- 发现通用 connector sink 在类型 coercion 前没有保护空间参数，可能把 Geometry/Geography、CRS 或 Geography edge algorithm 的不匹配隐藏到 BE。新增 `ConnectorSpatialWriteValidator`，在 sink 进入通用 coercion 前校验空间 kind/CRS/algorithm，并允许 NULL 写入。
+- 新增 `ConnectorSpatialWriteValidatorTest`：匹配类型通过，Geometry/Geography kind、CRS、algorithm 和非空间源均有拒绝用例，并验证嵌套 `IF`/`CAST` 不会隐藏源类型。
+- 恢复 `regression-test/suites/external_table_p0/iceberg/test_iceberg_spatial_v3.groovy`，覆盖 Iceberg V3 Geometry 建表、Doris 原始 WKB 写入、Parquet 读回和 `ST_AsText`。用例受 `enableIcebergTest` 和外部 Docker 标签控制，未在当前环境执行。
+- `./build.sh --fe` 重新通过；空间写入校验单测 6/6 通过；BE header hygiene 通过。
+- BE 构建再次确认在 openblas 子模块 clone 阶段无进展；apache-orc 的目标 commit 在当前远端不可取，构建脚本进入下载 fallback 后仍被 openblas 初始化阻塞。未获得 BE 编译结论。
+
+## 执行记录：master 兼容性编译与验证收敛
+
+- `./build.sh --be` 完整构建成功，证据：`be-build-7.log` 的 `Successfully build Doris`。修复了空间类型 storage switch、当前 master Column 接口、StringRef/Arrow offset、WKB hex offset 和 protobuf metadata 放置问题；提交 `f99217a31dd`。空间 protobuf metadata 最终位于 `PScalarType` 的 optional 9/10 字段。
+- BE 定向 UT 首次发现 Parquet `LogicalType` 基类没有 `crs()`，改为 Geometry/Geography 具体类型接口。第二次源码编译完成，但 ASAN 链接失败：Doris 和工具链 glibc compatibility 重复符号；尚无 BE UT 通过结论。
+- RELEASE UT 重试受到并发 FE 测试重新生成 gensrc 的影响，生成头文件暂时缺失，构建失败。后续 FE/BE 构建串行执行，并恢复默认 ASAN UT，尝试通过脚本支持的 `GLIBC_COMPATIBILITY=OFF` 隔离本机工具链冲突；不改业务代码绕过环境问题。
+- clang-tidy 已执行，但当前工具链缺失 sanitizer/asan_interface.h、stddef.h，4 个文件不能完成分析；不能记为通过。C++ 格式检查仍要求 clang-format 16，当前工具不是 v16；未通过。
+- 范围复查发现 Connector changelog UPDATE/MERGE 在普通 sink 校验之前返回。现将相同空间 metadata 校验接入 UPDATE 的 bindColumn 及 MERGE 各分支 coercion 前，增加真实 plan builder CRS 拒绝测试，FE 测试进行中。
+- 当前阶段 5 尚未完成：仍需 BE UT、真实 SQL 分析测试覆盖、Iceberg 外部读写回归及自动输出、格式和静态检查证据。现有通过证据仅支持 FE 定向测试和完整构建，不支持端到端验收完成。
+- 环境残留为 contrib/apache-orc、contrib/datasketches-cpp，未纳入源码提交。

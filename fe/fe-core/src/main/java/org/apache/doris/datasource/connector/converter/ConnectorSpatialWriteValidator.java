@@ -46,10 +46,14 @@ public final class ConnectorSpatialWriteValidator {
             throw new AnalysisException("Spatial connector write target and source columns are not aligned");
         }
         for (int i = 0; i < targetColumns.size(); i++) {
-            Type targetType = targetColumns.get(i).getType();
-            if (targetType instanceof ScalarType && ((ScalarType) targetType).isSpatialType()) {
-                validateExpression(sourceColumns.get(i), (ScalarType) targetType, targetColumns.get(i).getName());
-            }
+            validate(targetColumns.get(i), sourceColumns.get(i));
+        }
+    }
+
+    public static void validate(Column targetColumn, Expression source) {
+        Type targetType = targetColumn.getType();
+        if (targetType instanceof ScalarType && ((ScalarType) targetType).isSpatialType()) {
+            validateExpression(source, (ScalarType) targetType, targetColumn.getName());
         }
     }
 
