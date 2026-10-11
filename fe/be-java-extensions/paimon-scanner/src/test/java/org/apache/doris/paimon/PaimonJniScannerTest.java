@@ -335,6 +335,42 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testBackendCapKeepsTheChainGroupOfAChainTableSystemSource(@TempDir Path dir) throws Exception {
+        // A system table over a chain table ($partitions, $files, ...) is rebuilt from the transported source, and
+        // the rebuilt wrapper must still read through the chain group: the backend resolves $partitions, and
+        // without the delta branch a partition only it holds goes missing. MUTATION: rebuilding the group as a
+        // plain fallback pair -> red.
+        FileStoreTable chain = new FallbackReadFileStoreTable(primaryKeyTable(dir, "main"),
+                new ChainGroupReadTable(primaryKeyTable(dir, "snapshot"), primaryKeyTable(dir, "delta")), true);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                SystemTableLoader.load("partitions", chain), "2", 4, chain, "partitions");
+
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+        FileStoreTable group = ((FallbackReadFileStoreTable) storeTable.get(safe)).other();
+        Assertions.assertTrue(group instanceof ChainGroupReadTable, group.getClass().getName());
+        Assertions.assertEquals("2", ((ChainGroupReadTable) group).other().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testBackendCapStillReadsTheChainTablePayloadOfAnOlderFrontend(@TempDir Path dir) {
+        // An older FE sends a chain table with its group replaced by a plain table at the snapshot branch. A backend
+        // upgraded before the FE keeps reading that payload as it did. MUTATION: rebuilding a pair as a chain group
+        // whatever it holds -> red.
+        FileStoreTable flattened = new FallbackReadFileStoreTable(primaryKeyTable(dir, "main"),
+                primaryKeyTable(dir, "snapshot"), true);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(flattened, "2", 4);
+
+        Assertions.assertEquals(FallbackReadFileStoreTable.class, safe.getClass());
+        FileStoreTable other = ((FallbackReadFileStoreTable) safe).other();
+        Assertions.assertFalse(other instanceof FallbackReadFileStoreTable, other.getClass().getName());
+        Assertions.assertEquals("2", other.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
     public void testAdvertisedFeCapStillChecksSerializedChildren() {
         FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
         FileStoreTable fallback = serializableFileStoreTable(
