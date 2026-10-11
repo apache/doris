@@ -558,6 +558,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
         }
+        if (child.getDataType().typeContainsFile() || dataType.typeContainsFile()) {
+            // FILE validation is atomic and shared with all BE input boundaries.
+            return cast;
+        }
         //TODO : use DateTimeChecker to Improve performance.
         // if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
         //     String dateStr = ((StringLikeLiteral) child).getStringValue();

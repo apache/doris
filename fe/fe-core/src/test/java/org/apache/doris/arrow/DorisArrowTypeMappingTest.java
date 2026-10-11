@@ -160,6 +160,7 @@ public class DorisArrowTypeMappingTest {
                 row(PrimitiveType.ARRAY, new ArrowType.List()),
                 row(PrimitiveType.MAP, new ArrowType.Map(false)),
                 row(PrimitiveType.STRUCT, new ArrowType.Struct()),
+                row(PrimitiveType.FILE, new ArrowType.Null()),
                 // Types that never name a stored column fall through to Null.
                 row(PrimitiveType.INVALID_TYPE, new ArrowType.Null()),
                 row(PrimitiveType.UNSUPPORTED, new ArrowType.Null()),

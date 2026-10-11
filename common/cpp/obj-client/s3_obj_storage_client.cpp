@@ -270,8 +270,16 @@ ObjStorageHeadResult S3ObjStorageClient::head_object(const ObjStoragePath& opts)
             "s3_file_system::head_object", std::ref(request).get());
 
     if (outcome.IsSuccess()) {
-        return {.resp = ObjStorageResponse::OK(),
-                .file_size = outcome.GetResult().GetContentLength()};
+        const auto& result = outcome.GetResult();
+        ObjStorageHeadResult metadata {.resp = ObjStorageResponse::OK(),
+                                       .file_size = result.GetContentLength()};
+        if (!result.GetContentType().empty()) {
+            metadata.content_type = result.GetContentType();
+        }
+        if (!result.GetETag().empty()) {
+            metadata.etag = result.GetETag();
+        }
+        return metadata;
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return {.resp = {.status = ObjStorageStatus::NOT_FOUND}, .file_size = 0};
     } else {
@@ -335,6 +343,9 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
     request.WithBucket(opts.bucket)
             .WithPrefix(prefix)
             .WithMaxKeys(static_cast<int>(capabilities().max_list_page));
+    if (!opts.delimiter.empty()) {
+        request.SetDelimiter(opts.delimiter);
+    }
     if (!continuation_token.empty()) {
         request.SetContinuationToken(std::string(continuation_token));
     }
@@ -399,9 +410,11 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
     for (const auto& obj : content) {
         DCHECK(obj.GetKey().starts_with(request.GetPrefix()))
                 << obj.GetKey() << ' ' << request.GetPrefix();
-        page.objects.emplace_back(ObjectMeta {.key = obj.GetKey(),
-                                              .size = obj.GetSize(),
-                                              .mtime_s = obj.GetLastModified().Seconds()});
+        page.objects.emplace_back(ObjectMeta {
+                .key = obj.GetKey(),
+                .size = obj.GetSize(),
+                .mtime_s = obj.GetLastModified().Seconds(),
+                .etag = obj.GetETag().empty() ? std::nullopt : std::make_optional(obj.GetETag())});
     }
     return page;
 }

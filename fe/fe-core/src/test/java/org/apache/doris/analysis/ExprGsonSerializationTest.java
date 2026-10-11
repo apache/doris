@@ -132,6 +132,10 @@ public class ExprGsonSerializationTest {
         samples.put(ArrayLiteral.class, new ArrayLiteral(new ArrayType(Type.INT), new IntLiteral(1L), new IntLiteral(2L)));
         samples.put(BoolLiteral.class, new BoolLiteral(true));
         samples.put(DateLiteral.class, new DateLiteral(2024, 4, 27, 12, 34, 56, Type.DATETIMEV2));
+        samples.put(FileLiteral.class, new FileLiteral(Arrays.asList(
+                new StringLiteral("s3://bucket/gson.bin"), NullLiteral.create(Type.BIGINT),
+                new IntLiteral(3L), new StringLiteral("application/octet-stream"),
+                NullLiteral.create(Type.STRING), new VarBinaryLiteral("bin".getBytes(StandardCharsets.UTF_8)))));
         samples.put(IPv4Literal.class, new IPv4Literal("192.168.1.7"));
         samples.put(IPv6Literal.class, new IPv6Literal("2001:db8::1"));
         samples.put(JsonLiteral.class, new JsonLiteral("{\"key\":\"value\",\"num\":1}"));
