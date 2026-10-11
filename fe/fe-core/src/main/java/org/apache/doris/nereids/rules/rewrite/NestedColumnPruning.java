@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.NullType;
@@ -274,7 +275,8 @@ public class NestedColumnPruning implements CustomRewriter {
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
-            if (!accessTree.hasOffsetPath() && !accessTree.hasNullPath()) {
+            if (!accessTree.hasOffsetPath() && !accessTree.hasNullPath()
+                    && !slot.getDataType().typeContainsFile()) {
                 continue;
             }
             // Expand both sets so all-path and predicate-path routing stay consistent.
@@ -535,7 +537,10 @@ public class NestedColumnPruning implements CustomRewriter {
 
         /** pruneCastType */
         public DataType pruneCastType(DataTypeAccessTree origin, DataTypeAccessTree cast) {
-            if (type instanceof StructType) {
+            if (type.isFileType() || cast.type.isFileType()) {
+                // FILE conversions validate the complete source and retain the declared target.
+                return cast.type;
+            } else if (type instanceof StructType) {
                 Map<String, String> nameMapping = new LinkedHashMap<>();
                 List<String> castNames = new ArrayList<>(cast.children.keySet());
                 int i = 0;
@@ -602,7 +607,14 @@ public class NestedColumnPruning implements CustomRewriter {
                 // visitCast falls back to reading the original value data before evaluating cast.
                 return type.equals(cast.type);
             }
-            if (cast.type instanceof StructType) {
+            if (type.isFileType() || cast.type.isFileType()) {
+                if (!type.equals(cast.type)) {
+                    return false;
+                }
+                String fieldName = path.get(index).toLowerCase(Locale.ROOT);
+                return children.get(fieldName).replacePathByAnotherTree(
+                        cast.children.get(fieldName), path, index + 1, pathType);
+            } else if (cast.type instanceof StructType) {
                 List<StructField> fields = ((StructType) cast.type).getFields();
                 for (int i = 0; i < fields.size(); i++) {
                     String castFieldName = path.get(index);
@@ -649,7 +661,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
             accessPartialChild = true;
 
-            if (this.type.isStructType()) {
+            if (this.type.isStructType() || this.type.isFileType()) {
                 String fieldName = path.get(accessIndex).toLowerCase(Locale.ROOT);
                 DataTypeAccessTree child = children.get(fieldName);
                 if (child != null) {
@@ -749,6 +761,10 @@ public class NestedColumnPruning implements CustomRewriter {
             } else if (type instanceof MapType) {
                 root.children.put(AccessPathInfo.ACCESS_MAP_KEYS, of(((MapType) type).getKeyType(), pathType));
                 root.children.put(AccessPathInfo.ACCESS_MAP_VALUES, of(((MapType) type).getValueType(), pathType));
+            } else if (type instanceof FileType) {
+                for (StructField field : ((FileType) type).getFields()) {
+                    root.children.put(field.getName(), of(field.getDataType(), pathType));
+                }
             }
             return root;
         }
@@ -890,6 +906,14 @@ public class NestedColumnPruning implements CustomRewriter {
                 } else {
                     current = mapType.getValueType();
                 }
+            } else if (current.isFileType()) {
+                StructField field = ((FileType) current).getFields().stream()
+                        .filter(candidate -> candidate.getName().equals(component))
+                        .findFirst().orElse(null);
+                if (field == null) {
+                    break;
+                }
+                current = field.getDataType();
             } else {
                 break;
             }

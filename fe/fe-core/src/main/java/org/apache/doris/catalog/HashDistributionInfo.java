@@ -65,6 +65,9 @@ public class HashDistributionInfo extends DistributionInfo {
         if (type.isStructType()) {
             throw new DdlException("Struct Type should not be used in distribution column[" + columnName + "].");
         }
+        if (type.typeContainsFile()) {
+            throw new DdlException("FILE cannot be used in distribution column[" + columnName + "]");
+        }
         if (type.isJsonbType()) {
             throw new DdlException("JsonType type should not be used in distribution column[" + columnName + "].");
         }

@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "exec/common/data_gen_functions/vdata_gen_function_inf.h"
+#include "exec/common/data_gen_functions/vlist_file_tvf.h"
 #include "exec/common/data_gen_functions/vnumbers_tvf.h"
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_consumer.h"
@@ -40,8 +41,12 @@ DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode
 Status DataGenSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<DataGenLocalState>::init(tnode, state));
     // set _table_func here
-    switch (tnode.data_gen_scan_node.func_name) {
+    _function_name = tnode.data_gen_scan_node.func_name;
+    switch (_function_name) {
     case TDataGenFunctionName::NUMBERS:
+        break;
+    case TDataGenFunctionName::LIST_FILE:
+        _blockable = true;
         break;
     default:
         return Status::InternalError("Unsupported function type");
@@ -68,6 +73,17 @@ Status DataGenSourceOperatorX::get_block_impl(RuntimeState* state, Block* block,
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
+    if (_function_name == TDataGenFunctionName::LIST_FILE && _limit != -1 &&
+        local_state.num_rows_returned() >= _limit) {
+        if (!block->mem_reuse()) {
+            for (const auto* slot : _tuple_desc->slots()) {
+                block->insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(),
+                               slot->col_name()});
+            }
+        }
+        *eos = true;
+        return Status::OK();
+    }
     {
         SCOPED_TIMER(local_state._table_function_execution_timer);
         RETURN_IF_ERROR(local_state._table_func->get_next(state, block, eos));
@@ -88,7 +104,16 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _table_function_execution_timer = ADD_TIMER(custom_profile(), "TableFunctionExecutionTime");
     _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
     auto& p = _parent->cast<DataGenSourceOperatorX>();
-    _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
+    switch (p._function_name) {
+    case TDataGenFunctionName::NUMBERS:
+        _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
+        break;
+    case TDataGenFunctionName::LIST_FILE:
+        _table_func = std::make_shared<VListFileTVF>(p._tuple_id, p._tuple_desc);
+        break;
+    default:
+        return Status::InternalError("Unsupported function type");
+    }
     _table_func->set_tuple_desc(p._tuple_desc);
     RETURN_IF_ERROR(_table_func->set_scan_ranges(info.scan_ranges));
 

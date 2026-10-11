@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmapOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFile;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFileOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayDouble;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayDoubleOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayInt;
@@ -63,6 +65,8 @@ import java.util.Set;
 public class BuiltinTableGeneratingFunctions implements FunctionHelper {
     public final List<TableGeneratingFunc> tableGeneratingFunctions = ImmutableList.of(
             tableGenerating(Explode.class, "explode"),
+            tableGenerating(ExplodeFile.class, "explode_file"),
+            tableGenerating(ExplodeFileOuter.class, "explode_file_outer"),
             tableGenerating(ExplodeOuter.class, "explode_outer"),
             tableGenerating(ExplodeMap.class, "explode_map"),
             tableGenerating(ExplodeMapOuter.class, "explode_map_outer"),
@@ -99,6 +103,7 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             .add("explode_json_array_string").add("explode_json_array_json").add("explode_json_array_int_outer")
             .add("explode_json_array_double_outer").add("explode_json_array_string_outer")
             .add("explode_json_array_json_outer").add("explode_split").add("explode_split_outer")
+            .add("explode_file").add("explode_file_outer")
             .add("json_each").add("json_each_outer")
             .add("json_each_text").add("json_each_text_outer")
             .add("posexplode").add("posexplode_outer").add("stack").build();

@@ -358,7 +358,8 @@ public class ColumnDefinition {
                 && !type.isJsonType()
                 && !type.isVariantType()
                 && !type.isMapType()
-                && !type.isStructType();
+                && !type.isStructType()
+                && !type.isFileType();
     }
 
     private void checkKeyColumnType(boolean isOlap) {
@@ -433,6 +434,10 @@ public class ColumnDefinition {
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
         type.validateDataType();
+        if (type.typeContainsFile()) {
+            throw new AnalysisException(isOlap ? "FILE columns are not supported in internal tables"
+                    : "FILE columns are not supported in external tables");
+        }
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.enable_non_aggregate_table_state_types) {

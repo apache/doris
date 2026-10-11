@@ -40,13 +40,16 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FileLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
@@ -62,6 +65,18 @@ import java.util.List;
 import java.util.Map;
 
 class ExpressionEstimationTest {
+
+    @Test
+    public void testFileLiteralsUseUnknownStatistics() {
+        Statistics statistics = new Statistics(1, new HashMap<>());
+        FileLiteral file = new FileLiteral(List.of(new VarcharLiteral("s3://bucket/object"),
+                new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
+                new NullLiteral(StringType.INSTANCE), new NullLiteral(StringType.INSTANCE),
+                new NullLiteral(VarBinaryType.INSTANCE)));
+        Assertions.assertSame(ColumnStatistic.UNKNOWN, ExpressionEstimation.estimate(file, statistics));
+        Assertions.assertSame(ColumnStatistic.UNKNOWN,
+                ExpressionEstimation.estimate(new NullLiteral(FileType.INSTANCE), statistics));
+    }
 
     // MAX(a)
     // a belongs to [0, 500]

@@ -150,6 +150,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::LIST;
     case PrimitiveType::TYPE_STRUCT:
         return PGenericType::STRUCT;
+    case PrimitiveType::TYPE_FILE:
+        return PGenericType::FILE;
     case PrimitiveType::TYPE_JSONB:
         return PGenericType::JSONB;
     case PrimitiveType::TYPE_MAP:
