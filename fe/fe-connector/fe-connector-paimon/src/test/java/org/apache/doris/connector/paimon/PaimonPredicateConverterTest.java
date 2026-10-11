@@ -18,10 +18,12 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorLike;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Timestamp;
@@ -37,6 +39,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -119,6 +122,28 @@ public class PaimonPredicateConverterTest {
                 "non-timestamp predicates must remain pushable during precision repair");
         Assertions.assertTrue(converter.convert(timestampComparison).isEmpty(),
                 "timestamp predicates must remain Doris residuals during precision repair");
+    }
+
+    @Test
+    public void precisionRepairKeepsSafeAndSiblingsButNotMixedOr() {
+        RowType rowType = RowType.builder()
+                .field("id", DataTypes.INT())
+                .field("ts", DataTypes.TIMESTAMP(6))
+                .build();
+        PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType, true);
+        ConnectorComparison idComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("id", ANY),
+                new ConnectorLiteral(ANY, 7));
+        ConnectorComparison timestampComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("ts", ANY),
+                new ConnectorLiteral(ANY, LocalDateTime.of(2025, 1, 1, 0, 0)));
+
+        Assertions.assertEquals(1, converter.convert(new ConnectorAnd(
+                Arrays.asList(idComparison, timestampComparison))).size(),
+                "a safe AND sibling must remain available for file pruning");
+        Assertions.assertTrue(converter.convert(new ConnectorOr(
+                Arrays.asList(idComparison, timestampComparison))).isEmpty(),
+                "a mixed OR must remain a residual instead of narrowing the result set");
     }
 
     @Test
