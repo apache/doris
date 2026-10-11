@@ -435,7 +435,7 @@ public:
                         DORIS_CHECK(result_nullable);
                     }
                     if (!result_nullable) {
-                        return std::move(result_data_column);
+                        return result_data_column;
                     }
                     return ColumnNullable::create(std::move(result_data_column),
                                                   regexp_result_null_map<check_null>(
