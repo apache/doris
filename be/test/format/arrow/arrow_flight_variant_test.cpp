@@ -41,6 +41,7 @@
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
+#include "format/table/paimon/paimon_arrow_block_convertor.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -106,6 +107,98 @@ TEST(ArrowFlightVariantTest, NativeResultPreservesValuesAndSqlNulls) {
     ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, 1, 3).ok());
     EXPECT_TRUE(value_at(*batch->column(0), 0).is_null());
     EXPECT_EQ(value_at(*batch->column(0), 1).get_int(), 42);
+}
+
+TEST(ArrowFlightVariantTest, NativeReaderPreservesSlicesAndNulls) {
+    auto type = std::make_shared<DataTypeVariantV2>();
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({0, 0, 0, 1});
+    Block source {
+            {ColumnNullable::create(documents(type), std::move(nulls)), make_nullable(type), "v"}};
+    ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("v", native_variant())}),
+                                             cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(converter.convert_to_arrow(source, arrow::default_memory_pool(), &batch).ok());
+    auto result = type->create_column();
+    auto status = type->get_serde()->read_column_from_arrow(*result, batch->column(0).get(), 1, 4,
+                                                            cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& values = assert_cast<const ColumnVariantV2&>(*result);
+    ASSERT_EQ(values.size(), 3);
+    EXPECT_TRUE(values.get_value_ref(0).is_null());
+    EXPECT_EQ(values.get_value_ref(1).get_int(), 42);
+    EXPECT_TRUE(values.get_value_ref(2).is_null());
+    auto storage =
+            static_cast<const arrow::ExtensionArray&>(*batch->column(0)).storage()->Slice(1, 2);
+    auto sliced = type->create_column();
+    status = type->get_serde()->read_column_from_arrow(*sliced, storage.get(), 0, 2,
+                                                       cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(*sliced).get_value_ref(1).get_int(), 42);
+}
+
+TEST(ArrowFlightVariantTest, NativeReaderRejectsMalformedBytesWithoutAppending) {
+    arrow::BinaryBuilder metadata;
+    arrow::BinaryBuilder values;
+    ASSERT_TRUE(metadata.Append("invalid").ok());
+    ASSERT_TRUE(values.Append("invalid").ok());
+    auto array =
+            arrow::StructArray::Make({metadata.Finish().ValueOrDie(), values.Finish().ValueOrDie()},
+                                     {arrow::field("metadata", arrow::binary(), false),
+                                      arrow::field("value", arrow::binary(), false)})
+                    .ValueOrDie();
+    auto type = std::make_shared<DataTypeVariantV2>();
+    auto result = documents(type);
+    const auto original_rows = result->size();
+    auto status = type->get_serde()->read_column_from_arrow(*result, array.get(), 0, 1,
+                                                            cctz::utc_time_zone());
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(result->size(), original_rows);
+    status = type->get_serde()->read_column_from_arrow(*result, array.get(), 0, 2,
+                                                       cctz::utc_time_zone());
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(result->size(), original_rows);
+}
+
+TEST(ArrowFlightVariantTest, IcebergUsesNativeStorageWithoutPaimonFieldOrder) {
+    auto type = std::make_shared<DataTypeVariantV2>();
+    auto column = documents(type);
+    auto storage_type = static_cast<const arrow::ExtensionType&>(*native_variant()).storage_type();
+    auto builder = arrow::MakeBuilder(storage_type, arrow::default_memory_pool()).ValueOrDie();
+    const auto status = type->get_serde()->write_column_to_iceberg_arrow(
+            type, *column, nullptr, arrow::field("v", storage_type), builder.get(), 0,
+            column->size(), cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+    auto array = builder->Finish().ValueOrDie();
+    auto result = type->create_column();
+    ASSERT_TRUE(type->get_serde()
+                        ->read_column_from_arrow(*result, array.get(), 0, column->size(),
+                                                 cctz::utc_time_zone())
+                        .ok());
+    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(*result).get_value_ref(2).get_int(), 42);
+}
+
+TEST(ArrowFlightVariantTest, PaimonPreservesNestedVariantProtocol) {
+    auto variant = std::make_shared<DataTypeVariantV2>();
+    auto type = std::make_shared<DataTypeArray>(make_nullable(variant));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({2, 4});
+    Block block {{ColumnArray::create(make_nullable(documents(variant)), std::move(offsets)), type,
+                  "a"}};
+    auto storage = arrow::struct_({arrow::field("value", arrow::binary(), false),
+                                   arrow::field("metadata", arrow::binary(), false)});
+    paimon::PaimonArrowBlockConvertor converter(
+            arrow::schema({arrow::field("a", arrow::list(storage))}), cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    const auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    const auto& array = assert_cast<const arrow::ListArray&>(*batch->column(0));
+    const auto& values = assert_cast<const arrow::StructArray&>(*array.values());
+    EXPECT_EQ(values.type()->field(0)->name(), "value");
+    EXPECT_EQ(values.type()->field(1)->name(), "metadata");
+    EXPECT_EQ(array.value_length(0), 2);
+    EXPECT_EQ(array.value_length(1), 2);
 }
 
 TEST(ArrowFlightVariantTest, SchemaMappingAndConstantScalar) {
