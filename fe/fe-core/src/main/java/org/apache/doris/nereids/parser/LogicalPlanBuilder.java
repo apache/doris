@@ -7213,7 +7213,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (structCanonical != null) {
                     throw new ParseException("STRUCT is given twice in hbo set statistics statement");
                 }
-                structCanonical = stripQuotes(((DorisParser.HboSetStructContext) param).structCanonical.getText());
+                structCanonical = SqlLiteralUtils.parseStringLiteral(
+                        ((DorisParser.HboSetStructContext) param).structCanonical.getText());
             } else if (param instanceof DorisParser.HboSetFingerprintContext) {
                 DorisParser.HboSetFingerprintContext fingerprintParam =
                         (DorisParser.HboSetFingerprintContext) param;

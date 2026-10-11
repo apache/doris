@@ -284,6 +284,14 @@ public class HboStatisticsCommand extends Command {
             throw new AnalysisException("TYPE=FILTER_SMALL can only guard a filter entry,"
                     + " its STRUCT must be a filter root: STRUCT='F{...}(...)'");
         }
+        if (keyedEntry && type != PinnedType.JOIN_EXPANSION && structCanonical.startsWith("S{")) {
+            // pinned row counts are applied at filter, join and aggregation nodes only, so a scan
+            // root can never be looked up - report it instead of storing an entry which silently
+            // does nothing
+            throw new AnalysisException("a scan entry can not be pinned: pinned row counts are"
+                    + " applied at filter, join and aggregation nodes, copy the struct= value of"
+                    + " such a node from EXPLAIN");
+        }
         if (keyedEntry && type != PinnedType.JOIN_EXPANSION && structCanonical.startsWith("JE{")) {
             // the row count of a join is pinned by the struct info of its group (J{...}); a
             // condition canonical is only read by the expansion path, so such an entry could never

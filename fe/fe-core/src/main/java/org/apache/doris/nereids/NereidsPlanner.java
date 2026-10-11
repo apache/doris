@@ -677,18 +677,19 @@ public class NereidsPlanner extends Planner {
                 // carry literals, and scan tokens contain none by construction
                 Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(
                         (AbstractPlan) root, groupsById, GroupStructInfo.LiteralMode.NO_LITERAL);
-                if (fingerprint.isPresent()) {
-                    HboPlanInfoProvider planInfoProvider = Env.getCurrentEnv()
-                            .getHboPlanStatisticsManager().getHboPlanInfoProvider();
-                    Map<Integer, String> nodeFingerprints = planInfoProvider
-                            .getNodeIdToFingerprintMap(queryId);
-                    if (nodeFingerprints.isEmpty()) {
-                        planInfoProvider.putNodeIdToFingerprintMap(queryId, nodeFingerprints);
-                    }
-                    // keyed by the real PlanNodeId (the same id used by the profile publish
-                    // path via runtime stats item.node_id), not by the nereids plan id
-                    nodeFingerprints.put(planId.asInt(), fingerprint.get());
+                HboPlanInfoProvider planInfoProvider = Env.getCurrentEnv()
+                        .getHboPlanStatisticsManager().getHboPlanInfoProvider();
+                Map<Integer, String> nodeFingerprints = planInfoProvider
+                        .getNodeIdToFingerprintMap(queryId);
+                if (nodeFingerprints.isEmpty()) {
+                    planInfoProvider.putNodeIdToFingerprintMap(queryId, nodeFingerprints);
                 }
+                // keyed by the real PlanNodeId (the same id used by the profile publish
+                // path via runtime stats item.node_id), not by the nereids plan id. A null value
+                // marks a node which is deliberately excluded from the hbo fingerprint (an
+                // unsupported group such as sort / topn), so that the publish path does not warn
+                // about a fingerprint which was never meant to exist
+                nodeFingerprints.put(planId.asInt(), fingerprint.orElse(null));
             }
         }
     }

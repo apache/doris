@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 
@@ -61,12 +62,13 @@ public class HboJoinConditions {
 
     /**
      * Canonical string of the equality conditions, empty when the join has no equality condition
-     * (e.g. a cross join).
+     * (e.g. a cross join). A null safe equality ({@code <=>}) is a hash conjunct as well, so it
+     * takes part in the canonical like a plain equality.
      */
     public static Optional<String> canonicalOf(Join join) {
         List<String> pairs = new ArrayList<>();
         for (Expression conjunct : join.getHashJoinConjuncts()) {
-            if (conjunct instanceof EqualTo) {
+            if (conjunct instanceof EqualTo || conjunct instanceof NullSafeEqual) {
                 pairs.add(GroupStructInfo.normalizeExpression(conjunct));
             }
         }

@@ -99,6 +99,12 @@ import java.util.stream.Collectors;
  * kinds) are {@link #isValid() invalid} and callers must fall back to the legacy behavior.
  */
 public class GroupStructInfo {
+    /**
+     * The default of {@code hbo_max_scans_per_group}, used when no session is available. 20 keeps
+     * every TPC-DS shape observed in this repository (the largest single sub tree is query64's
+     * 19 scan join group) while refusing trees which are pathologically wide.
+     */
+    public static final int DEFAULT_MAX_SCANS_PER_GROUP = 20;
     private static final List<HboScanDescriptor> INVALID_SCANS = Collections.emptyList();
 
     /** Shared invalid instance: the group content is not supported by the simplified struct info. */
@@ -314,6 +320,10 @@ public class GroupStructInfo {
      * Compute the simplified struct info of a memo group in the given literal mode.
      */
     public static GroupStructInfo of(Group group, LiteralMode mode) {
+        if (group.getLogicalExpressions().isEmpty()) {
+            // physical only group: nothing to describe (see summaryOf)
+            return INVALID;
+        }
         HboStructSummary summary = group.getOrComputeHboStructSummary();
         int maxScansPerGroup = hboMaxScansPerGroup();
         if (maxScansPerGroup > 0 && summary.getScanCount() > maxScansPerGroup) {
@@ -727,14 +737,6 @@ public class GroupStructInfo {
                 || expression instanceof And;
     }
 
-    /** Traversal state; shared along the whole subtree so the visited set guards shared sub graphs. */
-    /**
-     * The default of {@code hbo_max_scans_per_group}, used when no session is available. 20 keeps
-     * every TPC-DS shape observed in this repository (the largest single sub tree is query64's
-     * 19 scan join group) while refusing trees which are pathologically wide.
-     */
-    public static final int DEFAULT_MAX_SCANS_PER_GROUP = 20;
-
     private static int hboMaxScansPerGroup() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null || connectContext.getSessionVariable() == null) {
@@ -788,10 +790,13 @@ public class GroupStructInfo {
 
     /** The summary of a group, computed from the (memoized) summaries of its child groups. */
     public static HboStructSummary summaryOf(Group group) {
-        GroupExpression ge = group.getFirstLogicalExpression();
-        if (ge == null) {
+        List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
+        if (logicalExpressions.isEmpty()) {
+            // a group which holds only physical expressions (e.g. the storage layer aggregate rule
+            // inserts one) has nothing to describe, and getFirstLogicalExpression would throw
             return new HboStructSummary(0, Collections.emptyList());
         }
+        GroupExpression ge = logicalExpressions.get(0);
         Plan plan = ge.getPlan();
         List<String> relations = new ArrayList<>();
         int scanCount = 0;

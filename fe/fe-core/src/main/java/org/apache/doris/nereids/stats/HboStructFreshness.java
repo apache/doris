@@ -32,6 +32,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -553,28 +554,48 @@ public class HboStructFreshness {
         }
     }
 
-    /** Resolve {@code [catalog.]db.table} to the olap table, or null when it does not exist. */
+    /**
+     * Resolve {@code [catalog.]db.table} to the olap table, or null when it does not exist. A
+     * database name may itself contain dots (nested namespaces), so the name is not simply split
+     * into three parts: the possible catalog and database candidates are tried in turn and the
+     * first one which resolves wins.
+     */
     private static OlapTable resolveTable(String fullName) {
         String[] parts = fullName.split("\\.");
         try {
-            if (parts.length < 2 || parts.length > 3) {
+            if (parts.length < 2) {
                 return null;
             }
-            String catalogName = parts.length == 3 ? parts[0] : null;
-            String dbName = parts[parts.length - 2];
             String tableName = parts[parts.length - 1];
-            CatalogIf<?> catalog = catalogName == null
-                    ? Env.getCurrentEnv().getCurrentCatalog()
-                    : Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName.toLowerCase(Locale.ROOT));
-            if (catalog == null) {
-                return null;
+            CatalogIf<?> currentCatalog = Env.getCurrentEnv().getCurrentCatalog();
+            // candidates: the longest possible database name first, then the plain two part form
+            List<String[]> candidates = new ArrayList<>();
+            for (int length = parts.length - 2; length >= 1; length--) {
+                String catalogName = length == parts.length - 2 && parts.length >= 3 ? parts[0] : null;
+                String dbName = String.join(".", Arrays.copyOfRange(parts, 1, length + 1));
+                candidates.add(new String[] {catalogName, dbName});
+                if (catalogName == null) {
+                    break;
+                }
             }
-            DatabaseIf<?> database = catalog.getDbNullable(dbName);
-            if (database == null) {
-                return null;
+            candidates.add(new String[] {null, parts[parts.length - 2]});
+            for (String[] candidate : candidates) {
+                CatalogIf<?> catalog = candidate[0] == null
+                        ? currentCatalog
+                        : Env.getCurrentEnv().getCatalogMgr().getCatalog(candidate[0].toLowerCase(Locale.ROOT));
+                if (catalog == null) {
+                    continue;
+                }
+                DatabaseIf<?> database = catalog.getDbNullable(candidate[1]);
+                if (database == null) {
+                    continue;
+                }
+                TableIf table = database.getTableNullable(tableName);
+                if (table instanceof OlapTable) {
+                    return (OlapTable) table;
+                }
             }
-            TableIf table = database.getTableNullable(tableName);
-            return table instanceof OlapTable ? (OlapTable) table : null;
+            return null;
         } catch (RuntimeException e) {
             // an entry whose table cannot be resolved is reported as unknown instead of failing
             // the SHOW / DELETE statement
