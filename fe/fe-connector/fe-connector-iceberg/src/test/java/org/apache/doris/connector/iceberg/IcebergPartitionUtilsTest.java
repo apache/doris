@@ -1353,4 +1353,97 @@ public class IcebergPartitionUtilsTest {
         }
     }
 
+    @Test
+    public void timestampPartitionsRoundTripInEverySessionZone() {
+        for (ZoneId zone : Arrays.asList(ZoneOffset.UTC, SHANGHAI, ZoneId.of("America/New_York"))) {
+            for (Types.TimestampType type : Arrays.asList(
+                    Types.TimestampType.withZone(), Types.TimestampType.withoutZone())) {
+                // 1636263000123456 and 1636266600123456 are both 01:30:00.123456 in New York.
+                for (long micros : new long[] {-1L, -1_000_001L, 1636263000123456L, 1636266600123456L}) {
+                    String encoded = IcebergPartitionUtils.serializePartitionValue(type, micros, zone);
+                    Assertions.assertEquals(micros, IcebergPartitionUtils.parsePartitionValueFromString(
+                            encoded, type, zone), type + " " + zone + " " + micros);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void parseCommittedTimestampsHonorTheirExplicitOffsets() {
+        for (ZoneId zone : Arrays.asList(ZoneOffset.UTC, SHANGHAI, ZoneId.of("America/New_York"))) {
+            // BE commits carry an offset, so the session zone must not reinterpret either fold instant.
+            for (String value : Arrays.asList("2021-11-07 01:30:00.123456-04:00",
+                    "2021-11-07 01:30:00.123456-05:00", "1969-12-31 23:59:59.999999+00:00")) {
+                java.time.Instant instant = java.time.OffsetDateTime.parse(value.replace(' ', 'T')).toInstant();
+                long expected = instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000;
+                Assertions.assertEquals(expected, IcebergPartitionUtils.parsePartitionValueFromString(
+                        value, Types.TimestampType.withZone(), zone), value + " " + zone);
+            }
+            Assertions.assertEquals(-1L, IcebergPartitionUtils.parsePartitionValueFromString(
+                    "1969-12-31 23:59:59.999999", Types.TimestampType.withoutZone(), zone));
+        }
+    }
+
+    @Test
+    public void parseBinaryAndUuidPartitionValuesFromCommits() {
+        byte[] bytes = new byte[] {0, (byte) 0xde, (byte) 0xad, (byte) 0xff};
+        for (org.apache.iceberg.types.Type type : Arrays.asList(
+                Types.BinaryType.get(), Types.FixedType.ofLength(bytes.length))) {
+            Assertions.assertEquals(ByteBuffer.wrap(bytes), IcebergPartitionUtils.parsePartitionValueFromString(
+                    "0x00deadff", type, ZoneOffset.UTC));
+            Assertions.assertEquals("0x00deadff", IcebergPartitionUtils.serializePartitionValue(
+                    type, ByteBuffer.wrap(bytes), ZoneOffset.UTC));
+        }
+        Assertions.assertEquals(ByteBuffer.allocate(0), IcebergPartitionUtils.parsePartitionValueFromString(
+                "0x", Types.BinaryType.get(), ZoneOffset.UTC));
+        UUID uuid = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        Assertions.assertEquals(uuid, IcebergPartitionUtils.parsePartitionValueFromString(
+                "0x00112233445566778899aabbccddeeff", Types.UUIDType.get(), ZoneOffset.UTC));
+        Assertions.assertEquals(uuid, IcebergPartitionUtils.parsePartitionValueFromString(
+                uuid.toString(), Types.UUIDType.get(), ZoneOffset.UTC));
+        // A wrong byte count or a value without the 0x prefix must not become a different partition.
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergPartitionUtils.parsePartitionValueFromString(
+                        "0xdead", Types.FixedType.ofLength(4), ZoneOffset.UTC));
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergPartitionUtils.parsePartitionValueFromString(
+                        "0xdead", Types.UUIDType.get(), ZoneOffset.UTC));
+        for (String malformed : Arrays.asList("DEAD", "0xD", "0xGG")) {
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    IcebergPartitionUtils.parsePartitionValueFromString(
+                            malformed, Types.BinaryType.get(), ZoneOffset.UTC), malformed);
+        }
+    }
+
+    @Test
+    public void buildRangeTimestamptzBoundsCarryUtcOffset() {
+        // Transform ordinals describe UTC boundaries; the offset keeps fe-core from reading them in the session zone.
+        Map<String, String> uppers = new HashMap<>();
+        uppers.put("hour", "1970-01-01 01:00:00+00:00");
+        uppers.put("day", "1970-01-02 00:00:00+00:00");
+        uppers.put("month", "1970-02-01 00:00:00+00:00");
+        uppers.put("year", "1971-01-01 00:00:00+00:00");
+        for (Map.Entry<String, String> entry : uppers.entrySet()) {
+            IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                    "ts_" + entry.getKey() + "=0", "0", entry.getKey(), Types.TimestampType.withZone(), 1L, 1L);
+            Assertions.assertEquals(Collections.singletonList("1970-01-01 00:00:00+00:00"), rb.getLowerBound());
+            Assertions.assertEquals(Collections.singletonList(entry.getValue()), rb.getUpperBound());
+        }
+    }
+
+    @Test
+    public void buildRangeYearZeroUsesProlepticYear() {
+        // Year-of-era formatting would render both year zero and year one as 0001.
+        Map<org.apache.iceberg.types.Type, String> suffixes = new HashMap<>();
+        suffixes.put(Types.DateType.get(), "");
+        suffixes.put(Types.TimestampType.withoutZone(), " 00:00:00");
+        suffixes.put(Types.TimestampType.withZone(), " 00:00:00+00:00");
+        for (Map.Entry<org.apache.iceberg.types.Type, String> entry : suffixes.entrySet()) {
+            IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                    "y=-1970", "-1970", "year", entry.getKey(), 1L, 1L);
+            Assertions.assertEquals(Collections.singletonList("0000-01-01" + entry.getValue()), rb.getLowerBound());
+            Assertions.assertEquals(Collections.singletonList("0001-01-01" + entry.getValue()), rb.getUpperBound());
+        }
+    }
+
 }

@@ -111,6 +111,27 @@ public class PaimonWritePlanProviderTest {
     }
 
     @Test
+    public void writeColumnsKeepInstantSemanticsInsideContainersRegardlessOfLegacyFlags() {
+        // A civil DATETIMEV2 write boundary would collapse both instants of a DST fold.
+        List<DataField> fields = Arrays.asList(
+                DataTypes.FIELD(0, "instant", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)),
+                DataTypes.FIELD(1, "local_time", DataTypes.TIMESTAMP(6)),
+                DataTypes.FIELD(2, "items", DataTypes.ARRAY(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3))),
+                DataTypes.FIELD(3, "record", DataTypes.ROW(
+                        DataTypes.FIELD(4, "instant", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)))));
+        for (boolean flag : new boolean[] {false, true}) {
+            List<ConnectorColumn> columns = PaimonWritePlanProvider.mapWriteColumns(
+                    fields, Collections.emptyList(), new PaimonTypeMapping.Options(flag, flag));
+            Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0), columns.get(0).getType());
+            Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, 0), columns.get(1).getType());
+            Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 3, 0),
+                    columns.get(2).getType().getChildren().get(0));
+            Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0),
+                    columns.get(3).getType().getChildren().get(0));
+        }
+    }
+
+    @Test
     public void writeColumnsConvertPaimonDefaultsToDorisSqlAndPreserveSchemaProperties() {
         List<ConnectorColumn> columns = PaimonWritePlanProvider.mapWriteColumns(
                 Arrays.asList(

@@ -2791,7 +2791,7 @@ public class PaimonScanPlanProviderTest {
                     .column("id", DataTypes.INT().notNull())
                     .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
                     .primaryKey("id").option("bucket", "1")
-                    .option("file.format", "orc").option("orc.timestamp-ltz.legacy-type", "true")
+                    .option("file.format", "orc").option("orc.timestamp-ltz.legacy.type", "true")
                     .build(), false);
             Table table = catalog.getTable(id);
             BatchWriteBuilder builder = table.newBatchWriteBuilder();
@@ -2857,7 +2857,7 @@ public class PaimonScanPlanProviderTest {
             catalog.createTable(id, Schema.newBuilder()
                     .column("id", DataTypes.INT().notNull())
                     .primaryKey("id").option("bucket", "1")
-                    .option("file.format", "orc").option("orc.timestamp-ltz.legacy-type", "true")
+                    .option("file.format", "orc").option("orc.timestamp-ltz.legacy.type", "true")
                     .build(), false);
             Table table = catalog.getTable(id);
             BatchWriteBuilder builder = table.newBatchWriteBuilder();
@@ -2972,7 +2972,7 @@ public class PaimonScanPlanProviderTest {
                     .column("id", DataTypes.INT())
                     .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
                     .option("file.format", "orc")
-                    .option("orc.timestamp-ltz.legacy-type", "true")
+                    .option("orc.timestamp-ltz.legacy.type", "true")
                     .build(), false);
             Table table = catalog.getTable(id);
             BatchWriteBuilder builder = table.newBatchWriteBuilder();

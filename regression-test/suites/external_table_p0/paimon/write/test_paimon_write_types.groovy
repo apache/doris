@@ -83,6 +83,11 @@ suite("test_paimon_write_types", "p0,external,paimon") {
         CREATE TABLE paimon.${dbName}.t_types_ntz (
             id INT, event_time TIMESTAMP_NTZ
         ) USING paimon;
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_types_fold;
+        CREATE TABLE paimon.${dbName}.t_types_fold (
+            id INT, event_time TIMESTAMP
+        ) USING paimon;
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -182,13 +187,19 @@ suite("test_paimon_write_types", "p0,external,paimon") {
         sql """SET time_zone = 'Asia/Shanghai'"""
         sql """INSERT INTO t_types_timezone VALUES
             (1, TIMESTAMP '2024-01-15 10:30:00.123456')"""
+        // Shanghai's epoch midnight is a pre-epoch UTC instant.
+        sql """INSERT INTO t_types_timezone VALUES
+            (3, TIMESTAMP '1970-01-01 00:00:00')"""
         sql """SET time_zone = 'UTC'"""
         sql """INSERT INTO t_types_timezone VALUES
             (2, TIMESTAMP '2024-01-15 02:30:00.654321')"""
         order_qt_types_timezone_utc """SELECT id, event_time FROM t_types_timezone ORDER BY id"""
+        // Spark reads the instants independently of the Doris reader.
+        assertTableEquals("t_types_timezone", "id, unix_micros(event_time)", "ORDER BY id",
+                "id, " + epochMicros("event_time"))
 
         // Reading the same snapshot in Asia/Shanghai must apply the session offset
-        // to both rows without losing their microsecond fractions.
+        // to every row without losing their microsecond fractions.
         sql """SET time_zone = 'Asia/Shanghai'"""
         order_qt_types_timezone_shanghai """SELECT id, event_time FROM t_types_timezone ORDER BY id"""
 
@@ -204,6 +215,27 @@ suite("test_paimon_write_types", "p0,external,paimon") {
         sql """SET time_zone = 'UTC'"""
         order_qt_types_ntz """SELECT id, event_time FROM t_types_ntz ORDER BY id"""
         assertTableEquals("t_types_ntz", "*", "ORDER BY id")
+
+        // Both UTC instants render as 01:30 in Los Angeles. INSERT SELECT must reach the
+        // LTZ writer without a lossy intermediate civil-time cast.
+        sql """SET time_zone = 'America/Los_Angeles'"""
+        sql """INSERT INTO t_types_fold
+            SELECT 1, CAST('2023-11-05 08:30:00.123456+00:00' AS TIMESTAMPTZ(6))
+            UNION ALL
+            SELECT 2, CAST('2023-11-05 09:30:00.123456+00:00' AS TIMESTAMPTZ(6))"""
+        sql """SET time_zone = 'UTC'"""
+        order_qt_types_fold_micros """SELECT id, ${epochMicros("event_time")} FROM t_types_fold ORDER BY id"""
+        assertTableEquals("t_types_fold", "id, unix_micros(event_time)", "ORDER BY id",
+                "id, " + epochMicros("event_time"))
+        def originalJniScanner = sql """SELECT @@force_jni_scanner"""
+        try {
+            for (boolean jni : [false, true]) {
+                sql """SET force_jni_scanner = ${jni}"""
+                "order_qt_types_fold_jni_${jni}" """SELECT id, event_time FROM t_types_fold ORDER BY id"""
+            }
+        } finally {
+            sql """SET force_jni_scanner = ${originalJniScanner[0][0]}"""
+        }
     } finally {
         sql """SET time_zone = '${originalTimeZone[0][0]}'"""
     }

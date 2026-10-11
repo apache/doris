@@ -24,6 +24,9 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Arrays;
 
 /**
  * Unit tests for {@link PaimonScanPlanProvider#serializePartitionValue}, the FIX-NATIVE-PARTVAL
@@ -64,6 +67,22 @@ public class PaimonPartitionValueRenderTest {
         // The BE applies the session zone; transport must retain an unambiguous instant.
         Assertions.assertEquals("2024-01-01T01:02:03Z", shanghai);
         Assertions.assertEquals("2024-01-01T01:02:03Z", utc);
+    }
+
+    @Test
+    public void ltzRetainsPreEpochAndDstFoldInstantsInEverySessionZone() {
+        // Both New York fold instants display as 01:30; only the explicit offset keeps them apart.
+        for (LocalDateTime utc : Arrays.asList(
+                LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                LocalDateTime.of(2021, 11, 7, 5, 30, 0, 123456000),
+                LocalDateTime.of(2021, 11, 7, 6, 30, 0, 123456000))) {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                String value = PaimonScanPlanProvider.serializePartitionValue(
+                        DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6), Timestamp.fromLocalDateTime(utc), zone);
+                Assertions.assertEquals(utc.toInstant(ZoneOffset.UTC),
+                        OffsetDateTime.parse(value).toInstant(), utc + " " + zone);
+            }
+        }
     }
 
     @Test
