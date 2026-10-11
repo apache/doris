@@ -535,6 +535,11 @@ public:
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;
 
+    // Collect only completed files; interim rowsets may still have open writers.
+    // file_path is the logical path used at creation, not the S3 writer's absolute path.
+    Status collect_packed_slice_location(const io::FileWriter& file_writer,
+                                         const std::string& file_path);
+
     void add_packed_slice_location(const std::string& segment_path,
                                    const std::string& packed_file_path, int64_t offset,
                                    int64_t size, int64_t packed_file_size) {

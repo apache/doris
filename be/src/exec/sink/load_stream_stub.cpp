@@ -170,7 +170,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                            int64_t idle_timeout_ms, bool enable_profile) {
+                            int64_t idle_timeout_ms, bool enable_profile, int64_t txn_expiration,
+                            const std::string& storage_vault_id, bool write_file_cache) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
         return _status;
@@ -194,6 +195,9 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
+    request.set_txn_expiration(txn_expiration);
+    request.set_storage_vault_id(storage_vault_id);
+    request.set_write_file_cache(write_file_cache);
     if (_is_incremental) {
         request.set_total_streams(0);
     } else if (total_streams > 0) {
@@ -591,7 +595,8 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
                              const NodeInfo& node_info, int64_t txn_id,
                              const OlapTableSchemaParam& schema,
                              const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                             int64_t idle_timeout_ms, bool enable_profile) {
+                             int64_t idle_timeout_ms, bool enable_profile, int64_t txn_expiration,
+                             const std::string& storage_vault_id, bool write_file_cache) {
     bool get_schema = true;
     auto status = Status::OK();
     bool first_stream = true;
@@ -599,10 +604,12 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
         Status st;
         if (get_schema) {
             st = stream->open(client_cache, node_info, txn_id, schema, tablets_for_schema,
-                              total_streams, idle_timeout_ms, enable_profile);
+                              total_streams, idle_timeout_ms, enable_profile, txn_expiration,
+                              storage_vault_id, write_file_cache);
         } else {
             st = stream->open(client_cache, node_info, txn_id, schema, {}, total_streams,
-                              idle_timeout_ms, enable_profile);
+                              idle_timeout_ms, enable_profile, txn_expiration, storage_vault_id,
+                              write_file_cache);
         }
         // Simulate one stream open failure within LoadStreamStubs.
         // This causes the successfully opened streams to be cancelled,

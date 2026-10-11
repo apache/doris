@@ -179,6 +179,7 @@ private:
     // unique load id
     PUniqueId _load_id;
     int64_t _txn_id = -1;
+    int64_t _txn_expiration = 0;
     int _num_replicas = -1;
     int _tuple_desc_id = -1;
 
@@ -197,6 +198,7 @@ private:
     int _num_local_sink = -1;
     bool _is_high_priority = false;
     bool _write_file_cache = false;
+    std::string _storage_vault_id;
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;

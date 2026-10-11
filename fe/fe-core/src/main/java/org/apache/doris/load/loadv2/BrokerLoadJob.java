@@ -379,7 +379,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                         }
                     }
                 }
-                if (isPartialUpdate() || hasInvertedIndexV1 || Config.isCloudMode()) {
+                if (isPartialUpdate() || hasInvertedIndexV1) {
                     isEnableMemtableOnSinkNode = false;
                 }
 

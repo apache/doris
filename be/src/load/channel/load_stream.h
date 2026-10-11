@@ -22,6 +22,7 @@
 
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -45,10 +46,11 @@ using FailedTablets = std::vector<std::pair<int64_t, Status>>;
 class TabletStream {
 public:
     TabletStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
-                 LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile);
+                 LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile, int64_t txn_expiration,
+                 std::string storage_vault_id, bool write_file_cache);
 
     Status init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
-                int64_t partition_id);
+                int64_t partition_id, bool is_empty = false);
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
@@ -78,6 +80,9 @@ private:
     AtomicStatus _status;
     PUniqueId _load_id;
     int64_t _txn_id;
+    int64_t _txn_expiration;
+    std::string _storage_vault_id;
+    bool _write_file_cache;
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
@@ -91,7 +96,8 @@ class IndexStream {
 public:
     IndexStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                 std::shared_ptr<OlapTableSchemaParam> schema, LoadStreamMgr* load_stream_mgr,
-                RuntimeProfile* profile);
+                RuntimeProfile* profile, int64_t txn_expiration, std::string storage_vault_id,
+                bool write_file_cache);
     ~IndexStream();
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
@@ -103,7 +109,7 @@ public:
 
 private:
     void _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
-                             int64_t partition_id);
+                             int64_t partition_id, bool is_empty);
 
 private:
     int64_t _id;
@@ -111,6 +117,9 @@ private:
     bthread::Mutex _lock;
     PUniqueId _load_id;
     int64_t _txn_id;
+    int64_t _txn_expiration;
+    std::string _storage_vault_id;
+    bool _write_file_cache;
     std::shared_ptr<OlapTableSchemaParam> _schema;
     std::unordered_map<int64_t, int64_t> _tablet_partitions;
     RuntimeProfile* _profile = nullptr;
