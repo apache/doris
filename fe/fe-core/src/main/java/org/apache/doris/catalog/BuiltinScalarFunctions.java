@@ -111,6 +111,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAny;
@@ -126,6 +127,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetI
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCount;
@@ -721,6 +723,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapEmpty.class, "bitmap_empty"),
             scalar(BitmapFromArray.class, "bitmap_from_array"),
             scalar(BitmapFromBase64.class, "bitmap_from_base64"),
+            scalar(BitmapFromBinary.class, "bitmap_from_binary"),
             scalar(BitmapFromString.class, "bitmap_from_string"),
             scalar(BitmapHasAll.class, "bitmap_has_all"),
             scalar(BitmapHasAny.class, "bitmap_has_any"),
@@ -736,6 +739,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapSubsetLimit.class, "bitmap_subset_limit"),
             scalar(BitmapToArray.class, "bitmap_to_array"),
             scalar(BitmapToBase64.class, "bitmap_to_base64"),
+            scalar(BitmapToBinary.class, "bitmap_to_binary"),
             scalar(BitmapToString.class, "bitmap_to_string"),
             scalar(BitmapXor.class, "bitmap_xor"),
             scalar(BitmapXorCount.class, "bitmap_xor_count"),

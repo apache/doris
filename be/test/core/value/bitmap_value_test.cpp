@@ -749,6 +749,133 @@ TEST(BitmapValueTest, write_read) {
     config::enable_set_in_bitmap_value = false;
 }
 
+// Serialize `src` and hand back the raw bytes; the caller owns the returned buffer's
+// lifetime via the out-param std::string.
+static std::string serialize_for_valid_and_deserialize(const BitmapValue& src) {
+    std::string buf(src.getSizeInBytes(), '\0');
+    src.write_to(buf.data());
+    return buf;
+}
+
+TEST(BitmapValueTest, valid_and_deserialize_rejects_duplicate_bitmap64_map_key) {
+    // A bitmap64 payload that repeats a map key is corrupted: keeping only the first segment
+    // would silently return a wrong bitmap, so the bounded reader must reject it.
+    std::string bytes;
+    bytes += static_cast<char>(BitmapTypeCode::BITMAP64);
+    bytes += static_cast<char>(2); // varint map size = 2
+    for (uint16_t value : {42, 43}) {
+        uint32_t map_key = 7; // the same key in both segments
+        bytes.append(reinterpret_cast<const char*>(&map_key), 4);
+        uint32_t cookie = 12347; // SERIAL_COOKIE (hasrun), size-1 = 0
+        bytes.append(reinterpret_cast<const char*>(&cookie), 4);
+        bytes += '\0';                        // run bitmap: container 0 is not a run container
+        uint16_t key = 0, card_minus_one = 0; // one array container holding {value}
+        bytes.append(reinterpret_cast<const char*>(&key), 2);
+        bytes.append(reinterpret_cast<const char*>(&card_minus_one), 2);
+        bytes.append(reinterpret_cast<const char*>(&value), 2);
+    }
+
+    BitmapValue deserialized;
+    EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    EXPECT_EQ(deserialized.cardinality(), 0);
+}
+
+TEST(BitmapValueTest, valid_and_deserialize) {
+    config::enable_set_in_bitmap_value = false;
+
+    // round-trip: every type code must survive the bounded deserialize
+    BitmapValue bitmap_empty;
+    BitmapValue bitmap_single(1);
+    BitmapValue bitmap_single64((uint64_t)4294967296);
+    BitmapValue bitmap32({1, 9999999});
+    BitmapValue bitmap64({1, (uint64_t)4294967296});
+    std::vector<uint64_t> many(128);
+    std::iota(many.begin(), many.begin() + 32, 0);
+    std::iota(many.begin() + 32, many.begin() + 64, 4294967297);
+    std::iota(many.begin() + 64, many.end(), 8589934594);
+    BitmapValue bitmap_many(many);
+
+    for (const auto* src :
+         {&bitmap_empty, &bitmap_single, &bitmap_single64, &bitmap32, &bitmap64, &bitmap_many}) {
+        std::string bytes = serialize_for_valid_and_deserialize(*src);
+        BitmapValue deserialized;
+        EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()))
+                << "type_code=" << static_cast<int>(src->get_type_code());
+        check_bitmap_equal(deserialized, *src);
+    }
+
+    // an empty buffer carries no type code at all
+    {
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize("", 0));
+        EXPECT_EQ(deserialized.cardinality(), 0);
+    }
+
+    // truncated payloads of every type must be rejected, never crash: cut the last byte off
+    // each serialized form (a 1-byte EMPTY payload can only be truncated to zero bytes,
+    // already covered above)
+    for (const auto* src : {&bitmap_single, &bitmap_single64, &bitmap32, &bitmap64, &bitmap_many}) {
+        std::string bytes = serialize_for_valid_and_deserialize(*src);
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size() - 1))
+                << "type_code=" << static_cast<int>(src->get_type_code());
+        EXPECT_EQ(deserialized.cardinality(), 0);
+    }
+
+    // unknown type code
+    {
+        std::string bytes("\x7f", 1);
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    }
+
+    // trailing bytes must be rejected for every fixed-size encoding: a longer buffer is a
+    // corrupted value, not a valid bitmap with padding. (The single-roaring BITMAP32 form is
+    // covered by valid_and_deserialize_bitmap32_trailing_bytes once read_safe reports the
+    // consumed byte count.)
+    for (const auto* src : {&bitmap_empty, &bitmap_single, &bitmap_single64}) {
+        std::string bytes = serialize_for_valid_and_deserialize(*src);
+        bytes += '\x7f';
+        BitmapValue deserialized;
+        EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()))
+                << "type_code=" << static_cast<int>(src->get_type_code());
+        EXPECT_EQ(deserialized.cardinality(), 0);
+    }
+
+    // SET payload round-trips and, with set disabled, converts to BITMAP with equal contents
+    {
+        config::enable_set_in_bitmap_value = true;
+        BitmapValue set_bitmap;
+        set_bitmap.add(1);
+        set_bitmap.add(2);
+        EXPECT_EQ(set_bitmap.get_type_code(), BitmapTypeCode::SET);
+        std::string bytes = serialize_for_valid_and_deserialize(set_bitmap);
+
+        BitmapValue deserialized;
+        EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+        check_bitmap_equal(deserialized, set_bitmap);
+
+        // reader with set disabled: contents equal, representation becomes BITMAP
+        config::enable_set_in_bitmap_value = false;
+        BitmapValue deserialized2;
+        EXPECT_TRUE(deserialized2.valid_and_deserialize(bytes.data(), bytes.size()));
+        check_bitmap_equal(deserialized2, set_bitmap);
+
+        // truncated SET (count byte present, values cut off)
+        EXPECT_FALSE(deserialized2.valid_and_deserialize(bytes.data(), 2));
+        EXPECT_EQ(deserialized2.cardinality(), 0);
+
+        // trailing byte after the SET payload
+        std::string padded = bytes;
+        padded += '\x7f';
+        BitmapValue deserialized3;
+        EXPECT_FALSE(deserialized3.valid_and_deserialize(padded.data(), padded.size()));
+        EXPECT_EQ(deserialized3.cardinality(), 0);
+    }
+
+    config::enable_set_in_bitmap_value = false;
+}
+
 TEST(BitmapValueTest, set_to_string) {
     config::enable_set_in_bitmap_value = true;
     BitmapValue bitmap;

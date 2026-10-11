@@ -121,6 +121,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAny;
@@ -136,6 +137,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetI
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapSubsetLimit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCount;
@@ -989,8 +991,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bitmapFromBase64, context);
     }
 
+    default R visitBitmapFromBinary(BitmapFromBinary bitmapFromBinary, C context) {
+        return visitScalarFunction(bitmapFromBinary, context);
+    }
+
     default R visitBitmapToBase64(BitmapToBase64 bitmapToBase64, C context) {
         return visitScalarFunction(bitmapToBase64, context);
+    }
+
+    default R visitBitmapToBinary(BitmapToBinary bitmapToBinary, C context) {
+        return visitScalarFunction(bitmapToBinary, context);
     }
 
     default R visitBitmapHasAll(BitmapHasAll bitmapHasAll, C context) {
