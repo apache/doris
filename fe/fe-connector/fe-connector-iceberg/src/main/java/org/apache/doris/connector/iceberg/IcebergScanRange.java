@@ -67,6 +67,13 @@ public class IcebergScanRange implements ConnectorScanRange {
     // Identity partition column (lowercased) -> serialized value, already ordered as the path_partition_keys
     // list, filtered to keys this file carries. Drives columns-from-path. Never null (empty when unpartitioned).
     private final Map<String, String> partitionValues;
+    // Whether this range counts toward the EXPLAIN `partition=N/M` / sql_block_rule partition_num display
+    // (see getScannedPartitionKey). False ONLY when the table's CURRENT spec is unpartitioned: such a table
+    // reports no partitions at all (listPartitions is empty), so counting the partitions of files written
+    // under an older spec would change `partition=N/M` and could newly trip a partition_num block rule —
+    // display metadata the DORIS-29056 read fix must not alter. The partition VALUES those files carry are
+    // unaffected: they are per-file read data, not display.
+    private final boolean countsAsScannedPartition;
     // Merge-on-read delete files applying to this data file (T04). Never null (empty when none / v1).
     private final List<DeleteFile> deleteFiles;
     // COUNT(*) pushdown precomputed row count (T05): -1 = no precomputed count (the normal scan path);
@@ -132,6 +139,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.partitionValues = builder.partitionValues != null
                 ? Collections.unmodifiableMap(builder.partitionValues)
                 : Collections.emptyMap();
+        this.countsAsScannedPartition = builder.countsAsScannedPartition;
         this.deleteFiles = builder.deleteFiles != null
                 ? Collections.unmodifiableList(builder.deleteFiles)
                 : Collections.emptyList();
@@ -226,7 +234,7 @@ public class IcebergScanRange implements ConnectorScanRange {
      * {@code IcebergScanPlanProvider} counts distinct non-null keys for {@code selectedPartitionNum}.
      */
     String getScannedPartitionKey() {
-        if (partitionDataJson == null) {
+        if (partitionDataJson == null || !countsAsScannedPartition) {
             return null;
         }
         return partitionSpecId + "|" + partitionDataJson;
@@ -467,6 +475,9 @@ public class IcebergScanRange implements ConnectorScanRange {
         private Long firstRowId;
         private Long lastUpdatedSequenceNumber;
         private Map<String, String> partitionValues;
+        // Default true = legacy behavior (a range carrying PartitionData counts as a scanned partition); the
+        // data path passes the table's CURRENT spec isPartitioned().
+        private boolean countsAsScannedPartition = true;
         private List<DeleteFile> deleteFiles;
         private long pushDownRowCount = -1;
         private String serializedSplit;
@@ -549,6 +560,15 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         public Builder partitionDataJson(String partitionDataJson) {
             this.partitionDataJson = partitionDataJson;
+            return this;
+        }
+
+        /**
+         * Whether this range counts toward the scanned-partition display (default {@code true}); pass the
+         * table's CURRENT spec {@code isPartitioned()} — see {@link IcebergScanRange#getScannedPartitionKey()}.
+         */
+        public Builder countsAsScannedPartition(boolean countsAsScannedPartition) {
+            this.countsAsScannedPartition = countsAsScannedPartition;
             return this;
         }
 

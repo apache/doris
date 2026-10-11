@@ -31,6 +31,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
@@ -122,14 +123,15 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
 }
 
 Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                        JsonbWriter& writer) const {
+                                                        JsonbWriter& writer,
+                                                        const FormatOptions& options) const {
     const auto& col_null = assert_cast<const ColumnNullable&>(from_column);
 
     if (col_null.is_null_at(row_num)) {
         writer.writeNull();
     } else {
         RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(col_null.get_nested_column(),
-                                                                row_num, writer));
+                                                                row_num, writer, options));
     }
 
     return Status::OK();
@@ -380,6 +382,28 @@ Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const
     return nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
                                                &column_nullable.get_null_map_data(), array_builder,
                                                start, end, ctz);
+}
+
+Status DataTypeNullableSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column, const NullMap*,
+        const std::shared_ptr<arrow::Field>& field, arrow::ArrayBuilder* array_builder,
+        int64_t start, int64_t end, const cctz::time_zone& ctz) const {
+    const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    return nested_serde->write_column_to_paimon_arrow(
+            nullable_type.get_nested_type(), column_nullable.get_nested_column(),
+            &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
+}
+
+Status DataTypeNullableSerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column, const NullMap*,
+        const std::shared_ptr<arrow::Field>& field, arrow::ArrayBuilder* array_builder,
+        int64_t start, int64_t end, const cctz::time_zone& ctz) const {
+    const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    return nested_serde->write_column_to_iceberg_arrow(
+            nullable_type.get_nested_type(), column_nullable.get_nested_column(),
+            &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
 }
 
 Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,

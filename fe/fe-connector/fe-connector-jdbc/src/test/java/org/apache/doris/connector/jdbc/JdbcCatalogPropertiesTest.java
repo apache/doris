@@ -67,8 +67,8 @@ class JdbcCatalogPropertiesTest {
         Assertions.assertFalse(p.isOnlySpecifiedDatabase());
         Assertions.assertEquals("", p.getIncludeDatabaseList());
         Assertions.assertEquals("", p.getExcludeDatabaseList());
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
         Assertions.assertEquals("", p.getFunctionRules());
         Assertions.assertFalse(p.isLowerCaseMetaNames());
         Assertions.assertEquals("", p.getMetaNamesMapping());
@@ -267,5 +267,29 @@ class JdbcCatalogPropertiesTest {
                 JdbcCatalogProperties.of(with(JdbcCatalogProperties.PASSWORD, "secret-p")).toString();
         Assertions.assertFalse(rendered.contains("secret-p"), "got: " + rendered);
         Assertions.assertTrue(rendered.contains("password=***"), "got: " + rendered);
+    }
+
+    // ---- driver_url mandatory security rule: statement-side rejects, of()-side must not ----
+
+    @Test
+    void checkCreateTimeOnlyRulesRejectsTraversalDriverUrl() {
+        // MUTATION: drop the JdbcDriverUrlSecurity.check call from checkCreateTimeOnlyRules -> red.
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> JdbcCatalogProperties.of(
+                                with(JdbcCatalogProperties.DRIVER_URL, "file:///opt/a/../../etc/evil.jar"))
+                        .checkCreateTimeOnlyRules());
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> JdbcCatalogProperties.of(
+                                with(JdbcCatalogProperties.DRIVER_URL, "sub/dir/evil.jar"))
+                        .checkCreateTimeOnlyRules());
+    }
+
+    @Test
+    void ofToleratesPreRuleDriverUrl() {
+        // A catalog created before the rule existed must keep rebuilding after an FE restart, so the
+        // rule must never run from of(). MUTATION: moving the check into of() -> red.
+        JdbcCatalogProperties p = JdbcCatalogProperties.of(
+                with(JdbcCatalogProperties.DRIVER_URL, "file:///opt/a/../../etc/legacy.jar"));
+        Assertions.assertEquals("file:///opt/a/../../etc/legacy.jar", p.getDriverUrl());
     }
 }

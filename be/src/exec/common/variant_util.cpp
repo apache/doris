@@ -18,6 +18,7 @@
 #include "exec/common/variant_util.h"
 
 #include <fmt/format.h>
+#include <fnmatch.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -35,9 +36,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <list>
 #include <memory>
-#include <mutex>
 #include <ostream>
 #include <ranges>
 #include <set>
@@ -81,7 +80,6 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
 #include "exprs/json_functions.h"
-#include "re2/re2.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
@@ -97,7 +95,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/client_cache.h"
 #include "util/defer_op.h"
-#include "util/json/json_parser.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 #include "util/jsonb_utils.h"
@@ -117,7 +114,7 @@ PathInData make_full_subcolumn_path(const TabletColumnPtr& parent_column, std::s
     return builder.append(parent_column->name_lower_case(), false).append("", false).build();
 }
 
-void append_empty_key_subcolumn_from_stats(TabletSchema::PathsSetInfo& paths_set_info,
+void append_empty_key_subcolumn_from_stats(VariantCompactionPaths& paths_set_info,
                                            const TabletColumnPtr& parent_column,
                                            TabletSchemaSPtr& output_schema) {
     if (!paths_set_info.sub_path_set.contains("") || paths_set_info.sparse_path_set.contains("") ||
@@ -141,162 +138,6 @@ void append_empty_key_subcolumn_from_stats(TabletSchema::PathsSetInfo& paths_set
 }
 
 } // namespace
-
-inline void append_escaped_regex_char(std::string* regex_output, char ch) {
-    switch (ch) {
-    case '.':
-    case '^':
-    case '$':
-    case '+':
-    case '*':
-    case '?':
-    case '(':
-    case ')':
-    case '|':
-    case '{':
-    case '}':
-    case '[':
-    case ']':
-    case '\\':
-        regex_output->push_back('\\');
-        regex_output->push_back(ch);
-        break;
-    default:
-        regex_output->push_back(ch);
-        break;
-    }
-}
-
-// Small LRU to cap compiled glob patterns
-constexpr size_t kGlobRegexCacheCapacity = 256;
-
-struct GlobRegexCacheEntry {
-    std::shared_ptr<RE2> re2;
-    std::list<std::string>::iterator lru_it;
-};
-
-static std::mutex g_glob_regex_cache_mutex;
-static std::list<std::string> g_glob_regex_cache_lru;
-static std::unordered_map<std::string, GlobRegexCacheEntry> g_glob_regex_cache;
-
-std::shared_ptr<RE2> get_or_build_re2(const std::string& glob_pattern) {
-    {
-        std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
-        auto it = g_glob_regex_cache.find(glob_pattern);
-        if (it != g_glob_regex_cache.end()) {
-            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
-                                          it->second.lru_it);
-            return it->second.re2;
-        }
-    }
-    std::string regex_pattern;
-    Status st = glob_to_regex(glob_pattern, &regex_pattern);
-    if (!st.ok()) {
-        return nullptr;
-    }
-    auto compiled = std::make_shared<RE2>(regex_pattern);
-    if (!compiled->ok()) {
-        return nullptr;
-    }
-    {
-        std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
-        auto it = g_glob_regex_cache.find(glob_pattern);
-        if (it != g_glob_regex_cache.end()) {
-            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
-                                          it->second.lru_it);
-            return it->second.re2;
-        }
-        g_glob_regex_cache_lru.push_front(glob_pattern);
-        g_glob_regex_cache.emplace(glob_pattern,
-                                   GlobRegexCacheEntry {compiled, g_glob_regex_cache_lru.begin()});
-        if (g_glob_regex_cache.size() > kGlobRegexCacheCapacity) {
-            const std::string& evict_key = g_glob_regex_cache_lru.back();
-            g_glob_regex_cache.erase(evict_key);
-            g_glob_regex_cache_lru.pop_back();
-        }
-    }
-    return compiled;
-}
-
-// Convert a restricted glob pattern into a regex.
-// Supported: '*', '?', '[...]', '\\' escape. Others are treated as literals.
-Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern) {
-    regex_pattern->clear();
-    regex_pattern->append("^");
-    bool is_escaped = false;
-    size_t pattern_length = glob_pattern.size();
-    for (size_t index = 0; index < pattern_length; ++index) {
-        char current_char = glob_pattern[index];
-        if (is_escaped) {
-            append_escaped_regex_char(regex_pattern, current_char);
-            is_escaped = false;
-            continue;
-        }
-        if (current_char == '\\') {
-            is_escaped = true;
-            continue;
-        }
-        if (current_char == '*') {
-            regex_pattern->append(".*");
-            continue;
-        }
-        if (current_char == '?') {
-            regex_pattern->append(".");
-            continue;
-        }
-        if (current_char == '[') {
-            size_t class_index = index + 1;
-            bool class_closed = false;
-            bool is_class_escaped = false;
-            std::string class_buffer;
-            if (class_index < pattern_length &&
-                (glob_pattern[class_index] == '!' || glob_pattern[class_index] == '^')) {
-                class_buffer.push_back('^');
-                ++class_index;
-            }
-            for (; class_index < pattern_length; ++class_index) {
-                char class_char = glob_pattern[class_index];
-                if (is_class_escaped) {
-                    class_buffer.push_back(class_char);
-                    is_class_escaped = false;
-                    continue;
-                }
-                if (class_char == '\\') {
-                    is_class_escaped = true;
-                    continue;
-                }
-                if (class_char == ']') {
-                    class_closed = true;
-                    break;
-                }
-                class_buffer.push_back(class_char);
-            }
-            if (!class_closed) {
-                return Status::InvalidArgument("Unclosed character class in glob pattern: {}",
-                                               glob_pattern);
-            }
-            regex_pattern->append("[");
-            regex_pattern->append(class_buffer);
-            regex_pattern->append("]");
-            index = class_index;
-            continue;
-        }
-        append_escaped_regex_char(regex_pattern, current_char);
-    }
-    if (is_escaped) {
-        append_escaped_regex_char(regex_pattern, '\\');
-    }
-    regex_pattern->append("$");
-    return Status::OK();
-}
-
-bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path) {
-    auto compiled = get_or_build_re2(glob_pattern);
-    if (compiled == nullptr) {
-        return false;
-    }
-    return RE2::FullMatch(candidate_path, *compiled);
-}
 
 // NestedGroup's physical children and offsets are produced by NestedGroupWriteProvider, not by
 // appending TabletSchema extracted columns here. This predicate keeps only ordinary Variant paths
@@ -485,7 +326,7 @@ void get_column_by_type(const DataTypePtr& data_type, const std::string& name, T
     PrimitiveType type = data_type->get_primitive_type();
     if (is_int_or_bool(type) || is_string_type(type) || is_float_or_double(type) || is_ip(type) ||
         is_date_or_datetime(type) || type == PrimitiveType::TYPE_DATEV2 ||
-        type == PrimitiveType::TYPE_TIMESTAMP_NS) {
+        type == PrimitiveType::TYPE_TIMESTAMP_NS || type == PrimitiveType::TYPE_UUID) {
         column.set_length(cast_set<int32_t>(data_type->get_size_of_value_in_memory()));
         return;
     }
@@ -686,6 +527,7 @@ bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
     case FieldType::OLAP_FIELD_TYPE_IPV4:
     case FieldType::OLAP_FIELD_TYPE_IPV6:
+    case FieldType::OLAP_FIELD_TYPE_UUID:
         return true;
     default:
         return false;
@@ -1002,7 +844,7 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 // get the subpaths and sparse paths for the variant column
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
                                          const PathToNoneNullValues& stats,
-                                         TabletSchema::PathsSetInfo& paths_set_info) {
+                                         VariantCompactionPaths& paths_set_info) {
     // max_subcolumns_count is 0 means no limit
     if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
@@ -1148,7 +990,7 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
 Status VariantCompactionUtil::get_compaction_typed_columns(
         const TabletSchemaSPtr& target, const std::unordered_set<std::string>& typed_paths,
         const TabletColumnPtr parent_column, TabletSchemaSPtr& output_schema,
-        TabletSchema::PathsSetInfo& paths_set_info) {
+        VariantCompactionPaths& paths_set_info) {
     if (parent_column->variant_enable_typed_paths_to_sparse()) {
         return Status::OK();
     }
@@ -1169,7 +1011,7 @@ Status VariantCompactionUtil::get_compaction_typed_columns(
 Status VariantCompactionUtil::get_compaction_nested_columns(
         const std::unordered_set<PathInData, PathInData::Hash>& nested_paths,
         const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
-        TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info) {
+        TabletSchemaSPtr& output_schema, VariantCompactionPaths& paths_set_info) {
     const auto& parent_indexes = output_schema->inverted_indexs(parent_column->unique_id());
     for (const auto& path : nested_paths) {
         const auto& find_data_types = path_to_data_types.find(path);
@@ -1200,7 +1042,7 @@ Status VariantCompactionUtil::get_compaction_nested_columns(
 }
 
 void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
-        TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+        VariantCompactionPaths& paths_set_info, const TabletColumnPtr parent_column,
         const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
         const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema) {
     auto& path_set = paths_set_info.sub_path_set;
@@ -1265,7 +1107,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
 }
 
 void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
-        TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+        VariantCompactionPaths& paths_set_info, const TabletColumnPtr parent_column,
         const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
         TabletSchemaSPtr& output_schema) {
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
@@ -1305,7 +1147,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
 // ordinary extracted subcolumns. NG typed paths still use get_compaction_typed_columns(), keeping
 // typed-column rules out of the NG-specific regular-path filtering.
 Status VariantCompactionUtil::get_extended_compaction_schema(
-        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target) {
+        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target,
+        VariantCompactionPathsMap& paths) {
     std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
     const bool needs_variant_extended_info =
             std::ranges::any_of(target->columns(), [](const TabletColumnPtr& column) {
@@ -1322,7 +1165,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
     // build the output schema
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     output_schema->shawdow_copy_without_columns(*target);
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
+    VariantCompactionPathsMap uid_to_paths_set_info;
     const auto ng_root_uids =
             collect_nested_group_compaction_root_uids(target, uid_to_variant_extended_info);
     for (const TabletColumnPtr& column : target->columns()) {
@@ -1417,7 +1260,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
 
     target = output_schema;
     // used to merge & filter path to sparse column during reading in compaction
-    target->set_path_set_info(std::move(uid_to_paths_set_info));
+    paths = std::move(uid_to_paths_set_info);
     VLOG_DEBUG << "dump schema " << target->dump_full_schema();
     return Status::OK();
 }
@@ -1632,7 +1475,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
             break;
         }
         case PatternTypePB::MATCH_NAME_GLOB: {
-            if (glob_match_re2(pattern, path)) {
+            int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
+            if (result == 0) {
                 generate_result_column(*sub_column, &sub_column_info->column);
                 generate_index(sub_column->name());
                 return true;

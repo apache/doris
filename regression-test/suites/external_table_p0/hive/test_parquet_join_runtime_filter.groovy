@@ -15,55 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import groovy.json.JsonSlurper
+import org.apache.doris.regression.action.ProfileAction
 
 suite("test_parquet_join_runtime_filter", "p0,external") {
 
-    def getProfileList = {
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
-
-    def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
-
+    def profileAction = new ProfileAction(context)
 
     def extractFilteredGroupsValue = { String profileText ->
-        def values = (profileText =~ /RowGroupsFiltered:\s*(\d+)/).collect { it[1].toLong() }
+        def values = []
+        boolean inFactScan = false
+        profileText.eachLine { line ->
+            if (line =~ /^\s*[A-Z_]+_OPERATOR\(/) {
+                inFactScan = (line =~ /^\s*FILE_SCAN_OPERATOR\([^)]*\btable_name=fact_big\):/).find()
+            }
+            if (inFactScan) {
+                def counter = (line =~ /RowGroupsFiltered:\s*(?:sum\s+)?(\d+)/)
+                if (counter.find()) {
+                    values.add(counter.group(1).toLong())
+                }
+            }
+        }
+        // A profile can repeat scan sections. Use the largest fact scan count, not the
+        // number or sum of matches, so duplicates cannot inflate the filtering result.
         return values.sort { a, b -> b <=> a }
     }
 
     def getProfileWithToken = { token ->
-        String profileId = ""
-        int attempts = 0
-        while (attempts < 10 && (profileId == null || profileId == "")) {
-            List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
-            for (def profileItem in profileData) {
-                if (profileItem["Sql Statement"].toString().contains(token)) {
-                    profileId = profileItem["Profile ID"].toString()
-                    break
-                }
-            }
-            if (profileId == null || profileId == "") {
-                Thread.sleep(300)
-            }
-            attempts++
-        }
-        assertTrue(profileId != null && profileId != "")
-        Thread.sleep(800)
-        return getProfile(profileId).toString()
+        // Wait for asynchronous profile collection instead of assuming a fixed delay is enough.
+        return profileAction.getProfileBySql(token, ["table_name=fact_big)", "RowGroupsFiltered:"])
     }
     // session vars
     sql "unset variable all;"
@@ -108,8 +87,8 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
                 logger.info("sql_result = ${sql_result}");
                 logger.info("filter_result = ${filter_result}");
 
-                assertTrue(filter_result.size() == 2)
-                assertTrue(filter_result[0] > 40)
+                assertFalse(filter_result.isEmpty(), "Missing RowGroupsFiltered for fact_big")
+                assertTrue(filter_result[0] > 40, "Insufficient fact_big filtering: ${filter_result}")
             }
 
 
@@ -123,8 +102,8 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
                 logger.info("sql_result = ${sql_result}");
                 logger.info("filter_result = ${filter_result}");
 
-                assertTrue(filter_result.size() == 2)
-                assertTrue(filter_result[0] > 30)
+                assertFalse(filter_result.isEmpty(), "Missing RowGroupsFiltered for fact_big")
+                assertTrue(filter_result[0] > 30, "Insufficient fact_big filtering: ${filter_result}")
             }
 
 
@@ -139,8 +118,8 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
                 logger.info("sql_result = ${sql_result}");
                 logger.info("filter_result = ${filter_result}");
 
-                assertTrue(filter_result.size() == 2)
-                assertTrue(filter_result[0] > 30)
+                assertFalse(filter_result.isEmpty(), "Missing RowGroupsFiltered for fact_big")
+                assertTrue(filter_result[0] > 30, "Insufficient fact_big filtering: ${filter_result}")
             }
 
 
@@ -154,8 +133,8 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
                 logger.info("sql_result = ${sql_result}");
                 logger.info("filter_result = ${filter_result}");
 
-                assertTrue(filter_result.size() == 2)
-                assertTrue(filter_result[0] > 40)
+                assertFalse(filter_result.isEmpty(), "Missing RowGroupsFiltered for fact_big")
+                assertTrue(filter_result[0] > 40, "Insufficient fact_big filtering: ${filter_result}")
             }
 
 

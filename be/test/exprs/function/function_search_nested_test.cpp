@@ -30,11 +30,14 @@
 #include "core/block/block.h"
 #include "exprs/function/function_search.h"
 #include "exprs/function/variant_inverted_index_search.h"
+#include "runtime/exec_env.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/query_v2/weight.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/variant_column_reader.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -686,6 +689,37 @@ TEST_F(FunctionSearchNestedTest, NestedRootFallbackViaToplevelAPI) {
         EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
         EXPECT_NE(status.to_string().find("NestedGroup support"), std::string::npos);
     }
+}
+
+TEST(SearchAnalyzerContextTest, ReportsWrongFamilyComponentAsStatus) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    // Replay can keep a component whose family no longer matches how the analyzer uses it.
+    TIndexPolicy char_filter;
+    char_filter.id = 300;
+    char_filter.name = "Wrong";
+    char_filter.type = TIndexPolicyType::CHAR_FILTER;
+    char_filter.properties["type"] = "char_replace";
+    TIndexPolicy analyzer;
+    analyzer.id = 301;
+    analyzer.name = "wrong_family_search_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "keyword";
+    analyzer.properties["token_filter"] = "Wrong";
+    policy_mgr.apply_policy_changes({char_filter, analyzer}, {});
+
+    const std::map<std::string, std::string> properties = {
+            {"analyzer", "wrong_family_search_analyzer"}};
+    auto analyzer_ctx = build_search_analyzer_context(properties, "wrong_family_search_analyzer");
+    ASSERT_FALSE(analyzer_ctx.has_value());
+    EXPECT_EQ(analyzer_ctx.error().code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+
+    const std::map<std::string, std::string> valid = {{"parser", "english"}};
+    EXPECT_TRUE(build_search_analyzer_context(valid, "english").has_value());
 }
 
 } // namespace doris

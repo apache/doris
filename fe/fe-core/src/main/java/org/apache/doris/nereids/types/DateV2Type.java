@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 import java.time.DateTimeException;
@@ -34,6 +35,17 @@ public class DateV2Type extends DateLikeType {
     private static final int WIDTH = 4;
 
     private DateV2Type() {
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        // BE uses the same calendar domain for DATEV2 and DATE and converts DATEV2 to YYYYMMDD for
+        // numeric targets. That value fits in INT and is represented exactly by DOUBLE.
+        return target instanceof DateV2Type || target instanceof DateType
+                || target instanceof DateTimeType || target instanceof DateTimeV2Type
+                || target instanceof IntegerType || target instanceof BigIntType
+                || target instanceof LargeIntType || target instanceof DoubleType
+                || target instanceof CharacterType;
     }
 
     @Override

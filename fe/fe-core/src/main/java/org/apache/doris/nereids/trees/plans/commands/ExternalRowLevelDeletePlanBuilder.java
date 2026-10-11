@@ -40,7 +40,7 @@ import java.util.Optional;
 
 /**
  * DELETE plan synthesizer for Iceberg tables, invoked by
- * IcebergRowLevelDmlTransform.synthesize via {@link #completeQueryPlan}.
+ * PositionDeleteRowLevelDmlTransform.synthesize via {@link #completeQueryPlan}.
  *
  * It rewrites a DELETE into an insert-shaped plan that generates
  * position DeleteFile entries instead of data files.

@@ -28,6 +28,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
 
+import com.google.common.testing.GcFinalization;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -546,6 +548,61 @@ public class CloudReplicaTest {
             json.add("bes", bes);
         }
         return (CloudReplica) GsonUtils.GSON.fromJson(json, Replica.class);
+    }
+
+    private void assertPrimaryRouteObjectsShared(CloudReplica first, CloudReplica second) {
+        Assertions.assertSame(first.getPrimaryComputeGroupIds().iterator().next(),
+                second.getPrimaryComputeGroupIds().iterator().next());
+        Assertions.assertSame(first.getNonColocatedPrimaryBackendId(CLUSTER_ID_1),
+                second.getNonColocatedPrimaryBackendId(CLUSTER_ID_1));
+    }
+
+    @Test
+    public void testRouteObjectsSharedOnUpdate() {
+        CloudReplica first = createReplica();
+        CloudReplica second = createReplica();
+
+        first.updateClusterToPrimaryBe(new String(CLUSTER_ID_1), 1001L);
+        second.updateClusterToPrimaryBe(new String(CLUSTER_ID_1), 1001L);
+
+        assertPrimaryRouteObjectsShared(first, second);
+    }
+
+    @Test
+    public void testUnusedRouteObjectsCanBeCollected() {
+        List<WeakReference<?>> references = createAndClearRouteReferences();
+
+        references.forEach(GcFinalization::awaitClear);
+    }
+
+    private List<WeakReference<?>> createAndClearRouteReferences() {
+        String clusterId = new String("collectable_cluster_id");
+        long backendId = 9_000_000_000_001L;
+        CloudReplica replica = createReplica();
+        replica.updateClusterToPrimaryBe(clusterId, backendId);
+        WeakReference<String> clusterReference = new WeakReference<>(
+                replica.getPrimaryComputeGroupIds().iterator().next());
+        WeakReference<Long> backendReference = new WeakReference<>(
+                replica.getNonColocatedPrimaryBackendId(clusterId));
+
+        replica.clearClusterToBe(clusterId);
+        return Arrays.asList(clusterReference, backendReference);
+    }
+
+    @Test
+    public void testRouteObjectsSharedOnImageLoad() {
+        stubBackend(1001L, createBackend(1001L, true, false));
+        CloudReplica replica = createReplica();
+        replica.updateClusterToPrimaryBe(CLUSTER_ID_1, 1001L);
+        JsonObject originalJson = GsonUtils.GSON.toJsonTree(replica, Replica.class).getAsJsonObject();
+
+        CloudReplica first = gsonRoundTrip(replica, false);
+        CloudReplica second = gsonRoundTrip(replica, false);
+        assertPrimaryRouteObjectsShared(first, second);
+        Assertions.assertEquals(originalJson,
+                GsonUtils.GSON.toJsonTree(first, Replica.class).getAsJsonObject());
+
+        assertPrimaryRouteObjectsShared(gsonRoundTrip(replica, true), gsonRoundTrip(replica, true));
     }
 
     @Test

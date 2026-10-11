@@ -102,17 +102,16 @@ Status MemoryScratchSinkOperatorX::sink_impl(RuntimeState* state, Block* input_b
         RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_vexpr_ctxs, *input_block, &block));
     }
-    std::shared_ptr<arrow::Schema> block_arrow_schema;
+    DorisArrowBlockConvertor converter(block, state->timezone(), _timezone_obj,
+                                       /*datetime_naive=*/true);
     {
         SCOPED_TIMER(local_state._get_arrow_schema_timer);
         // After expr executed, use recaculated schema as final schema
-        RETURN_IF_ERROR(get_arrow_schema_from_block(block, &block_arrow_schema, state->timezone(),
-                                                    /*datetime_naive=*/true));
+        RETURN_IF_ERROR(converter.init());
     }
     {
         SCOPED_TIMER(local_state._convert_block_to_arrow_batch_timer);
-        RETURN_IF_ERROR(convert_to_arrow_batch(
-                block, block_arrow_schema, arrow::default_memory_pool(), &result, _timezone_obj));
+        RETURN_IF_ERROR(converter.convert_to_arrow(block, arrow::default_memory_pool(), &result));
     }
     local_state._queue->blocking_put(result);
     if (local_state._queue->size() > config::max_memory_sink_batch_count) {

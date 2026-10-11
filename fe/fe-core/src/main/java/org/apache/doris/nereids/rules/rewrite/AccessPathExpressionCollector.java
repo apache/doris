@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
@@ -344,6 +345,21 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         );
     }
 
+    @Override
+    public Void visitTryCast(TryCast tryCast, CollectorContext context) {
+        // TRY_CAST semantics cover the WHOLE value: for a composite type any element
+        // conversion failure makes the entire cast NULL. Narrowing the read/type down to
+        // only the fields an outer expression accesses would drop the conversion attempts
+        // of the other fields and silently change the result (e.g. element_at(try_cast(s as
+        // struct<a:int,b:int>), 'a') must still yield NULL when only field b is unparsable,
+        // even though field a alone converts fine). Plain Cast over nested types is pruned
+        // field-by-field on purpose, a TryCast never is: read the whole child value and keep
+        // the cast identity and target type intact.
+        return tryCast.child(0).accept(this,
+                new CollectorContext(context.statementContext, context.bottomFilter)
+        );
+    }
+
     // array element at
     @Override
     public Void visitElementAt(ElementAt elementAt, CollectorContext context) {
@@ -466,6 +482,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 mapContext.accessPathBuilder.accessPath.addAll(path.subList(2, path.size()));
                 mapContext.accessPathBuilder.addPrefix("key".equalsIgnoreCase(entryField)
                         ? AccessPathInfo.ACCESS_MAP_KEYS : AccessPathInfo.ACCESS_MAP_VALUES);
+                mapContext.setType(context.type);
                 return continueCollectAccessPath(mapEntries.getArgument(0), mapContext);
             }
         }

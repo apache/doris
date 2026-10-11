@@ -237,12 +237,19 @@ TEST(SniiSpimiLocalityBenchTest, InternSetReserveUpperBound) {
             return operator()(std::string_view((*vocab)[id]));
         }
     };
+    // Transparent equality for the intern set. Both argument orders are needed because libc++
+    // calls key_equal as (key, lookup key) and libstdc++ as (lookup key, key); whichever order
+    // the standard library in use never calls looks like an unused member function to clang
+    // (-Wunused-member-function is on), hence the [[maybe_unused]] on both.
     struct Equal {
         using is_transparent = void;
         const std::vector<std::string>* vocab;
         bool operator()(uint32_t lhs, uint32_t rhs) const noexcept { return lhs == rhs; }
-        bool operator()(std::string_view lhs, uint32_t rhs) const noexcept {
+        [[maybe_unused]] bool operator()(std::string_view lhs, uint32_t rhs) const noexcept {
             return lhs == std::string_view((*vocab)[rhs]);
+        }
+        [[maybe_unused]] bool operator()(uint32_t lhs, std::string_view rhs) const noexcept {
+            return std::string_view((*vocab)[lhs]) == rhs;
         }
     };
 

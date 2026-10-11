@@ -351,19 +351,25 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
+        const IColumn* data_column = columns[0];
         if constexpr (arg_is_nullable) {
             const auto& nullable_column =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            if (!nullable_column.is_null_at(row_num)) {
-                const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
-                        nullable_column.get_nested_column());
-                this->data(place).add(column.get_data()[row_num]);
+            if (nullable_column.is_null_at(row_num)) {
+                return;
             }
-        } else {
-            const auto& column =
-                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            this->data(place).add(column.get_data()[row_num]);
+            data_column = &nullable_column.get_nested_column();
         }
+        const auto& value =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*data_column)
+                        .get_data()[row_num];
+        if constexpr (!std::is_same_v<ColVecType, ColumnBitmap>) {
+            // Match bitmap_agg and to_bitmap before conversion to uint64_t.
+            if (value < 0) {
+                return;
+            }
+        }
+        this->data(place).add(value);
     }
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,

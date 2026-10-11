@@ -357,6 +357,40 @@ false
 -- !regexp_fn_9 --
 true
 
+-- !regexp_empty_pattern --
+1	true	true
+2	true	true
+3	true	true
+4	\N	\N
+5	true	\N
+6	true	true
+7	true	true
+8	true	true
+9	true	true
+10	true	true
+11	true	true
+
+-- !rlike_empty_pattern --
+1	true	true
+2	true	true
+3	true	true
+4	\N	\N
+5	true	\N
+6	true	true
+7	true	true
+8	true	true
+9	true	true
+10	true	true
+11	true	true
+
+-- !regexp_constant_substring_boundaries --
+6	false	false
+7	false	false
+8	false	false
+9	true	true
+10	false	false
+11	true	true
+
 -- !sql_utf1 --
 true
 
@@ -510,4 +544,3 @@ Ben
 
 -- !sql_field5 --
 2
-

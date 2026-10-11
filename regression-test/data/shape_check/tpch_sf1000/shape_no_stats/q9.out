@@ -8,26 +8,26 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF6 s_suppkey->l_suppkey;RF7 s_suppkey->ps_suppkey
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF7 o_orderkey->l_orderkey
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF3 ps_suppkey->l_suppkey;RF4 ps_partkey->l_partkey;RF5 ps_partkey->p_partkey
+--------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF3 ps_suppkey->l_suppkey;RF4 ps_suppkey->s_suppkey;RF5 ps_partkey->l_partkey;RF6 ps_partkey->p_partkey
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF2 p_partkey->l_partkey
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->l_orderkey
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->l_suppkey
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2 RF3 RF4 RF6
+--------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2 RF3 RF5 RF7
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[orders]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->s_nationkey
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[supplier] apply RFs: RF0 RF4
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[nation]
 --------------------------PhysicalProject
 ----------------------------filter((part.p_name like '%green%'))
-------------------------------PhysicalOlapScan[part] apply RFs: RF5
+------------------------------PhysicalOlapScan[part] apply RFs: RF6
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[partsupp] apply RFs: RF7
+------------------------PhysicalOlapScan[partsupp]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->s_nationkey
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[supplier] apply RFs: RF0
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[nation]
+--------------------PhysicalOlapScan[orders]
 

@@ -51,7 +51,7 @@ public interface ConnectorPushdownOps {
 
     /**
      * Returns whether this connector supports pushing down predicates that contain
-     * implicit CAST expressions.
+     * CAST expressions, including CAST subclasses such as TRY_CAST.
      *
      * <p><b>This switch governs ONE of the two pushdown paths.</b> Returning {@code false} makes the engine
      * drop CAST-containing conjuncts from the RESIDUAL predicate it builds for the scan node. The
@@ -72,8 +72,8 @@ public interface ConnectorPushdownOps {
      * different type coercion rules (e.g. a JDBC database) overrides this to {@code false}, optionally driven
      * by session configuration.</p>
      *
-     * <p><b>Every shipped connector answers this deliberately; none of them merely inherits.</b> jdbc, paimon
-     * and maxcompute return {@code false}; iceberg, elasticsearch and the trino bridge state {@code true} at
+     * <p><b>Every shipped connector answers this deliberately; none of them merely inherits.</b> jdbc, paimon,
+     * maxcompute and the trino bridge return {@code false}; iceberg and elasticsearch state {@code true} at
      * their own metadata class, each recording what it does with the predicate and that {@code true} is an
      * accepted risk rather than a safety claim. hive and hudi declare nothing because for them the switch is
      * INERT — their scan planning ignores the residual filter entirely, and the predicate they do consume

@@ -55,21 +55,24 @@ public:
                           ColumnNullable& target_col) const;
     template <typename IntDataType>
     Status from_int_strict_mode_batch(const typename IntDataType::ColumnType& int_col,
-                                      IColumn& target_col) const;
+                                      IColumn& target_col,
+                                      const NullMap::value_type* null_map = nullptr) const;
 
     template <typename FloatDataType>
     Status from_float_batch(const typename FloatDataType::ColumnType& float_col,
                             ColumnNullable& target_col) const;
     template <typename FloatDataType>
     Status from_float_strict_mode_batch(const typename FloatDataType::ColumnType& float_col,
-                                        IColumn& target_col) const;
+                                        IColumn& target_col,
+                                        const NullMap::value_type* null_map = nullptr) const;
 
     template <typename DecimalDataType>
     Status from_decimal_batch(const typename DecimalDataType::ColumnType& decimal_col,
                               ColumnNullable& target_col) const;
     template <typename DecimalDataType>
     Status from_decimal_strict_mode_batch(const typename DecimalDataType::ColumnType& decimal_col,
-                                          IColumn& target_col) const;
+                                          IColumn& target_col,
+                                          const NullMap::value_type* null_map = nullptr) const;
     Status read_column_from_decoded_values(IColumn& column,
                                            const DecodedColumnView& view) const override;
     Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,

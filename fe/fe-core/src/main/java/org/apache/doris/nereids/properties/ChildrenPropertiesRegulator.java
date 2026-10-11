@@ -164,7 +164,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             // pattern so the translator can fuse it into BucketedAggregationNode.
             // Gate with data-volume checks using group-level statistics to avoid
             // generating this pattern when bucketed agg is unsuitable.
-            if (AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())) {
+            if (AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
                 return !bucketedDataVolumeGatesPass(aggregate);
             }
             return true;

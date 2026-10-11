@@ -247,7 +247,6 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesWholeSegmentByExprZonema
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.common_expr_ctxs_push_down = {expr_ctx};
 
     std::unique_ptr<RowwiseIterator> iter;
@@ -270,7 +269,6 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsSegmentWhenExprZonemapMay
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.common_expr_ctxs_push_down = {expr_ctx};
 
     std::unique_ptr<RowwiseIterator> iter;
@@ -290,7 +288,6 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     SegmentIterator iter(segment, read_schema);
     iter._file_reader = segment->_file_reader;
     iter._opts.stats = &_stats;
-    iter._opts.tablet_schema = _tablet_schema;
 
     auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 500));
     VExprContextSPtrs conjuncts {expr_ctx};
@@ -313,7 +310,6 @@ TEST_F(SegmentIteratorExprZonemapTest, NewColumnIteratorReadsCommitTsoFromReadOp
 
     StorageReadOptions read_options;
     read_options.stats = &_stats;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -354,7 +350,6 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
 
     StorageReadOptions read_options;
     read_options.stats = &_stats;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;

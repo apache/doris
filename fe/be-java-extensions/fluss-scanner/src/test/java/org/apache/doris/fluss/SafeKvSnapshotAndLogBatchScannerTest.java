@@ -1,0 +1,313 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.fluss;
+
+import org.apache.fluss.client.table.scanner.batch.BatchScanner;
+import org.apache.fluss.client.table.scanner.log.LogScanner;
+import org.apache.fluss.client.table.scanner.log.ScanRecords;
+import org.apache.fluss.metadata.TableBucket;
+import org.apache.fluss.row.InternalRow;
+import org.apache.fluss.utils.CloseableIterator;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class SafeKvSnapshotAndLogBatchScannerTest {
+
+    @Test
+    public void subscribeFailureNeverStartsTheAsynchronousSnapshotReader() {
+        AtomicBoolean snapshotCreated = new AtomicBoolean();
+        FailingLogScanner log = new FailingLogScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerFactory factory =
+                new SafeKvSnapshotAndLogBatchScanner.ScannerFactory() {
+                    @Override
+                    public BatchScanner createSnapshotScanner(
+                            TableBucket tableBucket, long snapshotId, int[] projectedFields) {
+                        snapshotCreated.set(true);
+                        throw new AssertionError(
+                                "snapshot acquisition must follow successful log subscription");
+                    }
+
+                    @Override
+                    public LogScanner createLogScanner(int[] projectedFields) {
+                        return log;
+                    }
+                };
+
+        Assertions.assertThrows(IllegalStateException.class, () ->
+                SafeKvSnapshotAndLogBatchScanner.acquireScanners(
+                        factory, new TableBucket(1L, 0), 7L, 10L, 20L, new int[] {0}));
+
+        Assertions.assertFalse(snapshotCreated.get(),
+                "a later subscription failure must have no asynchronous snapshot reader to cancel");
+        Assertions.assertTrue(log.closed.get(), "partially initialized log reader was leaked");
+    }
+
+    @Test
+    public void snapshotCreationFailureClosesTheAlreadySubscribedLogReader() {
+        RecordingLogScanner log = new RecordingLogScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerFactory factory =
+                new SafeKvSnapshotAndLogBatchScanner.ScannerFactory() {
+                    @Override
+                    public BatchScanner createSnapshotScanner(
+                            TableBucket tableBucket, long snapshotId, int[] projectedFields) {
+                        throw new IllegalStateException("injected snapshot creation failure");
+                    }
+
+                    @Override
+                    public LogScanner createLogScanner(int[] projectedFields) {
+                        return log;
+                    }
+                };
+
+        Assertions.assertThrows(IllegalStateException.class, () ->
+                SafeKvSnapshotAndLogBatchScanner.acquireScanners(
+                        factory, new TableBucket(1L, 0), 7L, 10L, 20L, new int[] {0}));
+
+        Assertions.assertTrue(log.subscribed.get(), "log subscription must precede snapshot creation");
+        Assertions.assertTrue(log.closed.get(), "subscribed log reader was leaked");
+    }
+
+    @Test
+    public void successfulOpenThenEarlyCloseWaitsForLateSnapshotPublication() throws Exception {
+        LatePublishingSnapshotScanner snapshot = new LatePublishingSnapshotScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerFactory factory =
+                new SafeKvSnapshotAndLogBatchScanner.ScannerFactory() {
+                    @Override
+                    public BatchScanner createSnapshotScanner(
+                            TableBucket tableBucket, long snapshotId, int[] projectedFields) {
+                        return snapshot;
+                    }
+
+                    @Override
+                    public LogScanner createLogScanner(int[] projectedFields) {
+                        throw new AssertionError("the staged log range is empty");
+                    }
+                };
+
+        // Acquisition has returned successfully, matching a Java scanner that BE can close after
+        // prepare_split but before its first getNextBatch call.
+        SafeKvSnapshotAndLogBatchScanner.ScannerResources resources =
+                SafeKvSnapshotAndLogBatchScanner.acquireScanners(
+                        factory, new TableBucket(1L, 0), 7L, 20L, 20L, new int[] {0});
+        Assertions.assertNotNull(resources.snapshotScanner);
+        resources.snapshotScanner.close();
+
+        Assertions.assertTrue(snapshot.pollEntered.await(5, TimeUnit.SECONDS),
+                "early close did not start a publication waiter");
+        Assertions.assertEquals(0, snapshot.closeCalls.get(),
+                "closing the SDK scanner before publication consumes its only effective close");
+
+        snapshot.publishNativeReader();
+        Assertions.assertTrue(snapshot.nativeReaderClosed.await(5, TimeUnit.SECONDS),
+                "the reader published after cancellation was not closed");
+        Assertions.assertEquals(1, snapshot.closeCalls.get(),
+                "the SDK scanner must be closed exactly once, after publication");
+    }
+
+    /**
+     * Until the SDK scanner is closed it is still copying its snapshot on the download threads of the
+     * connection it was created on, and closing the connection under that copy strands it. So the
+     * connection is released only once the scanner is closed, however late that is.
+     */
+    @Test
+    public void earlyClosedSnapshotReaderReleasesItsConnectionOnlyOnceClosed() throws Exception {
+        LatePublishingSnapshotScanner snapshot = new LatePublishingSnapshotScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerResources resources = acquireSnapshotOnly(snapshot);
+        resources.snapshotScanner.close();
+
+        Assertions.assertTrue(snapshot.pollEntered.await(5, TimeUnit.SECONDS),
+                "early close did not start a publication waiter");
+        Assertions.assertFalse(resources.snapshotScanner.released().isDone(),
+                "the connection was released while the snapshot was still being copied on it");
+
+        snapshot.publishNativeReader();
+        resources.snapshotScanner.released().get(5, TimeUnit.SECONDS);
+        Assertions.assertEquals(1, snapshot.closeCalls.get(), "released before the SDK scanner was closed");
+    }
+
+    /** A snapshot that had arrived is closed at once, and with it the connection is released at once. */
+    @Test
+    public void snapshotReaderClosedAfterItsSnapshotArrivedReleasesItsConnectionAtOnce() throws Exception {
+        LatePublishingSnapshotScanner snapshot = new LatePublishingSnapshotScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerResources resources = acquireSnapshotOnly(snapshot);
+        snapshot.publishNativeReader();
+        // Ready and empty: the SDK's null.
+        Assertions.assertNull(resources.snapshotScanner.pollBatch(Duration.ofSeconds(5)));
+
+        resources.snapshotScanner.close();
+        Assertions.assertTrue(resources.snapshotScanner.released().isDone(),
+                "a scanner closed after publication must release its connection on the spot");
+        Assertions.assertEquals(1, snapshot.closeCalls.get());
+    }
+
+    /**
+     * A range is often closed early because its query filled BE's JVM heap, and the waiter's polls
+     * allocate. Ended by an OutOfMemoryError on its own thread, the waiter would leave the SDK scanner
+     * open and the connection waiting for released() for good; it has to keep waiting instead.
+     */
+    @Test
+    public void publicationWaiterOutlastsAnOutOfMemoryErrorOnItsOwnThread() throws Exception {
+        LatePublishingSnapshotScanner snapshot = new LatePublishingSnapshotScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerResources resources =
+                acquireSnapshotOnly(new OutOfMemoryOnFirstPoll(snapshot));
+        resources.snapshotScanner.close();
+
+        Assertions.assertTrue(snapshot.pollEntered.await(5, TimeUnit.SECONDS),
+                "the waiter did not poll again after an OutOfMemoryError on its thread");
+        snapshot.publishNativeReader();
+        resources.snapshotScanner.released().get(5, TimeUnit.SECONDS);
+        Assertions.assertEquals(1, snapshot.closeCalls.get(),
+                "the SDK scanner must be closed exactly once, after publication");
+    }
+
+    /** Opens a range that reads only {@code snapshot}: its log range is empty. */
+    private static SafeKvSnapshotAndLogBatchScanner.ScannerResources acquireSnapshotOnly(BatchScanner snapshot) {
+        SafeKvSnapshotAndLogBatchScanner.ScannerFactory factory =
+                new SafeKvSnapshotAndLogBatchScanner.ScannerFactory() {
+                    @Override
+                    public BatchScanner createSnapshotScanner(
+                            TableBucket tableBucket, long snapshotId, int[] projectedFields) {
+                        return snapshot;
+                    }
+
+                    @Override
+                    public LogScanner createLogScanner(int[] projectedFields) {
+                        throw new AssertionError("the staged log range is empty");
+                    }
+                };
+        return SafeKvSnapshotAndLogBatchScanner.acquireScanners(
+                factory, new TableBucket(1L, 0), 7L, 20L, 20L, new int[] {0});
+    }
+
+    private static class RecordingLogScanner implements LogScanner {
+        final AtomicBoolean closed = new AtomicBoolean();
+        final AtomicBoolean subscribed = new AtomicBoolean();
+
+        @Override
+        public ScanRecords poll(Duration timeout) {
+            return ScanRecords.EMPTY;
+        }
+
+        @Override
+        public void subscribe(int bucket, long offset) {
+            subscribed.set(true);
+        }
+
+        @Override
+        public void subscribe(long partitionId, int bucket, long offset) {
+            subscribed.set(true);
+        }
+
+        @Override
+        public void unsubscribe(long partitionId, int bucket) {
+        }
+
+        @Override
+        public void unsubscribe(int bucket) {
+        }
+
+        @Override
+        public void wakeup() {
+        }
+
+        @Override
+        public void close() {
+            closed.set(true);
+        }
+    }
+
+    private static final class FailingLogScanner extends RecordingLogScanner {
+        @Override
+        public void subscribe(int bucket, long offset) {
+            super.subscribe(bucket, offset);
+            throw new IllegalStateException("injected subscribe failure");
+        }
+
+        @Override
+        public void subscribe(long partitionId, int bucket, long offset) {
+            super.subscribe(partitionId, bucket, offset);
+            throw new IllegalStateException("injected subscribe failure");
+        }
+    }
+
+    /** Models Fluss 1.0's reader becoming closeable only after its asynchronous publication. */
+    private static final class LatePublishingSnapshotScanner implements BatchScanner {
+        private final CountDownLatch pollEntered = new CountDownLatch(1);
+        private final CountDownLatch published = new CountDownLatch(1);
+        private final CountDownLatch nativeReaderClosed = new CountDownLatch(1);
+        private final AtomicInteger closeCalls = new AtomicInteger();
+
+        @Override
+        public CloseableIterator<InternalRow> pollBatch(Duration timeout) throws IOException {
+            pollEntered.countDown();
+            try {
+                if (!published.await(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                    return CloseableIterator.emptyIterator();
+                }
+                // A ready, empty snapshot is the SDK's null return. The native reader was still
+                // allocated and must be closed even though it contains no rows.
+                return null;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException(e);
+            }
+        }
+
+        @Override
+        public void close() {
+            closeCalls.incrementAndGet();
+            if (published.getCount() == 0) {
+                nativeReaderClosed.countDown();
+            }
+        }
+
+        private void publishNativeReader() {
+            published.countDown();
+        }
+    }
+
+    /** The first poll fails as an allocation on the polling thread does while the heap is full. */
+    private static final class OutOfMemoryOnFirstPoll implements BatchScanner {
+        private final BatchScanner delegate;
+        private final AtomicBoolean failed = new AtomicBoolean();
+
+        private OutOfMemoryOnFirstPoll(BatchScanner delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public CloseableIterator<InternalRow> pollBatch(Duration timeout) throws IOException {
+            if (failed.compareAndSet(false, true)) {
+                throw new OutOfMemoryError("simulated: Java heap space");
+            }
+            return delegate.pollBatch(timeout);
+        }
+
+        @Override
+        public void close() throws IOException {
+            delegate.close();
+        }
+    }
+}

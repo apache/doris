@@ -48,10 +48,11 @@ public class DateTimeType extends DateLikeType {
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        if (target instanceof DateTimeType || target instanceof DateTimeV2Type || target instanceof CharacterType) {
-            return true;
-        }
-        return false;
+        // BE converts DATETIME to YYYYMMDDHHMMSS for numeric targets. This 14-digit integer fits
+        // in BIGINT and remains exact in DOUBLE because it is below 2^53.
+        return target instanceof DateTimeType || target instanceof DateTimeV2Type
+                || target instanceof BigIntType || target instanceof LargeIntType
+                || target instanceof DoubleType || target instanceof CharacterType;
     }
 
     @Override

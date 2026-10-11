@@ -600,12 +600,16 @@ Status DataTypeDateV2SerDe::from_int_batch(const typename IntDataType::ColumnTyp
 
 template <typename IntDataType>
 Status DataTypeDateV2SerDe::from_int_strict_mode_batch(
-        const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
+        const typename IntDataType::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col);
     col_data.resize(int_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateV2ValueType> val;
         CastToDateV2::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), val, params);
         if (!params.status.ok()) [[unlikely]] {
@@ -643,12 +647,16 @@ Status DataTypeDateV2SerDe::from_float_batch(const typename FloatDataType::Colum
 
 template <typename FloatDataType>
 Status DataTypeDateV2SerDe::from_float_strict_mode_batch(
-        const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
+        const typename FloatDataType::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col);
     col_data.resize(float_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateV2ValueType> val;
         CastToDateV2::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], val, params);
         if (!params.status.ok()) [[unlikely]] {
@@ -688,12 +696,16 @@ Status DataTypeDateV2SerDe::from_decimal_batch(
 
 template <typename DecimalDataType>
 Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
-        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col);
     col_data.resize(decimal_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateV2ValueType> val;
         CastToDateV2::from_decimal<DatelikeParseMode::STRICT>(decimal_col.get_intergral_part(i),
                                                               decimal_col.get_scale(), val, params);
@@ -732,23 +744,30 @@ template Status DataTypeDateV2SerDe::from_int_batch<DataTypeInt64>(
 template Status DataTypeDateV2SerDe::from_int_batch<DataTypeInt128>(
         const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
 template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt8>(
-        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt16>(
-        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt32>(
-        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt64>(
-        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt128>(
-        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_float_batch<DataTypeFloat32>(
         const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
 template Status DataTypeDateV2SerDe::from_float_batch<DataTypeFloat64>(
         const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
 template Status DataTypeDateV2SerDe::from_float_strict_mode_batch<DataTypeFloat32>(
-        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_float_strict_mode_batch<DataTypeFloat64>(
-        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimal32>(
         const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
 template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimal64>(
@@ -760,15 +779,20 @@ template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimal128>(
 template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal32>(
-        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal64>(
-        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
-        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal128>(
-        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
-        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 
 Status DataTypeDateV2SerDe::read_column_from_orc(IColumn& column,
                                                  const OrcDecodedColumnView& view) const {

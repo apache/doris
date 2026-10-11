@@ -18,6 +18,7 @@
 import groovy.json.JsonOutput
 
 suite("test_group_commit_multi_cluster") {
+    withRestoredMultiClusterState(false) {
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
 
@@ -50,14 +51,14 @@ suite("test_group_commit_multi_cluster") {
             }
         }
     }
-    wait_cluster_change()
+    sleep(20000)
 
     List<List<Object>> result  = sql "show clusters"
     assertTrue(result.size() == 0);
 
     add_cluster.call(beUniqueIdList[0], ipList[0], hbPortList[0],
                      "regression_cluster_name0", "regression_cluster_id0");
-    wait_cluster_change()
+    sleep(20000)
 
     result  = sql "show clusters"
     assertTrue(result.size() == 1);
@@ -65,7 +66,7 @@ suite("test_group_commit_multi_cluster") {
     sql "use @regression_cluster_name0"
     sql """ drop table IF EXISTS table_p2 """
     sql """
-         CREATE TABLE table_p2 ( k1 int(11) NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
+         CREATE TABLE table_p2 ( k1 int(11) NOT NULL, k2 varchar(20) NOT NULL, k3 int NOT NULL )
          UNIQUE KEY(k1, k2)
          DISTRIBUTED BY HASH(k1) BUCKETS 3
     """
@@ -83,12 +84,12 @@ suite("test_group_commit_multi_cluster") {
     """
 
     rename_cloud_cluster.call("regression_cluster_name1", "regression_cluster_id0");
-    wait_cluster_change()
+    sleep(20000)
 
     // create same name cluster
     add_cluster.call(beUniqueIdList[1], ipList[1], hbPortList[1],
                      "regression_cluster_name0", "regression_cluster_id2");
-    wait_cluster_change()
+    sleep(20000)
 
     result  = sql "show clusters"
     log.info("clusters: " + result)
@@ -126,4 +127,5 @@ suite("test_group_commit_multi_cluster") {
          select * from table_p2;
     """
     sql """ drop table IF EXISTS table_p2 """
+    }
 }

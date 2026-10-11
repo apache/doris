@@ -173,6 +173,7 @@ public:
                    const std::set<uint64_t>& filter_column_ids);
 
     ~RowGroupReader();
+    void set_preserve_binary_uuid(bool value) { _preserve_binary_uuid = value; }
     Status init(const FieldDescriptor& schema, RowRanges& row_ranges,
                 std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
                 const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
@@ -228,6 +229,7 @@ protected:
     }
 
 private:
+    bool _preserve_binary_uuid = false;
     Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof);
 
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,

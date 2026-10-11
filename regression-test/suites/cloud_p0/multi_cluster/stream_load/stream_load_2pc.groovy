@@ -18,6 +18,7 @@
 import groovy.json.JsonOutput
 
 suite("stream_load_2pc") {
+    withRestoredMultiClusterState(false) {
     List<String> ipList = new ArrayList<>()
     List<String> hbPortList = new ArrayList<>()
     List<String> httpPortList = new ArrayList<>()
@@ -71,6 +72,7 @@ suite("stream_load_2pc") {
 
     // case1 specific cluster
     def tableName3 = "test_all_2pc"
+    sql "DROP TABLE IF EXISTS ${tableName3}"
 
 
     sql """
@@ -392,5 +394,6 @@ suite("stream_load_2pc") {
     assertTrue(before_cluster1_load_rows == after_cluster1_load_rows)
     assertTrue(before_cluster1_flush == after_cluster1_flush)
     sql """ drop table if exists ${tableName3} """
+    }
 }
 

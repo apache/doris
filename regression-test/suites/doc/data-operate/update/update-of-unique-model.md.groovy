@@ -35,7 +35,7 @@ suite("docs/data-operate/update/update-of-unique-model.md") {
             INSERT INTO order_tbl(order_id, order_amount, order_status) VALUES
                                   (1       , 100         , 'Pending'   );
         """
-        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "partial_columns:true" -H "column_separator:," -H "columns:order_id,order_status" -T ${context.file.parent}/update.csv http://${context.config.feHttpAddress}/api/${curDbName}/order_tbl/_stream_load"""
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "partial_columns:true" -H "column_separator:," -H "columns:order_id,order_status" -T ${context.file.parent}/update.csv ${getDorisHttpScheme()}://${context.config.feHttpAddress}/api/${curDbName}/order_tbl/_stream_load${getDorisCurlTlsOptions()}"""
         multi_sql """
             set enable_unique_key_partial_update=true;
             INSERT INTO order_tbl (order_id, order_status) values (1,'To be shipped');

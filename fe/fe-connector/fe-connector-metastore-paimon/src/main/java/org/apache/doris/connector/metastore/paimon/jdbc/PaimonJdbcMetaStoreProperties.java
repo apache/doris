@@ -22,6 +22,7 @@ import org.apache.doris.connector.metastore.spi.AbstractMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -83,6 +84,12 @@ public final class PaimonJdbcMetaStoreProperties extends AbstractMetaStoreProper
                     "jdbc.driver_class or paimon.jdbc.driver_class is required when "
                             + "jdbc.driver_url or paimon.jdbc.driver_url is specified");
         }
+        // Mandatory, non-configurable security rule for the jar this flavor loads into the FE JVM,
+        // shared with the jdbc / iceberg-jdbc catalogs. validate() is reached only from the CREATE /
+        // ALTER statement paths (checkCreateTimeOnlyRules -> bind), never from a catalog rebuild,
+        // which is what keeps pre-rule catalogs loadable after an FE restart. Last, matching the
+        // iceberg holder's ordering.
+        JdbcDriverUrlSecurity.check(driverUrl);
     }
 
     @Override

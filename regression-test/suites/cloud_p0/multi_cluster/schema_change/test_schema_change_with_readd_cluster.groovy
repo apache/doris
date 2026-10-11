@@ -18,6 +18,7 @@
 import groovy.json.JsonOutput
 
 suite("test_schema_change_with_readd_cluster") {
+    withRestoredMultiClusterState(false) {
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
 
@@ -51,7 +52,7 @@ suite("test_schema_change_with_readd_cluster") {
             }
         }
     }
-    wait_cluster_change()
+    sleep(20000)
 
     List<List<Object>> result  = sql "show clusters"
     assertTrue(result.size() == 0);
@@ -59,7 +60,7 @@ suite("test_schema_change_with_readd_cluster") {
     // add cluster regression_cluster_name0
     add_cluster.call(beUniqueIdList[0], ipList[0], hbPortList[0],
                      "regression_cluster_name0", "regression_cluster_id0");
-    wait_cluster_change()
+    sleep(20000)
     result  = sql "show clusters"
     assertTrue(result.size() == 1);
 
@@ -104,7 +105,7 @@ suite("test_schema_change_with_readd_cluster") {
     // add another cluster regression_cluster_name1
     add_cluster.call(beUniqueIdList[1], ipList[1], hbPortList[1],
                      "regression_cluster_name1", "regression_cluster_id1");
-    wait_cluster_change()
+    sleep(20000)
     result  = sql "show clusters"
     assertTrue(result.size() == 1);
     for (row : result) {
@@ -166,4 +167,5 @@ suite("test_schema_change_with_readd_cluster") {
     }
     qt_order """ select * from ${tbName1} order by siteid;"""
     sql "DROP TABLE IF EXISTS ${tbName1}"
+    }
 }

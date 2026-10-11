@@ -29,6 +29,7 @@ suite('test_javaudf_null_load', 'p0,restart_fe') {
     def tableName = 'test_javaudf_null'
     def jarPath = """${context.file.parent}/../jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     sql """ DROP TABLE IF EXISTS ${tableName} """

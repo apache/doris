@@ -23,6 +23,9 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.ForbiddenException;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
+import org.apache.iceberg.exceptions.ServiceFailureException;
 import org.apache.iceberg.view.View;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -30,7 +33,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -82,6 +87,52 @@ public class CatalogBackedIcebergCatalogOpsTest {
 
         Assertions.assertEquals(Arrays.asList("a", "a.b"), result,
                 "REST + nested-enabled must recurse and emit dotted namespace names depth-first");
+    }
+
+    @Test
+    public void listDatabaseNamesSkipsNamespacesDeletedDuringTraversal() {
+        FailingNamespaceCatalog catalog = new FailingNamespaceCatalog();
+        Namespace deleted = Namespace.of("deleted");
+        Namespace parent = Namespace.of("parent");
+        Namespace deletedChild = Namespace.of("parent", "deleted");
+        Namespace emptyChild = Namespace.of("parent", "empty");
+        Namespace sibling = Namespace.of("sibling");
+        catalog.childNamespaces.put(Namespace.empty(), Arrays.asList(deleted, parent, sibling));
+        catalog.childNamespaces.put(parent, Arrays.asList(deletedChild, emptyChild));
+        // The parent listing still contains namespaces that a concurrent DROP has already removed.
+        catalog.failures.put(deleted, new NoSuchNamespaceException("Namespace does not exist: %s", deleted));
+        catalog.failures.put(deletedChild, new NoSuchNamespaceException("Namespace does not exist: %s", deletedChild));
+
+        List<String> result = ops(catalog, true, true, true, Optional.empty()).listDatabaseNames();
+
+        Assertions.assertEquals(Arrays.asList("parent", "parent.empty", "sibling"), result);
+    }
+
+    @Test
+    public void listDatabaseNamesPropagatesMissingRootNamespace() {
+        for (Optional<String> externalCatalogName : Arrays.asList(Optional.<String>empty(), Optional.of("cat"))) {
+            FailingNamespaceCatalog catalog = new FailingNamespaceCatalog();
+            Namespace root = externalCatalogName.map(Namespace::of).orElse(Namespace.empty());
+            NoSuchNamespaceException failure = new NoSuchNamespaceException("Missing root: %s", root);
+            catalog.failures.put(root, failure);
+
+            Assertions.assertSame(failure, Assertions.assertThrows(NoSuchNamespaceException.class,
+                    () -> ops(catalog, true, true, true, externalCatalogName).listDatabaseNames()));
+        }
+    }
+
+    @Test
+    public void listDatabaseNamesPropagatesOtherTraversalFailures() {
+        for (RuntimeException failure : Arrays.asList(
+                new ForbiddenException("Access denied"), new ServiceFailureException("Service unavailable"))) {
+            FailingNamespaceCatalog catalog = new FailingNamespaceCatalog();
+            Namespace child = Namespace.of("child");
+            catalog.childNamespaces.put(Namespace.empty(), Collections.singletonList(child));
+            catalog.failures.put(child, failure);
+
+            Assertions.assertSame(failure, Assertions.assertThrows(failure.getClass(),
+                    () -> ops(catalog, true, true, true, Optional.empty()).listDatabaseNames()));
+        }
     }
 
     @Test
@@ -402,5 +453,18 @@ public class CatalogBackedIcebergCatalogOpsTest {
         Assertions.assertTrue(exists, "a dotted db name must resolve to the multi-level table identifier");
         Assertions.assertEquals(TableIdentifier.of(Namespace.of("a", "b"), "t1"), catalog.lastTableExistsId,
                 "tableExists must build the identifier from the split namespace");
+    }
+
+    private static class FailingNamespaceCatalog extends FakeIcebergCatalog {
+        private final Map<Namespace, RuntimeException> failures = new HashMap<>();
+
+        @Override
+        public List<Namespace> listNamespaces(Namespace ns) {
+            RuntimeException failure = failures.get(ns);
+            if (failure != null) {
+                throw failure;
+            }
+            return super.listNamespaces(ns);
+        }
     }
 }

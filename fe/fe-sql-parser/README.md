@@ -90,11 +90,11 @@ The `flatten` profile is required so the installed POM has `${revision}` resolve
 mvn -pl fe-sql-parser -Pcli package -DskipTests
 ```
 
-Output: `fe/fe-sql-parser/target/fe-sql-parser-1.2-SNAPSHOT-cli.jar` (~1.7 MB).
+Output: `fe/fe-sql-parser/target/doris-fe-sql-parser-cli.jar` (~1.7 MB).
 
 This is a self-contained executable jar produced by `maven-shade-plugin`:
 
-- Bundles `antlr4-runtime` so the jar runs anywhere with a JRE 8+
+- Bundles `antlr4-runtime` so the jar runs anywhere with a JRE 17+
 - Manifest sets `Main-Class: org.apache.doris.sqlparser.DorisSqlParserCli`
 - `<minimizeJar>true</minimizeJar>` strips unused classes (transitively-inherited logging, test utilities, etc.) so the final jar contains only the parser plus its actual reachable dependencies
 
@@ -103,7 +103,7 @@ The CLI profile is gated so default Doris builds do not pay the shading cost. Th
 ## CLI Usage
 
 ```
-java -jar fe-sql-parser-1.2-SNAPSHOT-cli.jar [OPTIONS] [SQL]
+java -jar doris-fe-sql-parser-cli.jar [OPTIONS] [SQL]
 ```
 
 ### Input sources (mutually exclusive)
@@ -220,7 +220,7 @@ For frequent use, drop a wrapper on your `PATH`:
 ```bash
 # ~/bin/doris-sql-parse
 #!/usr/bin/env bash
-exec java -jar /path/to/fe-sql-parser-1.2-SNAPSHOT-cli.jar "$@"
+exec java -jar /path/to/doris-fe-sql-parser-cli.jar "$@"
 ```
 
 ```bash

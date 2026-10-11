@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -78,6 +80,10 @@ public class CreateIndexOp extends AlterTableOp {
         }
 
         indexDef.validate();
+        if (indexDef.getIndexType() == IndexType.INVERTED) {
+            // Resolve names before duplicate checks and before the catalog index copies the properties.
+            InvertedIndexUtil.resolvePolicyNames(indexDef.getProperties());
+        }
         index = indexDef.translateToCatalogStyle();
     }
 

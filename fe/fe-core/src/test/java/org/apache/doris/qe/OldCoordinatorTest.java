@@ -17,16 +17,27 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.Mockito;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -98,5 +109,68 @@ public class OldCoordinatorTest extends TestWithFeService {
             }
         }.test();
         Assertions.assertTrue(shuffleFragmentHasMultiInstances.get());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TStatusCode.class, names = {"CANCELLED", "TIMEOUT"})
+    public void testTerminateBetweenExecutionAdmissionAndFragmentDispatch(TStatusCode statusCode) {
+        Status cancelReason = new Status(statusCode, "terminate before fragment dispatch");
+        Coordinator coordinator = new Coordinator(0L, new TUniqueId(1L, 1L),
+                new DescriptorTable(), Collections.emptyList(), Collections.emptyList(), "UTC", false, false) {
+            @Override
+            protected void execInternal() throws Exception {
+                cancel(cancelReason);
+                sendPipelineCtx();
+            }
+        };
+
+        UserException exception = Assertions.assertThrows(UserException.class, coordinator::exec);
+        Assertions.assertTrue(exception.getMessage().contains("terminate before fragment dispatch"));
+    }
+
+    @Test
+    public void testCancelPublishesStatusBeforeScanCleanupFailure() {
+        Status cancelReason = new Status(TStatusCode.TIMEOUT, "timeout before scan cleanup");
+        ScanNode failingScan = Mockito.mock(ScanNode.class);
+        Mockito.doThrow(new RuntimeException("scan cleanup failed")).when(failingScan).stop();
+        ScanNode remainingScan = Mockito.mock(ScanNode.class);
+        AtomicBoolean cancelInternalCalled = new AtomicBoolean(false);
+        Coordinator coordinator = new Coordinator(0L, new TUniqueId(1L, 1L),
+                new DescriptorTable(), Collections.emptyList(), Arrays.asList(failingScan, remainingScan),
+                "UTC", false, false) {
+            @Override
+            protected void cancelInternal(Status status) {
+                cancelInternalCalled.set(true);
+            }
+        };
+
+        // A fallible scan cleanup must neither escape to the caller (which would skip the owner's close and
+        // mask the retained reason) nor skip the remaining scans. The terminal status is published first.
+        Assertions.assertDoesNotThrow(() -> coordinator.cancel(cancelReason));
+
+        Assertions.assertEquals(TStatusCode.TIMEOUT, coordinator.getExecStatus().getErrorCode());
+        Assertions.assertEquals("timeout before scan cleanup", coordinator.getExecStatus().getErrorMsg());
+        Assertions.assertTrue(cancelInternalCalled.get());
+        Mockito.verify(remainingScan).stop();
+    }
+
+    @Test
+    public void testQueueCancellationPrefersRetainedTerminalReason() {
+        Coordinator coordinator = new Coordinator(0L, new TUniqueId(1L, 1L),
+                new DescriptorTable(), Collections.emptyList(), Collections.emptyList(),
+                "UTC", false, false) {
+            @Override
+            protected void cancelInternal(Status status) {
+            }
+        };
+
+        // Without a retained status the queue token's own message stays.
+        Assertions.assertTrue(coordinator.preferTerminalReason(new UserException("query is cancelled"))
+                .getMessage().contains("query is cancelled"));
+
+        coordinator.cancel(new Status(TStatusCode.TIMEOUT, "retained queue timeout"));
+        // A TIMEOUT/KILL that unblocked the queue wait must win over the token's generic message.
+        Assertions.assertTrue(coordinator.preferTerminalReason(new UserException("query is cancelled"))
+                .getMessage().contains("retained queue timeout"));
     }
 }

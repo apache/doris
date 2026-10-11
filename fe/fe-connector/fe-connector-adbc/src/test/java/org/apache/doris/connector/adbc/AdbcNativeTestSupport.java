@@ -36,6 +36,15 @@ import java.nio.file.Paths;
  *
  * <p>When the libraries are absent the tests SKIP, and say so loudly: a skipped run has verified nothing
  * about the native path and must not be read as a pass.
+ *
+ * <p><b>These libraries are not the whole native surface.</b> A test that reads a driver's result into
+ * Arrow also loads arrow-c-data's own JNI shim, and that one is not built here: it travels inside the
+ * arrow-c-data jar as an upstream build that needs CXXABI_1.3.9, which hosts Doris still supports do not
+ * have (CentOS 7's libstdc++ stops at CXXABI_1.3.7). Nothing in this repository redirects it, so a test
+ * that materializes Arrow data does not exercise the connector on such a host -- it fails FE UT, which is
+ * how this rule was learned. Tests that iterate an {@code ArrowReader}, or touch {@code org.apache.arrow.c},
+ * therefore belong in the regression suites under {@code regression-test/suites/external_table_p0/adbc},
+ * not in this module's test sources.
  */
 final class AdbcNativeTestSupport {
 

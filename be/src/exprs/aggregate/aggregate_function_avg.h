@@ -52,6 +52,21 @@ class DataTypeNumber;
 template <PrimitiveType T>
 class ColumnVector;
 
+// avg() adds up the values in this type and divides only at the end, so integers keep all digits.
+constexpr PrimitiveType avg_sum_type(PrimitiveType T) {
+    if (T == TYPE_LARGEINT || T == TYPE_BIGINT) {
+        return TYPE_LARGEINT;
+    } else if (is_int_or_bool(T)) {
+        return TYPE_BIGINT;
+    } else if (is_float_or_double(T) || is_time_type(T)) {
+        return TYPE_DOUBLE;
+    } else if (is_decimalv3(T) && T != TYPE_DECIMAL256) {
+        return TYPE_DECIMAL128I;
+    } else {
+        return T;
+    }
+}
+
 template <PrimitiveType T>
 struct AggregateFunctionAvgData {
     using ResultType = typename PrimitiveTypeTraits<T>::CppType;
@@ -305,7 +320,10 @@ public:
         return std::make_shared<DataTypeFixedLengthObject>();
     }
 
-    bool supported_incremental_mode() const override { return true; }
+    // Floating-point accumulation is not exactly invertible: subtracting an outgoing
+    // value cannot restore the rounding lost when it was added, so a value that has
+    // left the frame would still distort later results. Recompute such frames instead.
+    bool supported_incremental_mode() const override { return !std::is_floating_point_v<DataType>; }
 
     void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
                                            int64_t frame_start, int64_t frame_end,

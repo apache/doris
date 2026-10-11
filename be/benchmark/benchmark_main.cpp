@@ -31,10 +31,10 @@
 #include "benchmark_column_array_view_distance.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_fmod.hpp"
+#include "benchmark_gram_extractor.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
-#include "benchmark_variant_segment.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "common/config.h"
@@ -51,6 +51,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/thread_context.h"
+#include "variant/benchmark_variant_segment.hpp"
 
 namespace doris { // change if need
 
@@ -92,7 +93,7 @@ static void Example1(benchmark::State& state) {
     state.ResumeTiming();
 
     // do test
-    for (auto _ : state) {
+    for ([[maybe_unused]] auto _ : state) {
         auto str_col = ColumnString::create();
         for (auto& v : vals) {
             str_col->insert_data(v.data(), v.size());

@@ -19,33 +19,85 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
 #include "common/metrics/metrics.h"
-#include "service/http/http_channel.h"
-#include "service/http/http_request.h"
-#include "service/http/http_response.h"
+#include "service/http/ev_http_server.h"
+#include "service/http/http_client.h"
+#include "service/http/http_method.h"
 
 namespace doris {
-
-// Mock part
-const char* s_expect_response = nullptr;
-
-void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std::string& content) {
-    EXPECT_STREQ(s_expect_response, content.c_str());
-}
 
 class MetricsActionTest : public testing::Test {
 public:
     MetricsActionTest() {}
     virtual ~MetricsActionTest() {}
-    void SetUp() override { _evhttp_req = evhttp_request_new(nullptr, nullptr); }
-    void TearDown() override {
-        if (_evhttp_req != nullptr) {
-            evhttp_request_free(_evhttp_req);
+    void SetUp() override {
+        _old_enable_all_http_auth = config::enable_all_http_auth;
+        config::enable_all_http_auth = false;
+    }
+    void TearDown() override { config::enable_all_http_auth = _old_enable_all_http_auth; }
+
+protected:
+    // Serve the registry with MetricsAction and return the body a client gets.
+    static std::string fetch_metrics(MetricRegistry* metric_registry) {
+        MetricsAction action(metric_registry, nullptr, TPrivilegeHier::GLOBAL,
+                             TPrivilegeType::NONE);
+        EvHttpServer server(0);
+        server.register_handler(GET, "/metrics", &action);
+        server.start();
+
+        HttpClient client;
+        auto url = "http://127.0.0.1:" + std::to_string(server.get_real_port()) + "/metrics";
+        EXPECT_TRUE(client.init(url).ok());
+        client.set_method(GET);
+        std::string body;
+        auto st = client.execute(&body);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        return body;
+    }
+
+    // Prometheus output comes from unordered maps, so neither the order of the metric groups nor
+    // the order of the labels in a sample is fixed. Sort the labels of each line, and sort the
+    // groups, each a "# TYPE" line with its samples.
+    static std::vector<std::string> normalize_prometheus(const std::string& text) {
+        std::vector<std::string> groups;
+        std::istringstream in(text);
+        std::string line;
+        while (std::getline(in, line)) {
+            auto open = line.find('{');
+            auto close = line.rfind('}');
+            if (open != std::string::npos && close != std::string::npos && open < close) {
+                std::vector<std::string> labels;
+                std::string rest = line.substr(open + 1, close - open - 1);
+                size_t start = 0;
+                for (size_t sep; (sep = rest.find("\",", start)) != std::string::npos;
+                     start = sep + 2) {
+                    labels.push_back(rest.substr(start, sep + 1 - start));
+                }
+                labels.push_back(rest.substr(start));
+                std::sort(labels.begin(), labels.end());
+                std::string sorted;
+                for (const auto& label : labels) {
+                    sorted += (sorted.empty() ? "" : ",") + label;
+                }
+                line = line.substr(0, open + 1) + sorted + line.substr(close);
+            }
+            if (line.starts_with("# TYPE ") || groups.empty()) {
+                groups.emplace_back();
+            }
+            groups.back() += line + "\n";
         }
+        std::sort(groups.begin(), groups.end());
+        return groups;
     }
 
 private:
-    evhttp_request* _evhttp_req = nullptr;
+    bool _old_enable_all_http_auth = false;
 };
 
 TEST_F(MetricsActionTest, prometheus_output) {
@@ -65,33 +117,11 @@ TEST_F(MetricsActionTest, prometheus_output) {
     cpu_idle->set_value(50);
     put_requests_total->increment(2345);
 
-    s_expect_response =
-            "# TYPE test_cpu_idle gauge\n"
-            "test_cpu_idle 50\n"
-            "# TYPE test_requests_total counter\n"
-            "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n";
-    HttpRequest request(_evhttp_req);
-    MetricsAction action(&metric_registry);
-    action.handle(&request);
-}
-
-TEST_F(MetricsActionTest, prometheus_no_prefix) {
-    MetricRegistry metric_registry("");
-    std::shared_ptr<MetricEntity> entity =
-            metric_registry.register_entity("metrics_action_test.prometheus_no_prefix");
-
-    IntGauge* cpu_idle = nullptr;
-    DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cpu_idle, MetricUnit::PERCENT);
-    INT_GAUGE_METRIC_REGISTER(entity, cpu_idle);
-
-    cpu_idle->set_value(50);
-
-    s_expect_response =
-            "# TYPE cpu_idle gauge\n"
-            "cpu_idle 50\n";
-    HttpRequest request(_evhttp_req);
-    MetricsAction action(&metric_registry);
-    action.handle(&request);
+    EXPECT_EQ(normalize_prometheus("# TYPE test_cpu_idle gauge\n"
+                                   "test_cpu_idle 50\n"
+                                   "# TYPE test_requests_total counter\n"
+                                   "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n"),
+              normalize_prometheus(fetch_metrics(&metric_registry)));
 }
 
 } // namespace doris

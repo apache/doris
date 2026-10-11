@@ -306,10 +306,12 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    void testCrossFamilyRejected() {
+    void testExactCrossFamilyWidening() {
+        Assertions.assertTrue(TinyIntType.INSTANCE.isInjectiveCastTo(FloatType.INSTANCE));
         Assertions.assertFalse(IntegerType.INSTANCE.isInjectiveCastTo(FloatType.INSTANCE));
         Assertions.assertFalse(FloatType.INSTANCE.isInjectiveCastTo(IntegerType.INSTANCE));
-        Assertions.assertFalse(IntegerType.INSTANCE.isInjectiveCastTo(DoubleType.INSTANCE));
+        Assertions.assertTrue(IntegerType.INSTANCE.isInjectiveCastTo(DoubleType.INSTANCE));
+        Assertions.assertFalse(BigIntType.INSTANCE.isInjectiveCastTo(DoubleType.INSTANCE));
     }
 
     // ========== tests for canExtractSlot ==========

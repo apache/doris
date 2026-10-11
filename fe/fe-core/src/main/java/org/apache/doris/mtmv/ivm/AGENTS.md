@@ -155,7 +155,7 @@ __DORIS_IVM_ROW_ID_COL__ | k1 | cnt | sum_v1 | __DORIS_IVM_DML_FACTOR_COL__ | __
 
 ### Semantics
 
-- **Read-only.** No insert transaction is built. Stream offsets, refresh version, and MV metadata
+- **Read-only.** No insert transaction is built. Stream offsets, sequence prefix, and MV metadata
   are never modified.
 - **Idempotent.** Repeating the same dry run returns identical rows as long as the base table data
   has not changed.
@@ -191,7 +191,7 @@ The same `IvmUtil.buildRowIdHash()` function is used by both the normalize phase
 
 ## Backward Compatibility
 
-IVM is not publicly available until October 2026. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views. Breaking changes to IVM metadata, DDL format, or internal storage layout are acceptable without migration support.
+IVM is not publicly available until January 2027. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views, nor with the binlog/stream data they consume. Breaking changes to IVM metadata, DDL format, binlog format, or the internal storage layout are acceptable without migration support: a view created by an earlier build may be dropped and recreated instead of migrated, and a change that only affects such a view is not a correctness defect to be fixed here.
 
 ## Regression Test Guide: Binlog Operations
 

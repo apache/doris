@@ -3,6 +3,9 @@
 10	2	300
 20	1	300
 
+-- !mv_rows_after_aba_strict --
+0	3	600
+
 -- !mv_rows_after_aba --
 0	3	600
 

@@ -30,6 +30,7 @@
 #include "storage/index/inverted/tokenizer/char/char_group_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/empty/empty_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/icu/icu_tokenizer_factory.h"
+#include "storage/index/inverted/tokenizer/ik/ik_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/ngram/edge_ngram_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/pinyin/pinyin_tokenizer_factory.h"
@@ -68,6 +69,10 @@ void AnalysisFactoryMgr::initialise() {
                                           []() { return std::make_shared<ICUTokenizerFactory>(); });
         registerFactory<TokenizerFactory>(
                 "pinyin", []() { return std::make_shared<PinyinTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "ik_smart", []() { return std::make_shared<IKTokenizerFactory>(true); });
+        registerFactory<TokenizerFactory>(
+                "ik_max_word", []() { return std::make_shared<IKTokenizerFactory>(false); });
 
         // token_filter
         registerFactory<TokenFilterFactory>(

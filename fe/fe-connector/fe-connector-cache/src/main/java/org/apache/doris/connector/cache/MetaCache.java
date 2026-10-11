@@ -135,6 +135,10 @@ public final class MetaCache<K, V> {
         delegate.forEach(consumer);
     }
 
+    void closeFromOwner() {
+        delegate.close();
+    }
+
     public static final class BulkLoad<K, V> implements AutoCloseable {
         private final MetaCache<K, V> owner;
         private final ScopedMetaCache.BulkLoadHandle delegate;

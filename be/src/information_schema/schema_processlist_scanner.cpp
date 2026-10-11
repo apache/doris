@@ -47,12 +47,25 @@ std::vector<SchemaScanner::ColumnDesc> SchemaProcessListScanner::_s_processlist_
         {"TraceId", TYPE_VARCHAR, sizeof(StringRef), false},                // 11
         {"Info", TYPE_VARCHAR, sizeof(StringRef), false},                   // 12
         {"FE", TYPE_VARCHAR, sizeof(StringRef), false},                     // 13
-        {"CloudCluster", TYPE_VARCHAR, sizeof(StringRef), false}};          // 14
+        {"CloudCluster", TYPE_VARCHAR, sizeof(StringRef), false},           // 14
+        {"Protocol", TYPE_VARCHAR, sizeof(StringRef), false}};              // 15
 
 SchemaProcessListScanner::SchemaProcessListScanner()
         : SchemaScanner(_s_processlist_columns, TSchemaTableType::SCH_PROCESSLIST) {}
 
 SchemaProcessListScanner::~SchemaProcessListScanner() = default;
+
+// A row is the FE's SHOW PROCESSLIST row, read by position; an FE of another version sends
+// another set of columns. Fit the row to this scanner's columns so _fill_block_impl can read it:
+// a row from before the TraceId column (#51400) gets an empty TraceId at position 11; a row
+// that ends before the columns added since (Protocol, position 15) is padded with empty
+// strings; a row of a newer FE with columns this scanner does not know is cut to them.
+void SchemaProcessListScanner::_fit_row_to_columns(std::vector<std::string>& row) {
+    if (row.size() == 14) {
+        row.insert(row.begin() + 11, "");
+    }
+    row.resize(_s_processlist_columns.size());
+}
 
 Status SchemaProcessListScanner::start(RuntimeState* state) {
     TShowProcessListRequest request;
@@ -65,13 +78,8 @@ Status SchemaProcessListScanner::start(RuntimeState* state) {
         RETURN_IF_ERROR(
                 SchemaHelper::show_process_list(fe_addr.hostname, fe_addr.port, request, &tmp_ret));
 
-        // Check and adjust the number of columns in each row to ensure 15 columns
-        // This is compatible with newly added column "trace id". #51400
         for (auto& row : tmp_ret.process_list) {
-            if (row.size() == 14) {
-                // Insert an empty string at position 11 (index 11) for the TRACE_ID column
-                row.insert(row.begin() + 11, "");
-            }
+            _fit_row_to_columns(row);
         }
 
         _process_list_result.process_list.insert(_process_list_result.process_list.end(),

@@ -27,6 +27,7 @@
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -317,6 +318,43 @@ TEST(function_array_element_test, element_at_const_array_null_index) {
     for (size_t i = 0; i < N; ++i) {
         EXPECT_TRUE(nr.is_null_at(i)) << "row " << i;
     }
+}
+
+// element_at(NULL, idx): with constant folding skipped the FE hands the BE a bare NULL container
+// typed as a null literal (TYPE_NULL). It carries no array/map type and must evaluate to NULL
+// rather than being rejected as BOOL.
+TEST(function_array_element_test, element_at_null_literal_container) {
+    constexpr size_t N = 3;
+
+    // Mirror the FE plan: both the container argument and the result are typed TYPE_NULL.
+    auto null_literal_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_NULL, true);
+    ASSERT_TRUE(null_literal_type->is_null_literal());
+    ColumnPtr const_null_container = null_literal_type->create_column_const_with_default_value(N);
+
+    auto run_with_index = [&](ColumnPtr idx_col, DataTypePtr idx_type) {
+        auto result = run_element_at(const_null_container, null_literal_type, std::move(idx_col),
+                                     idx_type, null_literal_type, N);
+        ASSERT_EQ(result->size(), N);
+        auto full = result->convert_to_full_column_if_const();
+        for (size_t i = 0; i < N; ++i) {
+            EXPECT_TRUE(full->is_null_at(i)) << "row " << i;
+        }
+    };
+
+    // Array-style integer index.
+    auto idx_data = ColumnInt32::create();
+    for (Int32 v : {1, 2, 3}) {
+        idx_data->insert_value(v);
+    }
+    run_with_index(std::move(idx_data), std::make_shared<DataTypeInt32>());
+
+    // Map-style string key.
+    auto key_data = ColumnString::create();
+    for (const auto& v : {std::string("a"), std::string("b"), std::string("c")}) {
+        key_data->insert_data(v.data(), v.size());
+    }
+    run_with_index(std::move(key_data), std::make_shared<DataTypeString>());
 }
 
 // Const Array(String) – exercises _execute_string code path.

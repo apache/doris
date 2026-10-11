@@ -15,10 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import org.awaitility.Awaitility
-
 suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external") {
 
     String jdbcUrl = context.config.jdbcUrl
@@ -30,7 +26,8 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     // String driver_url = "mysql-connector-j-8.4.0.jar"
 
     def wait_table_sync = { String db ->
-        Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
+        // Poll on the suite thread so its ThreadLocal JDBC connection is reused and closed by suite cleanup.
+        awaitUntil(10, 1) {
             try {
                 def res = sql "show tables from ${db}"
                 return res.size() > 0;

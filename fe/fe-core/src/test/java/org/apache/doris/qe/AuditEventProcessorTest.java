@@ -59,6 +59,7 @@ public class AuditEventProcessorTest {
                 .setState("EOF")
                 .setQueryTime(2000)
                 .setQueueTimeMs(2000)
+                .setProtocol("ArrowFlightSQL")
                 .setScanBytes(100000)
                 .setScanRows(200000)
                 .setReturnRows(1)
@@ -70,6 +71,7 @@ public class AuditEventProcessorTest {
         Assertions.assertEquals(200000, event.scanRows);
         Assertions.assertEquals("SELECT", event.stmtType);
         Assertions.assertEquals(2000, event.queueTimeMs);
+        Assertions.assertEquals("ArrowFlightSQL", event.protocol);
     }
 
     @Test

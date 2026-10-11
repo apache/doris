@@ -725,7 +725,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
 
             ColumnPtr result_column;
             ASSERT_TRUE(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column).ok());
-            auto sv = (*result_column)[0].get<TYPE_VARBINARY>();
+            // The view borrows the Field's owned bytes, so keep the Field alive for the assertion.
+            const auto result_field = (*result_column)[0];
+            const auto& sv = result_field.get<TYPE_VARBINARY>();
             EXPECT_EQ(value, std::string(sv.data(), sv.size()));
         }
     }
@@ -891,11 +893,10 @@ TEST(VExprExecuteColumnTest, TypeMismatchFails) {
     EXPECT_FALSE(st.ok());
 }
 
-TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnPasses) {
+TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnIsWrapped) {
     using namespace doris;
     FakeVExpr expr;
-    // Declared type is Nullable(Int32) but result is Int32 (non-nullable).
-    // This mirrors the use_default_implementation_for_nulls optimization and must pass.
+    // Declared type is Nullable(Int32), so the result must carry a nullable column wrapper.
     expr.set_data_type(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()));
 
     auto col = ColumnInt32::create();
@@ -905,6 +906,7 @@ TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnPasses) {
     ColumnPtr result;
     auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
     EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(result->is_nullable());
 }
 
 TEST(VExprExecuteColumnTest, ColumnNothingPassesTypeCheck) {

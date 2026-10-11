@@ -714,6 +714,26 @@ public class IcebergNestedColumnEvolutionTest {
     }
 
     @Test
+    public void testModifyNestedStructDecimalPrecisionPromotionAllowed() {
+        // Iceberg permits DECIMAL precision widening when the scale stays fixed. This is the same complex MODIFY
+        // issued by the Trino product test for STRUCT<field:DECIMAL(5,3)> -> STRUCT<field:DECIMAL(10,3)>.
+        Schema schema = new Schema(Types.NestedField.optional(1, "info", Types.StructType.of(
+                Types.NestedField.optional(2, "amount", Types.DecimalType.of(5, 3)))));
+        createTable("m_decimal_promote", schema);
+
+        ops.modifyColumn("db1", "m_decimal_promote",
+                structModify("info", Collections.singletonList("amount"),
+                        Collections.singletonList(ConnectorType.of("DECIMALV3", 10, 3)),
+                        Collections.singletonList(""), Collections.singletonList(false)),
+                false, null);
+
+        Types.DecimalType amount = (Types.DecimalType) reload("m_decimal_promote").findField("info")
+                .type().asStructType().field("amount").type();
+        Assertions.assertEquals(10, amount.precision());
+        Assertions.assertEquals(3, amount.scale());
+    }
+
+    @Test
     public void testModifyNestedPrimitivePromotionDisallowedFailsLoud() {
         // BIGINT -> INT is not an iceberg-representable promotion.
         createTable("m_narrow", requiredNestedSchema());

@@ -49,7 +49,8 @@ Status add_inverted_index_selection_candidate(
 Result<size_t> select_best_inverted_index_candidate(
         const std::vector<InvertedIndexSelectionCandidate>& candidates,
         const InvertedIndexSelectionKeyIndex& key_index, FieldType field_type,
-        InvertedIndexQueryType query_type, std::string_view normalized_analyzer_key) {
+        InvertedIndexQueryType query_type, std::string_view normalized_analyzer_key,
+        std::string_view legacy_analyzer_key) {
     if (candidates.empty()) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
                 "No available inverted index candidates"));
@@ -57,7 +58,10 @@ Result<size_t> select_best_inverted_index_candidate(
 
     const std::vector<size_t>* exact_candidates = nullptr;
     if (!normalized_analyzer_key.empty()) {
-        const auto exact = key_index.find(std::string(normalized_analyzer_key));
+        auto exact = key_index.find(std::string(normalized_analyzer_key));
+        if (exact == key_index.end() && !legacy_analyzer_key.empty()) {
+            exact = key_index.find(std::string(legacy_analyzer_key));
+        }
         if (exact == key_index.end() || exact->second.empty()) {
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
                     "No inverted index found for analyzer '{}'", normalized_analyzer_key));

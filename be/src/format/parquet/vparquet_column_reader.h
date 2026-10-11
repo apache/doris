@@ -176,7 +176,8 @@ public:
                          std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
                          RuntimeState* state, bool in_collection = false,
                          const std::set<uint64_t>& column_ids = {},
-                         const std::set<uint64_t>& filter_column_ids = {});
+                         const std::set<uint64_t>& filter_column_ids = {},
+                         bool preserve_binary_uuid = false);
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
     virtual ColumnStatistics column_statistics() = 0;
@@ -204,6 +205,7 @@ protected:
     // _in_nested: column in struct/map/array
     // IN_COLLECTION : column in map/array
     bool _in_nested = false;
+    bool _preserve_binary_uuid = false;
 };
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>

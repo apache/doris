@@ -268,6 +268,7 @@ private:
             RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL256);
             RETURN_RAW_FIXED_SIZE(TYPE_IPV4);
             RETURN_RAW_FIXED_SIZE(TYPE_IPV6);
+            RETURN_RAW_FIXED_SIZE(TYPE_UUID);
 #undef RETURN_RAW_FIXED_SIZE
         default:
             return 0;

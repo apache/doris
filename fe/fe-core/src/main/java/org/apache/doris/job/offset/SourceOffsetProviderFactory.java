@@ -18,6 +18,7 @@
 package org.apache.doris.job.offset;
 
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
 
@@ -35,8 +36,12 @@ public class SourceOffsetProviderFactory {
         map.put("cdc_stream", JdbcTvfSourceOffsetProvider.class);
     }
 
-    public static SourceOffsetProvider createSourceOffsetProvider(String sourceType) {
+    public static SourceOffsetProvider createSourceOffsetProvider(
+            String sourceType, StreamingJobProperties jobProperties) {
         try {
+            if ("s3".equalsIgnoreCase(sourceType) && jobProperties.isS3OnceMode()) {
+                return new S3SourceOffsetProvider(jobProperties);
+            }
             Class<? extends SourceOffsetProvider> cla = map.get(sourceType.toLowerCase());
             if (cla == null) {
                 throw new JobException("Unsupported source type: " + sourceType);

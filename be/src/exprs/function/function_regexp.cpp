@@ -19,6 +19,7 @@
 #include <re2/re2.h>
 #include <re2/stringpiece.h>
 #include <stddef.h>
+#include <unicode/utf8.h>
 
 #include <boost/regex.hpp>
 #include <memory>
@@ -54,6 +55,24 @@
 #include "exprs/string_functions.h"
 
 namespace doris {
+
+static bool advance_re2_search_position(const char* data, size_t size,
+                                        const re2::StringPiece& match, size_t& pos) {
+    const size_t match_pos = match.data() - data;
+    if (match.empty()) {
+        if (match_pos == size) {
+            return false;
+        }
+        size_t next_pos = match_pos;
+        UChar32 character;
+        U8_NEXT(data, next_pos, size, character);
+        // Doris strings can contain malformed UTF-8, so make byte-wise progress on decode failure.
+        pos = character < 0 ? match_pos + 1 : next_pos;
+    } else {
+        pos = match_pos + match.size();
+    }
+    return true;
+}
 
 // Helper structure to hold either RE2 or Boost.Regex
 struct RegexpExtractEngine {
@@ -145,28 +164,26 @@ struct RegexpExtractEngine {
                 return; // No capturing groups
             }
 
+            const re2::StringPiece input(data, size);
             size_t pos = 0;
             while (pos < size) {
-                const char* str_pos = data + pos;
-                size_t str_size = size - pos;
                 std::vector<re2::StringPiece> matches(max_matches);
-                bool success = re2_regex->Match(re2::StringPiece(str_pos, str_size), 0, str_size,
-                                                re2::RE2::UNANCHORED, matches.data(), max_matches);
+                bool success = re2_regex->Match(input, pos, size, re2::RE2::UNANCHORED,
+                                                matches.data(), max_matches);
                 if (!success) {
                     break;
                 }
+                const bool can_continue = advance_re2_search_position(data, size, matches[0], pos);
                 if (matches[0].empty()) {
-                    pos += 1;
+                    if (!can_continue) {
+                        break;
+                    }
                     continue;
                 }
                 // Extract first capturing group
                 if (matches.size() > 1 && !matches[1].empty()) {
                     results.emplace_back(matches[1].data(), matches[1].size());
                 }
-                // Move position forward
-                auto offset = std::string(str_pos, str_size)
-                                      .find(std::string(matches[0].data(), matches[0].size()));
-                pos += offset + matches[0].size();
             }
         } else if (is_boost()) {
             const char* search_start = data;
@@ -224,23 +241,22 @@ struct RegexpCountImpl {
         const auto str = str_col.value_at(index_now);
         int count = 0;
         size_t pos = 0;
+        const re2::StringPiece input(str.data, str.size);
         while (pos < str.size) {
-            auto str_pos = str.data + pos;
-            auto str_size = str.size - pos;
-            re2::StringPiece str_sp_current = re2::StringPiece(str_pos, str_size);
             re2::StringPiece match;
 
-            bool success = re->Match(str_sp_current, 0, str_size, re2::RE2::UNANCHORED, &match, 1);
+            bool success = re->Match(input, pos, str.size, re2::RE2::UNANCHORED, &match, 1);
             if (!success) {
                 break;
             }
+            const bool can_continue = advance_re2_search_position(str.data, str.size, match, pos);
             if (match.empty()) {
-                pos += 1;
+                if (!can_continue) {
+                    break;
+                }
                 continue;
             }
             count++;
-            size_t match_start = match.data() - str_sp_current.data();
-            pos += match_start + match.size();
         }
 
         return count;

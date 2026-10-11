@@ -33,14 +33,14 @@ TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsHonorsZeroLimitAndTieOrde
             {"gamma", 1},
     };
 
-    TabletSchema::PathsSetInfo unlimited;
+    VariantCompactionPaths unlimited;
     variant_util::VariantCompactionUtil::get_subpaths(0, stats, unlimited);
     EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("alpha")));
     EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("beta")));
     EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("gamma")));
     EXPECT_TRUE(unlimited.sparse_path_set.empty());
 
-    TabletSchema::PathsSetInfo top_one;
+    VariantCompactionPaths top_one;
     variant_util::VariantCompactionUtil::get_subpaths(1, stats, top_one);
     EXPECT_TRUE(top_one.sub_path_set.contains(StringRef("beta")));
     EXPECT_FALSE(top_one.sub_path_set.contains(StringRef("alpha")));
@@ -54,13 +54,13 @@ TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsKeepsAllPathsAtLimitAndHa
             {"beta", 1},
     };
 
-    TabletSchema::PathsSetInfo at_limit;
+    VariantCompactionPaths at_limit;
     variant_util::VariantCompactionUtil::get_subpaths(2, exact_limit, at_limit);
     EXPECT_TRUE(at_limit.sub_path_set.contains(StringRef("alpha")));
     EXPECT_TRUE(at_limit.sub_path_set.contains(StringRef("beta")));
     EXPECT_TRUE(at_limit.sparse_path_set.empty());
 
-    TabletSchema::PathsSetInfo empty;
+    VariantCompactionPaths empty;
     variant_util::VariantCompactionUtil::get_subpaths(1, {}, empty);
     EXPECT_TRUE(empty.sub_path_set.empty());
     EXPECT_TRUE(empty.sparse_path_set.empty());
@@ -82,12 +82,13 @@ TEST(IndexStorageVariantCompactionUtilTest, EmptyInputsKeepVariantSchemaWithoutP
             nullptr);
 
     auto compaction_schema = std::make_shared<TabletSchema>(*base_schema);
+    VariantCompactionPathsMap compaction_paths;
     auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            {}, compaction_schema);
+            {}, compaction_schema, compaction_paths);
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_TRUE(compaction_schema->has_column_unique_id(2));
 
-    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    const auto* path_set_info = compaction_paths.contains(2) ? &compaction_paths.at(2) : nullptr;
     ASSERT_NE(path_set_info, nullptr);
     EXPECT_TRUE(path_set_info->typed_path_set.empty());
     EXPECT_TRUE(path_set_info->sub_path_set.empty());
@@ -114,11 +115,12 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
     auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    VariantCompactionPathsMap compaction_paths;
     auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            {rowset_result.value()}, compaction_schema);
+            {rowset_result.value()}, compaction_schema, compaction_paths);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    const auto* path_set_info = compaction_paths.contains(2) ? &compaction_paths.at(2) : nullptr;
     ASSERT_NE(path_set_info, nullptr);
     EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("alpha")));
     EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("beta")));
@@ -149,11 +151,12 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
     auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    VariantCompactionPathsMap compaction_paths;
     auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            {rowset_result.value()}, compaction_schema);
+            {rowset_result.value()}, compaction_schema, compaction_paths);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    const auto* path_set_info = compaction_paths.contains(2) ? &compaction_paths.at(2) : nullptr;
     ASSERT_NE(path_set_info, nullptr);
     EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("alpha")));
     EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("beta")));
@@ -190,11 +193,12 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
     auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    VariantCompactionPathsMap compaction_paths;
     auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            {rowset_result.value()}, compaction_schema);
+            {rowset_result.value()}, compaction_schema, compaction_paths);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    const auto* path_set_info = compaction_paths.contains(2) ? &compaction_paths.at(2) : nullptr;
     ASSERT_NE(path_set_info, nullptr);
     EXPECT_TRUE(path_set_info->typed_path_set.contains("typed_i"));
     EXPECT_FALSE(path_set_info->sub_path_set.contains(StringRef("typed_i")));

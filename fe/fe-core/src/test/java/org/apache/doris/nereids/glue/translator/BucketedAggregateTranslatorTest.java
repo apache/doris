@@ -41,6 +41,47 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
                 + "kint INT NOT NULL, kbint INT NOT NULL, kstr STRING NOT NULL) "
                 + "DISTRIBUTED BY HASH(kint) BUCKETS 4 "
                 + "PROPERTIES('replication_num' = '1')");
+        createFunction("CREATE AGGREGATE FUNCTION bucketed_aggregate_translator_test.py_udaf_sum(INT) "
+                + "RETURNS BIGINT PROPERTIES('type'='PYTHON_UDF', 'symbol'='SumUdaf', "
+                + "'runtime_version'='3.10.2')");
+    }
+
+    @Test
+    public void testPythonUdafIsNotFusedIntoBucketedAggregation() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+
+            // agg_phase=0 lets the optimizer choose the plan; agg_phase=1 forces the
+            // one-phase plan, so only the translator fusion gate can reject the UDAF.
+            for (int aggPhase : new int[] {0, 1}) {
+                sessionVariable.aggPhase = aggPhase;
+                // A builtin aggregate on the same shape is fused, so the UDAF cases below
+                // are rejected because of the UDAF rather than the plan shape.
+                Assertions.assertFalse(collectBucketedAggregationNodes("sum(kint)").isEmpty());
+                assertUsesRegularAggregation(
+                        "bucketed_aggregate_translator_test.py_udaf_sum(kint)");
+                assertUsesRegularAggregation(
+                        "sum(kint), bucketed_aggregate_translator_test.py_udaf_sum(kint)");
+            }
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
     }
 
     @Test
@@ -78,18 +119,29 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
     }
 
     private void assertUsesRegularAggregation(String aggregateFunction) throws Exception {
-        Planner planner = getSQLPlanner("SELECT " + aggregateFunction
+        Planner planner = planAggregate(aggregateFunction);
+        Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty());
+        Assertions.assertFalse(collectNodes(planner, AggregationNode.class).isEmpty());
+    }
+
+    private List<BucketedAggregationNode> collectBucketedAggregationNodes(String aggregateFunction)
+            throws Exception {
+        return collectNodes(planAggregate(aggregateFunction), BucketedAggregationNode.class);
+    }
+
+    private Planner planAggregate(String aggregateFunction) throws Exception {
+        return getSQLPlanner("SELECT " + aggregateFunction
                 + " FROM bucketed_aggregate_translator_test.agg_group_concat_table GROUP BY kbint");
-        List<BucketedAggregationNode> bucketedAggregationNodes = Lists.newArrayList();
-        List<AggregationNode> aggregationNodes = Lists.newArrayList();
+    }
+
+    private <T extends PlanNode> List<T> collectNodes(Planner planner, Class<T> nodeClass) {
+        List<T> nodes = Lists.newArrayList();
         for (PlanFragment fragment : planner.getFragments()) {
             PlanNode root = fragment.getPlanRoot();
             if (root != null) {
-                root.collect(BucketedAggregationNode.class, bucketedAggregationNodes);
-                root.collect(AggregationNode.class, aggregationNodes);
+                root.collect(nodeClass, nodes);
             }
         }
-        Assertions.assertTrue(bucketedAggregationNodes.isEmpty());
-        Assertions.assertFalse(aggregationNodes.isEmpty());
+        return nodes;
     }
 }

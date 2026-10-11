@@ -19,3 +19,6 @@
 -- !select_6 --
 2001	125.5
 
+-- !median_distinct --
+5.5	1
+

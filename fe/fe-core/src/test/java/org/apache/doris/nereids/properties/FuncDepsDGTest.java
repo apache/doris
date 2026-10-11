@@ -53,6 +53,21 @@ class FuncDepsDGTest {
     }
 
     @Test
+    void testDependencyClosure() {
+        FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
+        Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);
+        Slot s2 = new SlotReference("s2", IntegerType.INSTANCE);
+        Slot s3 = new SlotReference("s3", IntegerType.INSTANCE);
+        Slot s4 = new SlotReference("s4", IntegerType.INSTANCE);
+        dg.addDeps(Sets.newHashSet(s1), Sets.newHashSet(s2));
+        dg.addDeps(Sets.newHashSet(s2, s3), Sets.newHashSet(s4));
+
+        FuncDepsDG funcDeps = dg.build();
+        Assertions.assertTrue(funcDeps.isDependent(Sets.newHashSet(s1, s3), Sets.newHashSet(s2, s4)));
+        Assertions.assertFalse(funcDeps.isDependent(Sets.newHashSet(s1), Sets.newHashSet(s4)));
+    }
+
+    @Test
     void testCircle() {
         FuncDepsDG.Builder dg = new FuncDepsDG.Builder();
         Slot s1 = new SlotReference("s1", IntegerType.INSTANCE);

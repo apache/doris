@@ -22,6 +22,7 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Column value in vector column
@@ -76,6 +77,18 @@ public interface ColumnValue {
     LocalDateTime getTimeStampTz();
 
     byte[] getBytes();
+
+    default UUID getUuid() {
+        return UUID.fromString(getString());
+    }
+
+    default byte[] getVariantMetadata() {
+        throw new UnsupportedOperationException("Variant metadata is not available");
+    }
+
+    default byte[] getVariantValue() {
+        throw new UnsupportedOperationException("Variant value is not available");
+    }
 
     void unpackArray(List<ColumnValue> values);
 

@@ -51,7 +51,6 @@
 #include "core/value/hll.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
-#include "exprs/aggregate/aggregate_function_reader_first_last.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "gtest/gtest_pred_impl.h"
 
@@ -307,128 +306,9 @@ public:
         agg_function->destroy(place);
     }
 
-    template <typename DataType, typename ColumnType, bool nullable>
-    void test_basic_data(int8_t input_nums) {
-        DataTypePtr data_type = get_data_type<DataType, nullable, false>();
-
-        auto data_column = data_type->create_column();
-        add_elements<DataType, nullable>(data_column, input_nums);
-
-        EXPECT_EQ(input_nums, data_column->size());
-        //test Value
-        {
-            Value<nullable> value;
-            EXPECT_TRUE(value.is_null());
-            for (int64_t i = 0; i < input_nums; ++i) {
-                value.set_value(data_column.get(), i);
-                EXPECT_FALSE(value.is_null());
-                auto to_column = data_type->create_column();
-                if constexpr (nullable) {
-                    auto& nullable_col = assert_cast<ColumnNullable&>(*to_column);
-                    value.insert_into(nullable_col.get_nested_column());
-                } else {
-                    value.insert_into(*to_column);
-                }
-
-                EXPECT_EQ(1, to_column->size());
-                check_column_basic<DataType, nullable>(to_column.get(), i);
-            }
-        }
-        //test CopiedValue
-        {
-            CopiedValue<nullable> value;
-            EXPECT_TRUE(value.is_null());
-            for (int64_t i = 0; i < input_nums; ++i) {
-                value.template set_value<ColumnType>(data_column.get(), i);
-                EXPECT_FALSE(value.is_null());
-                auto to_column = data_type->create_column();
-                if constexpr (nullable) {
-                    auto& nullable_col = assert_cast<ColumnNullable&>(*to_column);
-                    value.template insert_into<ColumnType>(nullable_col.get_nested_column());
-                } else {
-                    value.template insert_into<ColumnType>(*to_column);
-                }
-                EXPECT_EQ(1, to_column->size());
-                check_column_basic<DataType, nullable>(to_column.get(), i);
-            }
-        }
-    }
-
-    template <typename DataType, typename ColumnType, bool nullable>
-    void test_array_data(int8_t input_nums) {
-        DataTypePtr data_type = get_data_type<DataType, nullable, true>();
-
-        auto data_column = data_type->create_column();
-        array_add_elements<DataType, nullable>(data_column, input_nums);
-
-        EXPECT_EQ(input_nums + 1, data_column->size());
-        //test Value
-        {
-            Value<nullable> value;
-            EXPECT_TRUE(value.is_null());
-            for (int64_t i = 0; i <= input_nums; ++i) {
-                value.set_value(data_column.get(), i);
-                EXPECT_FALSE(value.is_null());
-                auto to_column = data_type->create_column();
-                if constexpr (nullable) {
-                    auto& nullable_col = assert_cast<ColumnNullable&>(*to_column);
-                    value.insert_into(nullable_col.get_nested_column());
-                } else {
-                    value.insert_into(*to_column);
-                }
-                EXPECT_EQ(1, to_column->size());
-                check_column_array<DataType, nullable>(to_column.get(), i);
-            }
-        }
-        //test CopiedValue
-        {
-            CopiedValue<nullable> value;
-            EXPECT_TRUE(value.is_null());
-            for (int64_t i = 0; i <= input_nums; ++i) {
-                value.template set_value<ColumnArray>(data_column.get(), i);
-                EXPECT_FALSE(value.is_null());
-                auto to_column = data_type->create_column();
-                if constexpr (nullable) {
-                    auto& nullable_col = assert_cast<ColumnNullable&>(*to_column);
-                    value.template insert_into<ColumnArray>(nullable_col.get_nested_column());
-                } else {
-                    value.template insert_into<ColumnArray>(*to_column);
-                }
-                EXPECT_EQ(1, to_column->size());
-                check_column_array<DataType, nullable>(to_column.get(), i);
-            }
-        }
-    }
-
 private:
     Arena _agg_arena_pool;
 };
-
-TEST_F(VAggReplaceTest, test_basic_data) {
-    test_basic_data<DataTypeInt8, ColumnInt8, false>(11);
-    test_basic_data<DataTypeInt16, ColumnInt16, false>(11);
-    test_basic_data<DataTypeInt32, ColumnInt32, false>(11);
-    test_basic_data<DataTypeInt64, ColumnInt64, false>(11);
-    test_basic_data<DataTypeInt128, ColumnInt128, false>(11);
-    test_basic_data<DataTypeDecimalV2, ColumnDecimal128V2, false>(11);
-    test_basic_data<DataTypeString, ColumnString, false>(11);
-    test_basic_data<DataTypeInt128, ColumnInt128, false>(11);
-    test_basic_data<DataTypeDate, ColumnDate, false>(11);
-    test_basic_data<DataTypeDateTime, ColumnDateTime, false>(11);
-}
-
-TEST_F(VAggReplaceTest, test_array_data) {
-    test_array_data<DataTypeInt8, ColumnArray, false>(11);
-    test_array_data<DataTypeInt16, ColumnArray, false>(11);
-    test_array_data<DataTypeInt32, ColumnArray, false>(11);
-    test_array_data<DataTypeInt64, ColumnArray, false>(11);
-    test_array_data<DataTypeInt128, ColumnArray, false>(11);
-    test_array_data<DataTypeDecimalV2, ColumnArray, false>(11);
-    test_array_data<DataTypeString, ColumnArray, false>(11);
-    test_array_data<DataTypeInt128, ColumnArray, false>(11);
-    test_array_data<DataTypeDate, ColumnArray, false>(11);
-    test_array_data<DataTypeDateTime, ColumnArray, false>(11);
-}
 
 TEST_F(VAggReplaceTest, test_basic_replace_reader) {
     test_agg_replace<DataTypeInt8, false>("replace_reader", 10, 0);

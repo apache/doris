@@ -57,9 +57,9 @@ class IvmSequenceCalculatorTest {
 
     @Test
     void testLargeIntSequenceUsesFullEncodingRange() {
-        long maxRefreshVersion = Long.MAX_VALUE >>> 11;
+        long maxSequencePrefix = Long.MAX_VALUE >>> 11;
         IvmSequenceCalculator calculator = IvmSequenceCalculator.create(
-                maxRefreshVersion, LargeIntType.INSTANCE);
+                maxSequencePrefix, LargeIntType.INSTANCE);
 
         LargeIntLiteral sequence = (LargeIntLiteral) calculator.encode(
                 1023, BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE), true);
@@ -70,12 +70,12 @@ class IvmSequenceCalculatorTest {
 
     @Test
     void testSequenceRejectsValuesOutsideEncodingRanges() {
-        long maxRefreshVersion = Long.MAX_VALUE >>> 11;
-        IvmSequenceCalculator.create(maxRefreshVersion, LargeIntType.INSTANCE);
+        long maxSequencePrefix = Long.MAX_VALUE >>> 11;
+        IvmSequenceCalculator.create(maxSequencePrefix, LargeIntType.INSTANCE);
 
-        IvmException refreshVersionException = Assertions.assertThrows(IvmException.class,
-                () -> IvmSequenceCalculator.create(maxRefreshVersion + 1, LargeIntType.INSTANCE));
-        Assertions.assertTrue(refreshVersionException.getMessage().contains("refresh version"));
+        IvmException sequencePrefixException = Assertions.assertThrows(IvmException.class,
+                () -> IvmSequenceCalculator.create(maxSequencePrefix + 1, LargeIntType.INSTANCE));
+        Assertions.assertTrue(sequencePrefixException.getMessage().contains("sequence prefix"));
 
         IvmSequenceCalculator calculator = IvmSequenceCalculator.create(1, LargeIntType.INSTANCE);
         IvmException deltaIndexException = Assertions.assertThrows(IvmException.class,

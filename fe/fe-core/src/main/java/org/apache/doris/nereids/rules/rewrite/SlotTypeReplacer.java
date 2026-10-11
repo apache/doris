@@ -378,12 +378,14 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(fileScan.getOutput(), false, true);
         if (replaced.first) {
             List<Slot> replaceSlots = new ArrayList<>(replaced.second);
-            // Gate the name-to-field-id access-path rewrite on the nested-column-prune capability (not the
-            // legacy exact-class IcebergExternalTable, which is dead post-flip — the table is a
-            // PluginDrivenExternalTable). The translation below is connector-agnostic: it reads
-            // column.getUniqueId()/getChildren(), which the connector populates with its stable field ids.
+            // Gate the name-to-field-id access-path rewrite on the field-id access-path capability, which is
+            // separate from the prune capability: a connector can honour a pruned nested type while still
+            // being addressed by name. (Not the legacy exact-class IcebergExternalTable, which is dead
+            // post-flip — the table is a PluginDrivenExternalTable.) The translation below is
+            // connector-agnostic: it reads column.getUniqueId()/getChildren(), which the connector populates
+            // with its stable field ids.
             if (fileScan.getTable() instanceof PluginDrivenExternalTable
-                    && ((PluginDrivenExternalTable) fileScan.getTable()).supportsNestedColumnPrune()) {
+                    && ((PluginDrivenExternalTable) fileScan.getTable()).usesFieldIdAccessPath()) {
                 for (int i = 0; i < replaceSlots.size(); i++) {
                     Slot slot = replaceSlots.get(i);
                     if (!(slot instanceof SlotReference)) {
@@ -624,7 +626,15 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             newType = prunedTree.pruneCastType(originTree, castTree);
         }
 
-        return new Cast(newChild, newType);
+        // Rebuild through withChildren/withTargetType so the concrete cast kind survives. A
+        // TRY_CAST that reaches here has kept its whole immediate child value (see
+        // AccessPathExpressionCollector.visitTryCast, which never translates an access path
+        // through the cast), but that child can still be rebuilt: for
+        // element_at(try_cast(element_at(wrapper, 'f') as struct<...>), 'g') the collector
+        // records [wrapper, f], so pruning may drop a sibling of wrapper and replace the
+        // inner element_at. Constructing a Cast here would silently downgrade the whole-value
+        // TRY_CAST into a strict CAST, turning its NULL result into a cast error.
+        return cast.withChildren(ImmutableList.of(newChild)).withTargetType(newType);
     }
 
     private List<ColumnAccessPath> replaceAccessPathToFieldId(

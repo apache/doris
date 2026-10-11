@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
@@ -74,7 +75,8 @@ public class VariantField {
         sb.append("'").append(pattern).append("'");
         sb.append(":").append(type.toSql(depth + 1));
         if (!comment.isEmpty()) {
-            sb.append(" COMMENT '").append(comment).append("'");
+            // Quote the comment so SHOW CREATE TABLE output can be replayed when it holds quotes or backslashes.
+            sb.append(" COMMENT ").append(SqlUtils.quoteStringLiteral(comment, false));
         }
         return sb.toString();
     }

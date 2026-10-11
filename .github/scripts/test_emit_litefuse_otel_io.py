@@ -172,6 +172,26 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             ["doris-ai-review", "codex-jsonl"],
         )
 
+    def test_verified_completion_preserves_capacity_turn_for_diagnostics(self):
+        args = SimpleNamespace(
+            repository="apache/doris", workflow="Code Review", run_id="123", pr_number="123",
+            head_sha="a" * 40, base_sha="b" * 40, reasoning_effort="xhigh",
+            max_json_chars=20000, max_context_json_chars=0, trace_name="review",
+            session_id="123", environment="test", model="gpt-6-sol",
+        )
+        completion = {"state": "failure", "p0": 0, "p1": 1, "review_id": 99,
+                      "recovered_after_capacity": True}
+        _, payload, _ = MODULE.build_ingestion_payload(args, "review", "", [
+            {"type": "turn.failed", "error": {"message": "capacity"}},
+            {"type": "review.completed", **completion},
+        ])
+        trace = payload["batch"][0]["body"]
+        self.assertEqual(completion, trace["metadata"]["review_completion"])
+        turn = next(event["body"] for event in payload["batch"]
+                    if event["body"].get("name") == "codex.turn")
+        self.assertEqual("failed", turn["output"]["status"])
+        self.assertEqual("ERROR", turn["level"])
+
     def test_bounds_and_shrinks_failed_turn_status_message(self):
         args = SimpleNamespace(
             repository="apache/doris",

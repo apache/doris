@@ -218,7 +218,7 @@ public class MergeAggregate implements RewriteRuleFactory {
             return false;
         }
         // project cannot have expressions like a+1
-        if (ExpressionUtils.deapAnyMatch(project.getProjects(),
+        if (ExpressionUtils.deepAnyMatch(project.getProjects(),
                 expr -> !(expr instanceof SlotReference) && !(expr instanceof Alias))) {
             return false;
         }

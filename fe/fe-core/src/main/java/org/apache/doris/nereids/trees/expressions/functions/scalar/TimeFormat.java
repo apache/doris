@@ -22,15 +22,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -85,12 +84,7 @@ public class TimeFormat extends ScalarFunction
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        Expression format = child(1);
-        if (!(format instanceof StringLikeLiteral)) {
-            return false;
-        }
-        String str = ((StringLikeLiteral) format).getValue();
-        return DateUtils.monoFormat.contains(str);
+        return MonotonicityUtils.hasMonotonicFormat(child(1));
     }
 
     @Override

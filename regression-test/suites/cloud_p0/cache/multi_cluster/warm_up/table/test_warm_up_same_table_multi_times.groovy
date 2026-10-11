@@ -17,7 +17,19 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_warm_up_same_table_multi_times") {
+suite("test_warm_up_same_table_multi_times", "nonConcurrent") {
+    // This setting is static in FE; isolate it and restore it even when a cache assertion fails.
+    String originalSyncLoad = sql("select @@enable_multi_cluster_sync_load")[0][0].toString()
+    assertTrue(originalSyncLoad.toLowerCase() in ["true", "false", "1", "0"],
+            "Unexpected sync-load setting: ${originalSyncLoad}")
+    onFinish {
+        sql "set enable_multi_cluster_sync_load = ${originalSyncLoad}"
+        logger.info("Restored enable_multi_cluster_sync_load=${originalSyncLoad}")
+    }
+    // Only explicit warm-up should populate the target cache in this case.
+    sql "set enable_multi_cluster_sync_load = false"
+    logger.info("Explicit warmup: disabled automatic sync load, previous=${originalSyncLoad}")
+
     def custoBeConfig = [
         enable_evict_file_cache_in_advance : false,
         file_cache_enter_disk_resource_limit_mode_percent : 99
@@ -115,6 +127,26 @@ suite("test_warm_up_same_table_multi_times") {
         }
     }
 
+    def createdWarmUpJobIds = [] as Set
+    def recordWarmUpJob = { jobId ->
+        if (jobId != null && !jobId.isEmpty()) {
+            createdWarmUpJobIds.add(jobId[0][0])
+        }
+    }
+    def cleanupWarmUpJobs = {
+        createdWarmUpJobIds.each { jobId ->
+            try {
+                def statuses = getJobState(jobId)
+                if (statuses.any { it != null && (it.equals("PENDING") || it.equals("RUNNING")) }) {
+                    sql "cancel warm up job where id = ${jobId}"
+                }
+            } catch (Exception e) {
+                logger.info("ignore warm up job cleanup failure, job id: ${jobId}, error: ${e.getMessage()}")
+            }
+        }
+    }
+
+    try {
     clearFileCache.call();
     sleep(30000)
 
@@ -124,11 +156,12 @@ suite("test_warm_up_same_table_multi_times") {
     load_customer_once()
 
     def jobId = sql "warm up cluster ${validCluster} with table customer;"
+    recordWarmUpJob(jobId)
     try {
         sql "warm up cluster ${validCluster} with table customer;"
-        assertTrue(true) // dup warm up command can be send to fe queue now
-    } catch (Exception e) {
         assertTrue(false)
+    } catch (Exception e) {
+        assertTrue("${e.getMessage()}".contains("already has a pending job"))
     }
     int retryTime = 120
     int j = 0
@@ -191,6 +224,7 @@ suite("test_warm_up_same_table_multi_times") {
 
     // AGAIN!
     jobId = sql "warm up cluster ${validCluster} with table customer;"
+    recordWarmUpJob(jobId)
 
     retryTime = 120
     j = 0
@@ -273,5 +307,8 @@ suite("test_warm_up_same_table_multi_times") {
     long diff = skip_io_bytes_end - skip_io_bytes_start;
     println("skip_io_bytes diff: " + diff);
     assertTrue(diff > 1000);
+    } finally {
+        cleanupWarmUpJobs()
+    }
     }
 }

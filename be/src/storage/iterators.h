@@ -33,6 +33,7 @@
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/segment/row_ranges.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -116,7 +117,11 @@ public:
     // Effective adaptive batch size byte budget.
     size_t preferred_block_size_bytes = 8388608UL;
 
-    TabletSchemaSPtr tablet_schema = nullptr;
+    // Whether the tablet schema this read targets materializes variant subcolumns as extracted
+    // columns. A compaction read then takes them as flat leaves.
+    bool tablet_has_extracted_variant_columns = false;
+    // The compaction output schema's variant path layout; null outside a variant compaction.
+    VariantCompactionPathsSPtr variant_compaction_paths;
     bool enable_unique_key_merge_on_write = false;
     bool record_rowids = false;
     std::vector<int> topn_filter_source_node_ids;

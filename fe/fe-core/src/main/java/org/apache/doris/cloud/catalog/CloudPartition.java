@@ -213,17 +213,27 @@ public class CloudPartition extends Partition {
 
     // Select the non-empty partitions and return the ids.
     public static List<Long> selectNonEmptyPartitionIds(List<CloudPartition> partitions) {
-        List<Long> nonEmptyPartitionIds = partitions.stream()
-                .filter(CloudPartition::hasDataCached)
-                .map(CloudPartition::getId)
-                .collect(Collectors.toList());
-        if (nonEmptyPartitionIds.size() == partitions.size()) {
+        return selectNonEmptyPartitionIds(partitions, false);
+    }
+
+    // Select non-empty partitions while bypassing the version cache for cached-empty or unknown partitions.
+    public static List<Long> selectNonEmptyPartitionIdsFromMs(List<CloudPartition> partitions) {
+        return selectNonEmptyPartitionIds(partitions, true);
+    }
+
+    private static List<Long> selectNonEmptyPartitionIds(List<CloudPartition> partitions, boolean forceRefresh) {
+        List<Long> nonEmptyPartitionIds = new ArrayList<>(partitions.size());
+        List<CloudPartition> unknowns = new ArrayList<>(partitions.size());
+        for (CloudPartition partition : partitions) {
+            if (partition.hasDataCached()) {
+                nonEmptyPartitionIds.add(partition.getId());
+            } else {
+                unknowns.add(partition);
+            }
+        }
+        if (unknowns.isEmpty()) {
             return nonEmptyPartitionIds;
         }
-
-        List<CloudPartition> unknowns = partitions.stream()
-                .filter(p -> !p.hasDataCached())
-                .collect(Collectors.toList());
 
         SummaryProfile profile = getSummaryProfile();
         if (profile != null) {
@@ -231,7 +241,9 @@ public class CloudPartition extends Partition {
         }
 
         try {
-            List<Long> versions = CloudPartition.getSnapshotVisibleVersion(unknowns);
+            List<Long> versions = forceRefresh
+                    ? CloudPartition.getSnapshotVisibleVersionFromMs(unknowns, false)
+                    : CloudPartition.getSnapshotVisibleVersion(unknowns);
 
             int size = versions.size();
             for (int i = 0; i < size; i++) {

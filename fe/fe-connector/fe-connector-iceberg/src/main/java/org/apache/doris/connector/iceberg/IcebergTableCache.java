@@ -143,8 +143,20 @@ final class IcebergTableCache {
                             }
                         }
                     };
-                    TableOwner loaded = new TableOwner(table, cleanup, true,
-                            entry.isEnabled() && entry.isWeightBounded());
+                    TableOwner loaded;
+                    try {
+                        // Reject before weight estimation/metadata serialization as well as snapshot conversion.
+                        IcebergScanPlanning.rejectServerSideScanPlanning(table, identifier.toString());
+                        loaded = new TableOwner(table, cleanup, true,
+                                entry.isEnabled() && entry.isWeightBounded());
+                    } catch (RuntimeException | Error failure) {
+                        try {
+                            cleanup.run();
+                        } catch (RuntimeException | Error cleanupFailure) {
+                            failure.addSuppressed(cleanupFailure);
+                        }
+                        throw failure;
+                    }
                     loadedHere[0] = loaded;
                     return loaded;
                 } finally {

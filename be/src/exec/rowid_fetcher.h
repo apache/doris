@@ -31,6 +31,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "storage/id_manager.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
@@ -90,7 +91,7 @@ private:
     static Status read_doris_format_row(
             const std::shared_ptr<IdFileMap>& id_file_map,
             const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_id,
-            std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+            std::vector<SlotDescriptor>& slots, const std::vector<TabletColumn>& fetch_columns,
             RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,

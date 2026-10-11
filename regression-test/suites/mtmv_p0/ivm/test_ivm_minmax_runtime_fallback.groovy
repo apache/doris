@@ -19,6 +19,8 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_minmax_runtime_fallback") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists ivm_mm_fb_mv"""
     sql """drop table if exists ivm_mm_fb_t"""
 

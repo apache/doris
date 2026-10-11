@@ -139,6 +139,7 @@ def evaluate(dt):
 \$\$;
         """
         
+        // The Arrow timezone label must not shift a DATETIME's civil fields in Python.
         qt_select_datetime """ SELECT py_datetime_test('2024-01-15 10:30:45') AS result; """
         
         // Test 7: Comprehensive test - create table and test multiple data types

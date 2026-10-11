@@ -103,6 +103,8 @@ public class ColumnDef {
         public static Pattern CURRENT_TIMESTAMP_PATTERN
                 = Pattern.compile("^CURRENT_TIMESTAMP(?:\\(\\d?\\))?$");
         public static String NOW = "now";
+        public static String UUID_V4 = "uuid_v4";
+        public static String UUID_V7 = "uuid_v7";
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
@@ -358,6 +360,14 @@ public class ColumnDef {
                 default:
                     throw new AnalysisException("Types other than DOUBLE cannot use e as the default value");
             }
+        } else if (null != defaultValueExprDef
+                && (defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.UUID_V4)
+                || defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.UUID_V7))) {
+            if (primitiveType != PrimitiveType.UUID) {
+                throw new AnalysisException("Types other than UUID cannot use UUID generation functions "
+                        + "as the default value");
+            }
+            return;
         }
         switch (primitiveType) {
             case TINYINT:
@@ -450,6 +460,9 @@ public class ColumnDef {
                 break;
             case IPV6:
                 new IPv6Literal(defaultValue);
+                break;
+            case UUID:
+                new UuidLiteral(defaultValue);
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);

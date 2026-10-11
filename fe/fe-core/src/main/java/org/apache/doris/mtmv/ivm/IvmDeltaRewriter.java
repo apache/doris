@@ -67,8 +67,8 @@ public class IvmDeltaRewriter {
                 rewriteContext.isIncludeExhaustedStreams());
         Pair<Plan, List<LogicalProject<?>>> prefixChain = helper.detachAdaptProjectChain(sinkChild);
         Plan rootPlan = prefixChain.first;
-        long refreshVersion = refreshContext.getMtmv().getNextRefreshVersion();
-        IvmDeltaRewriteState rewriteState = createDeltaRewriteState(rootPlan, refreshContext, refreshVersion,
+        long sequencePrefix = refreshContext.getMtmv().getNextSequencePrefix();
+        IvmDeltaRewriteState rewriteState = createDeltaRewriteState(rootPlan, refreshContext, sequencePrefix,
                 rewriteContext.getIncrementalScopePartitionIds());
         Optional<IvmDeltaRewriteResult> deltaResult = rewriteDelta(rootPlan, refreshContext, rewriteState);
         if (!deltaResult.isPresent()) {
@@ -156,7 +156,7 @@ public class IvmDeltaRewriter {
         return IvmDeltaRewriteHelper.INSTANCE.freshPlan(rewritten);
     }
 
-    private IvmDeltaRewriteState createDeltaRewriteState(Plan plan, IvmIncrRefreshContext ctx, long refreshVersion,
+    private IvmDeltaRewriteState createDeltaRewriteState(Plan plan, IvmIncrRefreshContext ctx, long sequencePrefix,
             Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
         Map<OlapTable, OlapTableStream> streams = new HashMap<>();
         // Window limits apply to every base table in the plan, including excluded
@@ -186,7 +186,7 @@ public class IvmDeltaRewriter {
             }
         }
         applyScopePartitionIds(windowPartitionIdsByTable, planTables, scopePartitionIds);
-        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), refreshVersion,
+        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), sequencePrefix,
                 DataType.fromCatalogType(ctx.getMtmv().getColumn(Column.SEQUENCE_COL).getType()),
                 windowPartitionIdsByTable);
     }

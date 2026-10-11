@@ -184,7 +184,7 @@ bool AnalyzeContext::needRefillBuffer() const {
 }
 
 void AnalyzeContext::markBufferOffset() {
-    buffer_offset_ += typed_runes_[cursor_].offset;
+    buffer_offset_ += typed_runes_[cursor_].getNextBytePosition();
 }
 
 void AnalyzeContext::lockBuffer(SegmenterType type) {

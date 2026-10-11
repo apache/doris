@@ -410,6 +410,9 @@ Status IndexBuilder::update_inverted_index_info() {
         rowset_meta->set_num_segments(input_rowset_meta->num_segments());
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
         rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
+        if (input_rowset_meta->has_commit_tso()) {
+            rowset_meta->set_commit_tso(input_rowset_meta->commit_tso());
+        }
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds_truncated(
@@ -718,7 +721,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
             read_options.stats = &stats;
-            read_options.tablet_schema = output_rowset_schema;
             auto schema = std::make_shared<ReadSchema>(
                     project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
             std::unique_ptr<RowwiseIterator> iter;
@@ -954,7 +956,6 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
     StorageReadOptions read_options;
     OlapReaderStatistics stats;
     read_options.stats = &stats;
-    read_options.tablet_schema = output_rowset_schema;
     auto schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
     std::unique_ptr<RowwiseIterator> iter;

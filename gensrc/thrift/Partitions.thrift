@@ -52,7 +52,13 @@ enum TPartitionType {
   HIVE_TABLE_SINK_UNPARTITIONED = 8,
 
   // used for merge partitioning: insert by partition columns, delete by row_id
-  MERGE_PARTITIONED = 9
+  MERGE_PARTITIONED = 9,
+
+  // connector-owned ownership function followed by writer assignment
+  EXTERNAL_TABLE_SINK_HASH_PARTITIONED = 10,
+
+  // adaptive writer distribution without an ownership key
+  EXTERNAL_TABLE_SINK_UNPARTITIONED = 11
 }
 
 enum TLocalPartitionType {
@@ -194,6 +200,19 @@ struct TMergePartitionInfo {
   6: optional i32 partition_spec_id
 }
 
+enum TExternalTableSinkWriterAssignment {
+  IDENTITY = 0,
+  SKEWED = 1
+}
+
+// FE treats partition_function and its options as opaque connector-owned data.
+// BE validates the named function before processing rows.
+struct TExternalTableSinkHashPartitionInfo {
+  1: required string partition_function
+  2: optional map<string, string> partition_function_options
+  3: required TExternalTableSinkWriterAssignment writer_assignment
+}
+
 // Specification of how a single logical data stream is partitioned.
 // This leaves out the parameters that determine the physical partition (for hash
 // partitions, the number of partitions; for range partitions, the partitions'
@@ -203,4 +222,5 @@ struct TDataPartition {
   2: optional list<Exprs.TExpr> partition_exprs
   3: optional list<TRangePartition> partition_infos
   4: optional TMergePartitionInfo merge_partition_info
+  5: optional TExternalTableSinkHashPartitionInfo external_table_sink_hash_partition_info
 }

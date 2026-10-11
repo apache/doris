@@ -32,6 +32,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
@@ -360,11 +361,16 @@ public abstract class ConnectProcessor {
                     if (!ctx.isReturnResultFromLocal()) {
                         returnResultFromRemoteExecutor.add(executor);
                     }
-                    if (!ctx.getProtocolAdapter().finishStatement(ctx, executor, i, stmts.size())) {
-                        break;
-                    }
+                    // A statement that ran is audited whether or not the request goes on: the Flight
+                    // adapter refuses a result that is not the last statement's after the statement
+                    // executed, and the refusal is what the audit row then records (State=ERR with
+                    // its error code), counted as one failed query like any other.
+                    boolean requestGoesOn = ctx.getProtocolAdapter().finishStatement(ctx, executor, i, stmts.size());
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
+                    if (!requestGoesOn) {
+                        break;
+                    }
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
                             && ctx.executor != null && ctx.executor.hasForwardedToMaster()
@@ -750,6 +756,7 @@ public abstract class ConnectProcessor {
                         literalType.isTimeStampNs() ? literalType : null);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            case UUID_LITERAL: return new UuidLiteral(new UUID(node.uuid_literal.hi, node.uuid_literal.lo).toString());
             default: throw new AnalysisException("Wrong type from thrift;");
         }
     }

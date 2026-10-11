@@ -90,11 +90,12 @@ TEST_F(IndexStorageVariantSparseStatsTest, VariantCompactionSchemaTopNRecordsSpa
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
 
     auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    VariantCompactionPathsMap compaction_paths;
     auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets.value(), compaction_schema);
+            rowsets.value(), compaction_schema, compaction_paths);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    const auto* path_set_info = compaction_paths.contains(2) ? &compaction_paths.at(2) : nullptr;
     ASSERT_NE(path_set_info, nullptr);
     EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("hot")));
     EXPECT_FALSE(path_set_info->sub_path_set.contains(StringRef("warm")));

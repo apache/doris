@@ -57,6 +57,7 @@ size_t topn_raw_value_size(PrimitiveType type) {
         RETURN_TOPN_RAW_SIZE(TYPE_DECIMAL256);
         RETURN_TOPN_RAW_SIZE(TYPE_IPV4);
         RETURN_TOPN_RAW_SIZE(TYPE_IPV6);
+        RETURN_TOPN_RAW_SIZE(TYPE_UUID);
 #undef RETURN_TOPN_RAW_SIZE
     default:
         return 0;
@@ -172,6 +173,7 @@ Status VTopNPred::execute_on_raw_fixed_values(const uint8_t* values, size_t num_
         EXECUTE_TOPN_RAW_SCALAR(TYPE_DECIMAL256);
         EXECUTE_TOPN_RAW_SCALAR(TYPE_IPV4);
         EXECUTE_TOPN_RAW_SCALAR(TYPE_IPV6);
+        EXECUTE_TOPN_RAW_SCALAR(TYPE_UUID);
 #undef EXECUTE_TOPN_RAW_SCALAR
     default:
         return Status::NotSupported("TopN raw fixed-width type {} is unsupported",

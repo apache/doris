@@ -47,7 +47,7 @@ struct FileWriterOptions {
     bool allow_adaptive_file_cache_write = true;
     bool is_cold_data = false;
     bool sync_file_data = true;              // Whether flush data into storage system
-    uint64_t file_cache_expiration_time = 0; // Relative time
+    uint64_t file_cache_expiration_time = 0; // Absolute time, 0 means no TTL
     uint64_t approximate_bytes_to_write = 0; // Approximate bytes to write, used for file cache
 };
 

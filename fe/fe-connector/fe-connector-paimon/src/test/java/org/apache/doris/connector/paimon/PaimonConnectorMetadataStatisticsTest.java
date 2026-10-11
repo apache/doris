@@ -43,7 +43,7 @@ import java.util.Optional;
  * <p>Before the fix the connector inherited the default {@code ConnectorStatisticsOps} (returns
  * {@code Optional.empty()}), so every paimon table — normal AND system — reported row count -1
  * (UNKNOWN), degrading the Nereids cost model (join-reorder force-disabled) and SHOW/info_schema.
- * The fix overrides it to sum {@code split.rowCount()} via the {@code PaimonCatalogOps.rowCount}
+ * The connector obtains a snapshot estimate via the {@code PaimonCatalogOps.rowCount}
  * seam (faked here — {@code FakePaimonTable.newReadBuilder()} throws, the whole reason for the
  * seam). Each test FAILS before the fix (default empty) and PASSES after, and encodes WHY.
  */

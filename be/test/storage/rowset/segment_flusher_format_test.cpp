@@ -778,7 +778,7 @@ TabletSchemaSPtr create_complex_value_schema(TabletStorageFormatPB storage_forma
     add_child_column(hll_union, 901, "arg", hll_type, false);
     auto* array_agg = add_agg_state_column(10, "v_agg_array", "array_agg");
     add_child_column(array_agg, 1001, "arg", kKeyTypes[3], true);
-    auto* map_agg = add_agg_state_column(11, "v_agg_map", "map_agg_v1");
+    auto* map_agg = add_agg_state_column(11, "v_agg_map", "map_agg_v2");
     add_child_column(map_agg, 1101, "key", kKeyTypes[12], true);
     add_child_column(map_agg, 1102, "value", kKeyTypes[3], true);
     auto* bitmap_union = add_agg_state_column(12, "v_agg_bitmap_union", "bitmap_union");
@@ -2228,7 +2228,6 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    read_options.tablet_schema = schema;
     std::unique_ptr<RowwiseIterator> iterator;
     RETURN_IF_ERROR_RESULT(segment->new_iterator(read_schema, read_options, &iterator));
 

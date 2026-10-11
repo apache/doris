@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -116,6 +117,34 @@ public:
 
 private:
     std::unique_ptr<GappedTokenStream> _reusable;
+};
+
+class ImmediateFailureAnalyzer final : public lucene::analysis::Analyzer {
+public:
+    bool isSDocOpt() override { return true; }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       lucene::util::Reader*) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
+                                               const inverted_index::ReaderPtr&) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       const inverted_index::ReaderPtr&) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
 };
 
 class InvertedIndexWriterTest : public testing::Test {
@@ -501,7 +530,9 @@ public:
     }
 
     // Helper method to create an inverted index with tokenization enabled
-    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer) {
+    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer,
+                                const std::string& index_suffix = "",
+                                const std::map<std::string, std::string>& extra_properties = {}) {
         auto tablet_schema = create_schema();
 
         // Create index meta with tokenization setting
@@ -522,9 +553,15 @@ public:
             // This will make should_analyzer() return true
             (*properties)["parser"] = "standard";
         }
+        for (const auto& [key, value] : extra_properties) {
+            (*properties)[key] = value;
+        }
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
+        if (!index_suffix.empty()) {
+            idx_meta.set_escaped_escaped_index_suffix_path(index_suffix);
+        }
 
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -1228,6 +1265,80 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     EXPECT_TRUE(status.ok()) << status;
 }
 
+TEST_F(InvertedIndexWriterTest, AnalyzerExceptionReturnsStatus) {
+    auto tablet_schema = create_schema();
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(1);
+    index_pb.set_index_name("test_analyzer_failure");
+    index_pb.add_col_unique_id(1);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+
+    const std::string rowset_id = "test_analyzer_failure";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+    IndexFileWriter index_file_writer(fs, index_path_prefix, rowset_id, 0,
+                                      InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    const TabletColumn& column = tablet_schema->column(1);
+    InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
+            column.name(), &index_file_writer, &index_meta);
+    ASSERT_TRUE(writer.init().ok());
+    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+                                 std::make_shared<ImmediateFailureAnalyzer>());
+
+    const Slice value("value");
+    Status status;
+    EXPECT_NO_THROW(status = writer.add_values(column.name(), &value, 1));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+}
+
+TEST_F(InvertedIndexWriterTest, ArrayAnalyzerExceptionReturnsStatus) {
+    auto tablet_schema = create_schema();
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(1);
+    index_pb.set_index_name("test_array_analyzer_failure");
+    index_pb.add_col_unique_id(1);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+
+    const std::string rowset_id = "test_array_analyzer_failure";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+    IndexFileWriter index_file_writer(fs, index_path_prefix, rowset_id, 0,
+                                      InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    const TabletColumn& column = tablet_schema->column(1);
+    InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
+            column.name(), &index_file_writer, &index_meta);
+    ASSERT_TRUE(writer.init().ok());
+    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+                                 std::make_shared<ImmediateFailureAnalyzer>());
+
+    const Slice value("value");
+    const uint64_t offsets[] = {0, 1};
+    Status status;
+    EXPECT_NO_THROW(status = writer.add_array_values(sizeof(Slice), &value, nullptr,
+                                                     reinterpret_cast<const uint8_t*>(offsets), 1));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+}
+
 // Test case for array values with mixed null and non-null elements
 TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     // Create TabletSchema with array column (reference inverted_index_array_test.cpp)
@@ -1823,6 +1934,100 @@ TEST_F(InvertedIndexWriterTest, NormsFileCreationWithTokenization) {
             << "Expected .nrm file to NOT exist when tokenization is disabled (parser=none) "
             << "because setOmitNorms(false) is not called. This validates the fix in "
             << "inverted_index_writer.cpp where .nrm file creation depends on _should_analyzer.";
+}
+
+// Norms take one byte per segment row for every indexed path, so an index on a variant path (a
+// field_pattern index, or the copy inherited by one extracted subcolumn, which carries the path as
+// its index suffix) writes none by default. The "norms" property overrides that per index.
+TEST_F(InvertedIndexWriterTest, NormsFollowIndexNormsProperty) {
+    auto make_index_meta = [](const std::string& index_suffix,
+                              const std::map<std::string, std::string>& extra_properties) {
+        TabletIndexPB index_meta_pb;
+        index_meta_pb.set_index_type(IndexType::INVERTED);
+        index_meta_pb.set_index_id(1);
+        index_meta_pb.set_index_name("test");
+        index_meta_pb.add_col_unique_id(1); // c2 column id
+        (*index_meta_pb.mutable_properties())["parser"] = "standard";
+        for (const auto& [key, value] : extra_properties) {
+            (*index_meta_pb.mutable_properties())[key] = value;
+        }
+        TabletIndex index_meta;
+        index_meta.init_from_pb(index_meta_pb);
+        if (!index_suffix.empty()) {
+            index_meta.set_escaped_escaped_index_suffix_path(index_suffix);
+        }
+        return index_meta;
+    };
+    auto path_prefix = [this](const std::string& rowset_id, int seg_id) {
+        return std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+    };
+
+    bool original_skip_norms_for_variant = config::inverted_index_skip_norms_for_variant;
+
+    // an analyzed index writes norms wherever it sits, and only "norms" = "false" drops them
+    config::inverted_index_skip_norms_for_variant = false;
+
+    create_tokenized_index("plain_column_default", 0, true, "");
+    TabletIndex plain_default = make_index_meta("", {});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("plain_column_default", 0), &plain_default))
+            << "an analyzed index must write .nrm by default";
+
+    create_tokenized_index("plain_column_norms_off", 1, true, "", {{"norms", "false"}});
+    TabletIndex plain_norms_off = make_index_meta("", {{"norms", "false"}});
+    EXPECT_FALSE(
+            check_norms_file_exists(path_prefix("plain_column_norms_off", 1), &plain_norms_off))
+            << "norms = false must drop .nrm for an ordinary column index";
+
+    create_tokenized_index("variant_subcolumn_default", 2, true, "v.s_host");
+    TabletIndex subcolumn_default = make_index_meta("v.s_host", {});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("variant_subcolumn_default", 2),
+                                        &subcolumn_default))
+            << "a variant subcolumn index must write .nrm by default too";
+
+    create_tokenized_index("variant_subcolumn_norms_off", 3, true, "v.s_host",
+                           {{"norms", "false"}});
+    TabletIndex subcolumn_norms_off = make_index_meta("v.s_host", {{"norms", "false"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_off", 3),
+                                         &subcolumn_norms_off))
+            << "norms = false must drop .nrm for a variant subcolumn index";
+
+    create_tokenized_index("field_pattern_default", 4, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_default = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("field_pattern_default", 4),
+                                        &field_pattern_default))
+            << "a field_pattern index must write .nrm by default too";
+
+    // the config drops norms for a variant path index whatever its property says, and leaves every
+    // other index alone
+    config::inverted_index_skip_norms_for_variant = true;
+
+    create_tokenized_index("variant_subcolumn_skipped", 5, true, "v.s_host");
+    TabletIndex subcolumn_skipped = make_index_meta("v.s_host", {});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_skipped", 5),
+                                         &subcolumn_skipped))
+            << "the config must drop .nrm for a variant subcolumn index";
+
+    create_tokenized_index("variant_subcolumn_norms_on_skipped", 6, true, "v.s_host",
+                           {{"norms", "true"}});
+    TabletIndex subcolumn_norms_on_skipped = make_index_meta("v.s_host", {{"norms", "true"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_on_skipped", 6),
+                                         &subcolumn_norms_on_skipped))
+            << "the config must win over norms = true on a variant subcolumn index";
+
+    create_tokenized_index("field_pattern_skipped", 7, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_skipped = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("field_pattern_skipped", 7),
+                                         &field_pattern_skipped))
+            << "the config must drop .nrm for a field_pattern index";
+
+    create_tokenized_index("plain_column_not_skipped", 8, true, "");
+    TabletIndex plain_not_skipped = make_index_meta("", {});
+    EXPECT_TRUE(
+            check_norms_file_exists(path_prefix("plain_column_not_skipped", 8), &plain_not_skipped))
+            << "the config must leave an ordinary column index alone";
+
+    config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
 }
 
 } // namespace doris::segment_v2

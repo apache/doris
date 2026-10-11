@@ -44,7 +44,7 @@ private:
     void update_last_non_token_char();
 
     void consume() {
-        auto c = static_cast<uint8_t>(_buffer[_buffer_start++]);
+        auto c = _buffer[_buffer_start++];
         _offset += U8_LENGTH(c);
     }
 

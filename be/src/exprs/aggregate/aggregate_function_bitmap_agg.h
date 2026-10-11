@@ -27,6 +27,7 @@
 
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_bitmap.h"
+#include "core/pod_array.h"
 #include "core/value/bitmap_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 
@@ -43,7 +44,11 @@ template <PrimitiveType T>
 struct AggregateFunctionBitmapAggData {
     BitmapValue value;
 
-    void add(const typename PrimitiveTypeTraits<T>::CppType& value_) { value.add(value_); }
+    void add(const typename PrimitiveTypeTraits<T>::CppType& value_) {
+        if (value_ >= 0) {
+            value.add(value_);
+        }
+    }
 
     void reset() { value.reset(); }
 
@@ -96,9 +101,9 @@ public:
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                     nullable_column.get_nested_column());
-            std::vector<typename PrimitiveTypeTraits<T>::CppType> values;
-            for (int i = 0; i < batch_size; ++i) {
-                if (!nullable_column.is_null_at(i)) {
+            PaddedPODArray<typename PrimitiveTypeTraits<T>::CppType> values;
+            for (size_t i = 0; i < batch_size; ++i) {
+                if (!nullable_column.is_null_at(i) && column.get_data()[i] >= 0) {
                     values.push_back(column.get_data()[i]);
                 }
             }
@@ -106,7 +111,19 @@ public:
         } else {
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            this->data(place).value.add_many(column.get_data().data(), column.size());
+            const auto* data = column.get_data().data();
+            // Keep the allocation-free batch path for nonnegative input.
+            if (std::all_of(data, data + batch_size, [](auto value) { return value >= 0; })) {
+                this->data(place).value.add_many(data, batch_size);
+            } else {
+                PaddedPODArray<typename PrimitiveTypeTraits<T>::CppType> values;
+                for (size_t i = 0; i < batch_size; ++i) {
+                    if (data[i] >= 0) {
+                        values.push_back(data[i]);
+                    }
+                }
+                this->data(place).value.add_many(values.data(), values.size());
+            }
         }
     }
 

@@ -101,7 +101,7 @@ suite("test_role_mapping_system_table", "p0,auth") {
         assertTrue(result[0][6] != null && result[0][6].length() > 0)
         assertEquals(result[0][5], result[0][7])
 
-        connect(user, "${pwd}", jdbcUrlWithoutSchema) {
+        connectToDoris(user, "${pwd}", jdbcUrlWithoutSchema) {
             test {
                 sql """
                     SELECT NAME

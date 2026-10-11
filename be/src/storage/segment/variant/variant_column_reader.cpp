@@ -22,7 +22,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <ranges>
 #include <roaring/roaring.hh>
 #include <string>
 #include <utility>
@@ -306,8 +305,14 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
                                                         ColumnReaderCache* column_reader_cache,
                                                         std::optional<uint32_t> bucket_index) {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    // Get subcolumns path set from tablet schema
-    const auto& path_set_info = opts->tablet_schema->path_set_info(target_col.parent_unique_id());
+    // Only the flat-leaf plan reaches a sparse column, and only a compaction output schema has
+    // one, so the path sets are always present here.
+    DORIS_CHECK(opts->variant_compaction_paths != nullptr);
+    auto layout = opts->variant_compaction_paths->find(target_col.parent_unique_id());
+    DORIS_CHECK(layout != opts->variant_compaction_paths->end())
+            << "no compaction path layout for variant column, parent_unique_id="
+            << target_col.parent_unique_id();
+    const auto& path_set_info = layout->second;
 
     // Build substream reader tree for merging subcolumns into sparse column
     SubstreamReaderTree src_subcolumns_for_sparse;
@@ -587,9 +592,7 @@ bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_p
 }
 
 bool VariantColumnReader::_need_read_flat_leaves(const StorageReadOptions* opts) {
-    return opts != nullptr && opts->tablet_schema != nullptr &&
-           std::ranges::any_of(opts->tablet_schema->columns(),
-                               [](const auto& column) { return column->is_extracted_column(); }) &&
+    return opts != nullptr && opts->tablet_has_extracted_variant_columns &&
            is_compaction_or_checksum_reader(opts);
 }
 

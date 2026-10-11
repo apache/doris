@@ -110,6 +110,8 @@ suite("test_adbc_predicate_pushdown", "p0,external") {
         CREATE CATALOG ${catalogName} PROPERTIES (
             "type" = "adbc",
             "driver_url" = "${driverPath}",
+            -- The loopback source is Doris even when vendor detection is unavailable.
+            "sql_dialect" = "doris",
             "uri" = "grpc://127.0.0.1:${arrowPort}",
             "user" = "root",
             "password" = "",
@@ -169,6 +171,14 @@ suite("test_adbc_predicate_pushdown", "p0,external") {
             return q
         }
 
+        // The table itself is addressed through the REMOTE coordinates the handle carries -- the source's
+        // database and table name -- and not through the Doris catalog the user wrote. The backend that runs
+        // this statement has no Doris catalog in scope, so a statement carrying those names, or none at all,
+        // addresses nothing. Quoting is left free: only the two-level shape is pinned here.
+        String qualified = statementFor("id = 1")
+        assertTrue((qualified =~ /FROM\s+.?${dbName}.?\s*\.\s*.?t_pred.?/).find(),
+                "the remote statement does not address the source's database and table: ${qualified}")
+
         // Correctness, entirely independent of the above: the source evaluates the same predicate itself.
         // If pushdown ever translates a predicate WRONGLY -- as opposed to not at all -- this is what
         // catches it, and no baseline can absorb the difference.
@@ -208,13 +218,8 @@ suite("test_adbc_predicate_pushdown", "p0,external") {
         pushes("amount > 20.50", "`amount` >")
         pushes("big = 9223372036854775807", "9223372036854775807")
         pushes("d = '2024-01-01'", "DATE '2024-01-01'")
-        // The one comparison family this connector will not push, and the reason is that this source's
-        // datetime column arrives as TIMESTAMPTZ: an instant. By the time the literal reaches the
-        // dialect it has been converted to UTC, and standard SQL's TIMESTAMP '...' spelling carries no
-        // zone, so the source would read that UTC wall clock as its own local time. East of UTC that
-        // merely widens the match; west of UTC it drops rows the query wanted, and a scan cannot get
-        // back rows the source never sent. sameAsSource below is what says the ANSWER is still right.
-        pushesNothing("ts > '2024-01-01 00:00:00'")
+        // DATETIME stays timezone-free through Flight SQL, so a TIMESTAMP literal preserves its value.
+        pushes("ts > '2024-01-01 00:00:00'", "`ts` > TIMESTAMP '2024-01-01 00:00:00'")
         ["name = 'alice'", "name = 'O''Brien'", "score > 2.5", "amount > 20.50",
          "big = 9223372036854775807", "d = '2024-01-01'",
          "ts > '2024-01-01 00:00:00'"].each { sameAsSource(it) }
@@ -396,6 +401,8 @@ suite("test_adbc_predicate_pushdown", "p0,external") {
             CREATE CATALOG ${singleRangeCatalog} PROPERTIES (
                 "type" = "adbc",
                 "driver_url" = "${driverPath}",
+                -- The loopback source is Doris even when vendor detection is unavailable.
+                "sql_dialect" = "doris",
                 "uri" = "grpc://127.0.0.1:${arrowPort}",
                 "user" = "root",
                 "password" = "",

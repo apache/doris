@@ -34,6 +34,7 @@ class FileWriter;
 namespace writer {
 
 class MemoryReporter;
+class TermPostingBuffer;
 
 // Synchronously borrowed posting arrays for one canonical posting window.
 // position_offsets has docids.size()+1 entries when positions are present. The
@@ -44,6 +45,9 @@ struct PostingRunView {
     std::span<const uint32_t> freqs;
     std::span<const uint32_t> position_offsets;
     std::span<const uint32_t> positions_flat;
+    // When positions have spilled, offsets address this replayable source.
+    // positions_flat is empty and no complete document needs to be resident.
+    TermPostingBuffer* position_buffer = nullptr;
 };
 
 struct TermAggregateStats {

@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.AuthType;
@@ -50,7 +51,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -60,7 +60,6 @@ import org.apache.paimon.hive.HiveCatalog;
 import org.apache.paimon.hive.HiveCatalogOptions;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.privilege.PrivilegedCatalog;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -357,11 +356,18 @@ public class PaimonConnector implements Connector {
                 context, schemaAtMemo);
     }
 
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        return new PaimonWritePlanProvider(catalogProps,
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                context);
+    }
+
     /**
      * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning. The B5 fe-core
      * MvccTable wiring keys off this to call {@link PaimonConnectorMetadata#beginQuerySnapshot} /
      * {@code resolveTimeTravel}.
-     * No write capability is declared: paimon write is not migrated.
+     * Write support is declared by {@link #getWritePlanProvider()}.
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
@@ -391,7 +397,13 @@ public class PaimonConnector implements Connector {
                 // connector-wide: it holds for every paimon DATA table. The narrower question of which
                 // SYSTEM table can honor the clause is answered per table by
                 // PaimonScanPlanProvider.supportsSystemTableOptions.
-                ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS);
+                ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS,
+                // SUPPORTS_NESTED_COLUMN_PRUNE: the paimon JNI scanner mirrors a pruned nested type onto
+                // paimon's own types and pushes it down (ReadBuilder.withReadType), and the native
+                // parquet/orc split path resolves the access paths by name. NOT
+                // SUPPORTS_FIELD_ID_ACCESS_PATH: paimon carries no field id on the Doris column tree, so
+                // rewriting the paths to ids would make every segment "-1".
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
     }
 
     /** Test-only: the derived listPartitions view cache (PERF-06). Never null (paimon has no session=user gate). */
@@ -499,7 +511,7 @@ public class PaimonConnector implements Connector {
     }
 
     Options buildCatalogOptions() {
-        return PaimonCatalogFactory.buildCatalogOptions(catalogProps, metaCache.hasEnclosingWeightLimit());
+        return PaimonCatalogFactory.buildCatalogOptions(catalogProps);
     }
 
     /**
@@ -543,11 +555,15 @@ public class PaimonConnector implements Connector {
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             return context.executeAuthenticated(() -> {
+                // PaimonMetaCacheCatalog installs PrivilegedCatalog after the raw metadata cache.
                 Catalog catalog = PaimonCatalogProperties.HMS.equals(flavor)
                         ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
                                 storageHadoopConfig)
-                        : CatalogFactory.createCatalog(catalogContext);
-                return catalog;
+                        : CatalogFactory.createUnwrappedCatalog(catalogContext, getClass().getClassLoader());
+                return PaimonMetaCacheCatalog.tryToCreate(catalog, metaCache,
+                        DEFAULT_TABLE_CACHE_CAPACITY, resolveTableCacheTtlSecond(catalogProps.getRaw()),
+                        catalogContext.options(), PaimonCatalogFactory.isCatalogCacheEnabled(catalogProps),
+                        metaCache.hasEnclosingWeightLimit());
             });
         } catch (Exception e) {
             throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);
@@ -574,13 +590,14 @@ public class PaimonConnector implements Connector {
             fileIO.checkOrMkdirs(warehousePath);
             String clientClass = options.get(HiveCatalogOptions.METASTORE_CLIENT_CLASS);
             Catalog catalog = hmsAuth == null
-                    ? new HiveCatalog(fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString())
+                    ? new HiveCatalog(fileIO, hiveConf, clientClass, catalogContext,
+                            warehousePath.toUri().toString())
                     : hmsAuth.doAs(() -> new HiveCatalog(
-                            fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString()));
+                            fileIO, hiveConf, clientClass, catalogContext,
+                            warehousePath.toUri().toString()));
             catalog = PaimonHmsClientPool.install(catalog, hmsAuth);
             catalog = PaimonHmsCatalog.install(catalog, properties, storageHadoopConfig);
-            catalog = CachingCatalog.tryToCreate(catalog, options);
-            return PrivilegedCatalog.tryToCreate(catalog, options);
+            return catalog;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

@@ -126,7 +126,7 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
 
     /**
      * Public finalize entry for the row-level DML shell ({@code RowLevelDmlCommand} via
-     * {@code IcebergRowLevelDmlTransform.finalizeSink}), which lives outside this package and so cannot reach
+     * {@code PositionDeleteRowLevelDmlTransform.finalizeSink}), which lives outside this package and so cannot reach
      * the {@code protected} {@link #finalizeSink}. Mirrors the legacy
      * {@code IcebergDeleteExecutor.finalizeSinkForDelete} public entry, but with NO rewritable-delete overlay:
      * the connector's {@code planWrite} supplies {@code rewritable_delete_file_sets} via the write handle (the

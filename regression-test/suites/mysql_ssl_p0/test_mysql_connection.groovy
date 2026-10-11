@@ -14,50 +14,30 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import org.apache.doris.regression.Config
+import org.apache.doris.regression.util.MySqlClient
 
 suite("test_mysql_connection") { suite ->
-    // NOTE: this suite need you install mysql client 5.7 + to support --ssl-mode parameter
-
-    def executeMySQLCommand = { String command ->
-        def cmds = ["/bin/bash", "-c", command]
-        logger.info("Execute: ${cmds}".toString())
-        Process p = cmds.execute()
-
-        def errMsg = new StringBuilder()
-        def msg = new StringBuilder()
-        p.waitForProcessOutput(msg, errMsg)
-
-        assert errMsg.length() == 0: "error occurred!" + errMsg
-        assert msg.toString().contains("version"): "error occurred!" + errMsg
-        assert p.exitValue() == 0
-    }
-
-    String jdbcUrlConfig = context.config.jdbcUrl;
-    String tempString = jdbcUrlConfig.substring(jdbcUrlConfig.indexOf("jdbc:mysql://") + 13);
-    String mysqlHost = tempString.substring(0, tempString.indexOf(":"));
-    String mysqlPort = tempString.substring(tempString.indexOf(":") + 1, tempString.indexOf("/"));
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-
-    } else {
-        String cmdDefault = "mysql -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
-        String cmdDisabledSsl = "mysql --ssl-mode=DISABLE -uroot -h" + mysqlHost + " -P" + mysqlPort + " -e \"show variables\"";
-        String cmdSsl12 = "mysql --ssl-mode=REQUIRED -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
-        // client verifies server certificate
-        String cmdv1 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.sslCertificatePath + "/ca.pem -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
-        
-        // two-way ssl auth (client and server both verify their respective certificates)
-        String cmdv2 = "mysql --ssl-mode=VERIFY_CA --ssl-ca=" + context.config.sslCertificatePath + "/ca.pem \
-                        --ssl-cert=" + context.config.sslCertificatePath + "/client-cert.pem \
-                        --ssl-key=" + context.config.sslCertificatePath + "/client-key.pem -uroot -h" + mysqlHost + " -P" + mysqlPort + " --tls-version=TLSv1.2 -e \"show variables\"";
-
-        // The current mysql-client version of the test environment is 5.7.32, which does not support TLSv1.3, so comment this part.
-        // String cmdSsl13 = "mysql --ssl-mode=REQUIRED -uroot -h" + mysqlHost + " -P" + mysqlPort +  " --tls-version=TLSv1.3 -e \"show variables\"";
-        executeMySQLCommand(cmdDefault);
-        executeMySQLCommand(cmdDisabledSsl);
-        executeMySQLCommand(cmdSsl12);
-        // executeMySQLCommand(cmdSsl13);
-        executeMySQLCommand(cmdv1);
-        executeMySQLCommand(cmdv2);
+    // NOTE: this suite needs mysql client 5.7+ to support --ssl-mode.
+    if (!((context.config.otherConfigs.get('enableTLS')?.toString()?.equalsIgnoreCase('true')) ?: false)) {
+        URI endpoint = new URI(context.config.jdbcUrl.substring('jdbc:'.length()))
+        def executeMySQLCommand = { List<String> tlsOptions ->
+            def options = ['-h', endpoint.host, '-P', endpoint.port.toString()] + tlsOptions
+            logger.info("Execute mysql with options: ${options}")
+            def result = MySqlClient.execute('root', context.config.getRootPassword(), options, 'show variables;')
+            assert result.stderr.isEmpty(): "error occurred!" + result.stderr
+            assert result.stdout.contains('version'): "error occurred!" + result.stderr
+            assert result.exitCode == 0: "mysql exited with ${result.exitCode}: ${result.stderr}"
+        }
+        String certPath = context.config.sslCertificatePath
+        executeMySQLCommand([])
+        executeMySQLCommand(['--ssl-mode=DISABLED'])
+        executeMySQLCommand(['--ssl-mode=REQUIRED', '--tls-version=TLSv1.2'])
+        // Client verifies the server certificate.
+        executeMySQLCommand(['--ssl-mode=VERIFY_CA', "--ssl-ca=${certPath}/ca.pem", '--tls-version=TLSv1.2'])
+        // Both server and client authenticate with certificates.
+        executeMySQLCommand(['--ssl-mode=VERIFY_CA', "--ssl-ca=${certPath}/ca.pem",
+                             "--ssl-cert=${certPath}/client-cert.pem", "--ssl-key=${certPath}/client-key.pem",
+                             '--tls-version=TLSv1.2'])
+        // mysql-client 5.7.32 does not support TLSv1.3.
     }
 }

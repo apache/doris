@@ -27,6 +27,61 @@
 #include "storage/index/snii/encoding/section_framer.h"
 
 namespace doris::snii::format {
+
+// Storage is a unity build (several .cpp files merged into one unity_N_cxx.cxx TU): other .cpp
+// files in this directory may define file-level helpers with the same names, so the gram_scheme
+// codec helpers go into this file-private namespace (with an inner anonymous namespace to keep
+// internal linkage) instead of sharing the anonymous namespace further below, which keeps
+// same-named symbols from different files from colliding in the unity TU (Ruling R8).
+namespace core_metadata_detail {
+namespace {
+
+void encode_gram_scheme(const segment_v2::gram::GramScheme& scheme,
+                        doris::snii::SniiGramSchemePB* out) {
+    out->set_mode(static_cast<uint32_t>(scheme.mode));
+    out->set_min_len(scheme.min_len);
+    out->set_max_len(scheme.max_len);
+    out->set_density_permille(scheme.density_permille);
+    out->set_lower_case(scheme.lower_case);
+    out->set_hash_version(scheme.hash_version);
+}
+
+Status decode_gram_scheme(const doris::snii::SniiGramSchemePB& input,
+                          segment_v2::gram::GramScheme* out) {
+    if (input.mode() != 1 && input.mode() != 2) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "core metadata: unsupported gram scheme mode {}", input.mode());
+    }
+    const segment_v2::gram::GramScheme scheme {
+            .mode = static_cast<segment_v2::gram::GramMode>(input.mode()),
+            .min_len = input.min_len(),
+            .max_len = input.max_len(),
+            .density_permille = input.density_permille(),
+            .lower_case = input.lower_case(),
+            .hash_version = input.hash_version()};
+    // The valid range of each field is written down in exactly one place,
+    // GramScheme::from_properties (the single source of truth), so it is reused here through a
+    // "property round trip": a persisted scheme must round-trip back to the very same scheme, or
+    // the file counts as corrupted. Without this step a truncated (or tampered) PB would carry
+    // values such as min_len=0 all the way into GramExtractor -- every unset field of a partial
+    // message is 0, and 0 is not part of any valid scheme.
+    segment_v2::gram::GramScheme round_tripped;
+    const Status validated =
+            segment_v2::gram::GramScheme::from_properties(scheme.to_properties(), &round_tripped);
+    if (!validated.ok() || !(round_tripped == scheme)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "core metadata: invalid gram scheme (mode={}, min_len={}, max_len={}, "
+                "density_permille={}, hash_version={}): {}",
+                input.mode(), scheme.min_len, scheme.max_len, scheme.density_permille,
+                scheme.hash_version, validated.to_string());
+    }
+    *out = scheme;
+    return Status::OK();
+}
+
+} // namespace
+} // namespace core_metadata_detail
+
 namespace {
 
 Status corrupted(std::string_view message) {
@@ -106,6 +161,33 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
                 "core metadata: segment was written with CommonGrams, which is no longer "
                 "supported; rebuild the index");
     }
+
+    if (input.has_gram_scheme()) {
+        segment_v2::gram::GramScheme gram_scheme;
+        RETURN_IF_ERROR(
+                core_metadata_detail::decode_gram_scheme(input.gram_scheme(), &gram_scheme));
+        out->gram_scheme = gram_scheme;
+    }
+
+    if (input.has_high_df_terms()) {
+        const auto& digest = input.high_df_terms();
+        if (digest.term_hash_size() != digest.df_size()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "core metadata: high-df digest has {} hashes and {} frequencies",
+                    digest.term_hash_size(), digest.df_size());
+        }
+        out->high_df_terms.term_hash.assign(digest.term_hash().begin(), digest.term_hash().end());
+        out->high_df_terms.df.assign(digest.df().begin(), digest.df().end());
+        out->high_df_terms.df_ceiling = digest.df_ceiling();
+        // The lookup is a binary search, so a digest that is not ascending would silently
+        // return wrong bounds rather than fail. Reject it instead: a wrong upper bound can
+        // make the gate give up on a query the index would have answered quickly.
+        if (!std::ranges::is_sorted(out->high_df_terms.term_hash)) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "core metadata: high-df digest hashes are not ascending");
+        }
+    }
+
     // Norms encode BM25 document lengths in one byte and require positions for term frequencies.
     if (out->section_refs.norms.length != 0 && !has_positions(out->index_config)) {
         return corrupted("core metadata: norms require positions");
@@ -137,6 +219,21 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
     }
     encode_region_ref(metadata.section_refs.null_bitmap, refs->mutable_null_bitmap());
     encode_region_ref(metadata.section_refs.bsbf, refs->mutable_bsbf());
+    if (metadata.gram_scheme.has_value()) {
+        core_metadata_detail::encode_gram_scheme(*metadata.gram_scheme, core.mutable_gram_scheme());
+    }
+    // A ceiling with no entries is still worth writing: it says every term in this index is
+    // below it, which is the strongest bound the digest can offer. Absent BOTH means no
+    // digest was built at all (not a gram index, or a segment too small to have one), and
+    // the field stays off the wire so those segments are byte-identical to before.
+    if (!metadata.high_df_terms.empty() || metadata.high_df_terms.df_ceiling > 0) {
+        auto* digest = core.mutable_high_df_terms();
+        digest->mutable_term_hash()->Assign(metadata.high_df_terms.term_hash.begin(),
+                                            metadata.high_df_terms.term_hash.end());
+        digest->mutable_df()->Assign(metadata.high_df_terms.df.begin(),
+                                     metadata.high_df_terms.df.end());
+        digest->set_df_ceiling(metadata.high_df_terms.df_ceiling);
+    }
 
     CoreMetadata validated;
     RETURN_IF_ERROR(decode_core_pb(core, &validated));

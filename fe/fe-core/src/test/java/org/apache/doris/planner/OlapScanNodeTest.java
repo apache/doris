@@ -342,12 +342,12 @@ public class OlapScanNodeTest {
                 MockedStatic<CloudPartition> mockedPartition = Mockito.mockStatic(CloudPartition.class)) {
             mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
             mockedPartition.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
-                    Mockito.anyList(), Mockito.eq(false))).thenReturn(Lists.newArrayList(visibleVersion));
+                    Mockito.anyList(), Mockito.eq(true))).thenReturn(Lists.newArrayList(visibleVersion));
 
             ScanNode.setVisibleVersionForOlapScanNodes(Lists.newArrayList(scanNode));
 
             mockedPartition.verify(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
-                    Mockito.anyList(), Mockito.eq(false)));
+                    Mockito.anyList(), Mockito.eq(true)));
             mockedPartition.verify(() -> CloudPartition.getSnapshotVisibleVersion(Mockito.anyList()),
                     Mockito.never());
         }

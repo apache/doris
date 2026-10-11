@@ -30,6 +30,7 @@
 #include <thread>
 
 #include "common/exception.h"
+#include "common/metrics/metrics.h"
 #include "exec/scan/task_executor/ticker.h"
 #include "exec/scan/task_executor/time_sharing/multilevel_split_queue.h"
 #include "exec/scan/task_executor/time_sharing/prioritized_split_runner.h"
@@ -386,6 +387,31 @@ protected:
         }
     }
 };
+
+TEST_F(TimeSharingTaskExecutorTest, test_thread_pool_capacity_metrics) {
+    TimeSharingTaskExecutor::ThreadConfig thread_config;
+    thread_config.thread_name = "capacity_metrics";
+    thread_config.workload_group = "normal";
+    thread_config.min_thread_num = 0;
+    thread_config.max_thread_num = 4;
+    thread_config.max_queue_size = 17;
+    TimeSharingTaskExecutor executor(thread_config, 0, 1, 1, std::make_shared<TestingTicker>());
+    ASSERT_TRUE(executor.init().ok());
+
+    auto* max_queue_size = executor._metric_entity->get_metric("thread_pool_max_queue_size");
+    auto* max_threads = executor._metric_entity->get_metric("thread_pool_max_threads");
+    ASSERT_NE(max_queue_size, nullptr);
+    ASSERT_NE(max_threads, nullptr);
+
+    executor._metric_entity->trigger_hook_unlocked(true);
+    EXPECT_EQ(max_queue_size->to_string(), "17");
+    EXPECT_EQ(max_threads->to_string(), "4");
+
+    ASSERT_TRUE(executor.set_max_threads(8).ok());
+    executor._metric_entity->trigger_hook_unlocked(true);
+    EXPECT_EQ(max_queue_size->to_string(), "17");
+    EXPECT_EQ(max_threads->to_string(), "8");
+}
 
 TEST_F(TimeSharingTaskExecutorTest, test_remove_task_clears_queued_task_count) {
     auto ticker = std::make_shared<TestingTicker>();

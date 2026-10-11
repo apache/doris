@@ -170,6 +170,8 @@ public:
         return w;
     }
 
+    TDigest(const TDigest&) = default;
+
     TDigest& operator=(TDigest&& o) {
         _compression = o._compression;
         _max_processed = o._max_processed;

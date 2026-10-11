@@ -38,6 +38,11 @@ public interface ConnectorContext {
     /** Returns the catalog ID. */
     long getCatalogId();
 
+    /** Returns the persisted Doris cluster id used to namespace external commit identities. */
+    default int getClusterId() {
+        return 0;
+    }
+
     /**
      * Returns engine-level environment properties that connectors may need.
      * These are system configurations from the FE, not catalog properties.

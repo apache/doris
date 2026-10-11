@@ -93,6 +93,12 @@ public class WindowFunnel extends NullableAggregateFunction
         if (!getArgumentType(1).isStringLikeType()) {
             throw new AnalysisException("The mode params of " + functionName + " function must be string");
         }
+        if (!getArgument(0).isConstant()) {
+            throw new AnalysisException("The window parameter of " + functionName + " must be a constant");
+        }
+        if (!getArgument(1).isConstant()) {
+            throw new AnalysisException("The mode parameter of " + functionName + " must be a constant");
+        }
         if (!getArgumentType(2).isDateLikeType()) {
             throw new AnalysisException("The 3rd param of " + functionName
                     + " function must be DATE, DATETIME, TIMESTAMP_NS or TIMESTAMPTZ");

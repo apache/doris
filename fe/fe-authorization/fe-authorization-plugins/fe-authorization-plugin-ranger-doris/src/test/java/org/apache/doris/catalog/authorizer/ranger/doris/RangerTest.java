@@ -32,10 +32,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
+import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResource;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
+import org.apache.ranger.plugin.service.RangerAuthContext;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
+import org.apache.ranger.plugin.util.RangerUserStore;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -56,7 +59,7 @@ public class RangerTest {
 
         public DorisTestPlugin(String serviceName) {
             super(serviceName, null, null);
-            // super.init();
+            // Never init(): it answers out of the overrides below, not out of a Ranger service.
         }
 
         @Override
@@ -131,7 +134,9 @@ public class RangerTest {
             } else if (!Strings.isNullOrEmpty(db)) {
                 result.setIsAllowed("ctl3".equals(ctl) && "db3".equals(db));
             } else if (!Strings.isNullOrEmpty(ctl)) {
-                result.setIsAllowed("ctl4".equals(ctl));
+                // ctl5 stands for a policy item written against a group rather than a user.
+                result.setIsAllowed("ctl4".equals(ctl)
+                        || ("ctl5".equals(ctl) && request.getUserGroups().contains("readers")));
             } else if (!Strings.isNullOrEmpty(cg)) {
                 result.setIsAllowed("cg1".equals(cg));
             } else if (!Strings.isNullOrEmpty(sv)) {
@@ -352,5 +357,87 @@ public class RangerTest {
 
         Assertions.assertEquals(0, plugin.requests.get(),
                 "the default workload group was put to the policy engine");
+    }
+
+    /**
+     * Hands {@code plugin} the user store its policy engine would have published, mapping user1 onto
+     * {@code groups}: what the enricher does once Ranger Admin has answered the user store download.
+     */
+    private static void userStoreArrived(RangerBasePlugin plugin, String... groups) {
+        RangerUserStore userStore = new RangerUserStore(1L, null, null,
+                Collections.singletonMap("user1", Sets.newHashSet(groups)));
+        plugin.getPluginContext().setAuthContext(new RangerAuthContext(null, null, null, userStore));
+    }
+
+    /**
+     * A request carries the groups Ranger's user store puts the user in, and nothing else does: Doris has
+     * no groups of its own, so without this a policy item written against a group never matches.
+     */
+    @Test
+    public void testRequestCarriesTheGroupsOfRangersUserStore() {
+        DorisTestPlugin plugin = new DorisTestPlugin("test");
+        userStoreArrived(plugin, "readers", "analysts");
+
+        RangerAccessRequestImpl request = new RangerDorisAccessController(plugin, NOTHING_GRANTED_ELSEWHERE)
+                .createRequest(USER, AccessContext.NONE);
+
+        Assertions.assertEquals("user1", request.getUser());
+        Assertions.assertEquals(Sets.newHashSet("readers", "analysts"), request.getUserGroups());
+        Assertions.assertTrue(request.getUserRoles().isEmpty(),
+                "roles were attached, which this source has never done; Ranger resolves its own");
+    }
+
+    /** Until the plugin has a user store - not loaded yet, Ranger Admin unreachable - there are no groups. */
+    @Test
+    public void testNoGroupsBeforeTheUserStoreArrives() {
+        RangerAccessRequestImpl request = controller().createRequest(USER, AccessContext.NONE);
+
+        Assertions.assertTrue(request.getUserGroups().isEmpty());
+    }
+
+    /** A user the store does not know - one that exists in Doris only - is in no group. */
+    @Test
+    public void testAUserUnknownToTheUserStoreIsInNoGroup() {
+        DorisTestPlugin plugin = new DorisTestPlugin("test");
+        userStoreArrived(plugin, "readers");
+
+        RangerAccessRequestImpl request = new RangerDorisAccessController(plugin, NOTHING_GRANTED_ELSEWHERE)
+                .createRequest(AuthorizedSubject.of("somebody_else", "%"), AccessContext.NONE);
+
+        Assertions.assertTrue(request.getUserGroups().isEmpty());
+    }
+
+    /**
+     * The property Ranger itself reads for this switches it off, so that a deployment that has decided the
+     * question in Ranger's terms has decided it here too - and gets the requests this source built before.
+     */
+    @Test
+    public void testTheRangerPropertySwitchesGroupsOff() {
+        DorisTestPlugin plugin = new DorisTestPlugin("test");
+        userStoreArrived(plugin, "readers");
+        plugin.getConfig().set("ranger.plugin.test.use.rangerGroups", "false");
+
+        RangerAccessRequestImpl request = new RangerDorisAccessController(plugin, NOTHING_GRANTED_ELSEWHERE)
+                .createRequest(USER, AccessContext.NONE);
+
+        Assertions.assertTrue(request.getUserGroups().isEmpty());
+    }
+
+    /** The whole point: a policy item written against a group decides, once the user is in that group. */
+    @Test
+    public void testAPolicyItemWrittenAgainstAGroupDecides() throws AccessDeniedException {
+        DorisTestPlugin plugin = new DorisTestPlugin("test");
+        RangerDorisAccessController controller = new RangerDorisAccessController(plugin, NOTHING_GRANTED_ELSEWHERE);
+        AuthorizedResource table = AuthorizedResource.table("ctl5", "db", "tbl");
+
+        Assertions.assertThrows(AccessDeniedException.class,
+                () -> controller.checkPrivilege(USER, table, AccessRequirements.SELECT, AccessContext.NONE));
+
+        userStoreArrived(plugin, "readers");
+        controller.checkPrivilege(USER, table, AccessRequirements.SELECT, AccessContext.NONE);
+
+        userStoreArrived(plugin, "writers");
+        Assertions.assertThrows(AccessDeniedException.class,
+                () -> controller.checkPrivilege(USER, table, AccessRequirements.SELECT, AccessContext.NONE));
     }
 }

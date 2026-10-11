@@ -60,8 +60,11 @@ public class ArrayMin extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
-            throw new AnalysisException("array_min does not support complex types: " + toSql());
+        if (argType.isArrayType()) {
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!ArrayFunctionUtils.isSupportedByArrayMinMaxFunctions(itemType)) {
+                throw new AnalysisException("array_min does not support element type " + itemType.toSql());
+            }
         }
     }
 

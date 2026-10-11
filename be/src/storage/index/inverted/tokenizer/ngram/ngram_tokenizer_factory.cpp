@@ -17,13 +17,43 @@
 
 #include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer_factory.h"
 
+#include <map>
+
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
 
 std::unordered_map<std::string, CharMatcherPtr> NGramTokenizerFactory::MATCHERS;
 
+Status NGramTokenizerFactory::parse_gram_scheme(const Settings& settings,
+                                                std::optional<gram::GramScheme>* out) {
+    out->reset();
+    // A "mode" property (sparse, dense or auto) selects the gram family instead of the legacy
+    // sliding window. GramScheme::from_properties parses, validates and defaults its properties.
+    if (settings.get_string("mode").empty()) {
+        return Status::OK();
+    }
+    std::map<std::string, std::string> props;
+    for (const auto& [k, v] : settings.sorted_entries()) {
+        props.emplace(k, v);
+    }
+    gram::GramScheme scheme;
+    RETURN_IF_ERROR(gram::GramScheme::from_properties(props, &scheme));
+    *out = scheme;
+    return Status::OK();
+}
+
 void NGramTokenizerFactory::initialize(const Settings& settings) {
+    std::optional<gram::GramScheme> scheme;
+    Status st = parse_gram_scheme(settings, &scheme);
+    if (!st.ok()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "ngram tokenizer: {}", st.to_string());
+    }
+    if (scheme.has_value()) {
+        _gram_scheme = scheme;
+        return; // the legacy size checks and token_chars parsing below do not apply
+    }
+
     _min_gram = settings.get_int("min_gram", NGramTokenizer::DEFAULT_MIN_NGRAM_SIZE);
     _max_gram = settings.get_int("max_gram", NGramTokenizer::DEFAULT_MAX_NGRAM_SIZE);
     if (_min_gram <= 0 || _max_gram <= 0) {

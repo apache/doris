@@ -617,7 +617,11 @@ void collect_variant_column_layout(const ColumnMetaPB& column_meta, IndexSegment
 }
 
 Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t segment_id) {
-    auto seg = rowset->segment(rowset->rowset_meta()->position_of(segment_id));
+    auto seg_pos = rowset->rowset_meta()->position_of(segment_id);
+    if (!seg_pos.has_value()) {
+        return ResultError(seg_pos.error());
+    }
+    auto seg = rowset->segment(seg_pos.value());
     auto segment_path = seg.path();
     if (!segment_path.has_value()) {
         return ResultError(segment_path.error());
@@ -1303,9 +1307,13 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
 
         RowsetReaderContext context;
         context.reader_type = options.reader_type;
-        context.tablet_schema = _tablet_schema;
         context.need_ordered_result = options.need_ordered_result;
         context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*_tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
         context.predicates = &predicates;
         context.stats = &result.stats;
         context.target_cast_type_for_variants = options.target_cast_type_for_variants;

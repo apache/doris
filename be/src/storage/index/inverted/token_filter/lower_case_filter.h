@@ -66,6 +66,43 @@ public:
 
     ~LowerCaseFilter() override = default;
 
+    void reset() override {
+        DorisTokenFilter::reset();
+        _rune_count_changed = false;
+        _has_source_span = false;
+    }
+
+    std::span<const int32_t> get_source_byte_offsets() const override {
+        return _rune_count_changed ? std::span<const int32_t> {}
+                                   : DorisTokenFilter::get_source_byte_offsets();
+    }
+
+    std::span<const int32_t> get_source_byte_end_offsets() const override {
+        return _rune_count_changed ? std::span<const int32_t> {}
+                                   : DorisTokenFilter::get_source_byte_end_offsets();
+    }
+
+    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override {
+        if (!_rune_count_changed) {
+            return DorisTokenFilter::get_conservative_source_byte_span(start, end);
+        }
+        if (!_has_source_span) {
+            return false;
+        }
+        start = _source_start;
+        end = _source_end;
+        return true;
+    }
+
+#ifdef BE_TEST
+    bool rune_count_changed_for_test() const { return _rune_count_changed; }
+#endif
+
+    void set_source_byte_offsets_enabled(bool enabled) override {
+        _source_byte_offsets_enabled = enabled;
+        DorisTokenFilter::set_source_byte_offsets_enabled(enabled);
+    }
+
     void initialize() {
         UErrorCode status = U_ZERO_ERROR;
         auto* ucsm = ucasemap_open("", 0, &status);
@@ -78,6 +115,8 @@ public:
     }
 
     Token* next(Token* t) override {
+        _rune_count_changed = false;
+        _has_source_span = false;
         if (_in->next(t) == nullptr) {
             return nullptr;
         }
@@ -131,15 +170,41 @@ public:
                             static_cast<int32_t>(status), u_errorName(status));
         }
 
+        // Rune counts only matter to a downstream provenance consumer.
+        _rune_count_changed = _source_byte_offsets_enabled &&
+                              count_utf8_runes(term) != count_utf8_runes(std::string_view(
+                                                                _lower_term.data(), result_len));
+        if (_rune_count_changed) {
+            _has_source_span = get_delegated_source_byte_span(*t, _source_start, _source_end);
+        }
         set_text(t, std::string_view(_lower_term.data(), result_len));
         return t;
     }
 
-    void reset() override { DorisTokenFilter::reset(); }
-
 private:
+    static int32_t count_utf8_runes(std::string_view text) {
+        const auto length = cast_set<int32_t>(text.size());
+        const char* data = text.data();
+        int32_t offset = 0;
+        int32_t count = 0;
+        while (offset < length) {
+            UChar32 codepoint = U_UNASSIGNED;
+            U8_NEXT(data, offset, length, codepoint);
+            if (codepoint < 0) {
+                return -1;
+            }
+            ++count;
+        }
+        return count;
+    }
+
     std::unique_ptr<UCaseMap, decltype(&ucasemap_close)> _ucsm;
     std::string _lower_term;
+    int32_t _source_start = 0;
+    int32_t _source_end = 0;
+    bool _rune_count_changed = false;
+    bool _has_source_span = false;
+    bool _source_byte_offsets_enabled = false;
 };
 using LowerCaseFilterPtr = std::shared_ptr<LowerCaseFilter>;
 

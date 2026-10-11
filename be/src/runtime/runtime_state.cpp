@@ -72,15 +72,34 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
             thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
     std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
     // Parallel task states share this budget because FE receives their vectors in one fragment report.
-    if (_external_file_report_state->iceberg_serialized_bytes + serialized_size + sizeof(uint32_t) >
+    if (_external_file_report_state->serialized_commit_bytes + serialized_size + sizeof(uint32_t) >
         commit_data_limit) {
         return Status::InternalError(
                 "Iceberg commit metadata exceeds the Thrift report limit; reduce output file "
                 "count");
     }
     std::lock_guard<std::mutex> data_lock(_iceberg_commit_datas_mutex);
-    _external_file_report_state->iceberg_serialized_bytes += serialized_size + sizeof(uint32_t);
+    _external_file_report_state->serialized_commit_bytes += serialized_size + sizeof(uint32_t);
     _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
+    return Status::OK();
+}
+
+Status RuntimeState::add_connector_commit_data(std::string commit_data) {
+    constexpr size_t report_envelope_headroom = 1024 * 1024;
+    const size_t thrift_limit = coordinator_thrift_message_limit();
+    const size_t commit_data_limit =
+            thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    if (_external_file_report_state->serialized_commit_bytes + commit_data.size() +
+                sizeof(uint32_t) >
+        commit_data_limit) {
+        return Status::InternalError(
+                "Connector commit metadata exceeds the Thrift report limit; reduce commit "
+                "metadata size");
+    }
+    std::lock_guard<std::mutex> data_lock(_connector_commit_data_mutex);
+    _external_file_report_state->serialized_commit_bytes += commit_data.size() + sizeof(uint32_t);
+    _connector_commit_data.emplace_back(std::move(commit_data));
     return Status::OK();
 }
 
@@ -114,6 +133,10 @@ void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* par
         params->__isset.mc_commit_datas = true;
         params->mc_commit_datas.insert(params->mc_commit_datas.end(), commit_datas.begin(),
                                        commit_datas.end());
+    }
+    append_connector_commit_data(&params->connector_commit_data);
+    if (!params->connector_commit_data.empty()) {
+        params->__isset.connector_commit_data = true;
     }
 }
 

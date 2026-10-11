@@ -18,7 +18,6 @@
 package org.apache.doris.arrowflight.auth2;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.arrowflight.tokens.FlightTokenManager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 
@@ -63,18 +62,5 @@ public final class FlightAuthUtils {
             final String errMsg = "Unable to authenticate user " + username + ", exception: " + e.getMessage();
             throw CallStatus.UNAUTHENTICATED.withCause(e).withDescription(errMsg).toRuntimeException();
         }
-    }
-
-    /**
-     * Creates a new Bearer Token. Returns the bearer token associated with the User.
-     *
-     * @param flightTokenManager the TokenManager.
-     * @param username the user to create a Flight server session for.
-     * @param flightAuthResult the FlightAuthResult.
-     * @return the token associated with the FlightTokenDetails created.
-     */
-    public static String createToken(FlightTokenManager flightTokenManager, String username,
-            FlightAuthResult flightAuthResult) {
-        return flightTokenManager.createToken(username, flightAuthResult).getToken();
     }
 }

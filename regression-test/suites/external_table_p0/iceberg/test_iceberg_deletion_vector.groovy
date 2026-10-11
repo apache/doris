@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+
 suite("test_iceberg_deletion_vector", "p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -332,23 +334,21 @@ class IcebergRestCatalog {
     assertTrue(enableFileScannerV2Rows.size() > 0,
             "Session variable enable_file_scanner_v2 is not found")
     String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
+    def expectedDvCount = sql """ SELECT count(*) FROM dv_test; """
     try {
-        sql """set enable_file_scanner_v2=false"""
-        GetDebugPoint().clearDebugPointsForAllBEs()
-        GetDebugPoint().enableDebugPointForAllBEs(
-                "IcebergDeleteFileReader.read_deletion_vector.io_error")
-        test {
-            sql """ SELECT count(*) FROM dv_test; """
-            exception "injected Iceberg deletion vector read failure"
-        }
-
-        sql """set enable_file_scanner_v2=true"""
-        GetDebugPoint().clearDebugPointsForAllBEs()
-        GetDebugPoint().enableDebugPointForAllBEs(
-                "TableReader.parse_deletion_vector.io_error")
-        test {
-            sql """ SELECT count(*) FROM dv_test; """
-            exception "injected format v2 deletion vector read failure"
+        // Versioned Iceberg scans require V2 even when the session switch is disabled, so the
+        // failure injection must target TableReader for both settings.
+        [false, true].each { boolean enableFileScannerV2 ->
+            sql """set enable_file_scanner_v2=${enableFileScannerV2}"""
+            GetDebugPoint().clearDebugPointsForAllBEs()
+            GetDebugPoint().enableDebugPointForAllBEs(
+                    "TableReader.parse_deletion_vector.io_error")
+            test {
+                sql """ SELECT count(*) FROM dv_test; """
+                exception "injected format v2 deletion vector read failure"
+            }
+            GetDebugPoint().clearDebugPointsForAllBEs()
+            assertEquals(expectedDvCount, sql("SELECT count(*) FROM dv_test;"))
         }
     } finally {
         GetDebugPoint().clearDebugPointsForAllBEs()
@@ -504,22 +504,34 @@ s3.path-style-access=true
             30
     )
     executeCommand("${dockerCommand} restart ${trinoContainerName}", true, 60)
-    String trinoRows = ""
-    for (int i = 0; i < 12; i++) {
-        Thread.sleep(5000)
-        trinoRows = normalizeExternalRows(executeCommand(
-                "${dockerCommand} exec ${trinoContainerName} trino --output-format TSV " +
-                        "--catalog iceberg --schema format_v3 --execute " +
-                        "\"SELECT id, batch, data " +
-                        "FROM dv_delete_matrix_equality_and_dv ORDER BY id\"",
-                false,
-                120
-        ))
-        if (!trinoRows.isEmpty()) {
+    String trinoCommand = "${dockerCommand} exec ${trinoContainerName} trino --output-format TSV " +
+            "--catalog iceberg --schema format_v3 --execute "
+    // A running container does not imply a ready coordinator. Retry startup separately so a
+    // failed data query cannot be mistaken for a successful query returning no rows.
+    long trinoReadyDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(300)
+    def readiness = [exitCode: -1, stdout: "", stderr: "Readiness probe has not run"]
+    while (System.nanoTime() < trinoReadyDeadline) {
+        readiness = executeCommandWithStatus(trinoCommand + '"SELECT 1"', 10, false, false)
+        if (readiness.exitCode == 0 && readiness.stdout.trim() == "1") {
             break
-            }
+        }
+        Thread.sleep(1000)
     }
-    assertEquals(expectedRows, trinoRows)
+    assertTrue(readiness.exitCode == 0 && readiness.stdout.trim() == "1",
+            "Trino did not become ready within 300 seconds. Exit code: ${readiness.exitCode}\n" +
+                    "stdout:\n${readiness.stdout}\nstderr:\n${readiness.stderr}")
+
+    def trinoResult = executeCommandWithStatus(
+            trinoCommand + '"SELECT id, batch, data ' +
+                    'FROM dv_delete_matrix_equality_and_dv ORDER BY id"',
+            120
+    )
+    assertEquals(0, trinoResult.exitCode,
+            "Trino comparison query failed. stdout:\n${trinoResult.stdout}\nstderr:\n${trinoResult.stderr}")
+    String trinoRows = normalizeExternalRows(trinoResult.stdout)
+    assertEquals(expectedRows, trinoRows,
+            "Trino comparison query returned unexpected rows. " +
+                    "stdout:\n${trinoResult.stdout}\nstderr:\n${trinoResult.stderr}")
 
     def profileCounterValues = { String profileText, String counterName ->
         def values = []

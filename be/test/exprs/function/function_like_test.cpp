@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_string.h"
@@ -43,11 +44,27 @@ public:
     using FunctionLikeBase::should_fallback_to_re2;
 };
 
+// How the pattern column reaches the function: a plain column, a const column that is only
+// visible during execute(), or a const column already visible during open().
+enum class PatternMode { NON_CONST, CONST_AT_EXECUTE, CONST_AT_OPEN };
+
+static const char* pattern_mode_name(PatternMode mode) {
+    switch (mode) {
+    case PatternMode::NON_CONST:
+        return "non-constant pattern";
+    case PatternMode::CONST_AT_EXECUTE:
+        return "constant pattern during execute";
+    case PatternMode::CONST_AT_OPEN:
+        return "constant pattern during open";
+    }
+    return "";
+}
+
+// Runs `value <Function> pattern` for a single row with the given query options and returns the
+// match result through `result`; the Status of open()/execute_impl() is returned unchanged.
 template <typename Function>
-Status execute_pattern_with_fallback_disabled(const std::string& value, const std::string& pattern,
-                                              bool constant_known_at_open) {
-    TQueryOptions query_options;
-    query_options.__set_enable_hyperscan_fallback(false);
+Status execute_single_pattern(const TQueryOptions& query_options, const std::string& value,
+                              const std::string& pattern, PatternMode mode, uint8_t* result) {
     RuntimeState runtime_state(query_options, TQueryGlobals {});
 
     auto string_type = std::make_shared<DataTypeString>();
@@ -58,10 +75,12 @@ Status execute_pattern_with_fallback_disabled(const std::string& value, const st
     values->insert_data(value.data(), value.size());
     auto patterns = ColumnString::create();
     patterns->insert_data(pattern.data(), pattern.size());
-    ColumnPtr pattern_column = ColumnConst::create(std::move(patterns), 1);
+    ColumnPtr pattern_column = mode == PatternMode::NON_CONST
+                                       ? ColumnPtr(std::move(patterns))
+                                       : ColumnConst::create(std::move(patterns), 1);
 
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
-    if (constant_known_at_open) {
+    if (mode == PatternMode::CONST_AT_OPEN) {
         constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
     }
     context->set_constant_cols(constant_columns);
@@ -73,7 +92,75 @@ Status execute_pattern_with_fallback_disabled(const std::string& value, const st
     block.insert({std::move(values), string_type, "value"});
     block.insert({std::move(pattern_column), string_type, "pattern"});
     block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "result"});
-    return function.execute_impl(context.get(), block, {0, 1}, 2, 1);
+    RETURN_IF_ERROR(function.execute_impl(context.get(), block, {0, 1}, 2, 1));
+
+    // execute_impl always installs a ColumnUInt8 at the result position.
+    *result = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column).get_element(0);
+    return Status::OK();
+}
+
+template <typename Function>
+Status execute_pattern_with_fallback_disabled(const std::string& value, const std::string& pattern,
+                                              bool constant_known_at_open) {
+    TQueryOptions query_options;
+    query_options.__set_enable_hyperscan_fallback(false);
+    uint8_t result = 0;
+    return execute_single_pattern<Function>(
+            query_options, value, pattern,
+            constant_known_at_open ? PatternMode::CONST_AT_OPEN : PatternMode::CONST_AT_EXECUTE,
+            &result);
+}
+
+Status execute_regexp_with_extended_regex(const std::string& value, const std::string& pattern,
+                                          bool enable_extended_regex, PatternMode mode,
+                                          uint8_t* result) {
+    TQueryOptions query_options;
+    query_options.__set_enable_extended_regex(enable_extended_regex);
+    return execute_single_pattern<FunctionRegexpLike>(query_options, value, pattern, mode, result);
+}
+
+template <typename Function>
+void check_constant_pattern_batch(const std::vector<std::string>& values,
+                                  const std::string& pattern,
+                                  const std::vector<uint8_t>& expected) {
+    ASSERT_EQ(values.size(), expected.size());
+
+    TQueryOptions query_options;
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto string_type = std::make_shared<DataTypeString>();
+    auto result_type = std::make_shared<DataTypeUInt8>();
+    auto context = FunctionContext::create_context(&runtime_state, result_type,
+                                                   {string_type, string_type});
+
+    auto value_column = ColumnString::create();
+    for (const auto& value : values) {
+        value_column->insert_data(value.data(), value.size());
+    }
+    auto pattern_data = ColumnString::create();
+    pattern_data->insert_data(pattern.data(), pattern.size());
+    ColumnPtr pattern_column = ColumnConst::create(std::move(pattern_data), values.size());
+
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
+    constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+    context->set_constant_cols(constant_columns);
+
+    Function function;
+    auto status = function.open(context.get(), FunctionContext::THREAD_LOCAL);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    Block block;
+    block.insert({std::move(value_column), string_type, "value"});
+    block.insert({std::move(pattern_column), string_type, "pattern"});
+    block.insert({nullptr, result_type, "result"});
+    status = function.execute_impl(context.get(), block, {0, 1}, 2, values.size());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto* result = check_and_get_column<ColumnUInt8>(block.get_by_position(2).column.get());
+    ASSERT_NE(result, nullptr);
+    ASSERT_EQ(result->size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(result->get_element(i), expected[i]) << "row " << i;
+    }
 }
 
 TEST(FunctionLikeTest, like) {
@@ -144,6 +231,80 @@ TEST(FunctionLikeTest, like) {
             func_name, const_pattern_input_types, data_set));
 }
 
+TEST(FunctionLikeTest, like_matches_whole_value) {
+    std::string func_name = "like";
+
+    DataSet data_set = {
+            // A trailing newline belongs to the value, so a pattern that is anchored at the
+            // tail must not match across it.
+            {{std::string("acb"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acb\r\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acb\n\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acbx"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("\nacb"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("abc"), std::string("a%c")}, uint8_t(1)},
+            {{std::string("abc\n"), std::string("a%c")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("%b%c")}, uint8_t(0)},
+            // The newline is an ordinary character for '_' and '%'.
+            {{std::string("a\nb"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("a\nb"), std::string("a%b")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b_")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b%")}, uint8_t(1)},
+            {{std::string("abc\n"), std::string("a_c%")}, uint8_t(1)},
+            // '_' stands for one character, not for one byte.
+            {{std::string("a中b"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("a中b\n"), std::string("a_b")}, uint8_t(0)},
+            // An empty pattern only matches an empty value.
+            {{std::string(""), std::string("")}, uint8_t(1)},
+            {{std::string("\n"), std::string("")}, uint8_t(0)},
+            // The shortcut paths and the regex path must agree on the same value.
+            {{std::string("acb\n"), std::string("acb")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("%c")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("a%")}, uint8_t(1)},
+
+            // A literal '*' at the tail of the pattern is not the '.*' expanded from a
+            // trailing '%', so the pattern stays anchored.
+            {{std::string("ab*"), std::string("a_*")}, uint8_t(1)},
+            {{std::string("ab*xyz"), std::string("a_*")}, uint8_t(0)},
+            {{std::string("ab*\n"), std::string("a_*")}, uint8_t(0)},
+            {{std::string("ab%"), std::string("a_\\%")}, uint8_t(1)},
+            {{std::string("ab%xyz"), std::string("a_\\%")}, uint8_t(0)},
+    };
+
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeUInt8, true>(func_name, const_pattern_input_types,
+                                                     data_set);
+}
+
+TEST(FunctionLikeTest, convert_like_pattern_shapes) {
+    auto convert = [](const std::string& pattern) {
+        std::string re_pattern;
+        FunctionLike::convert_like_pattern(nullptr, pattern, &re_pattern);
+        return re_pattern;
+    };
+
+    // The tail anchor is `\z`, never `$`: Hyperscan reads `$` the PCRE way and would also
+    // match right before a newline that ends the value.
+    EXPECT_EQ(convert(""), "^\\z");
+    EXPECT_EQ(convert("a_b"), "^a.b\\z");
+    EXPECT_EQ(convert("%c%b"), ".*c.*b\\z");
+
+    // A trailing `%` is the only shape left open at the tail, and it needs no `.*` either.
+    EXPECT_EQ(convert("abc%"), "^abc");
+    EXPECT_EQ(convert("a_b%%"), "^a.b.*");
+    EXPECT_EQ(convert("%"), "");
+
+    // An escaped literal `*` ends the produced regex with '*' without being a wildcard, and an
+    // escaped `%` is a literal: both stay anchored.
+    EXPECT_EQ(convert("a_*"), "^a.\\*\\z");
+    EXPECT_EQ(convert("a_\\%"), "^a.%\\z");
+
+    // A backslash that does not open a LIKE escape is a literal backslash.
+    EXPECT_EQ(convert("a_\\"), "^a.\\\\\\z");
+}
+
 TEST(FunctionLikeTest, regexp) {
     std::string func_name = "regexp";
 
@@ -179,6 +340,74 @@ TEST(FunctionLikeTest, regexp) {
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
                                                               const_pattern_dataset));
     }
+}
+
+TEST(FunctionLikeTest, regexp_empty_constant_pattern) {
+    DataSet data_set = {{{std::string("abc"), std::string("")}, uint8_t(1)},
+                        {{std::string(""), std::string("")}, uint8_t(1)}};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, Consted {PrimitiveType::TYPE_VARCHAR}};
+
+    for (const auto& func_name : {"regexp", "rlike"}) {
+        for (const auto& line : data_set) {
+            DataSet const_pattern_dataset = {line};
+            static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
+                                                                  const_pattern_dataset));
+        }
+    }
+
+    check_constant_pattern_batch<FunctionRegexpLike>({"abc", ""}, "", {1, 1});
+}
+
+TEST(FunctionLikeTest, regexp_extended_regex_all_pattern_modes) {
+    // Lookaround assertions are rejected by both Hyperscan and RE2, so they only work through
+    // the Boost.Regex fallback, which must be reachable no matter how the pattern is supplied.
+    struct Case {
+        std::string value;
+        std::string pattern;
+        uint8_t expected;
+    };
+    const std::vector<Case> cases = {{"foo123bar", "foo(?=123)", 1},
+                                     {"foo124bar", "foo(?=123)", 0},
+                                     {"foobar", "(?<=foo)bar", 1},
+                                     {"fobar", "(?<=foo)bar", 0}};
+
+    for (auto mode :
+         {PatternMode::NON_CONST, PatternMode::CONST_AT_EXECUTE, PatternMode::CONST_AT_OPEN}) {
+        SCOPED_TRACE(pattern_mode_name(mode));
+        for (const auto& c : cases) {
+            SCOPED_TRACE(c.value + " REGEXP " + c.pattern);
+            uint8_t result = 0;
+            auto status =
+                    execute_regexp_with_extended_regex(c.value, c.pattern, true, mode, &result);
+            EXPECT_TRUE(status.ok()) << status.to_string();
+            EXPECT_EQ(result, c.expected);
+
+            status = execute_regexp_with_extended_regex(c.value, c.pattern, false, mode, &result);
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("enable_extended_regex"), std::string::npos)
+                    << status.to_string();
+        }
+
+        // A pattern that is invalid for Boost.Regex too still fails.
+        uint8_t result = 0;
+        auto status = execute_regexp_with_extended_regex("abc", "(", true, mode, &result);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Invalid regex expression"), std::string::npos)
+                << status.to_string();
+
+        // Boost.Regex gives up on a pathological pattern while matching; that must surface as a
+        // Status, not as an exception escaping the function.
+        status = execute_regexp_with_extended_regex(std::string(60, 'a'), "(?=a)(a+)+b", true, mode,
+                                                    &result);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Failed to match regex expression"), std::string::npos)
+                << status.to_string();
+    }
+}
+
+TEST(FunctionLikeTest, regexp_constant_substring_boundaries) {
+    check_constant_pattern_batch<FunctionRegexpLike>({"ab", "c", "", "abc", "", "xabcx"}, "abc",
+                                                     {0, 0, 0, 1, 0, 1});
 }
 
 TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback) {
@@ -326,12 +555,18 @@ TEST(FunctionLikeTest, regexp_extract_or_null) {
 
 TEST(FunctionLikeTest, regexp_extract_all) {
     std::string func_name = "regexp_extract_all";
+    const std::string word_boundary_input(10000, 'a');
+    const std::string invalid_utf8_input {static_cast<char>(0xC3), 'A'};
 
     DataSet data_set = {
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
              std::string("['18','17']")},
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4"), std::string("^x=([a-z]+)([0-9]+)")},
              std::string("['a']")},
+            {{std::string("aaa"), std::string("(^a)")}, std::string("['a']")},
+            {{word_boundary_input, std::string("(\\b)")}, std::string("")},
+            {{std::string("é"), std::string("(?:^)|(\\C)")}, std::string("")},
+            {{invalid_utf8_input, std::string("(?:^)|(\\C)")}, std::string("['A']")},
             {{std::string("http://a.m.baidu.com/i41915173660.htm"), std::string("i([0-9]+)")},
              std::string("['41915173660']")},
             {{std::string("http://a.m.baidu.com/i41915i73660.htm"), std::string("i([0-9]+)")},
@@ -356,7 +591,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
     }
 }
 
-TEST(FunctionLikeTest, regexp_extract_all_array) {
+// Keep the cases together so they share the same function lifecycle setup.
+TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-function-size)
     std::string func_name = "regexp_extract_all_array";
     auto str_type = std::make_shared<DataTypeString>();
     auto return_type = make_nullable(
@@ -404,10 +640,14 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     };
 
-    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", "[\"18\", \"17\"]");
+    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", R"(["18", "17"])");
     run_case("x=a3&x=18abc&x=2&y=3&x=4", "^x=([a-z]+)([0-9]+)", "[\"a\"]");
+    run_case("aaa", "(^a)", "[\"a\"]");
+    run_case(std::string(10000, 'a'), "(\\b)", "[]");
+    run_case("é", "(?:^)|(\\C)", "[]");
+    run_case(std::string {static_cast<char>(0xC3), 'A'}, "(?:^)|(\\C)", "[\"A\"]");
     run_case("http://a.m.baidu.com/i41915173660.htm", "i([0-9]+)", "[\"41915173660\"]");
-    run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", "[\"41915\", \"73660\"]");
+    run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", R"(["41915", "73660"])");
     run_case("hitdecisiondlist", "(i)(.*?)(e)", "[\"i\"]");
     run_case("no_match_here", "x=([0-9]+)", "[]");
     run_case("abc", "([a-z]+)", "[\"abc\"]");
@@ -504,6 +744,37 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     }
+}
+
+TEST(FunctionLikeTest, split_by_regexp_preserves_original_anchor) {
+    const std::string input = "aaa";
+    const std::string pattern = "^a";
+    auto string_type = std::make_shared<DataTypeString>();
+    auto return_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+
+    auto input_column = ColumnString::create();
+    input_column->insert_data(input.data(), input.size());
+    auto pattern_column = ColumnString::create();
+    pattern_column->insert_data(pattern.data(), pattern.size());
+
+    Block block;
+    block.insert({std::move(input_column), string_type, "str"});
+    block.insert({ColumnConst::create(std::move(pattern_column), 1), string_type, "pattern"});
+    block.insert({nullptr, return_type, "result"});
+
+    ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+    auto function = SimpleFunctionFactory::instance().get_function("split_by_regexp", arg_cols,
+                                                                   return_type);
+    ASSERT_TRUE(function != nullptr);
+
+    FunctionUtils fn_utils({}, {string_type, string_type}, false);
+    auto* context = fn_utils.get_fn_ctx();
+    ASSERT_EQ(Status::OK(), function->execute(context, block, {0, 1}, 2, 1));
+
+    const auto& result_column = block.get_by_position(2).column;
+    ASSERT_TRUE(result_column.get() != nullptr);
+    EXPECT_EQ(R"(["", "aa"])", return_type->to_string(*result_column, 0));
 }
 
 TEST(FunctionLikeTest, regexp_replace) {
@@ -901,7 +1172,7 @@ TEST(FunctionLikeTest, error_handling) {
 TEST(FunctionLikeTest, substring_optimization_performance) {
     std::string func_name = "like";
 
-    // Test cases that should trigger execute_substring optimization
+    // Test cases that should trigger the constant substring long-buffer optimization
     DataSet data_set = {// Multiple identical substrings in long text
                         {{std::string("aaabbbaaabbbaaabbb"), std::string("%bbb%")}, uint8_t(1)},
                         {{std::string("aaacccaaacccaaaccc"), std::string("%bbb%")}, uint8_t(0)},

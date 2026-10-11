@@ -18,40 +18,47 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Collections;
 
 class AnalyticWindowTest {
-    @Test
-    void testNereidsRowsOffsetKeepsInt64Precision() {
+    @ParameterizedTest
+    @ValueSource(longs = {0L, 1L, 2147483646L, Integer.MAX_VALUE})
+    void testNereidsRowsOffsetWithinMaxIntIsSerialized(long offset) {
         Window window = Collections::emptyList;
-        FrameBoundary frameBoundary = FrameBoundary.newPrecedingBoundary(
-                new LargeIntLiteral(BigInteger.valueOf(Long.MAX_VALUE)));
-
-        AnalyticWindow.Boundary boundary = window.withFrameBoundary(frameBoundary, null);
-
-        Assertions.assertEquals(Long.MAX_VALUE,
-                boundary.toThrift(AnalyticWindow.Type.ROWS).getRowsOffsetValue());
+        for (Literal literal : new Literal[] {new BigIntLiteral(offset),
+                new LargeIntLiteral(BigInteger.valueOf(offset))}) {
+            for (FrameBoundary frameBoundary : new FrameBoundary[] {
+                    FrameBoundary.newPrecedingBoundary(literal), FrameBoundary.newFollowingBoundary(literal)}) {
+                AnalyticWindow.Boundary boundary = window.withFrameBoundary(frameBoundary, null);
+                Assertions.assertEquals(offset,
+                        boundary.toThrift(AnalyticWindow.Type.ROWS).getRowsOffsetValue());
+            }
+        }
     }
 
-    @Test
-    void testRowsOffsetOverMaxInt64IsRejected() {
-        BigDecimal offset = BigDecimal.valueOf(Long.MAX_VALUE).add(BigDecimal.ONE);
+    @ParameterizedTest
+    @ValueSource(strings = {"2147483648", "9223372036854775805", "9223372036854775806",
+            "9223372036854775807", "9223372036854775808"})
+    void testRowsOffsetOverMaxIntIsRejected(String offset) {
         for (AnalyticWindow.BoundaryType boundaryType : new AnalyticWindow.BoundaryType[] {
                 AnalyticWindow.BoundaryType.PRECEDING, AnalyticWindow.BoundaryType.FOLLOWING}) {
             AnalyticWindow.Boundary boundary = new AnalyticWindow.Boundary(
-                    boundaryType, new IntLiteral(1L), offset);
+                    boundaryType, new IntLiteral(1L), new BigDecimal(offset));
 
             IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
                     () -> boundary.toThrift(AnalyticWindow.Type.ROWS));
-            Assertions.assertEquals("ROWS window offset must not exceed " + Long.MAX_VALUE,
+            Assertions.assertEquals("ROWS window offset must not exceed " + Integer.MAX_VALUE,
                     exception.getMessage());
         }
     }

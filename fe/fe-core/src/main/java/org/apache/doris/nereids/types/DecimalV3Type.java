@@ -24,6 +24,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -218,12 +219,28 @@ public class DecimalV3Type extends FractionalType {
     @Override
     public boolean isInjectiveCastTo(DataType target) {
         if (target instanceof DecimalV2Type) {
-            DecimalV2Type decimalV2Type = (DecimalV2Type) target;
-            return decimalV2Type.getRange() >= this.getRange() && decimalV2Type.getScale() >= this.getScale();
+            // DECIMALV2 is deprecated, and BE does not support every DECIMALV3-to-DECIMALV2 cast
+            // accepted by FE. Keep all such casts non-injective so rewrites preserve the cast and
+            // its original execution behavior.
+            return false;
         }
         if (target instanceof DecimalV3Type) {
             DecimalV3Type decimalV3Type = (DecimalV3Type) target;
             return decimalV3Type.getRange() >= this.getRange() && decimalV3Type.getScale() >= this.getScale();
+        }
+        // An integral target discards the fractional part, so it is injective only for scale zero.
+        // The strict range bound also leaves room for the asymmetric negative endpoint of a signed
+        // integer. Binary floating-point casts round, but adjacent values in a DECIMAL(P, S) domain
+        // remain distinguishable when P <= 7 for FLOAT or P <= 15 for DOUBLE. Those conservative
+        // decimal-digit limits hold for every scale, not just for integral decimals.
+        if (scale == 0 && target instanceof IntegralType) {
+            return getRange() < ((IntegralType) target).range();
+        }
+        if (target instanceof FloatType) {
+            return precision <= 7;
+        }
+        if (target instanceof DoubleType) {
+            return precision <= 15;
         }
         return target instanceof CharacterType;
     }

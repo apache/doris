@@ -29,7 +29,6 @@
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "exprs/function/simple_function_factory.h"
-#include "util/json/json_parser.h"
 
 namespace doris {
 namespace {

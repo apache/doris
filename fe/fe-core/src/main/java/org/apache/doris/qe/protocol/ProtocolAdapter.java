@@ -19,8 +19,6 @@ package org.apache.doris.qe.protocol;
 
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.qe.ConnectPoolMgr;
-import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
@@ -148,10 +146,13 @@ public interface ProtocolAdapter {
             throws IOException;
 
     /**
-     * The pool this connection is registered in. Each protocol still keeps its own pool; this
-     * goes away when they are merged.
+     * Releases what the protocol still holds for the session when the connection leaves the pool
+     * ({@code ConnectPoolMgr.unregisterConnection}, where every teardown path of a connection
+     * meets): for Arrow Flight SQL the channel-cached results and the deferred query coordinators,
+     * nothing for MySQL, whose channel {@link #closeConnection} closes. Must be idempotent, and
+     * must not depend on the connection being in the pool.
      */
-    ConnectPoolMgr connectPool(ConnectScheduler scheduler);
+    void releaseSession(ConnectContext ctx);
 
     /**
      * Called from {@link ConnectContext#clear()} once the response of a statement has been sent,

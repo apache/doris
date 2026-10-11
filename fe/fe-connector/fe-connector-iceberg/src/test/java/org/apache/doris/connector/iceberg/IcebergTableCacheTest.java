@@ -215,6 +215,34 @@ public class IcebergTableCacheTest {
     }
 
     @Test
+    public void weightedBorrowIsolatesHistoricalSnapshotsPerStatement() {
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergTableCache cache = new IcebergTableCache(
+                    owner, CacheSpec.ofWeight(true, 100L, 1000L, 10L * 1024L * 1024L),
+                    ignored -> () -> {
+                    }, new IcebergCatalogResourceTracker());
+
+            try (IcebergTableCache.TableLease lease = cache.borrow(id(),
+                    IcebergTableCacheTest::tableWithSnapshotHistory)) {
+                Table cached = lease.table();
+                Table firstStatement = lease.snapshotReadTable();
+                Table secondStatement = lease.snapshotReadTable();
+                for (long snapshotId : new long[] {101L, 102L}) {
+                    Snapshot firstSnapshot = firstStatement.snapshot(snapshotId);
+                    Assertions.assertNotNull(firstSnapshot, "time travel must still reach snapshot " + snapshotId);
+                    Assertions.assertEquals(snapshotId, firstSnapshot.snapshotId());
+                    Assertions.assertNotSame(cached.snapshot(snapshotId), firstSnapshot,
+                            "reading an old snapshot must not load manifests into the weighted cache generation");
+                    Assertions.assertNotSame(firstSnapshot, secondStatement.snapshot(snapshotId),
+                            "each statement must own the lazy-loading state of every snapshot it reads");
+                }
+                Assertions.assertEquals(Long.valueOf(101L), firstStatement.snapshot(102L).parentId());
+            }
+            Assertions.assertEquals(1, cache.size());
+        }
+    }
+
+    @Test
     public void disabledBoundedCacheDoesNotPrepareSnapshotGeneration() {
         for (CacheSpec spec : new CacheSpec[] {
                 CacheSpec.ofWeight(false, 100L, 1000L, 1024L * 1024L),
@@ -610,6 +638,35 @@ public class IcebergTableCacheTest {
                 .discardChanges()
                 .build();
         return new BaseTable(new StaticTableOperations(metadata), "weighted");
+    }
+
+    private static Table tableWithSnapshotHistory() {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        TableMetadata base = TableMetadata.newTableMetadata(
+                schema, PartitionSpec.unpartitioned(), "file:///tmp/weighted-history-table", Collections.emptyMap());
+        Snapshot older = SnapshotParser.fromJson("{"
+                + "\"sequence-number\":1,"
+                + "\"snapshot-id\":101,"
+                + "\"timestamp-ms\":1000,"
+                + "\"summary\":{\"operation\":\"append\"},"
+                + "\"manifest-list\":\"file:///tmp/snap-101.avro\","
+                + "\"schema-id\":0}");
+        Snapshot newer = SnapshotParser.fromJson("{"
+                + "\"sequence-number\":2,"
+                + "\"snapshot-id\":102,"
+                + "\"parent-snapshot-id\":101,"
+                + "\"timestamp-ms\":2000,"
+                + "\"summary\":{\"operation\":\"append\"},"
+                + "\"manifest-list\":\"file:///tmp/snap-102.avro\","
+                + "\"schema-id\":0}");
+        TableMetadata metadata = TableMetadata.buildFrom(base)
+                .upgradeFormatVersion(2)
+                .withMetadataLocation("file:///tmp/v3.metadata.json")
+                .setBranchSnapshot(older, "main")
+                .setBranchSnapshot(newer, "main")
+                .discardChanges()
+                .build();
+        return new BaseTable(new StaticTableOperations(metadata), "weighted-history");
     }
 
     private static Table tableWithV1EmbeddedManifests(int manifestCount) {

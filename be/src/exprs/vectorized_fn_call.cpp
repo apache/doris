@@ -209,6 +209,7 @@ size_t raw_comparison_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL256);
         RETURN_RAW_COMPARISON_SIZE(TYPE_IPV4);
         RETURN_RAW_COMPARISON_SIZE(TYPE_IPV6);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_UUID);
 #undef RETURN_RAW_COMPARISON_SIZE
     default:
         return 0;
@@ -555,6 +556,7 @@ Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL256);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV4);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV6);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_UUID);
 #undef EXECUTE_RAW_SCALAR_COMPARISON
     default:
         __builtin_unreachable();
@@ -669,8 +671,9 @@ bool VectorizedFnCall::can_push_down_to_index() const {
 }
 
 bool VectorizedFnCall::is_deterministic() const {
+    // array_shuffle gives the rows of a block different orders, even with a seed.
     static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
-            "random", "rand", "random_bytes", "uuid", "uuid_numeric"};
+            "random", "rand", "random_bytes", "uuid", "uuid_numeric", "array_shuffle", "shuffle"};
     return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
 }
 

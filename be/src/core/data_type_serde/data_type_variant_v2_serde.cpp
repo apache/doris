@@ -18,6 +18,7 @@
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 
 #include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 
 #include <algorithm>
 #include <cstring>
@@ -31,6 +32,7 @@
 #include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_const.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
@@ -45,6 +47,7 @@
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 
@@ -180,6 +183,133 @@ void preflight_json(const IColumn& column, size_t start, size_t end,
                 CountingWriter writer;
                 write_json_value(value, writer, options);
             });
+}
+
+void validate_binary_variant_primitive(VariantPrimitiveId primitive_id) {
+    switch (primitive_id) {
+    case VariantPrimitiveId::NULL_VALUE:
+    case VariantPrimitiveId::TRUE_VALUE:
+    case VariantPrimitiveId::FALSE_VALUE:
+    case VariantPrimitiveId::INT8:
+    case VariantPrimitiveId::INT16:
+    case VariantPrimitiveId::INT32:
+    case VariantPrimitiveId::INT64:
+    case VariantPrimitiveId::DOUBLE:
+    case VariantPrimitiveId::DECIMAL4:
+    case VariantPrimitiveId::DECIMAL8:
+    case VariantPrimitiveId::DECIMAL16:
+    case VariantPrimitiveId::DATE:
+    case VariantPrimitiveId::TIMESTAMP_MICROS:
+    case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
+    case VariantPrimitiveId::FLOAT:
+    case VariantPrimitiveId::BINARY:
+    case VariantPrimitiveId::STRING:
+    case VariantPrimitiveId::UUID:
+        return;
+    case VariantPrimitiveId::TIME_NTZ_MICROS:
+    case VariantPrimitiveId::TIMESTAMP_NANOS:
+    case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Binary Variant V2 Arrow encoding does not support primitive id {}",
+                        static_cast<uint8_t>(primitive_id));
+    }
+    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "Binary Variant V2 Arrow encoding does not support unknown primitive id {}",
+                    static_cast<uint8_t>(primitive_id));
+}
+
+void validate_binary_variant_value(VariantRef value, uint32_t depth = 0) {
+    if (depth > VARIANT_MAX_NESTING_DEPTH) {
+        throw Exception(ErrorCode::CORRUPTION, "Variant value exceeds maximum nesting depth {}",
+                        VARIANT_MAX_NESTING_DEPTH);
+    }
+    const size_t encoded_size = value.value_size();
+    if (encoded_size != value.value.size) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "Variant value has {} trailing bytes after the encoded value",
+                        value.value.size - encoded_size);
+    }
+
+    switch (value.basic_type()) {
+    case VariantBasicType::PRIMITIVE:
+        validate_binary_variant_primitive(value.primitive_id());
+        return;
+    case VariantBasicType::SHORT_STRING:
+        return;
+    case VariantBasicType::OBJECT:
+        for (uint32_t i = 0; i < value.num_elements(); ++i) {
+            uint32_t field_id = 0;
+            VariantRef child = value.object_value_at(i, &field_id);
+            value.metadata.key_at(field_id);
+            validate_binary_variant_value(child, depth + 1);
+        }
+        return;
+    case VariantBasicType::ARRAY:
+        for (uint32_t i = 0; i < value.num_elements(); ++i) {
+            validate_binary_variant_value(value.array_at(i), depth + 1);
+        }
+        return;
+    }
+}
+
+void require_variant_arrow_status(const arrow::Status& status) {
+    if (!status.ok()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Variant V2 Arrow append failed: {}",
+                        status.ToString());
+    }
+}
+
+Status write_binary_variant_arrow(const IColumn& column, const NullMap* null_map,
+                                  arrow::StructBuilder& builder, size_t start, size_t end) {
+    // StructBuilder::type() returns a shared_ptr by value. Keep that owner alive while using the
+    // cast reference; otherwise the reference would dangle as soon as the temporary is destroyed.
+    const auto builder_type = builder.type();
+    const auto& struct_type = assert_cast<const arrow::StructType&>(*builder_type);
+    if (struct_type.num_fields() != 2 || struct_type.field(0)->name() != "value" ||
+        struct_type.field(1)->name() != "metadata" ||
+        struct_type.field(0)->type()->id() != arrow::Type::BINARY ||
+        struct_type.field(1)->type()->id() != arrow::Type::BINARY) {
+        return Status::InvalidArgument(
+                "Binary Variant V2 Arrow type must be "
+                "struct<value: binary, metadata: binary>, got {}",
+                struct_type.ToString());
+    }
+    auto* value_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(0));
+    auto* metadata_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(1));
+    if (value_builder == nullptr || metadata_builder == nullptr) {
+        return Status::InvalidArgument("Binary Variant V2 Arrow child builders must be binary");
+    }
+
+    // Consumers of the binary Variant V2 Arrow representation copy these two buffers without
+    // inspecting them. Validate once at the serialization boundary so a writer cannot commit
+    // malformed or unsupported bytes.
+    const auto outer_nulls = forced_nulls(null_map);
+    visit_variant_v2_values(
+            column, start, end, outer_nulls,
+            [&](size_t) { require_variant_arrow_status(builder.AppendNull()); },
+            [&](size_t row, VariantRef value) {
+                try {
+                    constexpr size_t BINARY_VARIANT_SIZE_LIMIT = 128 * 1024 * 1024;
+                    if (value.value.size > BINARY_VARIANT_SIZE_LIMIT ||
+                        value.metadata.size > BINARY_VARIANT_SIZE_LIMIT) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "exceeds the 128 MiB value/metadata limit");
+                    }
+                    value.metadata.validate();
+                    validate_binary_variant_value(value);
+                } catch (const Exception& e) {
+                    throw Exception(e.code(), "Binary Variant V2 row {} is incompatible: {}", row,
+                                    e.what());
+                }
+                require_variant_arrow_status(builder.Append());
+                require_variant_arrow_status(
+                        value_builder->Append(reinterpret_cast<const uint8_t*>(value.value.data),
+                                              cast_set<int32_t, size_t, false>(value.value.size)));
+                require_variant_arrow_status(metadata_builder->Append(
+                        reinterpret_cast<const uint8_t*>(value.metadata.data),
+                        cast_set<int32_t, size_t, false>(value.metadata.size)));
+            });
+    return Status::OK();
 }
 
 } // namespace
@@ -437,6 +567,47 @@ void DataTypeVariantV2SerDe::read_one_cell_from_jsonb(IColumn& column,
     destination(column).insert_encoded_batch(block);
 }
 
+// to_json and CAST(<complex type> AS JSON) write Variant values here, with the same session time zone
+// as CAST(<variant> AS JSON).
+Status DataTypeVariantV2SerDe::serialize_column_to_jsonb(const IColumn& from_column,
+                                                         int64_t row_num, JsonbWriter& writer,
+                                                         const FormatOptions& options) const {
+    RETURN_IF_CATCH_EXCEPTION({
+        const size_t row = checked_row(row_num);
+        JsonbWriter document;
+        visit_variant_v2_values(
+                from_column, row, row + 1, {}, [](size_t) {},
+                [&](size_t, VariantRef value) {
+                    variant_to_jsonb(value, document, {.timezone = options.timezone});
+                });
+        const JsonbDocument* doc = nullptr;
+        THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(
+                document.getOutput()->getBuffer(), document.getOutput()->getSize(), &doc));
+        require_jsonb_write(writer.writeValue(doc->getValue()), "Variant value");
+    });
+    return Status::OK();
+}
+
+Status DataTypeVariantV2SerDe::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+        const NullMap::value_type* source_null_map) const {
+    RETURN_IF_CATCH_EXCEPTION({
+        JsonbWriter writer;
+        visit_variant_v2_values(
+                from_column, 0, from_column.size(),
+                source_null_map
+                        ? std::span<const NullMap::value_type>(source_null_map, from_column.size())
+                        : std::span<const NullMap::value_type>(),
+                [&](size_t) { to_column.insert_default(); },
+                [&](size_t, VariantRef value) {
+                    variant_to_jsonb(value, writer, {.timezone = options.timezone});
+                    to_column.insert_data(writer.getOutput()->getBuffer(),
+                                          writer.getOutput()->getSize());
+                });
+    });
+    return Status::OK();
+}
+
 namespace {
 
 DorisVector<size_t> json_lengths(const IColumn& column, size_t start, size_t end,
@@ -552,6 +723,11 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
             return write_arrow(column, null_map,
                                assert_cast<arrow::LargeStringBuilder&>(*array_builder), first, last,
                                options);
+        }
+        if (array_builder->type()->id() == arrow::Type::STRUCT) {
+            return write_binary_variant_arrow(column, null_map,
+                                              assert_cast<arrow::StructBuilder&>(*array_builder),
+                                              first, last);
         }
         return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
                                        array_builder->type()->name());

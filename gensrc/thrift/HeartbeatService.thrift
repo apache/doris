@@ -50,6 +50,8 @@ struct TMasterInfo {
     12: optional i64 tablet_report_inactive_duration_ms;
     13: optional string auth_token;
     14: optional TCloudClusterInfo cloud_cluster_info;
+    // Cleanup reference only; this is not an active-query safe point.
+    15: optional i64 row_binlog_ttl_reference_tso;
 }
 
 struct TBackendInfo {

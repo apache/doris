@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
@@ -201,6 +202,8 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
                 (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
                 Table.TableType.OLAP), taskInfo);
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
+        StreamLoadHandler.assignAdaptiveRandomBucket(tExecPlanFragmentParams, beId,
+                routineLoadJob.getDbFullName(), routineLoadJob.getTableName());
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 

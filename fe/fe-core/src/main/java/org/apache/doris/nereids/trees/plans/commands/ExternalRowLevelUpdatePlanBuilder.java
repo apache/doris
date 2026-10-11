@@ -49,7 +49,7 @@ import java.util.stream.Collectors;
 
 /**
  * Merge-plan synthesizer for UPDATE on Iceberg tables, invoked via
- * IcebergRowLevelDmlTransform.synthesize. The legacy Command execution half
+ * PositionDeleteRowLevelDmlTransform.synthesize. The legacy Command execution half
  * was removed as dead code.
  *
  * UPDATE operations are implemented as a single scan + merge sink:

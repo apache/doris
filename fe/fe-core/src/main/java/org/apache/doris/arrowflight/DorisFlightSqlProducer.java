@@ -24,33 +24,47 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
+import org.apache.arrow.flight.ActionType;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.CloseSessionRequest;
 import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.Criteria;
+import org.apache.arrow.flight.ErrorFlightMetadata;
+import org.apache.arrow.flight.FlightConstants;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStream;
+import org.apache.arrow.flight.GetSessionOptionsRequest;
+import org.apache.arrow.flight.GetSessionOptionsResult;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.PutResult;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.SchemaResult;
+import org.apache.arrow.flight.SessionOptionValue;
+import org.apache.arrow.flight.SetSessionOptionsRequest;
+import org.apache.arrow.flight.SetSessionOptionsResult;
 import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.flight.sql.FlightSqlProducer;
+import org.apache.arrow.flight.sql.FlightSqlUtils;
 import org.apache.arrow.flight.sql.SqlInfoBuilder;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionClosePreparedStatementRequest;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
@@ -92,6 +106,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -105,6 +120,13 @@ import java.util.concurrent.Executors;
  */
 public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(DorisFlightSqlProducer.class);
+    /** What ListActions answers: the actions this producer implements, see {@link #listActions}. */
+    public static final List<ActionType> SUPPORTED_ACTIONS = ImmutableList.of(
+            FlightSqlUtils.FLIGHT_SQL_CREATE_PREPARED_STATEMENT,
+            FlightSqlUtils.FLIGHT_SQL_CLOSE_PREPARED_STATEMENT,
+            FlightConstants.SET_SESSION_OPTIONS,
+            FlightConstants.GET_SESSION_OPTIONS,
+            FlightConstants.CLOSE_SESSION);
     private final Location location;
     private final BufferAllocator rootAllocator = new RootAllocator();
     private final SqlInfoBuilder sqlInfoBuilder;
@@ -137,7 +159,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         String[] handleParts = handle.split(":");
         String executedPeerIdentity = handleParts[0];
         String queryId = handleParts[1];
-        // The tokens used for authentication between getStreamStatement and getFlightInfoStatement are different.
+        // The DoGet may come under another bearer token than the GetFlightInfo did: a client that opens
+        // a second connection for the endpoint may authenticate again on it. The ticket names the
+        // session that ran the statement, which must still be open.
         ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
         // The result is streamed under the session's command lock: the next statement of the
         // session resets the channel, which would close the VectorSchemaRoot while it is being sent.
@@ -226,9 +250,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         // otherwise expected thrown exception during execution.
                         Preconditions.checkState(connectContext.getFlightSqlChannel().resultNum() == 1);
 
-                        // The tokens used for authentication between getStreamStatement and getFlightInfoStatement
-                        // are different. So put the peerIdentity into the ticket and then getStreamStatement is used to
-                        // find the correct ConnectContext.
+                        // The DoGet may come under another bearer token than this GetFlightInfo (see
+                        // getStreamStatementResult), so the ticket names this session by its peer identity;
                         // queryId is used to find query results.
                         final ByteString handle = ByteString.copyFromUtf8(
                                 peerIdentity + ":" + DebugUtil.printId(connectContext.queryId()));
@@ -292,20 +315,32 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         } catch (Throwable e) {
             // GetFlightInfo failed (e.g. the BE Arrow schema fetch above timed out or returned an
             // error) after this query's coordinator may already have been deferred during planning.
-            // No FlightInfo is returned, so no DoGet will ever pull this query's results; finalize
-            // the deferred coordinator now (releasing its external-table batch SplitSource, query
-            // queue slot and query registration) instead of leaking it until the next query starts
-            // or the connection is torn down. The previous query's deferred coordinator was already
-            // finalized at the top of this method, so this only closes this failed query. See #62259.
-            connectContext.closeFlightSqlDeferredExecutors();
+            // No FlightInfo is returned, so no DoGet will ever pull this query's results; cancel the
+            // query on the backends and finalize the deferred coordinator now (releasing its
+            // external-table batch SplitSource, query queue slot and query registration) instead of
+            // leaking it until the next query starts or the connection is torn down. The previous
+            // query's deferred coordinator was already finalized at the top of this method, so this
+            // only closes this failed query. See #62259.
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
+            connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
             LOG.error(errMsg, e);
-            throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
+            throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
         }
+    }
+
+    static FlightRuntimeException queryFailure(QueryState state, String message, Throwable cause) {
+        if (IncrWindowNotReadyException.isWindowError(state.getErrorCode())) {
+            ErrorFlightMetadata metadata = new ErrorFlightMetadata();
+            metadata.insert("doris-error-code", Integer.toString(state.getErrorCode().getCode()));
+            metadata.insert("doris-error-name", state.getErrorCode().name());
+            return CallStatus.UNAVAILABLE.withDescription(message).withCause(cause)
+                    .withMetadata(metadata).toRuntimeException();
+        }
+        return CallStatus.INTERNAL.withDescription(message).withCause(cause).toRuntimeException();
     }
 
     @Override
@@ -317,8 +352,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     () -> executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(),
                             descriptor));
         } catch (FlightRuntimeException e) {
-            // Already carries the status meant for the client, e.g. UNAVAILABLE from the session's
-            // command lock; wrapping it as INTERNAL would hide that.
+            // Already carries the status meant for the client - UNAVAILABLE from the session's
+            // command lock or from an incremental window that is not ready (queryFailure, with its
+            // doris-error-code metadata), UNAUTHENTICATED from a closed session, and whatever the
+            // session layer refuses a session with. Wrapping it as INTERNAL would hide that, as it
+            // did between #67820 and this fix; the other entry points below let it through too.
             throw e;
         } catch (Throwable e) {
             String errMsg = "get flight info statement failed, " + e.getMessage();
@@ -632,20 +670,87 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamCrossReference unimplemented").toRuntimeException();
     }
 
+    /**
+     * The actions this producer implements, and only those. Arrow's default lists every Flight SQL
+     * action, the transactions and savepoints among them, which this one answers UNIMPLEMENTED, and
+     * leaves out the session actions of Flight itself, which it does answer.
+     */
+    @Override
+    public void listActions(CallContext context, StreamListener<ActionType> listener) {
+        for (ActionType action : SUPPORTED_ACTIONS) {
+            listener.onNext(action);
+        }
+        listener.onCompleted();
+    }
+
+    /**
+     * Sets session options: the current catalog, the current database and session variables, see
+     * {@link FlightSessionOptions}. The ADBC Flight SQL driver sends these for the connection's
+     * {@code adbc.connection.catalog} / {@code adbc.connection.db_schema} and for its
+     * {@code adbc.flight.sql.session.option.*} options; the Flight SQL JDBC driver for its
+     * {@code catalog} property. Each option is set on its own and answered on its own: the result
+     * names the ones that could not be set and why, and the action itself only fails when the
+     * session cannot be reached.
+     */
+    @Override
+    public void setSessionOptions(final SetSessionOptionsRequest request, final CallContext context,
+            final StreamListener<SetSessionOptionsResult> listener) {
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            Map<String, SetSessionOptionsResult.Error> errors = FlightProtocolAdapter.of(connectContext)
+                    .callCommand(connectContext,
+                            () -> FlightSessionOptions.set(connectContext, request.getSessionOptions()));
+            listener.onNext(new SetSessionOptionsResult(errors));
+            listener.onCompleted();
+        } catch (FlightRuntimeException e) {
+            // Same as in getFlightInfoStatement: keep the status the session's command lock chose.
+            LOG.warn("set session options failed", e);
+            listener.onError(e);
+        } catch (Throwable e) {
+            String errMsg = "set session options failed, " + e.getMessage();
+            LOG.warn(errMsg, e);
+            listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
+        }
+    }
+
+    /** The session's options, see {@link FlightSessionOptions#get}. */
+    @Override
+    public void getSessionOptions(final GetSessionOptionsRequest request, final CallContext context,
+            final StreamListener<GetSessionOptionsResult> listener) {
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            Map<String, SessionOptionValue> options = FlightProtocolAdapter.of(connectContext)
+                    .callCommand(connectContext, () -> FlightSessionOptions.get(connectContext));
+            listener.onNext(new GetSessionOptionsResult(options));
+            listener.onCompleted();
+        } catch (FlightRuntimeException e) {
+            LOG.warn("get session options failed", e);
+            listener.onError(e);
+        } catch (Throwable e) {
+            String errMsg = "get session options failed, " + e.getMessage();
+            LOG.warn(errMsg, e);
+            listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
+        }
+    }
+
+    /**
+     * Closes the session the way a MySQL client's COM_QUIT ends a connection: its ConnectContext
+     * leaves the pool (releasing the cached results, the deferred executors, the transaction and
+     * the temporary tables), a statement still running is cancelled, and every later call made
+     * with the session's bearer token is refused as UNAUTHENTICATED, since the token is nothing but
+     * the name the session had in the pool. The ADBC Flight SQL driver calls this from
+     * Connection.Close() and the Flight SQL JDBC driver from Connection.close().
+     */
     @Override
     public void closeSession(CloseSessionRequest request, final CallContext context,
             final StreamListener<CloseSessionResult> listener) {
-        // https://github.com/apache/arrow-adbc/issues/2821
-        // currently FlightSqlConnection does not provide a separate interface for external calls to
-        // FlightSqlClient::closeSession(), nor will it automatically call closeSession
-        // when FlightSqlConnection::close(). Python flight sql Cursor.close() will call closeSession().
-        // Neither C++ nor Java seem to have similar behavior.
         try {
             flightSessionsManager.closeConnectContext(context.peerIdentity());
         } catch (final Throwable e) {
-            LOG.error("closeSession failed", e);
+            LOG.warn("closeSession failed", e);
             listener.onError(
                     CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
+            return;
         }
         listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
         listener.onCompleted();

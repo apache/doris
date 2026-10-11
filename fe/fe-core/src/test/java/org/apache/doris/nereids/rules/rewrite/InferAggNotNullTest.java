@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -179,7 +178,6 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
         // NotNullableAggregateFunction does not imply that NULL argument rows can be removed.
         List<AggregateFunction> withoutClassWideProof = ImmutableList.of(
                 new ArrayAgg(value),
-                new MapAgg(key, value),
                 new MapAggV2(key, value),
                 new CountByEnum(value),
                 new GroupConcat(value));

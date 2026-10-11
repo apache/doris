@@ -26,7 +26,6 @@
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "exprs/function/cast/cast_to_decimal_test.h"
-#include "util/json/json_parser.h"
 #include "util/string_parser.hpp"
 
 namespace doris {

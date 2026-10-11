@@ -230,6 +230,9 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("compute_group",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        // the protocol the session runs: MySQL / ArrowFlightSQL
+        AUDIT_SCHEMA.add(new ColumnDef("protocol",
+                ScalarType.createVarchar(16), ColumnNullableType.NULLABLE));
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));

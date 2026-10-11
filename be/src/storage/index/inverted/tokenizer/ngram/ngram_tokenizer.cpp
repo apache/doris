@@ -18,6 +18,7 @@
 #include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer.h"
 
 #include "common/exception.h"
+#include "util/utf8_check.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -74,6 +75,10 @@ Token* NGramTokenizer::next(Token* token) {
 
         to_chars(_buffer, _buffer_start, _gram_size);
         set(token, _utf8_buffer);
+        set_source_byte_offsets(_utf8_buffer, _offset);
+        token->setStartOffset(correct_source_start_offset(_offset));
+        token->setEndOffset(
+                correct_source_offset(_offset + static_cast<int32_t>(_utf8_buffer.size())));
         ++_gram_size;
 
         return token;
@@ -91,6 +96,12 @@ void NGramTokenizer::reset() {
     _char_buffer = nullptr;
     _char_offset = 0;
     _char_length = _in->read((const void**)&_char_buffer, 0, static_cast<int32_t>(_in->size()));
+    // Malformed bytes are skipped while the valid neighbours are still indexed. Only the
+    // offset-aware path rejects them, because a source byte span cannot be mapped through them.
+    if (_source_byte_offsets_enabled && _char_length > 0 &&
+        !validate_utf8(_char_buffer, _char_length)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "NGram tokenizer input is not valid UTF-8");
+    }
 }
 
 void NGramTokenizer::init(int32_t min_gram, int32_t max_gram, bool edges_only) {

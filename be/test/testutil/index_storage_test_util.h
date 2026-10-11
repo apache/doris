@@ -40,7 +40,6 @@
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
-#include "util/json/json_parser.h"
 
 namespace doris {
 
@@ -117,7 +116,6 @@ struct IndexBatch {
     std::vector<ColumnPtr> variant_columns_by_column;
     bool deprecated_enable_flatten_nested = false;
     bool check_duplicate_json_path = false;
-    ParseConfig::ParseTo parse_to = ParseConfig::ParseTo::OnlySubcolumns;
 
     static IndexBatch single_text(std::vector<std::string> values, int32_t first_key = 0);
     static IndexBatch single_variant(std::vector<std::string> jsons, int32_t first_key = 0);

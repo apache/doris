@@ -20,6 +20,7 @@ package org.apache.doris.connector.jdbc;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
+import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -240,6 +241,12 @@ public final class JdbcCatalogProperties {
                 .require(driverClass, "Required property '" + DRIVER_CLASS + "' is missing")
                 .validate();
 
+        // Mandatory, non-configurable security rule (no '..' segment; a bare name must be a plain
+        // *.jar file name), shared with the iceberg-jdbc / paimon-jdbc catalogs. It lives in this
+        // statement-time hook and NOT in of(): a catalog created before the rule existed must keep
+        // coming back after an FE restart (see class javadoc).
+        JdbcDriverUrlSecurity.check(driverUrl);
+
         if (raw.containsKey(LOWER_CASE_TABLE_NAMES)) {
             throw new IllegalArgumentException(
                     "Jdbc catalog property lower_case_table_names is not supported,"
@@ -383,11 +390,13 @@ public final class JdbcCatalogProperties {
     }
 
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        // Legacy properties remain parseable, but binary values always retain their bytes.
+        return true;
     }
 
     public boolean isEnableMappingTimestampTz() {
-        return enableMappingTimestampTz;
+        // Instant types cannot be downgraded to session-local wall clocks.
+        return true;
     }
 
     public String getFunctionRules() {

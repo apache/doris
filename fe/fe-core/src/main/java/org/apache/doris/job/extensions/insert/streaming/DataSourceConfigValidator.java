@@ -127,7 +127,10 @@ public class DataSourceConfigValidator {
             }
 
             if (!isValidValue(key, value, dataSourceType)) {
-                throw new IllegalArgumentException("Invalid value for key '" + key + "': " + value);
+                if (DataSourceConfigKeys.SERVER_ID.equals(key)) {
+                    validateServerIdConfig(input);
+                }
+                throw new IllegalArgumentException(invalidValueMessage(key, value));
             }
         }
 
@@ -288,6 +291,25 @@ public class DataSourceConfigValidator {
             return parseServerIdRange(value) != null;
         }
         return true;
+    }
+
+    public static String invalidValueMessage(String key, String value) {
+        String message = "Invalid value for key '" + key + "': " + value + ".";
+        if (DataSourceConfigKeys.SLOT_NAME.equals(key)
+                || DataSourceConfigKeys.PUBLICATION_NAME.equals(key)) {
+            return message + " Must match [a-z_][a-z0-9_]* (max 63 characters).";
+        }
+        if (DataSourceConfigKeys.SSL_MODE.equals(key)) {
+            return message + " Use disable, require, or verify-ca.";
+        }
+        if (DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE.equals(key)
+                || DataSourceConfigKeys.SNAPSHOT_PARALLELISM.equals(key)) {
+            return message + " Use a positive integer.";
+        }
+        if (DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL.equals(key)) {
+            return message + " Use true or false.";
+        }
+        return message;
     }
 
     // Strict boolean: only "true"/"false" (case-insensitive); Boolean.parseBoolean would
