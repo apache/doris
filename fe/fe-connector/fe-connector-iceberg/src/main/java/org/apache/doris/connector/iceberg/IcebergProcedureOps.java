@@ -242,8 +242,11 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             groups = ops.withTable(handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks);
         } else {
             try {
+                // A server-planned table (RESTTable) keeps its own newScan(), which asks the REST server for the
+                // file scan tasks; rebuilding it as a plain BaseTable would plan from local manifests instead.
                 groups = context.executeAuthenticated(() -> ops.withTable(handle.getDbName(), handle.getTableName(),
-                        table -> planner.planAndOrganizeTasks(wrapTableForProcedure(table))));
+                        table -> planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
+                                ? table : wrapTableForProcedure(table))));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -263,7 +266,8 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      * test_iceberg_hadoop_catalog_kerberos failed "Failed to open input stream for file: .../snap-*.avro"),
      * {@code cherrypick_snapshot} writes the picked files' manifest there, and rewrite planning reads the manifests
      * of a multi-manifest table there. The wrapped FileIO keeps prefix listing for {@code remove_orphan_files}
-     * ({@link IcebergAuthenticatedFileIO#withPrefixOperations}).
+     * ({@link IcebergAuthenticatedFileIO#withPrefixOperations}). Rewrite planning skips the wrap for a server-planned
+     * table, whose scan tasks come from the REST server ({@link #planInAuthScopeUntracked}).
      *
      * <p>Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) and offline tests (plain context /
      * non-{@link BaseTable} fakes) get the table unchanged. Package-private for unit testing.

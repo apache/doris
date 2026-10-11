@@ -162,6 +162,9 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external") {
         select snapshot_id from ${test_tbl_name}\$snapshots order by committed_at
     """
     assert snapshotsAfterExpire.size() == 1
+    // COUNT(1) can be answered from the manifests alone; read the rows so both retained data files are opened.
+    def rowsAfterExpire = sql """select col2, col7 from ${test_tbl_name} order by col2"""
+    assert rowsAfterExpire == [[123, 'example text'], [456, 'another example']]
 
     def dataResult = sql """select count(1) from ${test_tbl_name} """
     assert dataResult.get(0).get(0) == 2

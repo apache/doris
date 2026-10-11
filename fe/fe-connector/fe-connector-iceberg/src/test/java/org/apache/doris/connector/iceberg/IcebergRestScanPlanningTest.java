@@ -24,8 +24,10 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import com.sun.net.httpserver.HttpServer;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
@@ -52,6 +54,7 @@ import org.junit.jupiter.api.function.Executable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.security.PrivilegedExceptionAction;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -202,6 +205,26 @@ public class IcebergRestScanPlanningTest {
         }
     }
 
+    @Test
+    public void kerberosRewritePlanningAsksTheServerForTasks() throws Exception {
+        try (RestFixture fixture = new RestFixture(true, true, true)) {
+            Table table = fixture.load();
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = table;
+            IcebergProcedureOps procedureOps = new IcebergProcedureOps(Map.of(), ops, new TcclPinningConnectorContext(
+                    new RecordingConnectorContext(), getClass().getClassLoader(), InlineAuthenticator::new));
+
+            // The fixture answers every plan request with HTTP 500, so planning fails; the test is where it went.
+            Assertions.assertThrows(DorisConnectorException.class, () -> procedureOps.planRewrite(null,
+                    new IcebergTableHandle("db", "t"), "rewrite_data_files", Map.of("rewrite-all", "true"), null,
+                    List.of()));
+            // MUTATION: planning wrapTableForProcedure(table) -> the plain BaseTable plans from local manifests ->
+            // the recording FileIO fails the read and no plan request reaches the server -> red.
+            Assertions.assertEquals(1, fixture.planRequests.get());
+            Assertions.assertEquals(0, fixture.io(table).reads.get());
+        }
+    }
+
     private static void reject(Executable action) {
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class, action);
         Assertions.assertEquals("Iceberg server-side scan planning is not supported for table db.t; "
@@ -276,6 +299,25 @@ public class IcebergRestScanPlanningTest {
                 catalog.close();
             } finally {
                 server.stop(0);
+            }
+        }
+    }
+
+    /** A Kerberos-catalog stand-in: runs the action inline, without a real UGI. */
+    private static final class InlineAuthenticator implements HadoopAuthenticator {
+        @Override
+        public UserGroupInformation getUGI() {
+            throw new UnsupportedOperationException("doAs is overridden; no real UGI in this test");
+        }
+
+        @Override
+        public <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException {
+            try {
+                return action.run();
+            } catch (IOException | RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IOException(e);
             }
         }
     }
