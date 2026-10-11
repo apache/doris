@@ -51,7 +51,7 @@ suite("test_view_var_persist") {
         create view v_divide as select a/b from t_decimalv3;
         set enable_decimal256=false;
     """
-    qt_divide "select * from v_divide;"
+    qt_divide "select /*+ SET_VAR(enable_fold_constant_by_be=true) */ * from v_divide;"
 
     multi_sql """
         set enable_decimal256=true;

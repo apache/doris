@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
+import org.apache.doris.nereids.trees.expressions.functions.table.ListFile;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
@@ -110,6 +111,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitLocal(Local local, C context) {
         return visitTableValuedFunction(local, context);
+    }
+
+    default R visitListFile(ListFile listFile, C context) {
+        return visitTableValuedFunction(listFile, context);
     }
 
     default R visitNumbers(Numbers numbers, C context) {

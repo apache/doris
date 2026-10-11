@@ -187,7 +187,12 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        columns.forEach(c -> columnMap.put(c.getName(), c));
+        columns.forEach(c -> {
+            if (c.getType().typeContainsFile()) {
+                throw new AnalysisException("FILE columns are not supported in internal tables");
+            }
+            columnMap.put(c.getName(), c);
+        });
         // Which key model the MV is built on settles its distribution: the unique-key model is maintained
         // through a row-id, so it is distributed on that unless the user hashed on something themselves,
         // while an append-only detail MV holds the query's own rows and is distributed like any other DUP
