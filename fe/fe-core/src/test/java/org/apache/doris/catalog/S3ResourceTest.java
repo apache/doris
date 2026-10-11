@@ -26,9 +26,16 @@ import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.runtime.ThriftPlansBuilder;
+import org.apache.doris.thrift.TS3Resource;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -321,6 +328,162 @@ public class S3ResourceTest {
         } catch (DdlException e) {
             LOG.info("testPingS3WithRoleArn exception:", e);
             Assertions.assertTrue(false, e.getMessage());
+        }
+    }
+
+    @Test
+    void queryResourceConfigurationIsSharedWithinExecuteAndRefreshedOnNextExecute() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        ResourceMgr manager = Mockito.mock(ResourceMgr.class);
+        AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        S3Resource resource = new S3Resource("s3_resource");
+        resource.setProperties(ImmutableMap.<String, String>builder()
+                .put("s3.endpoint", "https://oss-cn-beijing.aliyuncs.com")
+                .put("s3.region", "cn-beijing")
+                .put("s3.bucket", "bucket")
+                .put("s3.access_key", "fake-access-key")
+                .put("s3.secret_key", "first")
+                .put("s3.session_token", "fake-session-token")
+                .put("s3.connection.maximum", "77")
+                .put("use_path_style", "true")
+                .put("s3_validity_check", "false")
+                .build());
+        Mockito.when(env.getResourceMgr()).thenReturn(manager);
+        Mockito.when(env.getAccessManager()).thenReturn(access);
+        Mockito.when(manager.getResource("s3_resource")).thenReturn(resource);
+        Mockito.when(access.checkResourcePriv(context, "s3_resource", PrivPredicate.USAGE)).thenReturn(true);
+        StatementContext statement = new StatementContext(context, null);
+        Mockito.when(context.getStatementContext()).thenReturn(statement);
+        statement.registerUsedS3ResourceName("s3_resource");
+        try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
+            current.when(Env::getCurrentEnv).thenReturn(env);
+            TS3Resource first = ThriftPlansBuilder.collectS3Resources(context).get("s3_resource");
+            assertBackendProperties(first, "https://oss-cn-beijing.aliyuncs.com", "cn-beijing",
+                    "fake-access-key", "first");
+            Assertions.assertEquals("fake-session-token", first.getProperties().get(S3ResourceCompat.Env.TOKEN));
+            Assertions.assertEquals("77", first.getProperties().get(S3ResourceCompat.Env.MAX_CONNECTIONS));
+            Assertions.assertEquals("true", first.getProperties().get(S3ResourceCompat.USE_PATH_STYLE));
+            resource.modifyProperties(new HashMap<>(Map.of("s3.secret_key", "second", "s3_validity_check", "false")));
+            first.getProperties().put("AWS_SECRET_KEY", "mutated wire copy");
+            Assertions.assertEquals("first", ThriftPlansBuilder.collectS3Resources(context)
+                    .get("s3_resource").getProperties().get("AWS_SECRET_KEY"));
+            Assertions.assertEquals("second", resource.toThrift().getProperties().get("AWS_SECRET_KEY"));
+            StatementContext next = statement.createNextExecuteContext();
+            next.registerUsedS3ResourceName("s3_resource");
+            Mockito.when(context.getStatementContext()).thenReturn(next);
+            Assertions.assertEquals("second", ThriftPlansBuilder.collectS3Resources(context)
+                    .get("s3_resource").getProperties().get("AWS_SECRET_KEY"));
+        }
+    }
+
+    @Test
+    void legacyAwsResourcePropertiesReachBackendWithResourceBucket() throws Exception {
+        S3Resource resource = new S3Resource("legacy_resource");
+        resource.setProperties(ImmutableMap.of(
+                "AWS_ENDPOINT", "https://s3.us-east-1.amazonaws.com",
+                "AWS_REGION", "us-east-1",
+                "AWS_BUCKET", "legacy-bucket",
+                "AWS_ACCESS_KEY", "fake-legacy-access-key",
+                "AWS_SECRET_KEY", "fake-legacy-secret-key",
+                "s3_validity_check", "false"));
+        TS3Resource config = resource.toThrift();
+        assertBackendProperties(config, "https://s3.us-east-1.amazonaws.com", "us-east-1",
+                "fake-legacy-access-key", "fake-legacy-secret-key");
+        Assertions.assertEquals("legacy-bucket", config.getProperties().get(S3ResourceCompat.BUCKET));
+        Assertions.assertEquals("legacy-bucket", config.getProperties().get(S3ResourceCompat.Env.BUCKET));
+    }
+
+    @Test
+    void nativeOssPropertiesAreNormalizedWithoutLosingResourceBucket() {
+        S3Resource resource = replayS3Resource(ImmutableMap.of(
+                "oss.endpoint", "https://oss-cn-beijing.aliyuncs.com",
+                "oss.region", "cn-beijing",
+                "OSS_BUCKET", "oss-bucket",
+                "oss.access_key", "fake-oss-access-key",
+                "oss.secret_key", "fake-oss-secret-key"));
+        TS3Resource config = resource.toThrift();
+        assertBackendProperties(config, "https://oss-cn-beijing.aliyuncs.com", "cn-beijing",
+                "fake-oss-access-key", "fake-oss-secret-key");
+        Assertions.assertEquals("oss-bucket", config.getProperties().get("OSS_BUCKET"));
+        Assertions.assertFalse(config.getProperties().containsKey("AWS_BUCKET"));
+        Assertions.assertEquals("oss-bucket", config.getProperties().get("OSS_BUCKET"));
+        Assertions.assertFalse(config.getProperties().containsKey(S3ResourceCompat.Env.BUCKET));
+    }
+
+    @Test
+    void endpointOnlyReplayedStandardS3ResourceIsNormalizedWithoutRequiringBucket() {
+        S3Resource resource = replayS3Resource(ImmutableMap.of(
+                "s3.endpoint", "https://oss-cn-beijing.aliyuncs.com",
+                "s3.region", "cn-beijing",
+                "s3.access_key", "fake-access-key",
+                "s3.secret_key", "fake-secret-key"));
+        TS3Resource config = resource.toThrift();
+        assertBackendProperties(config, "https://oss-cn-beijing.aliyuncs.com", "cn-beijing",
+                "fake-access-key", "fake-secret-key");
+        assertNoBucket(config);
+    }
+
+    @Test
+    void endpointOnlyReplayedLegacyAwsResourceIsNormalizedWithoutRequiringBucket() {
+        S3Resource resource = replayS3Resource(ImmutableMap.of(
+                "AWS_ENDPOINT", "https://s3.us-east-1.amazonaws.com",
+                "AWS_REGION", "us-east-1",
+                "AWS_ACCESS_KEY", "fake-legacy-access-key",
+                "AWS_SECRET_KEY", "fake-legacy-secret-key"));
+        TS3Resource config = resource.toThrift();
+        assertBackendProperties(config, "https://s3.us-east-1.amazonaws.com", "us-east-1",
+                "fake-legacy-access-key", "fake-legacy-secret-key");
+        assertNoBucket(config);
+    }
+
+    private static S3Resource replayS3Resource(Map<String, String> properties) {
+        // Image replay accepts stored properties without repeating CREATE RESOURCE's ping checks.
+        String json = GsonUtils.GSON.toJson(Map.of("clazz", "S3Resource", "type", "S3",
+                "name", "endpoint_only_resource", "properties", properties));
+        return (S3Resource) GsonUtils.GSON.fromJson(json, Resource.class);
+    }
+
+    private static void assertNoBucket(TS3Resource config) {
+        Assertions.assertFalse(config.getProperties().containsKey(S3ResourceCompat.BUCKET));
+        Assertions.assertFalse(config.getProperties().containsKey(S3ResourceCompat.Env.BUCKET));
+    }
+
+    private static void assertBackendProperties(TS3Resource config, String endpoint, String region,
+            String accessKey, String secretKey) {
+        Assertions.assertEquals(endpoint, config.getProperties().get(S3ResourceCompat.Env.ENDPOINT));
+        Assertions.assertEquals(region, config.getProperties().get(S3ResourceCompat.Env.REGION));
+        Assertions.assertEquals(accessKey, config.getProperties().get(S3ResourceCompat.Env.ACCESS_KEY));
+        Assertions.assertEquals(secretKey, config.getProperties().get(S3ResourceCompat.Env.SECRET_KEY));
+    }
+
+    @Test
+    void resourceBindingRejectsNonS3AndChecksUsageWithoutCopyingProperties() {
+        Env env = Mockito.mock(Env.class);
+        ResourceMgr manager = Mockito.mock(ResourceMgr.class);
+        AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Resource resource = Mockito.mock(Resource.class);
+        Mockito.when(env.getResourceMgr()).thenReturn(manager);
+        Mockito.when(env.getAccessManager()).thenReturn(access);
+        Mockito.when(manager.getResource("resource")).thenReturn(resource);
+        Mockito.when(resource.getType()).thenReturn(Resource.ResourceType.JDBC);
+        Mockito.when(access.checkResourcePriv(context, "resource", PrivPredicate.USAGE)).thenReturn(true);
+
+        try (MockedStatic<Env> current = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> connection = Mockito.mockStatic(ConnectContext.class)) {
+            current.when(Env::getCurrentEnv).thenReturn(env);
+            connection.when(ConnectContext::get).thenReturn(context);
+            ToFile function = new ToFile(new StringLiteral("resource"), new StringLiteral("arbitrary:uri"));
+            function.checkLegalityBeforeTypeCoercion();
+            Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+            Mockito.when(resource.getType()).thenReturn(Resource.ResourceType.HDFS);
+            Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+            Mockito.verify(resource, Mockito.never()).getCopiedProperties();
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> S3Resource.checkResource("missing", context));
+            Mockito.when(access.checkResourcePriv(context, "resource", PrivPredicate.USAGE)).thenReturn(false);
+            Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
         }
     }
 }

@@ -292,6 +292,15 @@ public:
         return _ai_resources;
     }
 
+    void set_s3_resources(std::map<std::string, TS3Resource> s3_resources) {
+        _s3_resources =
+                std::make_shared<const std::map<std::string, TS3Resource>>(std::move(s3_resources));
+    }
+
+    const std::shared_ptr<const std::map<std::string, TS3Resource>>& get_s3_resources() const {
+        return _s3_resources;
+    }
+
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
     get_using_brpc_stubs() {
         std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
@@ -404,6 +413,7 @@ private:
     std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
     mutable std::mutex _ai_statistics_mutex;
     std::unordered_map<int, std::shared_ptr<AIExecutionStatistics>> _ai_statistics;
+    std::shared_ptr<const std::map<std::string, TS3Resource>> _s3_resources;
 
     void _report_query_profile();
 
