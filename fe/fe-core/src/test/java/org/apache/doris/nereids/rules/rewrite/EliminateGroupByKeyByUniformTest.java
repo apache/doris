@@ -135,8 +135,8 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 .analyze("select  t1.b,t2.b from eli_gbk_by_uniform_t t1 left join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t1.b=100 group by t1.b,t2.b,t2.c;")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2
-                        && agg.getGroupByExpressions().get(0).toSql().equals("b")));
+                .matches(logicalResultSink(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2
+                        && agg.getGroupByExpressions().get(0).toSql().equals("b"))));
     }
 
     @Test
@@ -145,8 +145,8 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 .analyze("select  t1.b,t2.b from eli_gbk_by_uniform_t t1 left join eli_gbk_by_uniform_t t2 on t1.b=t2.b where t1.b=100 group by t1.b,t2.b,t2.c;")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1
-                        && agg.getGroupByExpressions().get(0).toSql().equals("c")));
+                .matches(logicalResultSink(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1
+                        && agg.getGroupByExpressions().get(0).toSql().equals("c"))));
     }
 
     @Test
