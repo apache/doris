@@ -40,6 +40,7 @@ public class ColumnToThrift {
     }
 
     public static TColumn toThrift(Column column) {
+        column.validateFileSchema();
         TColumn tColumn = new TColumn();
         tColumn.setColumnName(column.getNonShadowName());
 
@@ -129,6 +130,7 @@ public class ColumnToThrift {
     }
 
     public static void setChildrenTColumn(Column children, TColumn tColumn) {
+        children.validateFileSchema();
         TColumn childrenTColumn = new TColumn();
         childrenTColumn.setColumnName(children.getName());
 
@@ -177,7 +179,7 @@ public class ColumnToThrift {
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
-        } else if (column.getType().isStructType()) {
+        } else if (column.getType().isStructType() || column.getType().isFileType()) {
             List<Column> childrenColumns = column.getChildren();
             tColumn.setChildrenColumn(new ArrayList<>());
             for (Column children : childrenColumns) {

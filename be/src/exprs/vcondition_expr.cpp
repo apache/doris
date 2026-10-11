@@ -683,6 +683,7 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
     bool cannot_random_write = result_column->is_column_string() ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_FILE ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
