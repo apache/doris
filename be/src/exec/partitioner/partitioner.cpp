@@ -23,7 +23,6 @@
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "runtime/thread_context.h"
-#include "util/raw_value.h"
 
 namespace doris {
 
@@ -87,12 +86,11 @@ Status Crc32CHashPartitioner::clone(RuntimeState* state,
 
 void IdentityHashPartitioner::_do_hash(const ColumnPtr& column, HashValType* __restrict result,
                                        int idx) const {
-    const PrimitiveType type = _partition_expr_ctxs[idx]->root()->data_type()->get_primitive_type();
-    for (size_t row = 0; row < column->size(); ++row) {
-        auto val = column->get_data_at(row);
-        result[row] =
-                RawValue::identity_hash(val.data, val.size, type, result[row], _partition_count);
-    }
+    // Batch identity hash: keeps virtual dispatch out of the per-row loop and lets each column
+    // hash its own storage directly. Byte semantics (canonical little-endian append, null rows,
+    // seed combination) are owned by RawValue::append_identity_bytes and stay bit-identical with
+    // the scalar RawValue::identity_hash used by tablet routing and bucket pruning.
+    column->update_identity_hash(result, _partition_count);
 }
 
 Status IdentityHashPartitioner::clone(RuntimeState* state,

@@ -47,30 +47,48 @@ public:
     // columns do not require a wide integer.
     static uint32_t identity_hash(const void* value, size_t len, const PrimitiveType& type,
                                   uint32_t seed, uint32_t mod);
+
+    // The single appending core shared by identity_hash and the batch column implementations in
+    // IColumn::update_identity_hash. Interprets size bytes as a little-endian unsigned integer,
+    // multiplies the seed by 256^size and adds the value, taking mod every 4 bytes so any byte
+    // width never overflows uint64_t. This is the sole source of the identity hash byte semantics
+    // and must stay bit-identical with FE HashDistributionPruner and BE tablet routing.
+    static uint32_t append_identity_bytes(const void* value, size_t size, uint32_t seed,
+                                          uint32_t mod);
+
+    // A null distribution value contributes these four zero canonical bytes, shared by the
+    // scalar and batch paths so the null convention has a single definition.
+    static constexpr uint32_t NULL_IDENTITY_BYTES = 0;
 };
 
 // Keep the canonical byte-width dispatch together so it can be audited against zlib_crc32 below.
+// NOLINTNEXTLINE(readability-function-size)
+inline uint32_t RawValue::append_identity_bytes(const void* value, size_t size, uint32_t seed,
+                                                uint32_t mod) {
+    DCHECK_GT(mod, 0);
+    const auto* bytes = reinterpret_cast<const uint8_t*>(value);
+    uint64_t remainder = seed;
+    size_t bytes_since_mod = 0;
+    for (size_t i = size; i > 0; --i) {
+        remainder = remainder * 256 + bytes[i - 1];
+        if (++bytes_since_mod == sizeof(uint32_t)) {
+            remainder %= mod;
+            bytes_since_mod = 0;
+        }
+    }
+    return static_cast<uint32_t>(remainder % mod);
+}
+
 // NOLINTNEXTLINE(readability-function-size)
 inline uint32_t RawValue::identity_hash(const void* v, size_t len, const PrimitiveType& type,
                                         uint32_t seed, uint32_t mod) {
     DCHECK_GT(mod, 0);
     auto append_little_endian = [&seed, mod](const void* value, size_t size) {
-        const auto* bytes = reinterpret_cast<const uint8_t*>(value);
-        uint64_t remainder = seed;
-        size_t bytes_since_mod = 0;
-        for (size_t i = size; i > 0; --i) {
-            remainder = remainder * 256 + bytes[i - 1];
-            if (++bytes_since_mod == sizeof(uint32_t)) {
-                remainder %= mod;
-                bytes_since_mod = 0;
-            }
-        }
-        seed = static_cast<uint32_t>(remainder % mod);
+        seed = append_identity_bytes(value, size, seed, mod);
     };
 
     if (v == nullptr) {
-        static constexpr uint32_t NULL_VALUE = 0;
-        append_little_endian(&NULL_VALUE, sizeof(NULL_VALUE));
+        append_little_endian(&NULL_IDENTITY_BYTES, sizeof(NULL_IDENTITY_BYTES));
         return seed;
     }
 

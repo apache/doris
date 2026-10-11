@@ -34,6 +34,7 @@
 #include "exec/sort/sort_block.h"
 #include "util/debug_points.h"
 #include "util/memcpy_inlined.h"
+#include "util/raw_value.h"
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
 #include "util/unaligned.h"
@@ -293,6 +294,36 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
                 hashes[i] = HashUtil::zlib_crc_hash(
                         data_ref.data, static_cast<uint32_t>(data_ref.size), hashes[i]);
             }
+        }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::update_identity_hash(uint32_t* __restrict hashes, uint32_t mod,
+                                        const uint8_t* __restrict null_map) const {
+    // Read chars/offsets directly so no virtual dispatch remains in the loop. The byte range
+    // [offset_at(i), offsets[i]) is exactly what get_data_at(i) returns (terminating zero
+    // included), so the hash input is bit-identical with the scalar path.
+    auto s = size();
+    const auto* __restrict chars_data = chars.data();
+    auto append_row = [&](size_t i) {
+        hashes[i] = RawValue::append_identity_bytes(chars_data + offset_at(i), size_at(i),
+                                                    hashes[i], mod);
+    };
+    if (null_map) {
+        for (size_t i = 0; i < s; i++) {
+            if (null_map[i] == 0) {
+                append_row(i);
+            } else {
+                // Null convention of RawValue::identity_hash: four zero canonical bytes.
+                hashes[i] = RawValue::append_identity_bytes(&RawValue::NULL_IDENTITY_BYTES,
+                                                            sizeof(RawValue::NULL_IDENTITY_BYTES),
+                                                            hashes[i], mod);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; i++) {
+            append_row(i);
         }
     }
 }

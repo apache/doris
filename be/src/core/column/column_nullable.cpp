@@ -26,6 +26,7 @@
 #include "core/data_type/data_type.h"
 #include "exec/common/sip_hash.h"
 #include "exec/sort/sort_block.h"
+#include "util/raw_value.h"
 
 namespace doris {
 namespace {
@@ -177,6 +178,15 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
         }
         _nested_column->update_crcs_with_value(hashes, type, rows, offset, real_null_data);
     }
+}
+
+void ColumnNullable::update_identity_hash(uint32_t* __restrict hashes, uint32_t mod,
+                                          const uint8_t* __restrict null_map) const {
+    // ColumnConst wrappers are unpacked by the caller, and null_map (when provided) is exactly
+    // our own null map, so forward as-is (ignoring the argument like update_crc32c_batch does);
+    // a null row appends the shared four zero canonical bytes, matching
+    // RawValue::identity_hash(nullptr, ...).
+    _nested_column->update_identity_hash(hashes, mod, get_null_map_column().get_data().data());
 }
 
 void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,

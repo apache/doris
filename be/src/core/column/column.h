@@ -415,6 +415,17 @@ public:
                                "Method update_crc_with_value is not supported for " + get_name());
     }
 
+    // Batch identity-hash interface used by bucket-shuffle partitioners for tables bucketed with
+    // the identity hash. Each row's canonical bytes are appended to hashes[row] (kept modulo
+    // mod throughout), moving virtual dispatch out of the per-row loop. null_map == nullptr
+    // means no row is null; a null row appends four zero canonical bytes, exactly as
+    // RawValue::identity_hash(nullptr, ...) does.
+    virtual void update_identity_hash(uint32_t* __restrict hashes, uint32_t mod,
+                                      const uint8_t* __restrict null_map = nullptr) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method update_identity_hash is not supported for " + get_name());
+    }
+
     virtual void update_crc32c_batch(uint32_t* __restrict hashes,
                                      const uint8_t* __restrict null_map) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
