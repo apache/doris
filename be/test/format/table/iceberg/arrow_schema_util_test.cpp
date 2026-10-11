@@ -174,9 +174,11 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations
     const auto shape = metadata->schema()->Column(0);
     const auto place = metadata->schema()->Column(1);
     EXPECT_TRUE(shape->logical_type()->is_geometry());
-    EXPECT_EQ("EPSG:3857", shape->logical_type()->crs());
+    EXPECT_EQ("EPSG:3857",
+              static_cast<const ::parquet::GeometryLogicalType&>(*shape->logical_type()).crs());
     EXPECT_TRUE(place->logical_type()->is_geography());
-    EXPECT_EQ("OGC:CRS84", place->logical_type()->crs());
+    EXPECT_EQ("OGC:CRS84",
+              static_cast<const ::parquet::GeographyLogicalType&>(*place->logical_type()).crs());
 }
 
 TEST(ArrowSchemaUtilTest, test_simple_field) {

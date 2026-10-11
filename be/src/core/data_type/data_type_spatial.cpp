@@ -54,7 +54,6 @@ Status DataTypeSpatial::check_column(const IColumn& column) const {
 
 int64_t DataTypeSpatial::get_uncompressed_serialized_bytes(const IColumn& column,
                                                            int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE);
     const IColumn* data_column = &column;
     const bool is_const = is_column_const(column);
     const size_t stored_rows = is_const ? 1 : column.size();
@@ -70,7 +69,6 @@ int64_t DataTypeSpatial::get_uncompressed_serialized_bytes(const IColumn& column
 }
 
 char* DataTypeSpatial::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE);
     const IColumn* data_column = &column;
     size_t stored_rows = 0;
     buf = serialize_const_flag_and_row_num(&data_column, buf, &stored_rows);
@@ -90,7 +88,6 @@ char* DataTypeSpatial::serialize(const IColumn& column, char* buf, int be_exec_v
 
 const char* DataTypeSpatial::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
-    DCHECK(be_exec_version >= USE_CONST_SERDE);
     auto* original = column->get();
     size_t stored_rows = 0;
     buf = deserialize_const_flag_and_row_num(buf, column, &stored_rows);

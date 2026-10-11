@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -87,7 +88,8 @@ static bool decode_wkb_hex(StringRef value, std::string* wkb) {
         return false;
     }
     wkb->resize(size / 2);
-    return string_hex::hex_decode(data, size, wkb->data()) == static_cast<int>(size / 2);
+    return string_hex::hex_decode(data, cast_set<ColumnString::Offset>(size), wkb->data()) ==
+           static_cast<int>(size / 2);
 }
 
 Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments) {

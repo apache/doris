@@ -34,6 +34,15 @@ namespace doris {
 
 namespace {
 
+std::string to_hex(StringRef value) {
+    std::string encoded(value.size * 2, '\0');
+    auto* dst = reinterpret_cast<unsigned char*>(encoded.data());
+    size_t offset = 0;
+    string_hex::hex_encode(reinterpret_cast<const unsigned char*>(value.data), value.size, dst,
+                            offset);
+    return encoded;
+}
+
 class VarbinaryParquetConsumer final : public ParquetFixedValueConsumer,
                                        public ParquetBinaryValueConsumer {
 public:
@@ -122,7 +131,7 @@ Status DataTypeVarbinarySerDe::write_column_to_mysql_binary(const IColumn& colum
     auto col_index = index_check_const(row_idx, col_const);
     const auto data = column.get_data_at(col_index);
 
-    if (0 != result.push_string(data.data(), data.size())) {
+    if (0 != result.push_string(data.data, data.size)) {
         return Status::InternalError("pack mysql buffer failed.");
     }
 
@@ -140,7 +149,7 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                 continue;
             }
             const auto string_view = column.get_data_at(i);
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(string_view.data(), string_view.size()),
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(string_view.data, cast_set<int, size_t, false>(string_view.size)),
                                              column, builder));
         }
         return Status::OK();
@@ -157,8 +166,8 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
             }
             const auto string_view = column.get_data_at(i);
             RETURN_IF_ERROR(checkArrowStatus(
-                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data()),
-                                   cast_set<int64_t, size_t, false>(string_view.size())),
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data),
+                                   cast_set<int64_t, size_t, false>(string_view.size)),
                     column, builder));
         }
         return Status::OK();
@@ -175,12 +184,12 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                 continue;
             }
             const auto string_view = column.get_data_at(i);
-            if (string_view.size() != byte_width) {
+            if (string_view.size != byte_width) {
                 return Status::InvalidArgument("Fixed size binary column expects {} bytes, got {}",
-                                               byte_width, string_view.size());
+                                               byte_width, string_view.size);
             }
             RETURN_IF_ERROR(checkArrowStatus(
-                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data())), column,
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data)), column,
                     builder));
         }
         return Status::OK();
@@ -430,10 +439,10 @@ void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num, Bu
                                        const FormatOptions& options) const {
     const auto value = column.get_data_at(row_num);
     if (_nesting_level >= 2) { // in complex type, need to dump as hex string by hand
-        const auto& hex_str = value.dump_hex();
+        const auto hex_str = to_hex(value);
         bw.write(hex_str.data(), hex_str.size());
     } else { // mysql protocol will be handle as hex binary data directly
-        bw.write(value.data(), value.size());
+        bw.write(value.data, value.size);
     }
 }
 
