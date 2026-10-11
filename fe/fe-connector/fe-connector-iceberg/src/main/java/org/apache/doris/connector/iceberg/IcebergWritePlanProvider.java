@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
+import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
@@ -111,6 +112,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
+    // Older backends reject the iceberg_transform external sink partition function.
+    private static final int SUPPORT_TRANSFORM_ROUTING_EXEC_VERSION = 18;
+    private static final String TRANSFORM_PARTITION_FUNCTION = "iceberg_transform";
 
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
     // constant for the doris/spark-sql forms).
@@ -612,6 +616,58 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                     field.name(), field.sourceId()));
         }
         return new ConnectorWritePartitionSpec(spec.specId(), fields);
+    }
+
+    /**
+     * Routes a partitioned INSERT / INSERT OVERWRITE by the Iceberg partition value: the BE
+     * {@code iceberg_transform} partition function hashes each partition field's transformed source column, so the
+     * rows of one partition reach one writer (SKEWED lets a large partition scale out). Without it every writer
+     * receives every partition, opens a file per partition it sees, and fails past
+     * {@code table_sink_partition_write_max_partition_nums_per_writer} open partitions.
+     *
+     * <p>{@code null} keeps the engine's random parallel write: an unpartitioned table, a partition field on a nested
+     * source (the route columns are top-level sink outputs), or a backend older than the routing function.</p>
+     */
+    @Override
+    public ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        if (session.getBeExecVersion() < SUPPORT_TRANSFORM_ROUTING_EXEC_VERSION) {
+            return null;
+        }
+        IcebergTableHandle handle = (IcebergTableHandle) tableHandle;
+        Optional<IcebergWriteSchemaContext> active =
+                IcebergStatementScope.activeWriteSchema(
+                        session, handle.getDbName(), handle.getTableName());
+        Table table = active.isPresent() ? null : resolveTable(session, handle);
+        PartitionSpec spec = active.isPresent()
+                ? active.get().getPartitionSpec() : table.spec();
+        if (spec == null || !spec.isPartitioned()) {
+            return null;
+        }
+        Schema schema = active.isPresent()
+                ? active.get().getSchema() : table.schema();
+        List<String> routeColumns = new ArrayList<>();
+        List<String> transforms = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            String sourceColumnName = findTopLevelColumnName(schema, field.sourceId());
+            if (sourceColumnName == null) {
+                return null;
+            }
+            routeColumns.add(sourceColumnName);
+            transforms.add(field.transform().toString());
+        }
+        return ConnectorWriteDistribution.externalHash(routeColumns, TRANSFORM_PARTITION_FUNCTION,
+                Collections.singletonMap("transforms", String.join(",", transforms)),
+                ConnectorWriteDistribution.WriterAssignment.SKEWED);
+    }
+
+    private static String findTopLevelColumnName(Schema schema, int sourceId) {
+        for (NestedField column : schema.columns()) {
+            if (column.fieldId() == sourceId) {
+                return column.name();
+            }
+        }
+        return null;
     }
 
     private static String findPartitionSourceColumnName(Schema schema, int sourceId) {

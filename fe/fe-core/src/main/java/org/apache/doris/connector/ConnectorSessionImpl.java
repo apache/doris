@@ -18,6 +18,7 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -163,6 +164,12 @@ public class ConnectorSessionImpl implements ConnectorSession {
     @Override
     public Map<String, String> getSessionProperties() {
         return sessionProperties;
+    }
+
+    @Override
+    public int getBeExecVersion() {
+        // Same query-wide value the write handle reports, so optimizer-time choices match planWrite.
+        return Config.be_exec_version;
     }
 
     @Override

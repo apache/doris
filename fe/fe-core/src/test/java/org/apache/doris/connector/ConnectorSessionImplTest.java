@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -96,6 +97,19 @@ public class ConnectorSessionImplTest {
                     "turning the session variable off must reach the connector");
         } finally {
             ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testBeExecVersionFollowsTheEngineConfig() {
+        // Connectors gate optimizer-time choices on it (an Iceberg partition-hash write needs exec version 18), so
+        // it must be the query-wide version the write handle later reports to planWrite.
+        int original = Config.be_exec_version;
+        try {
+            Config.be_exec_version = 16;
+            Assertions.assertEquals(16, ConnectorSessionBuilder.create().build().getBeExecVersion());
+        } finally {
+            Config.be_exec_version = original;
         }
     }
 
