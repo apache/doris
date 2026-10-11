@@ -40,6 +40,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -96,6 +98,18 @@ public class JdbcScanNode extends ExternalScanNode {
         jdbcType = tbl.getJdbcTableType();
         tableName = tbl.getExternalTableName();
         catalogId = tbl.getCatalogId();
+        if (isTableValuedFunction && (jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE)
+                && desc.getSlots().stream().anyMatch(slot -> slot.getColumn().getType().isTimeStampTz())) {
+            // Bind the mode to this scan's connection snapshot, not a catalog that ALTER/DROP can replace.
+            // A private single-connection client avoids borrowing a pool that catalog reset can close.
+            mysqlSqlMode = JdbcClient.readSessionSqlMode(new JdbcClientConfig()
+                    .setCatalog(String.valueOf(catalogId))
+                    .setJdbcUrl(tbl.getJdbcUrl()).setUser(tbl.getJdbcUser()).setPassword(tbl.getJdbcPasswd())
+                    .setDriverClass(tbl.getDriverClass()).setDriverUrl(tbl.getDriverUrl())
+                    .setConnectionPoolMinSize(0).setConnectionPoolMaxSize(1)
+                    .setConnectionPoolMaxWaitTime(tbl.getConnectionPoolMaxWaitTime())
+                    .setConnectionPoolMaxLifeTime(tbl.getConnectionPoolMaxLifeTime()));
+        }
     }
 
 
@@ -220,22 +234,16 @@ public class JdbcScanNode extends ExternalScanNode {
             return query;
         }
         boolean mysql = jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE;
-        if (mysql && mysqlSqlMode == null) {
-            // Resolve only for wrapped MySQL queries and reuse the result for EXPLAIN and scan serialization.
-            org.apache.doris.datasource.jdbc.JdbcExternalCatalog catalog =
-                    (org.apache.doris.datasource.jdbc.JdbcExternalCatalog) org.apache.doris.catalog.Env
-                            .getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-            mysqlSqlMode = catalog.getJdbcClient().getSessionSqlMode();
-        }
         String source = stripTerminalDelimiter(query.trim(),
-                mysql && mysqlSqlMode.contains("NO_BACKSLASH_ESCAPES"), mysql && mysqlSqlMode.contains("ANSI_QUOTES"));
+                mysql && mysqlSqlMode.contains("NO_BACKSLASH_ESCAPES"), mysql && mysqlSqlMode.contains("ANSI_QUOTES"),
+                mysql && mysqlSqlMode.contains("MSSQL"));
         // WITH SESSION must stay outside the derived table; terminate trailing line comments with a newline.
         int start = jdbcType == TOdbcTableType.TRINO ? trinoSessionQueryStart(source) : 0;
         return source.substring(0, start) + "SELECT " + Joiner.on(", ").join(columns)
                 + " FROM (" + source.substring(start) + "\n) doris_jdbc_source";
     }
 
-    private String stripTerminalDelimiter(String sql, boolean noBackslashEscapes, boolean ansiQuotes) {
+    private String stripTerminalDelimiter(String sql, boolean noBackslashEscapes, boolean ansiQuotes, boolean mssql) {
         boolean mysql = jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE;
         List<Integer> delimiters = new java.util.ArrayList<>();
         for (int i = 0; i < sql.length();) {
@@ -260,13 +268,14 @@ public class JdbcScanNode extends ExternalScanNode {
             } else if (jdbcType == TOdbcTableType.CLICKHOUSE && c == '$') {
                 i = skipClickHouseHeredoc(sql, i);
                 delimiters.clear();
-            } else if (c == '\'' || c == '"' || c == '`') {
-                char quote = c;
+            } else if (c == '\'' || c == '"' || c == '`' || (mysql && mssql && c == '[')) {
+                // MariaDB MSSQL identifiers use brackets; only a doubled closing bracket escapes the delimiter.
+                char quote = c == '[' ? ']' : c;
                 for (i++; i < sql.length(); i++) {
                     // ANSI_QUOTES makes double quotes identifiers, where backslashes never escape the closing quote.
                     // Both quoting modes belong to the remote session.
                     // ClickHouse also permits backslash escapes inside backtick-quoted identifiers.
-                    if (sql.charAt(i) == '\\' && !(mysql && noBackslashEscapes)
+                    if (sql.charAt(i) == '\\' && quote != ']' && !(mysql && noBackslashEscapes)
                             && !(mysql && ansiQuotes && quote == '"')
                             && (quote != '`' || jdbcType == TOdbcTableType.CLICKHOUSE)
                             && jdbcType != TOdbcTableType.TRINO && jdbcType != TOdbcTableType.PRESTO) {
