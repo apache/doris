@@ -297,10 +297,11 @@ public abstract class FileScanNode extends ExternalScanNode {
             }
         }
 
+        boolean applyColumnDefaultsOnRead = applyColumnDefaultsOnRead();
         for (Column column : desc.getTable().getFullSchema()) {
             Expr expr;
             Expression expression;
-            if (column.getDefaultValue() != null) {
+            if (applyColumnDefaultsOnRead && column.getDefaultValue() != null) {
                 expression = new NereidsParser().parseExpression(
                         column.getDefaultValueSql());
                 ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
@@ -359,6 +360,14 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
     }
 
+    /**
+     * Returns whether a column default also backfills that column when it is absent from an older
+     * external file. File-based sources keep the historical behavior; connector-driven scans may
+     * override it when their table format defines defaults as write-time metadata only.
+     */
+    protected boolean applyColumnDefaultsOnRead() {
+        return true;
+    }
 
     protected void addFileCacheAdmissionLog(String userIdentity, Boolean admitted, String reason, double durationMs) {
         String admissionStatus = admitted ? "ADMITTED" : "DENIED";

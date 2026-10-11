@@ -325,7 +325,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                         handle, request.getRequiredPartitions())) {
                     // fluss's own partition name ("20260101$cn"), not the Doris one: this is a fluss API.
                     appendPartitionRanges(ranges, handle, union,
-                            FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
+                            FlussPartitions.toScanPartition(
+                                    partition, handle.getPartitionKeys(), handle.getKeyColumnTypes()),
                             bucketsOf(handle, partition), partition.getPartitionName());
                 }
             }
@@ -354,13 +355,14 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             List<PartitionInfo> livePartitions = adminOps.listPartitionInfos(handle.toTablePath());
             for (PartitionInfo partition : livePartitions) {
                 livePartitionValues.add(new LinkedHashMap<>(FlussPartitions.toScanPartition(
-                        partition, handle.getPartitionKeys()).getValues()));
+                        partition, handle.getPartitionKeys(), handle.getKeyColumnTypes()).getValues()));
             }
             if (!request.isPartitionsPrunedToEmpty()) {
                 for (PartitionInfo partition : selectedPartitions(
                         handle, request.getRequiredPartitions(), livePartitions)) {
                     states.add(readPartitionState(handle, union,
-                            FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
+                            FlussPartitions.toScanPartition(
+                                    partition, handle.getPartitionKeys(), handle.getKeyColumnTypes()),
                             bucketsOf(handle, partition), partition.getPartitionName()));
                 }
             }
@@ -1104,8 +1106,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         for (PartitionInfo partition : partitions) {
             // Matched on the DORIS name, which is what the engine pruned over: FlussPartitions renders
             // both this and the metadata listing the engine pruned, so the two cannot disagree.
-            if (required.contains(
-                    FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()).getName())) {
+            if (required.contains(FlussPartitions.toScanPartition(
+                    partition, handle.getPartitionKeys(), handle.getKeyColumnTypes()).getName())) {
                 selected.add(partition);
             }
         }

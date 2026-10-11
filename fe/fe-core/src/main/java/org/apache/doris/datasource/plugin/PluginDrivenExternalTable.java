@@ -42,7 +42,6 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
-import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -549,28 +548,34 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .orElse(false);
     }
 
-    /** Returns this table's connector-owned write distribution, or empty for generic planning. */
-    public Optional<ConnectorWriteDistribution> getConnectorWriteDistribution() {
+    /** Resolves all objects and traits used to plan one physical connector write in one metadata view. */
+    public ConnectorWritePlanContext resolveWritePlanContext() {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
-            return Optional.empty();
+            throw new DorisConnectorException("Write target is not backed by a plugin-driven catalog: "
+                    + getName());
         }
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         if (connector == null) {
-            return Optional.empty();
+            throw new DorisConnectorException("Connector is unavailable for write target " + getName());
         }
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
-        if (!handle.isPresent()) {
-            return Optional.empty();
-        }
-        ConnectorWritePlanProvider provider = writePlanProvider(connector, handle.get());
-        if (provider == null) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(withPluginContextClassLoader(provider,
-                () -> provider.getWriteDistribution(session, handle.get())));
+        return withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                    .orElseThrow(() -> new DorisConnectorException(
+                            "Cannot resolve connector table handle for write target " + getName()));
+            ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
+            if (provider == null) {
+                throw new DorisConnectorException(
+                        "Connector does not provide a write plan for target " + getName());
+            }
+            return withPluginContextClassLoader(provider, () -> new ConnectorWritePlanContext(
+                    session, metadata, handle, provider,
+                    provider.getWriteDistribution(session, handle), provider.requiresParallelWrite(),
+                    provider.requiresPartitionLocalSort(), provider.requiresPartitionHashWrite(),
+                    provider.requiresFullSchemaWriteOrder()));
+        });
     }
 
     /**

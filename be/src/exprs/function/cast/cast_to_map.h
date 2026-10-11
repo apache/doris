@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <array>
+
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_map.h"
@@ -86,7 +88,11 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
     to_kv_types.push_back(to_type.get_value_type());
 
     auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
-    return [kv_wrappers, from_kv_types, to_kv_types](
+    /// A key or value whose type does not change is passed through, so it needs neither a child mask
+    /// nor a call into its (identity) wrapper.
+    std::array<bool, 2> unchanged_kv = {from_kv_types[0]->equals(*to_kv_types[0]),
+                                        from_kv_types[1]->equals(*to_kv_types[1])};
+    return [kv_wrappers, from_kv_types, to_kv_types, unchanged_kv](
                    FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    uint32_t result, size_t /*input_rows_count*/,
                    const NullMap::value_type* null_map = nullptr) -> Status {
@@ -102,13 +108,27 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
         columnsWithTypeAndName[0] = {from_col_map->get_keys_ptr(), from_kv_types[0], ""};
         columnsWithTypeAndName[1] = {from_col_map->get_values_ptr(), from_kv_types[1], ""};
 
+        const auto& offsets = from_col_map->get_offsets();
+        // Keys and values share the rows of their parent, so the parent mask is scanned once.
+        const NullMap::value_type* inherited_null_map =
+                (null_map != nullptr && has_masked_row(null_map, offsets.size())) ? null_map
+                                                                                  : nullptr;
         for (size_t i = 0; i < 2; ++i) {
+            if (unchanged_kv[i]) {
+                converted_columns[i] = columnsWithTypeAndName[i].column;
+                continue;
+            }
+            /// Keys and values are flattened, so the NULL of a map row has to be inherited by the
+            /// entries that belong to it before they are cast.
+            auto child_mask = build_child_null_mask(inherited_null_map, &offsets,
+                                                    columnsWithTypeAndName[i].column);
+            ColumnWithTypeAndName child_column {child_mask.column, from_kv_types[i], ""};
             ColumnNumbers element_arguments {block.columns()};
-            block.insert(columnsWithTypeAndName[i]);
+            block.insert(child_column);
             auto element_result = block.columns();
             block.insert({to_kv_types[i], ""});
             RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
-                                           columnsWithTypeAndName[i].column->size(), null_map));
+                                           child_mask.column->size(), child_mask.null_map));
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 

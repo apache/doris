@@ -62,13 +62,10 @@ suite("test_fluss_review_boundaries", "p0,external") {
         exception "partition column 'region,code' contains a comma"
     }
 
-    // The two UTC instants are different keys but both display as 01:30 in this
-    // session zone. DATETIMEV2 cannot identify them across the lake and tail.
+    // Both catalogs preserve distinct DST-overlap instants as TIMESTAMPTZ keys, even
+    // without the deprecated mapping option, so required lake/tail merging must succeed.
     sql """set fluss_union_read_mode = 'required'"""
-    test {
-        sql """select name from lake_pk_ltz"""
-        exception "DATETIMEV2"
-    }
+    order_qt_ltz_default_union """select name from lake_pk_ltz order by name"""
     sql """set fluss_union_read_mode = ''"""
     order_qt_ltz_fluss_fallback """select name from lake_pk_ltz order by name"""
 
@@ -78,6 +75,4 @@ suite("test_fluss_review_boundaries", "p0,external") {
     """
 
     sql """switch internal"""
-    sql """drop catalog if exists ${baseCatalog}"""
-    sql """drop catalog if exists ${instantCatalog}"""
 }

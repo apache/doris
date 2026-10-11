@@ -87,9 +87,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 12 adds the SUPPORTS_FIELD_ID_ACCESS_PATH and SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
-        // capabilities: a plugin naming either constant cannot link against an older FE.
-        Assertions.assertEquals("12.0", version.getProperty("api.version"));
+        // Major 13 carries textual write-input semantics on ConnectorColumn.
+        Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -99,6 +98,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
+            ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,

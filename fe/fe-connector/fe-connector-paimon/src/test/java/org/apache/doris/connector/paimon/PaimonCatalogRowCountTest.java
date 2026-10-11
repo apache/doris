@@ -24,6 +24,7 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.catalog.TableQueryAuthResult;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.SeekableInputStream;
 import org.apache.paimon.fs.local.LocalFileIO;
@@ -108,12 +109,10 @@ public class PaimonCatalogRowCountTest {
     }
 
     @Test
-    public void emptyAndLegacySnapshotsDoNotFallBackToPlanning() throws Exception {
+    public void emptyTableAndZeroCountDoNotFallBackToPlanning() throws Exception {
         FileStoreTable table = newTable("empty", false);
         Assertions.assertEquals(-1L, ops.rowCount(table));
-        snapshot(table, 1, null);
-        Assertions.assertEquals(-1L, ops.rowCount(table));
-        snapshot(table, 2, 0L);
+        snapshot(table, 1, 0L);
         Assertions.assertEquals(0L, ops.rowCount(table));
     }
 
@@ -140,7 +139,7 @@ public class PaimonCatalogRowCountTest {
                 Collections.emptyList(), Collections.emptyList())));
         FileStoreTable fallback = newTable("fallback", false);
         snapshot(fallback, 1, 20L);
-        Assertions.assertEquals(-1L, ops.rowCount(new FallbackReadFileStoreTable(table, fallback)));
+        Assertions.assertEquals(-1L, ops.rowCount(new FallbackReadFileStoreTable(table, fallback, true)));
     }
 
     @Test
@@ -153,7 +152,7 @@ public class PaimonCatalogRowCountTest {
             fileIO.rejectManifests = false;
             FileStoreTable table = newTable(options.keySet().iterator().next(), true, options, fileIO);
             append(table);
-            Assertions.assertEquals(1L, table.latestSnapshot().get().totalRecordCount().longValue());
+            Assertions.assertEquals(1L, table.latestSnapshot().get().totalRecordCount());
             Assertions.assertEquals(0L, table.newScan().plan().splits().stream().mapToLong(Split::rowCount).sum(),
                     "The committed file must be invisible to the ordinary batch scan");
 
@@ -219,14 +218,14 @@ public class PaimonCatalogRowCountTest {
         AtomicBoolean denyQuery = new AtomicBoolean();
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(), base.location()) {
             @Override
-            public List<String> authTableQuery(Identifier requested, List<String> select) {
+            public TableQueryAuthResult authTableQuery(Identifier requested, List<String> select) {
                 Assertions.assertEquals(identifier, requested);
                 Assertions.assertNull(select, "Statistics must preserve the old all-column authorization");
                 authCalls.incrementAndGet();
                 if (denyQuery.get()) {
                     throw new Catalog.TableNoPermissionException(requested);
                 }
-                return Collections.emptyList();
+                return new TableQueryAuthResult(Collections.emptyList(), Collections.emptyMap());
             }
 
             @Override
@@ -236,7 +235,7 @@ public class PaimonCatalogRowCountTest {
         }) {
             // Like a REST-loaded table, this has a catalog loader but no privilege wrapper.
             CatalogEnvironment environment = new CatalogEnvironment(
-                    identifier, null, () -> catalog, null, null, false);
+                    identifier, null, () -> catalog, null, null, null, false, false);
             FileStoreTable table = FileStoreTableFactory.create(
                     base.fileIO(), base.location(), base.schema(), environment);
             PaimonConnectorMetadata metadata = metadata();
@@ -322,11 +321,11 @@ public class PaimonCatalogRowCountTest {
         return FileStoreTableFactory.create(fileIO, path);
     }
 
-    private void snapshot(FileStoreTable table, long id, Long count) throws IOException {
+    private void snapshot(FileStoreTable table, long id, long count) throws IOException {
         // Deliberately no manifest files: a return to split planning must fail this test.
         Snapshot snapshot = new Snapshot(id, 0L, "unused-base", null, "unused-delta", null,
                 null, null, null, "test", id, Snapshot.CommitKind.APPEND, id * 1000,
-                Collections.emptyMap(), count, count, null, null, null, null, null);
+                count, count, null, null, null, null, null);
         table.fileIO().mkdirs(table.snapshotManager().snapshotPath(id).getParent());
         table.fileIO().overwriteFileUtf8(table.snapshotManager().snapshotPath(id), snapshot.toJson());
         table.snapshotManager().commitLatestHint(id);

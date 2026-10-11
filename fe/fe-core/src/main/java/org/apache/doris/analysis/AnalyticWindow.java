@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
@@ -35,8 +36,6 @@ import java.util.Objects;
  * Both left and right boundaries are always non-null after analyze().
  */
 public class AnalyticWindow {
-    private static final BigDecimal MAX_ROWS_OFFSET_VALUE = BigDecimal.valueOf(Long.MAX_VALUE);
-
     public enum Type {
         ROWS("ROWS"),
         RANGE("RANGE");
@@ -141,8 +140,8 @@ public class AnalyticWindow {
             TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
 
             if (type.isOffset() && windowType == Type.ROWS) {
-                Preconditions.checkState(offsetValue.compareTo(MAX_ROWS_OFFSET_VALUE) <= 0,
-                        "ROWS window offset must not exceed " + Long.MAX_VALUE);
+                Preconditions.checkState(offsetValue.compareTo(WindowFrame.MAX_ROWS_OFFSET) <= 0,
+                        "ROWS window offset must not exceed " + WindowFrame.MAX_ROWS_OFFSET);
                 result.setRowsOffsetValue(offsetValue.longValueExact());
             }
 

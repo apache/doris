@@ -30,16 +30,7 @@ import java.util.Optional;
 public interface DateCeilFloorMonotonic extends RoundingMonotonic {
     @Override
     default boolean isMonotonic(Literal lower, Literal upper) {
-        switch (arity()) {
-            case 1:
-                return true;
-            case 2:
-                return !(child(0) instanceof Literal) && child(1) instanceof Literal;
-            case 3:
-                return !(child(0) instanceof Literal) && child(1) instanceof Literal && child(2) instanceof Literal;
-            default:
-                return false;
-        }
+        return MonotonicityUtils.hasConstantRoundingArguments(this);
     }
 
     @Override

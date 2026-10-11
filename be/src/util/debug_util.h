@@ -50,6 +50,10 @@ std::string get_short_version();
 // Returns "<program short name> version <GetBuildVersion(compact)>"
 std::string get_version_string(bool compact);
 
+// Enables multi-dimensional bvar export and registers doris_be_version.
+// This must run before the brpc server starts.
+void init_be_version_metrics();
+
 std::string hexdump(const char* buf, int len);
 
 } // namespace doris

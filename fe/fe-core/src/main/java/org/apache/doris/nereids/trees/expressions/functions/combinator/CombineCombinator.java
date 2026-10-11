@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctionParams;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
@@ -49,7 +50,7 @@ import java.util.Objects;
  * Aggregate inputs into the nested function's serialized state.
  */
 public class CombineCombinator extends AggregateFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable, Combinator, RollUpTrait {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, Combinator, RollUpTrait, RewriteWhenAnalyze {
 
     private final AggregateFunction nested;
     private final AggStateType returnType;
@@ -173,5 +174,13 @@ public class CombineCombinator extends AggregateFunction
     @Override
     public void checkLegalityAfterRewrite() {
         nested.withChildren(children()).checkLegalityAfterRewrite();
+    }
+
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        AggregateFunction coercedNested = nested.withChildren(children());
+        return coercedNested instanceof RewriteWhenAnalyze
+                ? withChildren(((RewriteWhenAnalyze) coercedNested).rewriteWhenAnalyze().children())
+                : this;
     }
 }

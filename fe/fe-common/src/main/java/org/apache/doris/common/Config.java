@@ -2017,9 +2017,11 @@ public class Config extends ConfigBase {
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
     // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
     public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
+    // Older backends do not recognize PAIMON_TABLE_SINK and cannot execute Paimon writes.
+    public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION = 16;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = PAIMON_WRITE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -3556,7 +3558,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
                     + "use the legacy modulo placement. Restart-only.")
-    public static boolean enable_cloud_colocate_consistent_hash = true;
+    public static boolean enable_cloud_colocate_consistent_hash = false;
 
     @ConfField(mutable = true, description = "Whether to enable the automatic start-stop feature in cloud model, "
             + "default is true.")

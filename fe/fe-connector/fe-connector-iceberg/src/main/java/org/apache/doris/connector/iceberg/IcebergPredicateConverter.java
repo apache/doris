@@ -486,7 +486,9 @@ public class IcebergPredicateConverter {
      * and float from double, both flattened to one Java type) is read from {@link ConnectorLiteral#getType()}.
      */
     private Object extractIcebergLiteral(Type icebergType, ConnectorLiteral literal) {
-        if (literal.isNull()) {
+        if (literal.isNull() || isUuid(icebergType)) {
+            // UUID bounds can use a different ordering from Iceberg's evaluator, pruning even equality matches.
+            // Keep value predicates as Doris residuals; null-count predicates remain safe to push.
             return null;
         }
         Object value = literal.getValue();
@@ -519,7 +521,8 @@ public class IcebergPredicateConverter {
                 case DATE:
                     return dorisDateTimeString(dateTime);
                 case TIMESTAMP:
-                    return toMicros(dateTime, icebergType);
+                    return toMicros(dateTime, icebergType,
+                            "TIMESTAMPTZ".equalsIgnoreCase(literal.getType().getTypeName()));
                 default:
                     return null;
             }
@@ -657,7 +660,13 @@ public class IcebergPredicateConverter {
     // Epoch micros of a wall-clock datetime, interpreted in the session zone for zone-adjusted timestamps
     // (timestamptz) or UTC otherwise (mirrors legacy DateLiteral.getUnixTimestampWithMicroseconds).
     private long toMicros(LocalDateTime dateTime, Type icebergType) {
-        ZoneId zone = ((Types.TimestampType) icebergType).shouldAdjustToUTC() ? sessionZone : ZoneOffset.UTC;
+        return toMicros(dateTime, icebergType, false);
+    }
+
+    private long toMicros(LocalDateTime dateTime, Type icebergType, boolean utcCarrier) {
+        // TIMESTAMPTZ literals already carry UTC fields; applying the session zone shifts the predicate.
+        ZoneId zone = !utcCarrier && ((Types.TimestampType) icebergType).shouldAdjustToUTC()
+                ? sessionZone : ZoneOffset.UTC;
         Instant instant = dateTime.atZone(zone).toInstant();
         return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
     }

@@ -88,6 +88,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Pins {@link IcebergWritePlanProvider#planWrite} for INSERT/OVERWRITE against legacy
@@ -128,6 +129,29 @@ public class IcebergWritePlanProviderTest {
                 .boundTargetColumns(Arrays.asList(id, nestedVariant));
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> IcebergWritePlanProvider.validateWriteSchema(partialInsert));
+    }
+
+    @Test
+    public void rejectsRootAndNestedComputeVariantCarrier() {
+        // The engine hands an Iceberg VARIANT column to the write path as the VARIANT_COMPUTE_V2 carrier
+        // (ConnectorColumnConverter), not as plain VARIANT, so the read-only gate must recognize the carrier
+        // both as a root column and nested in a complex type. MUTATION: dropping the VARIANT_COMPUTE_V2 arm
+        // of containsVariant -> red.
+        ConnectorType carrier = ConnectorType.of("VARIANT_COMPUTE_V2");
+        ConnectorColumn rootVariant = new ConnectorColumn("v", carrier, null, true, null);
+        ConnectorColumn nestedVariant = new ConnectorColumn("payload",
+                ConnectorType.structOf(Collections.singletonList("nested"), Collections.singletonList(carrier)),
+                null, true, null);
+        for (ConnectorColumn column : Arrays.asList(rootVariant, nestedVariant)) {
+            DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> IcebergWritePlanProvider.validateWriteSchema(Collections.singletonList(column), true),
+                    column.getName());
+            Assertions.assertTrue(exception.getMessage().contains("VARIANT")
+                    && exception.getMessage().contains("read-only"), exception.getMessage());
+            // A delete-only MERGE writes no data file, so the same schema stays usable for it.
+            Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateWriteSchema(
+                    Collections.singletonList(column), false), column.getName());
+        }
     }
 
     private static InMemoryCatalog freshCatalog() {
@@ -278,7 +302,9 @@ public class IcebergWritePlanProviderTest {
                         .withId(4).ofType(Types.BinaryType.get())
                         .withWriteDefault(ByteBuffer.wrap(new byte[] {0x00, 0x0f, (byte) 0xff})).build(),
                 Types.NestedField.optional(5, "nullable_value", Types.IntegerType.get()),
-                Types.NestedField.required(6, "required_value", Types.IntegerType.get()));
+                Types.NestedField.required(6, "required_value", Types.IntegerType.get()),
+                Types.NestedField.optional(8, "uuid_value", Types.UUIDType.get()),
+                Types.NestedField.optional(9, "uuid_array", Types.ListType.ofOptional(10, Types.UUIDType.get())));
         InMemoryCatalog catalog = freshCatalog();
         Table table = catalog.createTable(TableIdentifier.of("db1", "defaults"), writeSchema,
                 PartitionSpec.unpartitioned());
@@ -293,12 +319,17 @@ public class IcebergWritePlanProviderTest {
             columns.put(column.getName(), column);
         }
 
+        Assertions.assertEquals(ConnectorType.of("UUID"), columns.get("uuid_value").getStringWriteType());
+        Assertions.assertEquals(ConnectorType.of("UUID"), columns.get("uuid_value").getType());
+        Assertions.assertNull(columns.get("payload").getStringWriteType());
+        Assertions.assertEquals(ConnectorType.of("UUID"),
+                columns.get("uuid_array").getStringWriteType().getChildren().get(0));
         Assertions.assertFalse(columns.get("id").isNullable());
         Assertions.assertEquals("42", columns.get("value").getDefaultValueSql());
         Assertions.assertEquals("'O''Reilly'", columns.get("text").getDefaultValueSql());
         Assertions.assertEquals("UNHEX('433A5C6E6577')",
                 columns.get("windows_path").getDefaultValueSql());
-        Assertions.assertEquals("UNHEX('000FFF')", columns.get("payload").getDefaultValueSql());
+        Assertions.assertEquals("X'000FFF'", columns.get("payload").getDefaultValueSql());
         Assertions.assertEquals("NULL", columns.get("nullable_value").getDefaultValueSql());
         Assertions.assertNull(columns.get("required_value").getDefaultValueSql());
         for (ConnectorColumn column : writeColumns) {
@@ -952,6 +983,18 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertTrue(sink.isOverwrite());
         Assertions.assertEquals(staticValues, sink.getStaticPartitionValues(),
                 "INSERT OVERWRITE ... PARTITION must pass the static partition values to BE");
+    }
+
+    @Test
+    public void planWriteStaticPartitionNullMarkerReachesSink() {
+        Table table = partitionedSortedTable(freshCatalog());
+        WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                .overwrite(true).writeContext(Collections.singletonMap("id", "NULL"));
+        handle.staticPartitionNullKeys = Collections.singleton("id");
+        TIcebergTableSink sink = planSink(table, contextWithStorage(), handle);
+
+        Assertions.assertEquals(Collections.singleton("id"), sink.getStaticPartitionNullKeys());
+        Assertions.assertEquals("null", sink.getStaticPartitionValues().get("id"));
     }
 
     @Test
@@ -1751,8 +1794,8 @@ public class IcebergWritePlanProviderTest {
         providerFor(ops.table, ctx).planWrite(new WriteSession(txn),
                 new WriteHandle(emptyPinnedHandle).writeOperation(WriteOperation.MERGE));
 
-        Assertions.assertNull(txn.getBaseSnapshotId(),
-                "an explicitly empty read must leave RowDelta validation unbounded across the first append");
+        Assertions.assertEquals(Long.valueOf(-1L), txn.getBaseSnapshotId(),
+                "an explicitly empty read must preserve its OCC generation fence across the first append");
     }
 
     // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────
@@ -1826,6 +1869,29 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertFalse(sink.isRequireMergeCardinalityCheck(),
                 "UPDATE shares this sink dialect but has no SQL cardinality rule; validating it would reject"
                         + " legal UPDATEs whose predicate matches a row through several source rows");
+    }
+
+    @Test
+    public void planWriteMergeSinkShipsWhetherTheWriteProducesDataFiles() {
+        // BE opens the data-file writer only when writes_data_files is true. A delete-only SQL MERGE must
+        // ship false so it neither builds a writer it never uses nor trips the writer-side schema checks
+        // (an Iceberg VARIANT target is deletable but not writable). MUTATION: dropping setWritesDataFiles,
+        // or shipping a constant -> one of the two plans below carries the wrong value -> red.
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergMergeSink deleteOnlyMerge = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .writeOperation(WriteOperation.MERGE)
+                        .writesDataFiles(false)
+                        .requireMergeCardinalityCheck(true));
+        Assertions.assertTrue(deleteOnlyMerge.isSetWritesDataFiles(),
+                "the field must always be set so BE never has to guess from an unset field");
+        Assertions.assertFalse(deleteOnlyMerge.isWritesDataFiles());
+
+        TIcebergMergeSink update = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .writeOperation(WriteOperation.UPDATE));
+        Assertions.assertTrue(update.isSetWritesDataFiles());
+        Assertions.assertTrue(update.isWritesDataFiles());
     }
 
     @Test
@@ -2028,6 +2094,13 @@ public class IcebergWritePlanProviderTest {
         @Override
         public boolean isWritesDataFiles() {
             return writesDataFiles;
+        }
+
+        private Set<String> staticPartitionNullKeys = Collections.emptySet();
+
+        @Override
+        public Set<String> getStaticPartitionNullKeys() {
+            return staticPartitionNullKeys;
         }
 
         WriteHandle writeContext(Map<String, String> v) {

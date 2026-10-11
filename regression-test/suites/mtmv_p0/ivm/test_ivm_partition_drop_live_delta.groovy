@@ -39,6 +39,8 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * the case is fully deterministic.
  */
 suite("test_ivm_partition_drop_live_delta") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     def tableName = "ivm_part_drop_t"
     def mvName = "ivm_part_drop_mv"
 

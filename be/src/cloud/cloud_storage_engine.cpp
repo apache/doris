@@ -298,6 +298,7 @@ void CloudStorageEngine::stop() {
 
     _stopped = true;
     _stop_background_threads_latch.count_down();
+    _stop_row_binlog_ttl_scanner();
 
     for (auto&& t : _bg_threads) {
         if (t) {
@@ -419,6 +420,7 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     RETURN_IF_ERROR(ThreadPoolBuilder("BinlogCompactionTaskThreadPool")
                             .set_min_threads(binlog_thread_num)
                             .set_max_threads(binlog_thread_num)
+                            .set_max_queue_size(binlog_thread_num)
                             .build(&_binlog_compaction_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
@@ -428,6 +430,7 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
             "StorageEngine", "binlog_compaction_tasks_producer_thread",
             [this]() { this->_binlog_compaction_tasks_producer_callback(); },
             &_bg_threads.emplace_back()));
+    RETURN_IF_ERROR(_start_row_binlog_ttl_scanner());
     LOG(INFO) << "compaction tasks producer thread started,"
               << " base thread num " << base_thread_num << " cumu thread num " << cumu_thread_num
               << " binlog thread num " << binlog_thread_num;

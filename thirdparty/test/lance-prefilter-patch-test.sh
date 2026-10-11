@@ -68,6 +68,13 @@ check_sources() {
         || fail "missing retained cache statistics API"
     grep -q 'source = "git+https://github.com/lance-format/lance.git' "${source}/Cargo.lock" \
         || fail "Lance must come from the upstream git dependency"
+    # Refreshing the Foyer patch must preserve the upstream prewarm binding and tests.
+    grep -q 'lance_dataset_prewarm_index' "${source}/include/lance/lance.h" \
+        || fail "missing upstream C prewarm API"
+    grep -q 'void prewarm_index(' "${source}/include/lance/lance.hpp" \
+        || fail "missing upstream C++ prewarm API"
+    grep -q 'fn test_prewarm_index_vector_segments_reuse_shared_session' "${source}/tests/c_api_test.rs" \
+        || fail "missing upstream shared-session prewarm regression"
     [[ -f "${source}/patched_mark_foyer" ]] || fail "missing Foyer patch marker"
 }
 

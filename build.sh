@@ -884,6 +884,8 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     # plugin directories. -am would reach them, but they are named here so this list stays a
     # complete enumeration.
     modules+=("be-java-extensions/plugin-toolkit")
+    modules+=("be-java-extensions/fluss-client-patch")
+    modules+=("be-java-extensions/paimon-common-patch")
     modules+=("be-java-extensions/hive-udf-shade")
     modules+=("be-java-extensions/hive-apache-shade")
 

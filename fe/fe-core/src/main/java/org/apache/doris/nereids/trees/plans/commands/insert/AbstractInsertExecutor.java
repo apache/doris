@@ -355,6 +355,17 @@ public abstract class AbstractInsertExecutor {
         return !emptyInsert || !streamUpdateInfos.isEmpty();
     }
 
+    /**
+     * Records on the insert context that what this insert wrote is durable: its transaction has committed,
+     * whether or not its publication has finished. Each executor calls this where its own commit happens,
+     * because the response the client gets is a different question -- a publication timeout that follows a
+     * commit is reported as an error while the rows are committed. See
+     * {@link InsertCommandContext#setCommitted}.
+     */
+    protected void markCommitted() {
+        insertCtx.ifPresent(insertCommandContext -> insertCommandContext.setCommitted(true));
+    }
+
     public void setStreamUpdateInfos(List<TableStreamUpdateInfo> streamUpdateInfos) {
         this.streamUpdateInfos = streamUpdateInfos;
     }

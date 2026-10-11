@@ -17,20 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -40,19 +35,11 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
-import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.coercion.DateLikeType;
-import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.time.DateTimeException;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 
@@ -91,6 +78,48 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
         this.isStrict = isStrict;
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        // TIME has no date. These casts supply the date from the current query's clock.
+        return child().isNullLiteral() || !containsTimeToDateCast(child().getDataType(), targetType);
+    }
+
+    private static boolean containsTimeToDateCast(DataType sourceType, DataType targetType) {
+        if (sourceType.equals(targetType)) {
+            return false;
+        }
+        if (sourceType instanceof ArrayType && targetType instanceof ArrayType) {
+            return containsTimeToDateCast(((ArrayType) sourceType).getItemType(),
+                    ((ArrayType) targetType).getItemType());
+        }
+        if (sourceType instanceof MapType && targetType instanceof MapType) {
+            MapType sourceMap = (MapType) sourceType;
+            MapType targetMap = (MapType) targetType;
+            return containsTimeToDateCast(sourceMap.getKeyType(), targetMap.getKeyType())
+                    || containsTimeToDateCast(sourceMap.getValueType(), targetMap.getValueType());
+        }
+        if (sourceType instanceof StructType && targetType instanceof StructType) {
+            List<StructField> sourceFields = ((StructType) sourceType).getFields();
+            List<StructField> targetFields = ((StructType) targetType).getFields();
+            // foldable() is called before CheckCast rejects incompatible struct shapes.
+            if (sourceFields.size() != targetFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < sourceFields.size(); i++) {
+                if (containsTimeToDateCast(sourceFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return sourceType.isTimeType() && targetType.isDateLikeType();
+    }
+
+    @Override
+    public boolean foldable() {
+        return isDeterministic();
     }
 
     public boolean isExplicitType() {
@@ -410,99 +439,6 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        DataType childType = child().getDataType();
-        if (!(childType instanceof DateLikeType && targetType instanceof DateLikeType)) {
-            return false;
-        }
-
-        if (targetType instanceof TimeStampNsType && !isRangeWithinTimeStampNs(lower, upper)) {
-            return false;
-        }
-
-        if (childType instanceof TimeStampTzType
-                && (targetType instanceof DateTimeV2Type || targetType instanceof TimeStampNsType)) {
-            int destinationScale = targetType instanceof DateTimeV2Type
-                    ? ((DateTimeV2Type) targetType).getScale() : TimeStampNsType.SCALE;
-            return isTimeStampTzToLocalDateTimeMonotonic(
-                    (TimeStampTzType) childType, destinationScale, lower, upper);
-        }
-        if (childType instanceof TimeStampNsType && targetType instanceof TimeStampTzType) {
-            return isTimeStampNsToTimeStampTzMonotonic(
-                    (TimeStampTzType) targetType, lower, upper);
-        }
-        return true;
-    }
-
-    private boolean isRangeWithinTimeStampNs(Literal lower, Literal upper) {
-        if (lower == null || upper == null) {
-            return false;
-        }
-        try {
-            return !(lower.checkedCastTo(targetType) instanceof NullLiteral)
-                    && !(upper.checkedCastTo(targetType) instanceof NullLiteral);
-        } catch (AnalysisException e) {
-            return false;
-        }
-    }
-
-    private boolean isTimeStampTzToLocalDateTimeMonotonic(
-            TimeStampTzType sourceType, int destinationScale, Literal lower, Literal upper) {
-        ZoneId timeZone;
-        try {
-            timeZone = TimeUtils.getDorisZoneId();
-        } catch (DateTimeException e) {
-            return false;
-        }
-        if (timeZone.getRules().isFixedOffset()) {
-            return true;
-        }
-        // Scale reduction rounds the UTC value before applying the session timezone. That rounding
-        // can move values across a fall-back transition just outside the original partition range.
-        if (destinationScale < sourceType.getScale()) {
-            return false;
-        }
-        if (!(lower instanceof TimestampTzLiteral) || !(upper instanceof TimestampTzLiteral)) {
-            return false;
-        }
-
-        // TimestampTzLiteral stores UTC civil fields. The cast renders those instants in the
-        // session timezone, which moves backward at a fall-back transition.
-        Instant lowerInstant = ((TimestampTzLiteral) lower).toJavaDateType().toInstant(ZoneOffset.UTC);
-        Instant upperInstant = ((TimestampTzLiteral) upper).toJavaDateType().toInstant(ZoneOffset.UTC);
-        if (upperInstant.isBefore(lowerInstant)) {
-            return false;
-        }
-        return !DateUtils.hasFallbackTransitionInInstantRange(timeZone, lowerInstant, upperInstant);
-    }
-
-    private boolean isTimeStampNsToTimeStampTzMonotonic(
-            TimeStampTzType destinationType, Literal lower, Literal upper) {
-        ZoneId timeZone;
-        try {
-            timeZone = TimeUtils.getDorisZoneId();
-        } catch (DateTimeException e) {
-            return false;
-        }
-        if (timeZone.getRules().isFixedOffset()) {
-            return true;
-        }
-        if (!(lower instanceof TimeStampNsLiteral) || !(upper instanceof TimeStampNsLiteral)) {
-            return false;
-        }
-        LocalDateTime lowerDateTime = roundTimeStampNs(
-                (TimeStampNsLiteral) lower, destinationType.getScale());
-        LocalDateTime upperDateTime = roundTimeStampNs(
-                (TimeStampNsLiteral) upper, destinationType.getScale());
-        if (upperDateTime.isBefore(lowerDateTime)) {
-            return false;
-        }
-        return !DateUtils.hasGapTransitionInLocalDateTimeRange(
-                timeZone, lowerDateTime, upperDateTime);
-    }
-
-    private LocalDateTime roundTimeStampNs(TimeStampNsLiteral literal, int scale) {
-        long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
-        LocalDateTime dateTime = literal.toJavaDateType().plusNanos(factor / 2);
-        return dateTime.withNano((int) (dateTime.getNano() / factor * factor));
+        return MonotonicityUtils.isDateLikeCastMonotonic(child().getDataType(), targetType, lower, upper);
     }
 }

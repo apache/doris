@@ -71,6 +71,7 @@ public class VectorColumn {
 
     // For nested column type: String / Array/ Map / Struct
     private VectorColumn[] childColumns;
+    private VectorColumnVariant variantColumn;
 
     // For struct, only support to read all fields in struct now
     // todo: support pruned struct fields
@@ -117,6 +118,8 @@ public class VectorColumn {
             childColumns = new VectorColumn[1];
             childColumns[0] = new VectorColumn(new ColumnType("#stringBytes", Type.BYTE),
                     capacity * DEFAULT_STRING_LENGTH);
+        } else if (columnType.isVariantType()) {
+            variantColumn = new VectorColumnVariant();
         }
 
         reserveCapacity(capacity);
@@ -270,6 +273,10 @@ public class VectorColumn {
             }
             childColumns = null;
         }
+        if (variantColumn != null) {
+            variantColumn.close();
+            variantColumn = null;
+        }
 
         if (nullMap != 0) {
             OffHeap.freeMemory(nullMap);
@@ -351,6 +358,8 @@ public class VectorColumn {
             this.offsets = OffHeap.reallocateMemory(offsets, oldOffsetSize, newOffsetSize);
         } else if (columnType.isVarbinaryType()) {
             this.data = OffHeap.reallocateMemory(data, oldCapacity * 16L, newCapacity * 16L);
+        } else if (columnType.isVariantType()) {
+            variantColumn.reserveRows(newCapacity);
         } else if (!columnType.isStruct()) {
             throw new RuntimeException("Unhandled type: " + columnType.getName());
         }
@@ -366,6 +375,9 @@ public class VectorColumn {
             for (VectorColumn c : childColumns) {
                 c.reset();
             }
+        }
+        if (variantColumn != null) {
+            variantColumn.reset();
         }
         appendIndex = 0;
         if (numNulls > 0) {
@@ -463,6 +475,8 @@ public class VectorColumn {
             case BINARY:
             case VARBINARY:
                 return appendVarbinary(new byte[0]);
+            case VARIANT:
+                return appendVariantNull();
             default:
                 throw new RuntimeException("Unknown type value: " + typeValue);
         }
@@ -1228,7 +1242,15 @@ public class VectorColumn {
     }
 
     private void putTimeStampTz(int rowId, LocalDateTime v) {
-        // TimeStampTz use the same storage format as DateTimeV2
+        // NULLs use an out-of-range sentinel, but real UTC values must fit Doris before bit packing.
+        if (isNullAt(rowId)) {
+            OffHeap.putLong(null, data + rowId * 8L, 0L);
+            return;
+        }
+        // Year zero is valid in Doris (PostgreSQL 1 BC); negative years cannot be packed.
+        if (v.getYear() < 0 || v.getYear() > 9999) {
+            throw new IllegalArgumentException("TIMESTAMPTZ is outside the Doris 0000-9999 range: " + v);
+        }
         long time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
                     v.getMinute(), v.getSecond(), v.getNano() / 1000);
         OffHeap.putLong(null, data + rowId * 8L, time);
@@ -1585,6 +1607,17 @@ public class VectorColumn {
         return appendIndex++;
     }
 
+    public int appendVariant(byte[] metadata, byte[] value) {
+        reserve(appendIndex + 1);
+        variantColumn.append(metadata, value);
+        return appendIndex++;
+    }
+
+    private int appendVariantNull() {
+        variantColumn.appendNull();
+        return appendIndex++;
+    }
+
     public void appendVarbinary(byte[][] batch, boolean isNullable) {
         if (!isNullable) {
             checkNullable(batch, batch.length);
@@ -1674,6 +1707,9 @@ public class VectorColumn {
             for (VectorColumn c : childColumns) {
                 c.updateMeta(meta);
             }
+        } else if (columnType.isVariantType()) {
+            meta.appendLong(nullMap);
+            variantColumn.updateMeta(meta);
         } else {
             meta.appendLong(nullMap);
             meta.appendLong(data);
@@ -1977,6 +2013,9 @@ public class VectorColumn {
             case BINARY:
             case VARBINARY:
                 appendVarbinary(o.getBytes());
+                break;
+            case VARIANT:
+                appendVariant(o.getVariantMetadata(), o.getVariantValue());
                 break;
             case ARRAY: {
                 List<ColumnValue> values = new ArrayList<>();

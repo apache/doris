@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -74,7 +75,7 @@ public class UserPropertyTest {
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.of("MAX_USER_CONNECTIONS", "100"));
         properties.add(Pair.of("max_qUERY_instances", "3000"));
-        properties.add(Pair.of("parallel_fragment_exec_instance_num", "2000"));
+        properties.add(Pair.of("parallel_fragment_exec_instance_num", "256"));
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
         properties.add(Pair.of("cpu_resource_limit", "2"));
         properties.add(Pair.of("query_timeout", "500"));
@@ -85,7 +86,7 @@ public class UserPropertyTest {
         userProperty.update(properties);
         Assertions.assertEquals(100, userProperty.getMaxConn());
         Assertions.assertEquals(3000, userProperty.getMaxQueryInstances());
-        Assertions.assertEquals(2000, userProperty.getParallelFragmentExecInstanceNum());
+        Assertions.assertEquals(256, userProperty.getParallelFragmentExecInstanceNum());
         Assertions.assertArrayEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
         Assertions.assertEquals(2, userProperty.getCpuResourceLimit());
         Assertions.assertEquals(500, userProperty.getQueryTimeout());
@@ -121,6 +122,27 @@ public class UserPropertyTest {
         properties.add(Pair.of("sql_block_rules", "test1, test2,test3"));
         userProperty.update(properties);
         Assertions.assertEquals(3, userProperty.getSqlBlockRules().length);
+    }
+
+    @Test
+    public void testParallelFragmentExecInstanceNumLimit() throws UserException {
+        UserProperty property = new UserProperty();
+        for (int value : new int[] {Integer.MIN_VALUE, -1, 0, 1, 256}) {
+            property.update(Lists.newArrayList(
+                    Pair.of("parallel_fragment_exec_instance_num", Integer.toString(value))));
+            Assertions.assertEquals(value, property.getParallelFragmentExecInstanceNum());
+        }
+
+        for (int value : new int[] {257, 2000, Integer.MAX_VALUE}) {
+            DdlException exception = Assertions.assertThrows(DdlException.class,
+                    () -> property.update(Lists.newArrayList(
+                            Pair.of("max_user_connections", "200"),
+                            Pair.of("PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM", Integer.toString(value)))));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "parallel_fragment_exec_instance_num must be less than or equal to 256, got " + value));
+            Assertions.assertEquals(256, property.getParallelFragmentExecInstanceNum());
+            Assertions.assertEquals(100, property.getMaxConn());
+        }
     }
 
     @Test

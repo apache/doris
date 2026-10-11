@@ -16,7 +16,10 @@
 // under the License.
 
 #include "core/data_type/data_type_jsonb.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/function_context.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -42,8 +45,10 @@ public:
         auto to_column = ColumnString::create();
         auto from_type_serde = block.get_by_position(arguments[0]).type->get_serde();
         auto from_column = block.get_by_position(arguments[0]).column;
-        RETURN_IF_ERROR(
-                from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column));
+        DataTypeSerDe::FormatOptions options;
+        options.timezone = &context->state()->timezone_obj();
+        RETURN_IF_ERROR(from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column,
+                                                                          options));
         block.get_by_position(result).column = std::move(to_column);
         return Status::OK();
     }

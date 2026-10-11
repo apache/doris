@@ -361,6 +361,11 @@ public class MTMVTest {
         mtmv.setRefreshSnapshot(refreshSnapshot);
 
         Assertions.assertTrue(mtmv.hasRefreshSnapshot());
+
+        // An emptied partition map means the baseline is gone; MTMVTask then plans a COMPLETE refresh for an
+        // AUTO refresh of a non-IVM MV.
+        mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
+        Assertions.assertFalse(mtmv.hasRefreshSnapshot());
     }
 
     @Test

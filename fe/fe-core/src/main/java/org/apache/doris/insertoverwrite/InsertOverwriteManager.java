@@ -191,6 +191,21 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable, Ab
     // here we will make all raplacement of this group visiable. if someone fails, nothing happen.
     @Override
     public void taskGroupSuccess(long groupId, OlapTable targetTable, boolean forceDropPartition) throws DdlException {
+        replacePartitionsOfTaskGroup(groupId, targetTable, forceDropPartition);
+        finishTaskGroup(groupId);
+    }
+
+    /**
+     * The replacement half of {@link #taskGroupSuccess}: makes every replacement this group recorded visible.
+     *
+     * <p>Separate from the bookkeeping that follows it because the caller holds the target table's write lock
+     * for the last cancellation check before it publishes: the bookkeeping writes an edit-log entry per task,
+     * each of which waits for its journal to be acknowledged, and readers and writers of the target must not
+     * stay blocked through those waits -- the utility's own replacement, which the lock is about, does not.
+     */
+    @Override
+    public void replacePartitionsOfTaskGroup(long groupId, OlapTable targetTable, boolean forceDropPartition)
+            throws DdlException {
         try {
             Map<Long, Long> relations = partitionPairs.get(groupId);
             ArrayList<String> oldNames = new ArrayList<>();
@@ -205,6 +220,16 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable, Ab
                     + "all new partition will not be visible and will be recycled by partition GC.");
             throw e;
         }
+    }
+
+    /**
+     * The bookkeeping half of {@link #taskGroupSuccess}: makes the group's tasks final and forgets the group,
+     * after the replacement has been made. See
+     * {@link #replacePartitionsOfTaskGroup} for why it is not the replacement's caller to hold this under a
+     * table lock.
+     */
+    @Override
+    public void finishTaskGroup(long groupId) {
         LOG.info("insert overwrite auto detect partition task group [" + groupId + "] succeed");
         for (Long taskId : taskGroups.get(groupId)) {
             Env.getCurrentEnv().getEditLog()

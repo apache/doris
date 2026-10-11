@@ -127,7 +127,6 @@ public class ExprGsonSerializationTest {
         samples.put(EncryptKeyRef.class, new EncryptKeyRef(new EncryptKeyName(Arrays.asList("db1", "key1"))));
         samples.put(FunctionCallExpr.class, createFunctionCallExpr());
         samples.put(LambdaFunctionCallExpr.class, createLambdaFunctionCallExpr());
-        samples.put(ShortCircuitFunctionCallExpr.class, createShortCircuitFunctionCallExpr());
         samples.put(InformationFunction.class, createInformationFunction());
         samples.put(LambdaFunctionExpr.class, createLambdaFunctionExpr());
         samples.put(ArrayLiteral.class, new ArrayLiteral(new ArrayType(Type.INT), new IntLiteral(1L), new IntLiteral(2L)));
@@ -168,8 +167,10 @@ public class ExprGsonSerializationTest {
     }
 
     private FunctionCallExpr createFunctionCallExpr() {
-        return new FunctionCallExpr("ifnull",
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr("ifnull",
                 Arrays.asList(NullLiteral.create(Type.VARCHAR), new StringLiteral("fallback")), true);
+        functionCallExpr.setShortCircuitEvaluation(true);
+        return functionCallExpr;
     }
 
     private LambdaFunctionCallExpr createLambdaFunctionCallExpr() {
@@ -180,14 +181,6 @@ public class ExprGsonSerializationTest {
                 createLambdaFunctionExpr(),
                 new ArrayLiteral(arrayType, new IntLiteral(1L), new IntLiteral(2L))));
         return new LambdaFunctionCallExpr(function, params, false);
-    }
-
-    private ShortCircuitFunctionCallExpr createShortCircuitFunctionCallExpr() {
-        ScalarFunction function = new ScalarFunction(new FunctionName("if"),
-                Arrays.asList(Type.BOOLEAN, Type.INT, Type.INT), Type.INT, false, true);
-        FunctionParams params = new FunctionParams(Arrays.asList(
-                new BoolLiteral(true), new IntLiteral(1L), new IntLiteral(0L)));
-        return new ShortCircuitFunctionCallExpr(function, params, false);
     }
 
     private ColumnRefExpr createColumnRefExpr() {

@@ -60,7 +60,7 @@ final class ArrayFunctionUtils {
     /** Whether the element type is supported by hash-based array set functions. */
     static boolean isSupportedByArraySetFunctions(DataType dataType) {
         return dataType.isNumericType() || dataType.isBooleanType() || dataType.isStringLikeType()
-                || dataType.isDateLikeType() || dataType.isIPType() || dataType.isNullType();
+                || dataType.isDateLikeType() || dataType.isIPType() || dataType.isUuidType() || dataType.isNullType();
     }
 
     /** Whether the element type is supported by array equality and hash functions. */
@@ -96,6 +96,6 @@ final class ArrayFunctionUtils {
                 || dataType.isBooleanType() || dataType.isStringLikeType()
                 || dataType.isDateV2Type() || dataType.isDateTimeV2Type()
                 || dataType.isTimeStampNsType() || dataType.isTimeStampTzType()
-                || dataType.isIPType() || dataType.isNullType();
+                || dataType.isIPType() || dataType.isUuidType() || dataType.isNullType();
     }
 }
