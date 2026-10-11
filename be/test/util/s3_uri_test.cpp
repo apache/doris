@@ -109,4 +109,38 @@ TEST_F(S3URITest, QueryAndFragment) {
     EXPECT_EQ("path/to/file", uri1.get_key());
 }
 
+TEST_F(S3URITest, ObjectPathsPreserveCompleteKeys) {
+    for (const std::string key :
+         {"dir/a://b", "dir/a?b", "dir/a#b", "dir/ a.txt ", "dir/中文+%20.txt", "dir/a?b#c://d"}) {
+        for (const std::string prefix : {"s3://bucket/", "https://host/bucket/"}) {
+            S3URI uri(prefix + key);
+            ASSERT_TRUE(uri.parse(true).ok());
+            EXPECT_EQ(uri.get_bucket(), "bucket");
+            EXPECT_EQ(uri.get_key(), key);
+        }
+    }
+}
+
+TEST_F(S3URITest, DefaultUrlParsingKeepsExistingBehavior) {
+    S3URI url("s3://bucket/  dir/a?versionId=1#part ");
+    ASSERT_TRUE(url.parse().ok());
+    EXPECT_EQ(url.get_key(), "dir/a");
+    S3URI multiple_schemes("s3://bucket/dir/a://b");
+    EXPECT_FALSE(multiple_schemes.parse().ok());
+}
+
+TEST_F(S3URITest, RawBucketRootsHaveEmptyKeys) {
+    for (const auto* location :
+         {"s3://bucket", "s3://bucket/", "http://host/bucket", "http://host/bucket/",
+          "https://host/bucket", "https://host/bucket/"}) {
+        S3URI uri(location);
+        ASSERT_TRUE(uri.parse(true).ok()) << location;
+        EXPECT_EQ(uri.get_bucket(), "bucket");
+        EXPECT_TRUE(uri.get_key().empty());
+    }
+    S3URI leading_slash("s3://bucket//");
+    ASSERT_TRUE(leading_slash.parse(true).ok());
+    EXPECT_EQ(leading_slash.get_key(), "/");
+}
+
 } // end namespace doris

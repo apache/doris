@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/value/file_value.h"
 #include "cpp/obj-storage/client/obj_storage_client.h"
 #include "cpp/obj-storage/client/s3_stream.h"
 #include "cpp/sync_point.h"
@@ -217,6 +218,32 @@ Status ObjStorageFileSystem::exists_impl(const Path& path, bool* res) const {
 Status ObjStorageFileSystem::file_size_impl(const Path& file, int64_t* file_size) const {
     auto key = DORIS_TRY(get_key(file));
     *file_size = DORIS_TRY(ObjStorageFileReader::head_object_size(*_client, _bucket, key));
+    return Status::OK();
+}
+
+Status ObjStorageFileSystem::stat_impl(const Path& path, FileStat* metadata,
+                                       FileStatContext* context) const {
+    S3URI uri(path.native());
+    RETURN_IF_ERROR(uri.parse(true));
+    const auto& key = uri.get_key();
+    const auto client = _client->get();
+    CHECK_OBJ_STORAGE_CLIENT(client);
+    const ObjStoragePath object {.bucket = _bucket, .key = key};
+    if (context->is_cancelled && context->is_cancelled()) {
+        return Status::Cancelled("File stat cancelled");
+    }
+    auto result = client->head_object(object);
+    if (context->is_cancelled && context->is_cancelled()) {
+        return Status::Cancelled("File stat cancelled");
+    }
+    if (!result.resp.ok()) {
+        return std::move(
+                Status(result.resp.status.code, std::move(result.resp.status.msg))
+                        .append(fmt::format("failed to head s3 file {}", full_object_path(key))));
+    }
+    FileStat value {.size = result.file_size, .content_type = std::move(result.content_type)};
+    value.checksum = file_checksum_from_etag(result.etag);
+    *metadata = std::move(value);
     return Status::OK();
 }
 

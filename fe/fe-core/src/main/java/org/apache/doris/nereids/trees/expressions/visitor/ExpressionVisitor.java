@@ -109,6 +109,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FileLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
@@ -374,6 +375,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitTimeV2Literal(TimeV2Literal timev2Literal, C context) {
         return visitLiteral(timev2Literal, context);
+    }
+
+    public R visitFileLiteral(FileLiteral fileLiteral, C context) {
+        return visitLiteral(fileLiteral, context);
     }
 
     public R visitStructLiteral(StructLiteral structLiteral, C context) {
