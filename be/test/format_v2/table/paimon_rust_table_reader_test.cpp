@@ -198,12 +198,13 @@ TEST_F(PaimonRustTableReaderTest, AdaptiveBatchSizeBoundsWideStringReads) {
                              .runtime_state = _runtime_state.get(),
                              .scanner_profile = nullptr})
                         .ok());
-    // Wide values must be bounded before Arrow decoding, including when reusing a table handle.
+    // Doris blocks must follow the latest cap, including while the Rust stream remains open.
     for (const size_t requested : {0, 32, 7}) {
         if (requested != 0) {
             reader.set_batch_size(requested);
         }
-        const size_t expected = requested == 0 ? 3 : requested;
+        size_t expected = requested == 0 ? 3 : requested;
+        bool resized_active_reader = false;
         auto status = reader.prepare_split(options);
         ASSERT_TRUE(status.ok()) << status;
         Block block({ColumnWithTypeAndName(_projected_column.type->create_column(),
@@ -227,8 +228,16 @@ TEST_F(PaimonRustTableReaderTest, AdaptiveBatchSizeBoundsWideStringReads) {
                           std::string(128 * 1024, 'x'));
             }
             total += block.rows();
+            if (requested == 32 && !resized_active_reader && block.rows() > 0) {
+                reader.set_batch_size(7);
+                expected = 7;
+                resized_active_reader = true;
+            }
         }
         EXPECT_EQ(total, 65);
+        if (requested == 32) {
+            EXPECT_TRUE(resized_active_reader);
+        }
         ASSERT_TRUE(reader.abort_split().ok());
     }
     ASSERT_TRUE(reader.close().ok());

@@ -62,8 +62,9 @@ public:
     ~PaimonRustTableReader() override;
 
     Status init(format::TableReadOptions&& options) override;
-    // Each split's Rust read builder applies the batch size stored by the base class
-    // before opening the Arrow reader.
+    // Each split's Rust read builder applies the initial batch size. The C API cannot resize an
+    // open stream, so get_block retains and slices an imported batch to apply later caps to Doris
+    // block materialization without reopening the split and duplicating rows.
     Status prepare_split(const format::SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
     Status abort_split() override;
@@ -159,6 +160,8 @@ private:
     std::map<std::string, std::string> _build_options() const;
 
     std::unique_ptr<PaimonHandles> _handles; // cached table + per-split pipeline
+    std::shared_ptr<arrow::RecordBatch> _pending_record_batch;
+    size_t _pending_record_batch_offset = 0;
     // Identity of the opened table so consecutive splits reuse the handle.
     std::optional<
             std::tuple<std::string /*table_path*/, std::string /*schema_json*/, std::string /*db*/,

@@ -44,7 +44,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         sql "set time_zone='+00:00'"
         sql "set enable_prune_nested_column=true"
         sql "set enable_file_scanner_v2=true"
-        sql "set force_jni_scanner=true"
+        sql "set force_jni_scanner=false"
         def profiles = new ProfileAction(context)
         def check = { String query, List expected, boolean rustExpected ->
             sql "set enable_paimon_rust_reader=false"
@@ -72,6 +72,10 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         createPk("credential_values", "v INT", "")
         sql "INSERT INTO credential_values VALUES (1,11)"
         check("select id,v from credential_values", [[1,11]], true)
+        // The explicit JNI escape hatch takes precedence over the Rust-reader enable flag.
+        sql "set force_jni_scanner=true"
+        check("select id,v from credential_values", [[1,11]], false)
+        sql "set force_jni_scanner=false"
         ["'s3.credentials_provider_type'='ANONYMOUS'"].eachWithIndex { extra, index ->
             def crossedCatalog = "${catalog}_credentials_${index}"
             sql "DROP CATALOG IF EXISTS ${crossedCatalog}"
@@ -140,15 +144,16 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         }
         sql "set enable_push_down_no_group_agg=true"
         sql "set force_jni_scanner=true"
-        // Forced logical splits still return real rows to the upper aggregate in both readers.
-        aggregateQueries.each { entry -> check(entry[0], entry[1], true) }
+        // Forced JNI logical splits still return real rows to the upper aggregate.
+        aggregateQueries.each { entry -> check(entry[0], entry[1], false) }
+        sql "set force_jni_scanner=false"
 
         ["DATE", "DATETIME(3)"].eachWithIndex { target, index ->
             def name = "string_to_temporal_${index}"
             sql """CREATE TABLE ${name} (id INT, v STRING) ENGINE=paimon
                 PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
             sql "INSERT INTO ${name} VALUES (1,'42'), (2,NULL)"
-            check("select id,v from ${name} order by id", [[1,"42"],[2,null]], true)
+            check("select id,v from ${name} order by id", [[1,"42"],[2,null]], false)
             sql "ALTER TABLE ${name} MODIFY COLUMN v ${target} NULL"
             // The historical string is an epoch count in Java, not an Arrow calendar literal.
             check("select id,cast(v as string) from ${name} order by id",

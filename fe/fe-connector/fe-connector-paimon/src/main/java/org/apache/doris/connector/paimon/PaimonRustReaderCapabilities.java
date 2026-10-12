@@ -32,6 +32,7 @@ import org.apache.paimon.types.DataTypeChecks;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.MultisetType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 
@@ -57,6 +58,7 @@ final class PaimonRustReaderCapabilities {
         this.table = table;
         this.schema = table.schema();
         this.tableCompatible = schema != null && hasCompatibleSchemaVersion(schema)
+                && hasRustCompatibleTimestamps(schema.fields())
                 && hasFullNestedProjection(columns) && hasCompatibleMergeEngine(schema)
                 && hasCompatibleAggregates(schema);
     }
@@ -113,6 +115,35 @@ final class PaimonRustReaderCapabilities {
         // Java defaults a missing JSON version to 1; Rust requires that field when opening
         // both current and historical schemas. Metadata cannot distinguish an explicit 1.
         return schema.version() > TableSchema.PAIMON_07_VERSION;
+    }
+
+    private static boolean hasRustCompatibleTimestamps(List<DataField> fields) {
+        return fields.stream().allMatch(field -> hasRustCompatibleTimestamps(field.type()));
+    }
+
+    private static boolean hasRustCompatibleTimestamps(DataType type) {
+        DataTypeRoot root = type.getTypeRoot();
+        if (root == DataTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE
+                || root == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            // Arrow's nanosecond representation cannot cover the date range that Java Paimon
+            // supports. Keep precision 7-9 on JNI even when the file uses the current schema.
+            return DataTypeChecks.getPrecision(type) <= 6;
+        }
+        if (type instanceof RowType) {
+            return hasRustCompatibleTimestamps(((RowType) type).getFields());
+        }
+        if (type instanceof ArrayType) {
+            return hasRustCompatibleTimestamps(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return hasRustCompatibleTimestamps(map.getKeyType())
+                    && hasRustCompatibleTimestamps(map.getValueType());
+        }
+        if (type instanceof MultisetType) {
+            return hasRustCompatibleTimestamps(((MultisetType) type).getElementType());
+        }
+        return true;
     }
 
     private static boolean hasCompatibleMergeEngine(TableSchema schema) {

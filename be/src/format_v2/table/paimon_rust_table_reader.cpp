@@ -257,43 +257,54 @@ Status PaimonRustTableReader::get_block(Block* block, bool* eos) {
             return Status::OK();
         }
 
-        paimon_result_next_batch next;
-        {
-            SCOPED_TIMER(_rust_read_batch_time);
-            next = paimon_record_batch_reader_next(_handles->reader.get());
-        }
-        if (next.error != nullptr) {
-            return Status::InternalError("paimon-rust read batch failed: {}",
-                                         consume_error(next.error));
-        }
-        // End of stream: both pointers are null.
-        if (next.batch.array == nullptr && next.batch.schema == nullptr) {
-            _split_eof = true;
-            _close_split_reader();
-            *eos = true;
-            return Status::OK();
+        if (!_pending_record_batch) {
+            paimon_result_next_batch next;
+            {
+                SCOPED_TIMER(_rust_read_batch_time);
+                next = paimon_record_batch_reader_next(_handles->reader.get());
+            }
+            if (next.error != nullptr) {
+                return Status::InternalError("paimon-rust read batch failed: {}",
+                                             consume_error(next.error));
+            }
+            // End of stream: both pointers are null.
+            if (next.batch.array == nullptr && next.batch.schema == nullptr) {
+                _split_eof = true;
+                _close_split_reader();
+                *eos = true;
+                return Status::OK();
+            }
+
+            // RAII: the batch's Arrow release callbacks + container free run when
+            // `batch` leaves this scope, including on any early return.
+            ArrowBatch batch(next.batch);
+            arrow::Result<std::shared_ptr<arrow::RecordBatch>> import_result =
+                    arrow::ImportRecordBatch(batch.array(), batch.schema());
+            if (!import_result.ok()) {
+                return Status::InternalError("failed to import paimon-rust arrow batch: {}",
+                                             import_result.status().message());
+            }
+            _pending_record_batch = std::move(import_result).ValueUnsafe();
+            _pending_record_batch_offset = 0;
+            if (_pending_record_batch->num_rows() == 0) {
+                _pending_record_batch.reset();
+                continue;
+            }
         }
 
-        // RAII: the batch's Arrow release callbacks + container free run when
-        // `batch` leaves this scope, including on any early return.
-        ArrowBatch batch(next.batch);
-
-        auto* c_array = batch.array();
-        auto* c_schema = batch.schema();
-        arrow::Result<std::shared_ptr<arrow::RecordBatch>> import_result =
-                arrow::ImportRecordBatch(c_array, c_schema);
-        if (!import_result.ok()) {
-            return Status::InternalError("failed to import paimon-rust arrow batch: {}",
-                                         import_result.status().message());
-        }
-
-        auto record_batch = std::move(import_result).ValueUnsafe();
-        const auto rows = static_cast<size_t>(record_batch->num_rows());
-        if (rows == 0) {
-            // Skip empty batches and keep draining the stream.
-            continue;
-        }
+        const size_t batch_size = static_cast<size_t>(
+                _batch_size > 0 ? _batch_size : std::max(1, _runtime_state->batch_size()));
+        const size_t remaining = static_cast<size_t>(_pending_record_batch->num_rows()) -
+                                 _pending_record_batch_offset;
+        const size_t rows = std::min(batch_size, remaining);
+        auto record_batch = _pending_record_batch->Slice(_pending_record_batch_offset, rows);
         RETURN_IF_ERROR(_fill_block_from_record_batch(record_batch, block, rows));
+        _pending_record_batch_offset += rows;
+        if (_pending_record_batch_offset ==
+            static_cast<size_t>(_pending_record_batch->num_rows())) {
+            _pending_record_batch.reset();
+            _pending_record_batch_offset = 0;
+        }
         _record_scan_rows(rows);
         *eos = false;
         return Status::OK();
@@ -510,6 +521,8 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
 }
 
 void PaimonRustTableReader::_close_split_reader() {
+    _pending_record_batch.reset();
+    _pending_record_batch_offset = 0;
     if (!_handles) {
         return;
     }

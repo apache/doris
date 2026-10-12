@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
@@ -40,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -60,6 +62,8 @@ public class PaimonRustReaderSelectorTest {
         Assertions.assertFalse(selector(session(false, true), true, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));
         Assertions.assertFalse(selector(session(true, false), true, table, columns(), Collections.emptyMap(),
+                false, false, false).canRead(split));
+        Assertions.assertFalse(selector(session(true, true, true), true, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));
         Assertions.assertFalse(selector(enabledSession(), false, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));
@@ -186,6 +190,27 @@ public class PaimonRustReaderSelectorTest {
                 DataTypes.ROW(DataTypes.FIELD(1, "ts", DataTypes.TIMESTAMP(3)))));
     }
 
+    @Test
+    public void year3000CurrentHighPrecisionTimestampUsesJniIncludingNestedFields() throws Exception {
+        LocalDateTime year3000 = LocalDateTime.parse("3000-01-02T03:04:05.123456789");
+        Assertions.assertEquals(year3000, Timestamp.fromLocalDateTime(year3000).toLocalDateTime());
+        FileStoreTable timestamp9 = table(fileLocation("timestamp-9"), Collections.emptyMap(),
+                DataTypes.TIMESTAMP(9));
+        Assertions.assertFalse(selector(enabledSession(), true, timestamp9, columns(), Collections.emptyMap(),
+                false, false, false).canRead(split(file("data.parquet", timestamp9.schema().id(), null))));
+
+        FileStoreTable nestedTimestamp9 = table(fileLocation("nested-timestamp-9"), Collections.emptyMap(),
+                DataTypes.ARRAY(DataTypes.ROW(DataTypes.FIELD(1, "ts", DataTypes.TIMESTAMP(9)))));
+        Assertions.assertFalse(selector(enabledSession(), true, nestedTimestamp9, columns(), Collections.emptyMap(),
+                false, false, false)
+                .canRead(split(file("data.parquet", nestedTimestamp9.schema().id(), null))));
+
+        FileStoreTable timestamp6 = table(fileLocation("timestamp-6"), Collections.emptyMap(),
+                DataTypes.TIMESTAMP(6));
+        Assertions.assertTrue(selector(enabledSession(), true, timestamp6, columns(), Collections.emptyMap(),
+                false, false, false).canRead(split(file("data.parquet", timestamp6.schema().id(), null))));
+    }
+
     private String fileLocation(String name) throws Exception {
         java.nio.file.Path path = Files.createDirectories(tempDir.resolve(name));
         return path.toUri().toString();
@@ -233,9 +258,14 @@ public class PaimonRustReaderSelectorTest {
     }
 
     private static ConnectorSession session(boolean rustReader, boolean fileScannerV2) {
+        return session(rustReader, fileScannerV2, false);
+    }
+
+    private static ConnectorSession session(boolean rustReader, boolean fileScannerV2, boolean forceJniScanner) {
         Map<String, String> properties = new HashMap<>();
         properties.put("enable_paimon_rust_reader", Boolean.toString(rustReader));
         properties.put("enable_file_scanner_v2", Boolean.toString(fileScannerV2));
+        properties.put("force_jni_scanner", Boolean.toString(forceJniScanner));
         return new ConnectorSession() {
             @Override
             public String getQueryId() {
