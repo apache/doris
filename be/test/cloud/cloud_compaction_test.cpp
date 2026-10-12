@@ -40,6 +40,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/s3_file_system.h"
 #include "json2pb/json_to_pb.h"
+#include "storage/binlog.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
@@ -72,6 +73,9 @@ void expect_segment_group_merge_ranges(const std::vector<cloud::SegmentGroupMerg
 class CloudCompactionTest : public testing::Test {
     CloudCompactionTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
     void SetUp() override {
+        _previous_cloud_unique_id = config::cloud_unique_id;
+        config::cloud_unique_id = "CloudCompactionTest";
+        _previous_cluster_info = ExecEnv::GetInstance()->cluster_info();
         config::compaction_promotion_size_mbytes = 1024;
         config::compaction_promotion_ratio = 0.05;
         config::compaction_promotion_min_size_mbytes = 64;
@@ -106,7 +110,10 @@ class CloudCompactionTest : public testing::Test {
         _cluster_info->_is_in_standby = false;
         ExecEnv::GetInstance()->_cluster_info = _cluster_info.get();
     }
-    void TearDown() override {}
+    void TearDown() override {
+        config::cloud_unique_id = _previous_cloud_unique_id;
+        ExecEnv::GetInstance()->set_cluster_info(_previous_cluster_info);
+    }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
         RowsetMetaPB rowset_meta_pb;
@@ -143,6 +150,8 @@ class CloudCompactionTest : public testing::Test {
     }
 
 protected:
+    std::string _previous_cloud_unique_id;
+    ClusterInfo* _previous_cluster_info = nullptr;
     std::string _json_rowset_meta;
     TabletMetaSharedPtr _tablet_meta;
 
@@ -169,7 +178,7 @@ TEST_F(CloudCompactionTest, failure_base_compaction_tablet_sleep_test) {
                     .count() -
             100000);
     tablet1->set_last_base_compaction_failure_time(0);
-    tablet1->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    tablet1->tablet_meta()->set_disable_auto_compaction(false);
     tablet1->_approximate_num_rowsets = 10;
     tablet1->_approximate_cumu_num_rowsets = 0;
     mgr.put_tablet_for_UT(tablet1);
@@ -213,7 +222,7 @@ TEST_F(CloudCompactionTest, failure_cumu_compaction_tablet_sleep_test) {
                     .count() -
             100000);
     tablet1->set_last_cumu_compaction_failure_time(0);
-    tablet1->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    tablet1->tablet_meta()->set_disable_auto_compaction(false);
     tablet1->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(tablet1);
 
@@ -248,7 +257,7 @@ TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) 
     normal_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_DATA);
     CloudTabletSPtr normal_tablet = std::make_shared<CloudTablet>(_engine, normal_meta);
     normal_tablet->tablet_meta()->_tablet_id = 10001;
-    normal_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    normal_tablet->tablet_meta()->set_disable_auto_compaction(false);
     normal_tablet->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(normal_tablet);
 
@@ -256,7 +265,7 @@ TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) 
     binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
     CloudTabletSPtr binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
     binlog_tablet->tablet_meta()->_tablet_id = 10002;
-    binlog_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    binlog_tablet->tablet_meta()->set_disable_auto_compaction(false);
     binlog_tablet->_approximate_cumu_num_deltas = 7;
     mgr.put_tablet_for_UT(binlog_tablet);
 
@@ -283,7 +292,7 @@ TEST_F(CloudCompactionTest, split_cumu_compaction_score_stats_before_filter) {
         tablet_meta->_tablet_id = tablet_id;
         tablet_meta->set_compaction_policy(std::string(compaction_policy));
         auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
-        tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+        tablet->tablet_meta()->set_disable_auto_compaction(false);
         tablet->_approximate_cumu_num_deltas = score;
         mgr.put_tablet_for_UT(tablet);
         return tablet;
@@ -312,7 +321,7 @@ TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_updates_policy_metri
     tablet_meta->_tablet_id = 11000;
     tablet_meta->set_compaction_policy(std::string(CUMULATIVE_SIZE_BASED_POLICY));
     auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
-    tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    tablet->tablet_meta()->set_disable_auto_compaction(false);
     tablet->_approximate_cumu_num_deltas = 7;
     mgr.put_tablet_for_UT(tablet);
 
@@ -341,7 +350,7 @@ TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_updates_policy_metri
     time_series_meta->_tablet_id = 11001;
     time_series_meta->set_compaction_policy(std::string(CUMULATIVE_TIME_SERIES_POLICY));
     auto time_series = std::make_shared<CloudTablet>(_engine, time_series_meta);
-    time_series->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    time_series->tablet_meta()->set_disable_auto_compaction(false);
     time_series->_approximate_cumu_num_deltas = 13;
     mgr.put_tablet_for_UT(time_series);
 
@@ -360,7 +369,7 @@ TEST_F(CloudCompactionTest, generate_cloud_binlog_compaction_tasks_updates_only_
     normal_meta->_tablet_id = 11002;
     normal_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_DATA);
     auto normal_tablet = std::make_shared<CloudTablet>(_engine, normal_meta);
-    normal_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    normal_tablet->tablet_meta()->set_disable_auto_compaction(false);
     normal_tablet->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(normal_tablet);
 
@@ -368,7 +377,7 @@ TEST_F(CloudCompactionTest, generate_cloud_binlog_compaction_tasks_updates_only_
     binlog_meta->_tablet_id = 11003;
     binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
     auto binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
-    binlog_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    binlog_tablet->tablet_meta()->set_disable_auto_compaction(false);
     binlog_tablet->_approximate_cumu_num_deltas = 7;
     mgr.put_tablet_for_UT(binlog_tablet);
 
@@ -711,6 +720,91 @@ static std::shared_ptr<TestableCloudCumulativeCompaction> create_inflight_cumu_c
     return compaction;
 }
 
+TEST_F(CloudCompactionTest, row_binlog_ttl_snapshot_selects_expired_rowset) {
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10000);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    BinlogConfig binlog_config(true, 10, 1024, 10, BinlogFormatPB::ROW, false);
+    tablet_meta->set_binlog_config(binlog_config);
+    constexpr int64_t kReferenceMs = 100000;
+    const int64_t reference_tso = kReferenceMs << kTsoLogicalBits;
+    _cluster_info->advance_row_binlog_ttl_reference_tso(reference_tso);
+    auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+
+    compaction.snapshot_row_binlog_ttl();
+    const int64_t cutoff = row_binlog_ttl_cutoff_tso(reference_tso, 10);
+    ASSERT_EQ(compaction._row_binlog_ttl_cutoff_tso, cutoff);
+
+    auto expired = create_rowset(Version(2, 2), 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(1);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset(Version(3, 3), 1, false, 1024);
+    retained->rowset_meta()->set_num_rows(1);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+
+    ASSERT_TRUE(tablet_meta->add_rs_meta(expired->rowset_meta()).ok());
+    EXPECT_LE(tablet->get_cloud_cumu_compaction_score(), 0);
+    EXPECT_TRUE(tablet->scan_expired_row_binlog_rowsets());
+
+    EXPECT_FALSE(compaction.pick_expired_row_binlog_rowset({expired, retained}));
+    tablet->_timestamped_version_tracker.add_version(Version(0, 1));
+    tablet->_timestamped_version_tracker.add_version(expired->version());
+    EXPECT_TRUE(compaction.pick_expired_row_binlog_rowset({expired, retained}));
+    ASSERT_EQ(compaction._input_rowsets.size(), 1);
+    EXPECT_EQ(compaction._input_rowsets.front(), expired);
+}
+
+TEST_F(CloudCompactionTest, row_binlog_ttl_prevents_cumulative_point_from_skipping_expired) {
+    auto old_parallel_cumu_compaction = config::enable_parallel_cumu_compaction;
+    Defer restore_config(
+            [&] { config::enable_parallel_cumu_compaction = old_parallel_cumu_compaction; });
+    config::enable_parallel_cumu_compaction = true;
+
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10001);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_BINLOG_POLICY));
+    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::ROW, false);
+    tablet_meta->set_binlog_config(binlog_config);
+    _cluster_info->advance_row_binlog_ttl_reference_tso(2000L << kTsoLogicalBits);
+    auto expired = create_rowset(Version(2, 2), 1, false, 128 * 1024 * 1024);
+    expired->rowset_meta()->set_num_rows(1);
+    expired->rowset_meta()->set_data_disk_size(128 * 1024 * 1024);
+    expired->rowset_meta()->set_compaction_level(
+            BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1);
+    expired->rowset_meta()->set_commit_tso(1000L << kTsoLogicalBits);
+    auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 2, {expired});
+
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+    compaction.snapshot_row_binlog_ttl();
+    auto st = compaction.advance_cumulative_point_before_pick(std::numeric_limits<int64_t>::max());
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_EQ(tablet->cumulative_layer_point(), 2);
+}
+
+TEST_F(CloudCompactionTest, row_binlog_ttl_picks_expired_rowset_before_cumulative_point) {
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10002);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_BINLOG_POLICY));
+    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::ROW, false);
+    tablet_meta->set_binlog_config(binlog_config);
+    _cluster_info->advance_row_binlog_ttl_reference_tso(2000L << kTsoLogicalBits);
+    auto expired = create_rowset(Version(2, 2), 1, false, 128 * 1024 * 1024);
+    expired->rowset_meta()->set_num_rows(1);
+    expired->rowset_meta()->set_data_disk_size(128 * 1024 * 1024);
+    expired->rowset_meta()->set_compaction_level(
+            BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1);
+    expired->rowset_meta()->set_commit_tso(1000L << kTsoLogicalBits);
+    auto initial = create_rowset(Version(0, 1), 0, false, 0);
+    initial->rowset_meta()->set_num_rows(0);
+    auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 3, {initial, expired});
+
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+    ASSERT_TRUE(compaction.prepare_compact().ok());
+    ASSERT_EQ(compaction._input_rowsets.size(), 2);
+    EXPECT_EQ(compaction._input_rowsets.front(), initial);
+    EXPECT_EQ(compaction._input_rowsets.back(), expired);
+}
+
 TEST_F(CloudCompactionTest, base_result_with_newer_cumulative_point_forces_sync) {
     auto* sync_point = SyncPoint::get_instance();
     Defer clear_sync_points([&] {
@@ -774,9 +868,9 @@ TEST_F(CloudCompactionTest, cumulative_pick_uses_local_conflict_window) {
         TestableCloudCumulativeCompaction compaction(_engine, tablet);
         auto st = compaction.prepare_compact();
         ASSERT_TRUE(st.ok()) << st;
-        ASSERT_EQ(compaction.input_rowsets().size(), 3);
-        EXPECT_EQ(compaction.input_rowsets().front()->start_version(), 114);
-        EXPECT_EQ(compaction.input_rowsets().back()->end_version(), 116);
+        ASSERT_EQ(compaction._input_rowsets.size(), 3);
+        EXPECT_EQ(compaction._input_rowsets.front()->start_version(), 114);
+        EXPECT_EQ(compaction._input_rowsets.back()->end_version(), 116);
         _engine._submitted_cumu_compactions.clear();
     }
 
@@ -789,9 +883,9 @@ TEST_F(CloudCompactionTest, cumulative_pick_uses_local_conflict_window) {
         TestableCloudCumulativeCompaction compaction(_engine, tablet);
         auto st = compaction.prepare_compact();
         ASSERT_TRUE(st.ok()) << st;
-        ASSERT_EQ(compaction.input_rowsets().size(), 2);
-        EXPECT_EQ(compaction.input_rowsets().front()->start_version(), 3);
-        EXPECT_EQ(compaction.input_rowsets().back()->end_version(), 4);
+        ASSERT_EQ(compaction._input_rowsets.size(), 2);
+        EXPECT_EQ(compaction._input_rowsets.front()->start_version(), 3);
+        EXPECT_EQ(compaction._input_rowsets.back()->end_version(), 4);
         _engine._submitted_cumu_compactions.clear();
     }
 
@@ -805,9 +899,9 @@ TEST_F(CloudCompactionTest, cumulative_pick_uses_local_conflict_window) {
         TestableCloudCumulativeCompaction compaction(_engine, tablet);
         auto st = compaction.prepare_compact();
         ASSERT_TRUE(st.ok()) << st;
-        ASSERT_EQ(compaction.input_rowsets().size(), 3);
-        EXPECT_EQ(compaction.input_rowsets().front()->start_version(), 117);
-        EXPECT_EQ(compaction.input_rowsets().back()->end_version(), 119);
+        ASSERT_EQ(compaction._input_rowsets.size(), 3);
+        EXPECT_EQ(compaction._input_rowsets.front()->start_version(), 117);
+        EXPECT_EQ(compaction._input_rowsets.back()->end_version(), 119);
         _engine._submitted_cumu_compactions.clear();
     }
 }

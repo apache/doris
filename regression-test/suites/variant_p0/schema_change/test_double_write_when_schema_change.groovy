@@ -115,10 +115,10 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
 
     sql "set enable_two_phase_read_opt = false"
     qt_two_phase_off """select * from github_events
-        order by k, cast(v['id'] as string), cast(v['payload']['push_id'] as bigint) limit 10"""
+        order by k, cast(v['id'] as string), cast(v['payload']['push_id'] as bigint), change_column desc limit 10"""
     sql "set enable_two_phase_read_opt = true"
     qt_two_phase_on """select * from github_events
-        order by k, cast(v['id'] as string), cast(v['payload']['push_id'] as bigint) limit 10"""
+        order by k, cast(v['id'] as string), cast(v['payload']['push_id'] as bigint), change_column desc limit 10"""
     order_qt_sql """select k, v['payload']['commits'] from github_events
         where length(cast(v['payload']['commits'] as text)) > 100 and k > 1
         order by k, length(cast(v['payload']['commits'] as text)) limit 10"""

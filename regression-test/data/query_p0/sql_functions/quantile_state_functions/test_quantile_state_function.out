@@ -35,3 +35,35 @@ AAAARQEAAAAAAAAkQA==
 -- !sql_quantile_state_base64_12 --
 true
 
+-- !cow_independent --
+0	10	10	10	10	110
+1	110	110	110	10	110
+
+-- !cow_shared --
+0	10	10	10	10	110
+1	110	110	110	10	110
+
+-- !cow_window --
+0	0	10	10
+0	1	10	10
+0	2	10	10
+0	3	10	10
+1	0	10	110
+1	1	10	110
+1	2	10	110
+1	3	10	110
+
+-- !cow_join_expand --
+0	10
+1	110
+
+-- !cow_explode_expand --
+0	10
+1	110
+
+-- !cow_long_high_compression_window --
+0	10	10
+1	10	20
+6000	10	6019
+12000	10	12019
+

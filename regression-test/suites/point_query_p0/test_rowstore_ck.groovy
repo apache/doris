@@ -20,18 +20,8 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
     String jdbcUrl = context.config.jdbcUrl
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
-    String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-    def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
     def realDb = "regression_test_point_query_p0"
-    def sql_port
-    if (urlWithoutSchema.indexOf("/") >= 0) {
-        // e.g: jdbc:mysql://locahost:8080/?a=b
-        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-    } else {
-        // e.g: jdbc:mysql://locahost:8080
-        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
-    }
-    def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
+    def prepare_url = getServerPrepareJdbcUrl(jdbcUrl, realDb, false)
 
     sql "DROP TABLE IF EXISTS table_with_column_group_ck"
     sql """

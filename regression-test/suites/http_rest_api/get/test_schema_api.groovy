@@ -63,7 +63,7 @@ suite("test_schema_api") {
         )
     }
     logger.info("url: ${url}")
-    def result = Http.GET(url, true)
+    def result = Http.GET(url, true, true, 'root', context.config.getRootPassword())
     assertTrue(result.code == 0)
     assertEquals(result.msg, "success")
     // parsing
@@ -119,7 +119,7 @@ suite("test_schema_api") {
 
     // not exist catalog
     def url2 = String.format("http://%s/api/%s/%s/%s/_schema", context.config.feHttpAddress, "notexistctl", thisDb, tbName)
-    def result2 = Http.GET(url2, true)
+    def result2 = Http.GET(url2, true, true, 'root', context.config.getRootPassword())
     assertTrue(result2.code != 0)
     assertTrue(result2.data.contains("Unknown catalog"))
 

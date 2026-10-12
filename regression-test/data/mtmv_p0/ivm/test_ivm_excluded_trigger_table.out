@@ -23,10 +23,9 @@
 -- !alter_after_incremental_fallback --
 1	10
 2	20
-3	30
 
 -- !alter_fallback_refresh_mode --
-COMPLETE
+NONE
 
 -- !reinclude_refresh_mode --
 COMPLETE

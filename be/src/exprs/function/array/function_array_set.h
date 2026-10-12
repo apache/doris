@@ -24,6 +24,7 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/primitive_type.h"
+#include "exprs/function/array/function_array_hash.h"
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function_helpers.h"
 
@@ -49,7 +50,7 @@ template <SetOperation operation, typename ColumnType>
 struct OpenSetImpl {
     using Element = typename ColumnType::value_type;
     using ElementNativeType = typename NativeType<Element>::Type;
-    using Set = phmap::flat_hash_set<ElementNativeType>;
+    using Set = phmap::flat_hash_set<ElementNativeType, ArraySetHash<ElementNativeType>>;
     using Action = typename ActionImpl<Set, Element, operation>::Action;
     Action action;
     Set set;

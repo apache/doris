@@ -199,8 +199,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 // from incorrectly skipping exchanges.
                 if (agg.getAggPhase().isGlobal()
                         && agg.getAggMode() == AggMode.INPUT_TO_RESULT
-                        && AggregateUtils.isBucketedHashAggEnabled(
-                            agg.getGroupByExpressions().size())
+                        && AggregateUtils.isBucketedHashAggEnabled(agg)
                         && isShuffleCompatible(childOutputProperty.getDistributionSpec())) {
                     return PhysicalProperties.ANY;
                 }

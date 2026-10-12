@@ -7,7 +7,7 @@ SUCCESS	COMPLETE	NONE
 2	2026-02-10	200	dim-b
 
 -- !non_pct_drop_task --
-SUCCESS	COMPLETE	BINLOG_BROKEN
+SUCCESS	COMPLETE	NONE
 
 -- !non_pct_drop_mv --
 1	2026-01-10	100	\N
@@ -18,3 +18,4 @@ SUCCESS
 
 -- !narrowed_mv --
 2	2026-02-10	200	dim-b
+

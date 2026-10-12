@@ -35,10 +35,10 @@
 5	50
 
 -- !child_incremental_after_root_complete --
-FAILED	IVM baseline rebuild is pending for mv=child_ivm_commit_tso; run an AUTO or COMPLETE refresh first
+SUCCESS	
 
 -- !child_auto_refresh_mode --
-COMPLETE
+NONE
 
 -- !child_after_auto_refresh --
 3	35

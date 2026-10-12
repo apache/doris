@@ -59,6 +59,7 @@ public class CloudTableStreamConsumptionTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
+        Config.enable_feature_binlog = true;
         createDatabase("test_cloud_stream_consumption");
         connectContext.setDatabase("test_cloud_stream_consumption");
         createTable("create table test_cloud_stream_consumption.base_table (k1 int, k2 int) "

@@ -218,6 +218,15 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     }
 
     int64_t t3 = MonotonicMicros();
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.handle.block_for_restart", {
+        if (dp->param<int64_t>("tablet_id", -1) == _tablet_id) {
+            // The restart regression pairs this marker with the persisted MS lock owner.
+            LOG(INFO) << "delete bitmap restart barrier token="
+                      << dp->param<std::string>("token", "") << " lock_id=" << _transaction_id
+                      << " tablet_id=" << _tablet_id;
+            DBUG_BLOCK;
+        }
+    });
     DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep", {
         auto p = dp->param("percent", 0.01);
         // 100s > Config.calculate_delete_bitmap_task_timeout_seconds = 60s
@@ -280,6 +289,23 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
             DCHECK(invisible_rowsets.size() == i + 1 - empty_rowset_count);
         }
     }
+    DBUG_EXECUTE_IF("CloudTabletCalcDeleteBitmapTask.handle.block_after_calc", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", 0);
+        auto target_transaction_id = dp->param<int64_t>("transaction_id", 0);
+        if (status.ok() && target_tablet_id == _tablet_id &&
+            (target_transaction_id == 0 || target_transaction_id == _transaction_id)) {
+            // Delay the response after calculation without preventing another transaction from
+            // calculating the delete bitmap on the same tablet.
+            wrlock.unlock();
+            LOG(INFO) << "start debug block after calculating delete bitmap"
+                      << ", tablet_id=" << _tablet_id << ", txn_id=" << _transaction_id;
+            while (DebugPoints::instance()->is_enable(DP_NAME)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            LOG(INFO) << "finish debug block after calculating delete bitmap"
+                      << ", tablet_id=" << _tablet_id << ", txn_id=" << _transaction_id;
+        }
+    });
     DBUG_EXECUTE_IF("CloudCalcDbmTask.handle.return.block",
                     auto target_tablet_id = dp->param<int64_t>("tablet_id", 0);
                     if (target_tablet_id == tablet->tablet_id()) {DBUG_BLOCK});

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MTMV;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 
 import java.util.Iterator;
@@ -84,6 +85,17 @@ public class MTMVRefreshSnapshot {
                 iterator.remove();
             }
         }
+    }
+
+    /**
+     * Drops these MV partitions' snapshots. An invalidated partition must not be able to back a
+     * transparent rewrite until it has been rebuilt: what it holds is exactly what the rebuild replaces.
+     */
+    public void removeSnapshots(Set<String> mvPartitionNames) {
+        if (CollectionUtils.isEmpty(mvPartitionNames)) {
+            return;
+        }
+        partitionSnapshots.keySet().removeAll(mvPartitionNames);
     }
 
     public Map<String, MTMVRefreshPartitionSnapshot> getPartitionSnapshots() {

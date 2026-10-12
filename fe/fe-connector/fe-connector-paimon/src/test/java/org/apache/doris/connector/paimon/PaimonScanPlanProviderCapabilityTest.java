@@ -89,6 +89,18 @@ public class PaimonScanPlanProviderCapabilityTest {
                 "the SPI default must keep the prune-to-zero short-circuit");
     }
 
+    @Test
+    public void paimonKeepsColumnDefaultsWriteOnly() {
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), null);
+        ConnectorScanPlanProvider defaultProvider = (session, request) -> Collections.emptyList();
+
+        Assertions.assertFalse(provider.applyColumnDefaultsOnRead(),
+                "historical Paimon files must expose NULL for a field added with a default");
+        Assertions.assertTrue(defaultProvider.applyColumnDefaultsOnRead(),
+                "other file connectors retain the existing missing-column default behavior");
+    }
+
     private static Map<String, String> part(String key, String value) {
         Map<String, String> m = new HashMap<>();
         m.put(key, value);

@@ -88,17 +88,19 @@ public:
                                               const FormatOptions& options) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
-    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                            ColumnString& to_column) const override;
+    Status serialize_column_to_jsonb_vector(
+            const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
-    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                const ColumnString& from_column,
-                                                CastParameters& castParms) const override;
+    Status deserialize_column_from_jsonb_vector(
+            ColumnNullable& column_to, const ColumnString& from_column, CastParameters& castParms,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 

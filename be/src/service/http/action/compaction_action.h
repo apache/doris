@@ -40,6 +40,7 @@ const std::string PARAM_COMPACTION_TYPE = "compact_type";
 const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 const std::string PARAM_COMPACTION_FULL = "full";
+const std::string PARAM_COMPACTION_ROW_BINLOG_TTL = "row_binlog_ttl";
 const std::string PARAM_COMPACTION_FORCE = "force";
 
 /// This action is used for viewing the compaction status.

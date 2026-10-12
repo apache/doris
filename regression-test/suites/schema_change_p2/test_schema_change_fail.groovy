@@ -17,6 +17,7 @@
 
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.util.NodeType
+import org.apache.doris.regression.Config
 
 suite('test_schema_change_fail', 'p0,p2,nonConcurrent') {
     if (isCloudMode()) {
@@ -51,7 +52,15 @@ suite('test_schema_change_fail', 'p0,p2,nonConcurrent') {
 
     def followFe = frontends.stream().filter(fe -> !fe.IsMaster.toBoolean()).findFirst().orElse(null)
     def followFeUrl =  "jdbc:mysql://${followFe.Host}:${followFe.QueryPort}/?useLocalSessionState=false&allowLoadLocalInfile=false"
-    followFeUrl = context.config.buildUrlWithDb(followFeUrl, context.dbName)
+    if (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) {
+        followFeUrl = Config.buildUrlWithDb(followFeUrl, context.dbName,
+                context.config.otherConfigs.get("keyStorePath"),
+                context.config.otherConfigs.get("keyStorePassword"),
+                context.config.otherConfigs.get("trustStorePath"),
+                context.config.otherConfigs.get("trustStorePassword"))
+    } else {
+        followFeUrl = Config.buildUrlWithDb(followFeUrl, context.dbName)
+    }
 
     try {
         setFeConfig('disable_tablet_scheduler', true)

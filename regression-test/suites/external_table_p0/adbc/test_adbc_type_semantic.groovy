@@ -25,7 +25,7 @@
 //
 //   LARGEINT -> utf8   -> STRING     value kept, arithmetic lost
 //   JSON     -> utf8   -> STRING     text kept, json functions lost
-//   VARIANT  -> utf8   -> STRING     text kept, sub-column access lost
+//   VARIANT  -> native Arrow Variant -> VARIANT, including sub-column access
 //   IPV6     -> utf8   -> STRING     text kept
 //   IPV4     -> int32  -> INT        *** the value itself changes form ***
 //
@@ -264,9 +264,9 @@ suite("test_adbc_type_semantic", "p0,external") {
         qt_desc_variant """DESC ${catalogName}.${dbName}.t_variant"""
         qt_select_variant """SELECT id, c_var FROM ${catalogName}.${dbName}.t_variant ORDER BY id"""
         sameAsSourceText("t_variant", "c_var")
-        assertEquals("text", externalTypeOf("t_variant", "c_var"),
-                "VARIANT is serialised as Arrow utf8, so the external column is a string and its "
-                        + "sub-columns are no longer addressable through the catalog")
+        // The extension's binary storage must round-trip as Variant, not leak as two text fields.
+        assertTrue(externalTypeOf("t_variant", "c_var").startsWith("variant"))
+        qt_variant_subcolumn """SELECT id, CAST(c_var['a'] AS INT) FROM ${catalogName}.${dbName}.t_variant ORDER BY id"""
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
         sql """DROP DATABASE IF EXISTS internal.${dbName} FORCE"""

@@ -206,7 +206,7 @@ public final class StorageAdapter {
      * Broker/Local/Http verbatim backend maps stay clean — and only when a
      * {@code *config.resources} key is present (the only consumer of the marker).
      */
-    private static Map<String, String> withHadoopConfigDir(Map<String, String> props) {
+    public static Map<String, String> withHadoopConfigDir(Map<String, String> props) {
         if (props == null || props.containsKey("_HADOOP_CONFIG_DIR_")
                 || StringUtils.isBlank(Config.hadoop_config_dir)) {
             return props;

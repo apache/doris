@@ -19,16 +19,21 @@
 
 #include <arrow/type.h>
 
+#include "format/arrow/arrow_row_batch.h"
 #include "format/table/iceberg/schema.h"
 
 namespace doris::iceberg {
 
-class ArrowSchemaUtil {
+class IcebergArrowSchemaConvertor final : public ArrowSchemaConvertor {
 public:
-    // Use the UUID extension for Parquet schemas; batch conversion uses fixed-size storage.
-    static Status convert(const Schema* schema, const std::string& timezone,
-                          std::vector<std::shared_ptr<arrow::Field>>& fields,
-                          bool use_uuid_extension = false);
+    IcebergArrowSchemaConvertor(const Schema& schema, std::string timezone,
+                                std::string schema_json = {}, bool use_uuid_extension = false)
+            : _schema(schema),
+              _timezone(std::move(timezone)),
+              _schema_json(std::move(schema_json)),
+              _use_uuid_extension(use_uuid_extension) {}
+    Status get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const override;
+    Status convert_fields(std::vector<std::shared_ptr<arrow::Field>>& fields) const;
 
 private:
     static const char* PARQUET_FIELD_ID;
@@ -36,9 +41,13 @@ private:
     static const char* MAP_TYPE_VALUE;
     static const char* UUID_TYPE_VALUE;
 
-    static Status convert_to(const iceberg::NestedField& field,
-                             std::shared_ptr<arrow::Field>* arrow_field,
-                             const std::string& timezone, bool use_uuid_extension);
+    Status convert_to_arrow_field(const iceberg::NestedField& field,
+                                  std::shared_ptr<arrow::Field>* arrow_field) const;
+    const Schema& _schema;
+    const std::string _timezone;
+    const std::string _schema_json;
+    // Parquet writes retain UUID annotations while storage-only schema callers keep fixed binary.
+    const bool _use_uuid_extension;
 };
 
 } // namespace doris::iceberg

@@ -29,6 +29,7 @@
 #include "storage/row_cursor.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
+#include "storage/storage_layout.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
@@ -73,7 +74,7 @@ public:
                 break;
             }
             case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-                auto v = PrimitiveTypeConvertor<TYPE_DECIMALV2>::to_storage_field_type(
+                auto v = StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>::to_storage(
                         f.get<TYPE_DECIMALV2>());
                 memcpy(buf, &v, sizeof(v));
                 ptr = buf;

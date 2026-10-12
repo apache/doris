@@ -135,6 +135,11 @@ struct FrqPreludeColumns {
 // >= the previous window's).
 Status build_frq_prelude(const FrqPreludeColumns& cols, ByteSink* out);
 
+// Shared row codec for the resident builder and the bounded writer. The latter
+// stages one super-block at a time while retaining the same directory layout.
+void encode_frq_window_row(const WindowMeta& window, bool has_prx, uint64_t previous_last,
+                           ByteSink* output);
+
 // Reads and verifies a prelude buffer, exposing two-level skip access. The reader
 // parses the header + super_block_dir on open (verifying the trailing crc) and
 // eagerly decodes every window block into owned WindowMeta rows (the prelude is

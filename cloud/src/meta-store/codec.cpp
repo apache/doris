@@ -51,7 +51,7 @@ void encode_bytes(std::string_view bytes, std::string* b) {
  * @return 0 for success
  */
 int decode_bytes(std::string_view* in, std::string* out) {
-    if (in->at(0) != EncodingTag::BYTES_TAG) return -1;
+    if (in->empty() || in->at(0) != EncodingTag::BYTES_TAG) return -1;
     using byte = unsigned char;
     in->remove_prefix(1); // Remove bytes marker
     while (true) {

@@ -247,7 +247,9 @@ public:
 
         if constexpr (CastMode == CastModeType::StrictMode) {
             MutableColumnPtr column_to = nested_to_type->create_column();
-            RETURN_IF_ERROR(from_number_strict(*concrete_serde, *col_from, *column_to));
+            // WON'T write nulls to the result column, just raise errors. null_map is only used to
+            // skip invalid rows
+            RETURN_IF_ERROR(from_number_strict(*concrete_serde, *col_from, *column_to, null_map));
             block.get_by_position(result).column = std::move(column_to);
         } else {
             auto nullable_col_to = create_empty_nullable_column(nested_to_type);
@@ -260,16 +262,17 @@ public:
 private:
     static Status from_number_strict(const DataTypeTimeStampNsSerDe& serde,
                                      const typename FromDataType::ColumnType& column_from,
-                                     IColumn& column_to) {
+                                     IColumn& column_to, const NullMap::value_type* null_map) {
         if constexpr (IsDataTypeDecimal<FromDataType>) {
             return serde.template from_decimal_strict_mode_batch<FromDataType>(column_from,
-                                                                               column_to);
+                                                                               column_to, null_map);
         } else if constexpr (IsDataTypeInt<FromDataType>) {
-            return serde.template from_int_strict_mode_batch<FromDataType>(column_from, column_to);
+            return serde.template from_int_strict_mode_batch<FromDataType>(column_from, column_to,
+                                                                           null_map);
         } else {
             static_assert(IsDataTypeFloat<FromDataType>);
-            return serde.template from_float_strict_mode_batch<FromDataType>(column_from,
-                                                                             column_to);
+            return serde.template from_float_strict_mode_batch<FromDataType>(column_from, column_to,
+                                                                             null_map);
         }
     }
 

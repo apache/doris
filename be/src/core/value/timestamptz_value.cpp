@@ -31,6 +31,12 @@ bool TimestampTzValue::from_string(const StringRef& str, const cctz::time_zone* 
 }
 
 std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) const {
+    char buffer[64];
+    const int len = to_buffer(buffer, tz, scale);
+    return {buffer, static_cast<size_t>(len)};
+}
+
+int TimestampTzValue::to_buffer(char* buffer, const cctz::time_zone& tz, int scale) const {
     cctz::civil_second utc_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
                               _utc_dt.minute(), _utc_dt.second());
 
@@ -62,8 +68,6 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
                               (uint8_t)civ.hour(), (uint8_t)civ.minute(), (uint8_t)civ.second(),
                               _utc_dt.microsecond());
 
-    char buffer[64];
-
     int len = tmp_dt.to_buffer(buffer, scale);
     // timezone +03:00
     // buffer[len++] = ' ';
@@ -81,7 +85,7 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
         buffer[len++] = static_cast<char>('0' + offset_seconds / 10);
         buffer[len++] = static_cast<char>('0' + offset_seconds % 10);
     }
-    return {buffer, static_cast<size_t>(len)};
+    return len;
 }
 
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,

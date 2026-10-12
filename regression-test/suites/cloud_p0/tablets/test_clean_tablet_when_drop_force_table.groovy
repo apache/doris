@@ -17,6 +17,8 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
+import java.nio.charset.StandardCharsets
+
 
 suite('test_clean_tablet_when_drop_force_table', 'docker') {
     if (!isCloudMode()) {
@@ -40,11 +42,12 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
         'write_buffer_size=10240',
         'write_buffer_size_for_agg=10240',
         'sys_log_verbose_modules=task_worker_pool',
+        // This suite verifies report-driven tablet cleanup. Prevent compaction from
+        // independently removing a dropped tablet through sync_rowsets().
+        'disable_auto_compaction=true',
         'file_cache_background_gc_interval_ms=10',
         'file_cache_remove_block_qps_limit=10000',
         "enable_packed_file=${enablePackedFile}",
-        'enable_packed_file=false',
-        'disable_auto_compaction=true',
     ]
     options.recycleConfigs += [
         'recycler_sleep_before_scheduling_seconds=0',
@@ -56,22 +59,92 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
     options.cloudMode = true
     options.enableDebugPoints()
 
-    def checkBeLog = { String beLogPath ->
-        log.info("search be log path: {}", beLogPath)
-        def logFile = new File(beLogPath)
-        assertTrue(logFile.exists(), "BE log file not found: ${beLogPath}")
-        def queueZeroLine = logFile.readLines().find { line ->
-            line =~ /remove task info\. type=DROP, .*queue_size=0/
+    def captureBeLogStates = { Map tablets ->
+        tablets.values().collect { it[0].toString().toLong() }.toSet().collectEntries { Long backendId ->
+            def be = cluster.getBeByBackendId(backendId)
+            def logFile = new File(be.getLogFilePath())
+            assertTrue(logFile.exists(), "BE log file not found: ${logFile.absolutePath}")
+            [(backendId): [path: logFile.absolutePath, offset: logFile.length()]]
         }
-        assertTrue(queueZeroLine != null,
-                "Expected to find log line with queue_size=0 in ${beLogPath}, but none matched.")
-        log.info("found queue_size=0 log line: {}", queueZeroLine)
     }
 
-    def waitForTabletCacheState = { Collection tabletIds, boolean expectPresent, long timeoutMs = 60000L, long intervalMs = 2000L ->
+    def readBeLogSince = { Map logState ->
+        def logFile = new File(logState.path as String)
+        if (!logFile.exists()) {
+            return ""
+        }
+        long offset = logState.offset as long
+        if (logFile.length() < offset) {
+            offset = 0L
+        }
+        def raf = new RandomAccessFile(logFile, "r")
+        try {
+            raf.seek(offset)
+            long remaining = raf.length() - offset
+            if (remaining <= 0) {
+                return ""
+            }
+            assertTrue(remaining <= Integer.MAX_VALUE,
+                    "Too much new BE log data to inspect: ${remaining} bytes in ${logFile.absolutePath}")
+            byte[] bytes = new byte[(int) remaining]
+            raf.readFully(bytes)
+            return new String(bytes, StandardCharsets.UTF_8)
+        } finally {
+            raf.close()
+        }
+    }
+
+    def waitForTabletLogMarker = { Map tablets, Map logStates, String marker,
+                                   long timeoutMs = 60000L, long intervalMs = 500L ->
+        long start = System.currentTimeMillis()
+        def missingTabletIds = tablets.keySet().collect { it.toString() }
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            def logs = logStates.collectEntries { Long backendId, Map state ->
+                [(backendId): readBeLogSince.call(state)]
+            }
+            missingTabletIds = tablets.findAll { tabletId, tabletInfo ->
+                Long backendId = tabletInfo[0].toString().toLong()
+                !logs[backendId].readLines().any { line ->
+                    line.contains(marker) && line.contains("tablet_id=${tabletId}")
+                }
+            }.keySet().collect { it.toString() }
+            if (missingTabletIds.isEmpty()) {
+                return
+            }
+            sleep(intervalMs)
+        }
+        assertTrue(false, "Timed out waiting for BE log marker '${marker}', tablets=${missingTabletIds}")
+    }
+
+    def waitForDropTaskQueuesEmpty = { Map tablets, Map logStates,
+                                       long timeoutMs = 60000L, long intervalMs = 500L ->
+        long start = System.currentTimeMillis()
+        def pendingBackendIds = logStates.keySet().collect { it.toString() }
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            pendingBackendIds = logStates.findAll { Long backendId, Map state ->
+                def logText = readBeLogSince.call(state)
+                def tabletIds = tablets.findAll { tabletId, tabletInfo ->
+                    tabletInfo[0].toString().toLong() == backendId
+                }.keySet()
+                int lastSuccessfulDrop = tabletIds.collect { tabletId ->
+                    logText.lastIndexOf("drop cloud tablet_id=${tabletId}")
+                }.max() as int
+                lastSuccessfulDrop < 0 || !logText.substring(lastSuccessfulDrop).readLines().any { line ->
+                    line =~ /remove task info\. type=DROP, .*queue_size=0/
+                }
+            }.keySet().collect { it.toString() }
+            if (pendingBackendIds.isEmpty()) {
+                return
+            }
+            sleep(intervalMs)
+        }
+        assertTrue(false, "DROP task queue did not become empty on BEs ${pendingBackendIds}")
+    }
+
+    def waitForTabletCacheState = { Collection<Long> tabletIds, boolean expectPresent, long timeoutMs = 60000L, long intervalMs = 2000L ->
         long start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
-            boolean conditionMet = tabletIds.every { def tabletId ->
+            boolean conditionMet = tabletIds.every { Long tabletId ->
                 def rows = sql "select tablet_id from information_schema.file_cache_info where tablet_id = ${tabletId}"
                 expectPresent ? !rows.isEmpty() : rows.isEmpty()
             }
@@ -80,7 +153,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             }
             sleep(intervalMs)
         }
-        def stillPresent = tabletIds.findAll { def tabletId -> !(sql "select tablet_id from information_schema.file_cache_info where tablet_id = ${tabletId}").isEmpty() }
+        def stillPresent = tabletIds.findAll { Long tabletId -> !(sql "select tablet_id from information_schema.file_cache_info where tablet_id = ${tabletId}").isEmpty() }
         if (expectPresent) {
             assertTrue(false, "Tablet cache info never appeared for tablet ids ${stillPresent}")
         } else {
@@ -136,7 +209,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
         assertTrue(false, "File cache directories were not cleaned before timeout: ${remaining}")
     }
     
-    def testCase = { tableName, waitTime, useDp=false-> 
+    def testCase = { tableName, useDp=false ->
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
         sql """CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -226,50 +299,52 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             assertTrue(beforeGetFromBe.containsKey(it.Key))
             assertEquals(beforeGetFromBe[it.Key], it.Value[1])
         }
-        def tabletIds = beforeGetFromFe.keySet()
+        def tabletIds = beforeGetFromFe.keySet().collect { it.toString().toLong() }
         waitForTabletCacheState.call(tabletIds, true, 90000L)
+        def beLogStates = captureBeLogStates.call(beforeGetFromFe)
         if (useDp) {
             GetDebugPoint().enableDebugPointForAllBEs("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
         }
-        // after drop table force
-        sql """select * from $tableName limit 10"""
 
-        sql """
-            DROP TABLE $tableName FORCE
-        """
-        def futrue
-        if (useDp) {
-            futrue = thread {
-                sleep(10 * 1000)
+        try {
+            sql """
+                DROP TABLE $tableName FORCE
+            """
+
+            if (useDp) {
+                // Prove that the first report-driven DROP reached every target BE and failed.
+                waitForTabletLogMarker.call(beforeGetFromFe, beLogStates,
+                        "WorkPoolCloudDropTablet.drop_tablet_callback.failed")
+
+                // A failed DROP callback must leave the tablets for a later report retry.
+                def beTablets = getTabletAndBeHostFromBe(cluster.getAllBackends()).keySet()
+                assertTrue(beforeGetFromFe.keySet().every { beTablets.contains(it) },
+                        "Tablet disappeared before the DROP callback retry: before=${beforeGetFromFe.keySet()}, after=${beTablets}")
+            }
+        } finally {
+            if (useDp) {
                 GetDebugPoint().disableDebugPointForAllBEs("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
             }
         }
-        def start = System.currentTimeMillis() / 1000
-        // tablet can't find in be 
+
+        // A later tablet report must retry the DROP callback and remove every tablet.
         awaitUntil(500) {
             def beTablets = getTabletAndBeHostFromBe(cluster.getAllBackends()).keySet()
             logger.info("before drop tablets {}, after tablets {}", beforeGetFromFe, beTablets)
             beforeGetFromFe.keySet().every { !getTabletAndBeHostFromBe(cluster.getAllBackends()).containsKey(it) }
         }
-        logger.info("table {}, cost {}s", tableName, System.currentTimeMillis() / 1000 - start)
-        assertTrue(System.currentTimeMillis() / 1000 - start > waitTime)
-        if (useDp) {
-            futrue.get()
-        }
+        waitForTabletLogMarker.call(beforeGetFromFe, beLogStates, "drop cloud tablet_id=")
 
         // Wait until async file-cache GC removes the physical cache directories.
         waitForCacheDirsCleaned.call(beforeGetFromFe, mergedCacheDir, 90000L, 1000L)
 
-        String beLogPath = cluster.getBeByIndex(1).getLogFilePath()
-        checkBeLog(beLogPath)
-
+        waitForDropTaskQueuesEmpty.call(beforeGetFromFe, beLogStates)
         waitForTabletCacheState.call(tabletIds, false, 90000L)
     }
 
     docker(options) {
-        // because rehash_tablet_after_be_dead_seconds=5
-        testCase("test_clean_tablet_when_drop_force_table_1", 5)
-        // report retry
-        testCase("test_clean_tablet_when_drop_force_table_2", 10, true) 
+        testCase("test_clean_tablet_when_drop_force_table_1")
+        // Verify that a failed DROP callback is retried after a later tablet report.
+        testCase("test_clean_tablet_when_drop_force_table_2", true)
     }
 }

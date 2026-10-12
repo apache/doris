@@ -22,9 +22,13 @@ COMPLETE
 2	2
 
 -- !trigger_table_not_need_refresh --
-COMPLETE
+NOT_REFRESH
 
 -- !after_trigger_table --
+1	1
+2	2
+
+-- !after_trigger_table_complete --
 1	1
 2	2
 3	3

@@ -21,6 +21,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.exception.JobException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -117,5 +118,13 @@ public class StreamingInsertJobStatusTransitionTest {
 
         Assertions.assertEquals(JobStatus.PENDING, job.getJobStatus());
         Assertions.assertFalse(job.isTolerateSchemaChange());
+    }
+
+    @Test
+    public void testFinishedStatusCannotBeOverwritten() {
+        StreamingInsertJob job = newJob(JobStatus.FINISHED);
+
+        Assertions.assertThrows(JobException.class, () -> job.updateJobStatus(JobStatus.PAUSED));
+        Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
     }
 }

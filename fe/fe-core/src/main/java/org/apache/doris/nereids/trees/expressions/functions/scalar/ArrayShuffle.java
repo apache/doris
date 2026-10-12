@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -26,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -36,7 +39,7 @@ import java.util.List;
  * ScalarFunction 'array_shuffle'
  *  with 1 or 2 arguments : array_shuffle(arr) or array_shuffle(arr, seed)
  */
-public class ArrayShuffle extends ScalarFunction
+public class ArrayShuffle extends UniqueFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
@@ -49,18 +52,23 @@ public class ArrayShuffle extends ScalarFunction
      * constructor with 1 arguments.
      */
     public ArrayShuffle(Expression arg) {
-        super("array_shuffle", arg);
+        this(VolatileIdentity.newVolatileIdentity(), ImmutableList.of(arg));
     }
 
     /**
      * constructor with 2 arguments.
      */
     public ArrayShuffle(Expression arg, Expression arg1) {
-        super("array_shuffle", arg, arg1);
+        this(VolatileIdentity.newVolatileIdentity(), ImmutableList.of(arg, arg1));
+    }
+
+    private ArrayShuffle(VolatileIdentity volatileIdentity, List<Expression> children) {
+        // A seed fixes the sequence within a block, not the permutation for an individual row.
+        super("array_shuffle", volatileIdentity, children);
     }
 
     /** constructor for withChildren and reuse signature */
-    private ArrayShuffle(ScalarFunctionParams functionParams) {
+    private ArrayShuffle(UniqueFunctionParams functionParams) {
         super(functionParams);
     }
 
@@ -71,6 +79,26 @@ public class ArrayShuffle extends ScalarFunction
     public ArrayShuffle withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
         return new ArrayShuffle(getFunctionParams(children));
+    }
+
+    @Override
+    public boolean foldable() {
+        // Only NULL propagation is safe; non-NULL permutations depend on the input block.
+        return ExpressionUtils.hasNullLiteral(getArguments());
+    }
+
+    @Override
+    public ArrayShuffle withIgnoreUniqueId(boolean ignoreUniqueId) {
+        return new ArrayShuffle(volatileIdentity.withIgnoreUniqueId(ignoreUniqueId), children);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // The rows of a block draw from one random sequence that starts from the seed,
+        // so a per-row seed would be ignored.
+        if (arity() == 2 && !getArgument(1).isConstant()) {
+            throw new AnalysisException("The seed of array_shuffle must be a constant: " + toSql());
+        }
     }
 
     @Override

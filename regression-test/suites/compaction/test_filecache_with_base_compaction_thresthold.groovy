@@ -122,6 +122,81 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         } while (running)
     }
 
+    def rowsetStartVersion = { rowsetStr ->
+        rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[0].toInteger()
+    }
+
+    def rowsetId = { rowsetStr ->
+        rowsetStr.split(" ")[4]
+    }
+
+    def listRowsetCache = { be_host, be_http_port, rowset_id ->
+        Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=list_cache&value=${rowset_id}_0.dat", true)
+    }
+
+    def waitForRowsetsCacheAbsent = { be_host, be_http_port, rowsets, timeoutMillis ->
+        long deadline = System.currentTimeMillis() + timeoutMillis
+        def lastByRowset = [:]
+        while (System.currentTimeMillis() < deadline) {
+            def pendingRowsetIds = []
+            rowsets.each { rowsetStr ->
+                if (rowsetStartVersion(rowsetStr) != 0) {
+                    def id = rowsetId(rowsetStr)
+                    def data = listRowsetCache(be_host, be_http_port, id)
+                    lastByRowset[id] = data
+                    if (!data.isEmpty()) {
+                        pendingRowsetIds.add(id)
+                    }
+                }
+            }
+            if (pendingRowsetIds.isEmpty()) {
+                return
+            }
+            logger.info("waiting async file cache clear, pending rowset ids: ${pendingRowsetIds}")
+            sleep(1000)
+        }
+        assertTrue(false, "Timed out waiting rowset cache clear, last=${lastByRowset}".toString())
+    }
+
+    def getBaseCompactionInputStats = { tablet ->
+        def beHost = backendId_to_backendIP[tablet.BackendId]
+        def beBrpcPort = backendId_to_backendBrpcPort[tablet.BackendId]
+        def readBvar = { String metricName ->
+            def (code, out, err) = curl("GET", "http://${beHost}:${beBrpcPort}/vars/${metricName}")
+            assertEquals(0, code, "Failed to read ${metricName}, err=${err}".toString())
+            def fields = out.trim().split(":", 2)
+            assertEquals(2, fields.length, "Unexpected ${metricName} response: ${out}".toString())
+            return fields[1].trim().toLong()
+        }
+        def stats = [
+                total : readBvar("base_compaction_input_size"),
+                cached: readBvar("base_compaction_input_cached_size")
+        ]
+        logger.info("base compaction cumulative input stats: ${stats}")
+        return stats
+    }
+
+    def assertBaseCompactionInputCacheRatio = { Map before, Map after, double threshold,
+                                                boolean expectAboveThreshold ->
+        long totalDelta = (after.total as long) - (before.total as long)
+        long cachedDelta = (after.cached as long) - (before.cached as long)
+        assertTrue(totalDelta > 0,
+                "Expected positive base compaction input size delta, before=${before}, after=${after}".toString())
+        assertTrue(cachedDelta >= 0 && cachedDelta <= totalDelta,
+                "Invalid base compaction cached input delta, before=${before}, after=${after}".toString())
+        double actualRatio = cachedDelta / (double) totalDelta
+        logger.info("base compaction input cache ratio: threshold=${threshold}, "
+                + "expectAboveThreshold=${expectAboveThreshold}, totalDelta=${totalDelta}, "
+                + "cachedDelta=${cachedDelta}, actualRatio=${actualRatio}")
+        if (expectAboveThreshold) {
+            assertTrue(actualRatio > threshold,
+                    "Expected input cache ratio ${actualRatio} > threshold ${threshold}".toString())
+        } else {
+            assertTrue(actualRatio <= threshold,
+                    "Expected input cache ratio ${actualRatio} <= threshold ${threshold}".toString())
+        }
+    }
+
     docker(options) {
         def fes = sql_return_maparray "show frontends"
         logger.info("frontends: ${fes}")
@@ -134,10 +209,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         sql """ DROP TABLE IF EXISTS ${testTable} force;"""
 
         // ================= case1 file_cache_keep_base_compaction_output_min_hit_ratio = 0.5 =================
-        // real_ratio > file_cache_keep_base_compaction_output_min_hit_ratio = 0.5, it will write file cache
-        // should_cache_compaction_output, tablet_id=1758186443350, input_rowsets_hit_cache_ratio=0.685087,
-        // _input_rowsets_cached_size=77559390, _input_rowsets_total_size=113210974,enable_file_cache_keep_base_compaction_output=0,
-        // file_cache_keep_base_compaction_output_min_hit_ratio=0.5
+        // Verify the measured input cache ratio is above 0.5 and the output is cached.
         sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
                 ss_sold_date_sk bigint,
@@ -224,8 +296,10 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         waitForCompaction(tablet)
         triggerCumulativeCompaction(tablet)
         waitForCompaction(tablet)
+        def baseCompactionStatsBefore = getBaseCompactionInputStats(tablet)
         triggerBaseCompaction(tablet)
         waitForCompaction(tablet)
+        def baseCompactionStatsAfter = getBaseCompactionInputStats(tablet)
 
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
@@ -265,23 +339,14 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             assertTrue(segments > 0)
         }
 
-        def (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/base_compaction_input_size")
-        logger.info("base_compaction_input_size: ${out_0}")
-        def size = out_0.trim().split(":")[1].trim().toInteger()
-        assertTrue(size > 100 * 1024 * 1024)
-
-        (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/base_compaction_input_cached_size")
-        logger.info("base_compaction_input_cached_size: ${out_0}")
-        size = out_0.trim().split(":")[1].trim().toInteger()
-        assertTrue(size > 70 * 1024 * 1024)
+        assertBaseCompactionInputCacheRatio(baseCompactionStatsBefore, baseCompactionStatsAfter,
+                0.5, true)
 
         // ================= case2 file_cache_keep_base_compaction_output_min_hit_ratio = 0.9 =================
-        // real_ratio < file_cache_keep_base_compaction_output_min_hit_ratio = 0.9, so not write file cache
-        // should_cache_compaction_output, tablet_id=1758186443391, input_rowsets_hit_cache_ratio=0.666563,
-        // _input_rowsets_cached_size=75462238, _input_rowsets_total_size=113210974, enable_file_cache_keep_base_compaction_output=0,
-        // file_cache_keep_base_compaction_output_min_hit_ratio=0.9
+        // Verify the measured input cache ratio does not exceed 0.9 and the output is not cached.
         result = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=clear&sync=true", true)
         logger.info("clear file cache data: ${result}")
+        waitForRowsetsCacheAbsent(be_host, be_http_port, final_rowsets, 60000)
 
         for (int i = 0; i < final_rowsets.size(); i++) {
             def rowsetStr = final_rowsets[i]
@@ -387,8 +452,10 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         waitForCompaction(tablet)
 
         sql """ select * from ${testTable} order by ss_ticket_number,ss_ext_sales_price limit 32769 """
+        baseCompactionStatsBefore = getBaseCompactionInputStats(tablet)
         triggerBaseCompaction(tablet)
         waitForCompaction(tablet)
+        baseCompactionStatsAfter = getBaseCompactionInputStats(tablet)
 
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
@@ -428,23 +495,14 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             assertTrue(segments == 0)
         }
 
-        (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/base_compaction_input_size")
-        logger.info("base_compaction_input_size: ${out_0}")
-        size = out_0.trim().split(":")[1].trim().toInteger()
-        assertTrue(size > 2 * 100 * 1024 * 1024)
-
-        (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/base_compaction_input_cached_size")
-        logger.info("base_compaction_input_cached_size: ${out_0}")
-        size = out_0.trim().split(":")[1].trim().toInteger()
-        assertTrue(size > 70 * 1024 * 1024)
+        assertBaseCompactionInputCacheRatio(baseCompactionStatsBefore, baseCompactionStatsAfter,
+                0.9, false)
 
         // ================= case3: file_cache_keep_base_compaction_output_min_hit_ratio = 0 =================
-        // real_ratio > file_cache_keep_base_compaction_output_min_hit_ratio = 0, it will write file cache
-        // should_cache_compaction_output, tablet_id=1758186443436, input_rowsets_hit_cache_ratio=0.657301,
-        // _input_rowsets_cached_size=74413662, _input_rowsets_total_size=113210974, enable_file_cache_keep_base_compaction_output=0,
-        // file_cache_keep_base_compaction_output_min_hit_ratio=0
+        // Verify the measured input cache ratio is above 0 and the output is cached.
         result = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=clear&sync=true", true)
         logger.info("clear file cache data: ${result}")
+        waitForRowsetsCacheAbsent(be_host, be_http_port, final_rowsets, 60000)
 
         for (int i = 0; i < final_rowsets.size(); i++) {
             def rowsetStr = final_rowsets[i]
@@ -548,8 +606,10 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         waitForCompaction(tablet)
         triggerCumulativeCompaction(tablet)
         waitForCompaction(tablet)
+        baseCompactionStatsBefore = getBaseCompactionInputStats(tablet)
         triggerBaseCompaction(tablet)
         waitForCompaction(tablet)
+        baseCompactionStatsAfter = getBaseCompactionInputStats(tablet)
 
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
@@ -590,23 +650,14 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             assertTrue(data.size() > 0)
         }
 
-        (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/base_compaction_input_size")
-        logger.info("base_compaction_input_size: ${out_0}")
-        size = out_0.trim().split(":")[1].trim().toInteger()
-        assertTrue(size > 3 * 100 * 1024 * 1024)
-
-        (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/base_compaction_input_cached_size")
-        logger.info("base_compaction_input_cached_size: ${out_0}")
-        size = out_0.trim().split(":")[1].trim().toInteger()
-        assertTrue(size > 70 * 1024 * 1024)
+        assertBaseCompactionInputCacheRatio(baseCompactionStatsBefore, baseCompactionStatsAfter,
+                0.0, true)
 
         // ================= case4: file_cache_keep_base_compaction_output_min_hit_ratio = 1 =================
-        // real_ratio < file_cache_keep_base_compaction_output_min_hit_ratio = 1, it will write not file cache
-        // should_cache_compaction_output, tablet_id=1758186443474, input_rowsets_hit_cache_ratio=0.666563, _input_rowsets_cached_size=75462238,
-        // _input_rowsets_total_size=113210974, enable_file_cache_keep_base_compaction_output=0,
-        // file_cache_keep_base_compaction_output_min_hit_ratio=1
+        // The measured ratio cannot exceed 1, so the output must not be cached.
         result = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=clear&sync=true", true)
         logger.info("clear file cache data: ${result}")
+        waitForRowsetsCacheAbsent(be_host, be_http_port, final_rowsets, 60000)
 
         for (int i = 0; i < final_rowsets.size(); i++) {
             def rowsetStr = final_rowsets[i]
@@ -716,8 +767,10 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
 
+        baseCompactionStatsBefore = getBaseCompactionInputStats(tablet)
         triggerBaseCompaction(tablet)
         waitForCompaction(tablet)
+        baseCompactionStatsAfter = getBaseCompactionInputStats(tablet)
 
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
@@ -757,14 +810,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             assertTrue(segments == 0)
         }
 
-        (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/base_compaction_input_size")
-        logger.info("base_compaction_input_size: ${out_0}")
-        size = out_0.trim().split(":")[1].trim().toInteger()
-        assertTrue(size > 4 * 100 * 1024 * 1024)
-
-        (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/base_compaction_input_cached_size")
-        logger.info("base_compaction_input_cached_size: ${out_0}")
-        size = out_0.trim().split(":")[1].trim().toInteger()
-        assertTrue(size > 70 * 1024 * 1024)
+        assertBaseCompactionInputCacheRatio(baseCompactionStatsBefore, baseCompactionStatsAfter,
+                1.0, false)
     }
 }

@@ -35,7 +35,9 @@ import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
@@ -227,6 +229,10 @@ public final class PaimonTypeMapping {
         switch (name) {
             case "BOOLEAN":
                 return new BooleanType();
+            case "TINYINT":
+                return new TinyIntType();
+            case "SMALLINT":
+                return new SmallIntType();
             case "INT":
             case "INTEGER":
                 return new IntType();
@@ -253,11 +259,12 @@ public final class PaimonTypeMapping {
             case "DECIMAL256":
                 return new DecimalType(type.getPrecision(), type.getScale());
             case "DATETIME":
-            case "DATETIMEV2":
-                // Legacy parity: no-arg TimestampType (precision defaults to 6); the datetime
-                // scale is intentionally dropped to match DorisToPaimonTypeVisitor.atomic, and it
-                // is a plain timestamp (NOT LocalZonedTimestampType).
                 return new TimestampType();
+            case "DATETIMEV2":
+                return new TimestampType(type.getPrecision());
+            case "TIMESTAMPTZ":
+                // Preserve the instant contract when deriving an external schema.
+                return new LocalZonedTimestampType(type.getPrecision());
             case "VARBINARY":
                 return new VarBinaryType(VarBinaryType.MAX_LENGTH);
             case "VARIANT":
@@ -313,8 +320,9 @@ public final class PaimonTypeMapping {
         private final boolean mapTimestampTz;
 
         public Options(boolean mapBinaryToVarbinary, boolean mapTimestampTz) {
-            this.mapBinaryToVarbinary = mapBinaryToVarbinary;
-            this.mapTimestampTz = mapTimestampTz;
+            // The flags are retained for callers, but external logical mappings are mandatory.
+            this.mapBinaryToVarbinary = true;
+            this.mapTimestampTz = true;
         }
 
         public boolean isMapBinaryToVarbinary() {

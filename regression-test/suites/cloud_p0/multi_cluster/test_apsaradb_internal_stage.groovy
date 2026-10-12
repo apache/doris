@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_apsarad_internal_stage_copy_into") {
+    withRestoredMultiClusterState(false) {
     // Internal and external stage cross use
     def tableNamExternal = "customer_internal_stage"
     //def token = "greedisgood9999"
@@ -32,9 +33,9 @@ suite("test_apsarad_internal_stage_copy_into") {
     List<String> beUniqueIdList = new ArrayList<>()
 
     String[] bes = context.config.multiClusterBes.split(',');
-    println("the value is " + context.config.multiClusterBes);
+    logger.info("the value is " + context.config.multiClusterBes);
     for(String values : bes) {
-        println("the value is " + values);
+        logger.info("the value is " + values);
         String[] beInfo = values.split(':');
         ipList.add(beInfo[0]);
         hbPortList.add(beInfo[1]);
@@ -42,10 +43,10 @@ suite("test_apsarad_internal_stage_copy_into") {
         beUniqueIdList.add(beInfo[3]);
     }
 
-    println("the ip is " + ipList);
-    println("the heartbeat port is " + hbPortList);
-    println("the http port is " + httpPortList);
-    println("the be unique id is " + beUniqueIdList);
+    logger.info("the ip is " + ipList);
+    logger.info("the heartbeat port is " + hbPortList);
+    logger.info("the http port is " + httpPortList);
+    logger.info("the be unique id is " + beUniqueIdList);
 
     for (unique_id : beUniqueIdList) {
         resp = get_cluster.call(unique_id);
@@ -68,7 +69,7 @@ suite("test_apsarad_internal_stage_copy_into") {
     assertTrue(showResult.size() == 1);
 
     for (row : showResult) {
-        println row
+        logger.info("row: ${row.toString()}")
     }
 
     try {
@@ -94,13 +95,14 @@ suite("test_apsarad_internal_stage_copy_into") {
     def tableName = "customer_apsaradb_internal_stage"
 
     def uploadFile = { remoteFilePath, localFilePath ->
+        assertTrue(new File(localFilePath).isFile(), "Missing upload fixture: ${localFilePath}")
         StringBuilder strBuilder = new StringBuilder()
-        strBuilder.append("""curl -u """ + context.config.feCloudHttpUser + ":" + context.config.feCloudHttpPassword)
+        strBuilder.append("""curl -u """ + context.config.feHttpUser + ":" + context.config.feHttpPassword)
         strBuilder.append(""" -H fileName:""" + remoteFilePath)
         strBuilder.append(""" -H host:""" + "private")
         strBuilder.append(""" -T """ + localFilePath)
-        def feHttpAddress = context.config.isDorisEnv ? context.config.feHttpAddress : context.config.feCloudHttpAddress
-        strBuilder.append(""" -L http://""" + feHttpAddress + """/copy/upload""")
+        strBuilder.append(""" -L ${getDorisHttpScheme()}://""" + context.config.feHttpAddress +
+                """/copy/upload${getDorisCurlTlsOptions()}""")
 
         String command = strBuilder.toString()
         logger.info("upload command=" + command)
@@ -109,7 +111,7 @@ suite("test_apsarad_internal_stage_copy_into") {
         def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
         def out = process.getText()
         logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
+        assertEquals(0, code, "Internal stage upload failed")
     }
 
     def createTable = {
@@ -143,7 +145,7 @@ suite("test_apsarad_internal_stage_copy_into") {
     }
 
     def getCloudConf = {
-        configResult = sql """ ADMIN SHOW FRONTEND CONFIG """
+        def configResult = sql """ ADMIN SHOW FRONTEND CONFIG """
         for (def r : configResult) {
             assertTrue(r.size() > 2)
             if (r[0] == "cloud_delete_loaded_internal_stage_files") {
@@ -157,9 +159,8 @@ suite("test_apsarad_internal_stage_copy_into") {
     logger.info("cloud_delete_loaded_internal_stage_files=" + cloud_delete_loaded_internal_stage_files)
 
     try {
-        setFeConfig('apsaradb_env_enabled', true)
         def fileName = "internal_customer.csv"
-        def filePath = "${context.config.dataPath}/cloud/copy_into/" + fileName
+        def filePath = "${context.config.dataPath}/cloud_p0/copy_into/" + fileName
         def remoteFileName = fileName + "test_apsaradb_internal_stage"
         uploadFile(remoteFileName, filePath)
 
@@ -193,7 +194,7 @@ suite("test_apsarad_internal_stage_copy_into") {
         }
 
     } finally {
-        setFeConfig('apsaradb_env_enabled', false)
         sql """ DROP TABLE IF EXISTS ${tableName}; """
+    }
     }
 }

@@ -62,13 +62,13 @@ public class AutoProfileTest {
         profile.autoProfileDurationMs = 10000;
         Thread.sleep(100);
         profile.updateSummary(summaryInfo, true, null);
-        Assertions.assertNull(ProfileManager.getInstance().queryIdToProfileMap.get(profile.getId()));
+        Assertions.assertNull(ProfileManager.getInstance().profileIdToProfileMap.get(profile.getId()));
 
         profile = createProfile();
         profile.setSummaryProfile(summaryProfile);
         profile.autoProfileDurationMs = 50;
         Thread.sleep(200);
         profile.updateSummary(summaryInfo, true, null);
-        Assertions.assertNotNull(ProfileManager.getInstance().queryIdToProfileMap.get(profile.getId()));
+        Assertions.assertNotNull(ProfileManager.getInstance().profileIdToProfileMap.get(profile.getId()));
     }
 }

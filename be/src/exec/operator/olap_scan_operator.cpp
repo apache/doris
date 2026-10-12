@@ -126,6 +126,8 @@ PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
 
 Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
+    _condition_cache_lookup_counter =
+            ADD_COUNTER(_scanner_profile, "ConditionCacheLookup", TUnit::UNIT);
     // Rows read from storage.
     // Include the rows read from doris page cache.
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);

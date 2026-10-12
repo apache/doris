@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
+import org.apache.doris.regression.util.NodeType
 
 suite("test_sink_tolerate", "docker") {
     def options = new ClusterOptions()

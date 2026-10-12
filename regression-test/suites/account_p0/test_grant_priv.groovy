@@ -40,7 +40,7 @@ suite("test_grant_priv") {
 
     // test only have select_priv, can not grant to other user
     sql """grant select_priv on ${dbName}.* to ${user1}"""
-    connect(user1, "${pwd}", url) {
+    connectToDoris(user1, "${pwd}", url) {
         try {
             sql """grant select_priv on ${dbName}.* to ${user2}"""
             Assert.fail("can not grant to other user");
@@ -51,7 +51,7 @@ suite("test_grant_priv") {
 
     // test both have select_priv and grant_priv , can grant to other user
     sql """grant grant_priv on ${dbName}.* to ${user1}"""
-    connect(user1, "${pwd}", url) {
+    connectToDoris(user1, "${pwd}", url) {
         try {
             sql """grant select_priv on ${dbName}.* to ${user2}"""
         } catch (Exception e) {
@@ -96,7 +96,7 @@ suite("test_grant_priv") {
     sql """grant select_priv on *.*.* to role ${role2}"""
     sql """grant '${role1}' to ${user1}"""
     // test only have role1 can not grant
-    connect(user1, "${pwd}", url) {
+    connectToDoris(user1, "${pwd}", url) {
         test {
                  sql """grant select_priv on *.*.* to ${user2}"""
                   exception "denied"
@@ -105,7 +105,7 @@ suite("test_grant_priv") {
     sql """revoke '${role1}' from ${user1}"""
     sql """grant '${role2}' to ${user1}"""
     // test only have role2 can not grant
-    connect(user1, "${pwd}", url) {
+    connectToDoris(user1, "${pwd}", url) {
         test {
                   sql """grant select_priv on *.*.* to ${user2}"""
                   exception "denied"
@@ -113,7 +113,7 @@ suite("test_grant_priv") {
     }
     // test both have role1 and role2 can grant to other
     sql """grant '${role1}' to ${user1}"""
-    connect(user1, "${pwd}", url) {
+    connectToDoris(user1, "${pwd}", url) {
             sql """grant select_priv on *.*.* to ${user2}"""
         }
     sql """drop user if exists ${user1}"""

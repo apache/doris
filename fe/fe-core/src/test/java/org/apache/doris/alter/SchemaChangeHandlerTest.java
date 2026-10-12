@@ -189,7 +189,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
-        createTable(create);
+        createTableWithRowBinlog(create);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -259,7 +259,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='true');";
-        createTable(create);
+        createTableWithRowBinlog(create);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -423,7 +423,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
-        createTable(create);
+        createTableWithRowBinlog(create);
         expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v1 BIGINT", "Table With binlog<row>");
 
         // 1b) RENAME COLUMN / REORDER COLUMNS are not allowed on row binlog tables either.
@@ -441,7 +441,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW');";
         try {
-            createTable(createVariant);
+            createTableWithRowBinlog(createVariant);
             Assertions.fail("Expected exception for VARIANT column");
         } catch (Exception e) {
             Assertions.assertTrue(e.getMessage().toLowerCase().contains("variant"));
@@ -453,7 +453,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW');";
-        createTable(create2);
+        createTableWithRowBinlog(create2);
         expectException("ALTER TABLE test." + tableName2 + " ADD COLUMN v2 VARIANT", "VARIANT");
 
         // 3) AUTO_INCREMENT not supported
@@ -463,7 +463,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW');";
         try {
-            createTable(createAutoinc);
+            createTableWithRowBinlog(createAutoinc);
             Assertions.fail("Expected exception for AUTO_INCREMENT column");
         } catch (Exception e) {
             Assertions.assertTrue(e.getMessage().toLowerCase().contains("auto"));
@@ -483,7 +483,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
-        createTable(create);
+        createTableWithRowBinlog(create);
 
         alterTable("ALTER TABLE test." + tableName + " ADD PARTITION p3 VALUES LESS THAN (\"30\")",
                 connectContext);
@@ -504,7 +504,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         String source = "CREATE TABLE test.row_binlog_replace_source (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1');";
-        createTable(target);
+        createTableWithRowBinlog(target);
         createTable(source);
         String alterStmt = "ALTER TABLE test.row_binlog_replace_target REPLACE WITH TABLE "
                 + "row_binlog_replace_source PROPERTIES('swap' = 'true')";

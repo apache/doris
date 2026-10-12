@@ -24,7 +24,6 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.MatchPredicate;
-import org.apache.doris.analysis.ShortCircuitFunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
@@ -124,7 +123,7 @@ public class ExpressionTranslatorTest {
                 expression, new PlanTranslatorContext());
         TExprNode thriftNode = ExprToThriftVisitor.treeToThrift(translated).getNodes().get(0);
 
-        Assertions.assertInstanceOf(ShortCircuitFunctionCallExpr.class, translated);
+        Assertions.assertTrue(translated.isShortCircuitEvaluation());
         Assertions.assertTrue(thriftNode.isSetShortCircuitEvaluation());
         Assertions.assertTrue(thriftNode.isShortCircuitEvaluation());
     }

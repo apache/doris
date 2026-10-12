@@ -16,6 +16,7 @@
 // under the License.
 
 #include <cstddef>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -334,6 +335,22 @@ TEST(VFunctionArrayAggregationTest, TestArrayAverageNullable) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_DOUBLE, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE, true));
+}
+
+TEST(VFunctionArrayAggregationTest, TestArrayAverageLargeIntegers) {
+    const std::string func_name = "array_avg";
+    // The sum is 1. A double sum loses the 1 next to the large values and gives 0.
+    std::vector<std::pair<std::vector<AnyValue<Int64>>, AnyValue<double>>> bigint_data_set = {
+            {{std::numeric_limits<Int64>::max(), 1, -std::numeric_limits<Int64>::max()}, 1.0 / 3},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(
+            func_name, bigint_data_set, PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_DOUBLE));
+    std::vector<std::pair<std::vector<AnyValue<Int128>>, AnyValue<double>>> largeint_data_set = {
+            {{std::numeric_limits<Int128>::max(), 1, -std::numeric_limits<Int128>::max()}, 1.0 / 3},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(
+            func_name, largeint_data_set, PrimitiveType::TYPE_LARGEINT,
+            PrimitiveType::TYPE_DOUBLE));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayProduct) {

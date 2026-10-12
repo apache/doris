@@ -77,12 +77,12 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "storage/binlog.h"
-#include "storage/compaction/collection_similarity.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_topn_runtime.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
@@ -163,6 +163,7 @@ void SegmentIterator::_init_row_bitmap_by_condition_cache() {
 
             // Increment search count when digest != 0
             DorisMetrics::instance()->condition_cache_search_count->increment(1);
+            _opts.stats->condition_cache_lookup_count++;
 
             ConditionCacheHandle handle;
             _find_condition_cache = condition_cache->lookup(cache_key, &handle);

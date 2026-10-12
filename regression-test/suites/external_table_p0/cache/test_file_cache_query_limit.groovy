@@ -50,6 +50,11 @@ suite("test_file_cache_query_limit", "p0,external,nonConcurrent") {
 
     sql """set enable_file_cache=true"""
     sql """set disable_file_cache=false"""
+    // The per-query file cache limit is best-effort: once a query reaches it, BlockFileCache::try_reserve()
+    // evicts only the query's own blocks that no reader holds, and admits the new block anyway when the rest
+    // are still being read. The bound asserted below holds only while few blocks are held at once, so the
+    // scans run with one scanner per instance; with up to 16 the limited query caches well over its limit.
+    sql """set max_file_scanners_concurrency=1"""
 
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent
     // to testing with multiple backends having identical configurations, but simpler in logic.

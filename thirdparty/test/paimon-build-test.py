@@ -53,7 +53,7 @@ class PaimonBuildTest(unittest.TestCase):
         return subprocess.run(["bash", "-ec", script], env=self.env,
                               cwd=self.work, text=True, capture_output=True)
 
-    def check_install(self, system, missing, clean=0):
+    def check_install(self, system, missing, clean=0, empty=None, expect_rebuild=False, installed_only=False):
         script = (ROOT / "build.sh").read_text()
         gate = script[script.index("# build thirdparty libraries if necessary."):
                       script.index("update_submodule() {")]
@@ -64,15 +64,21 @@ class PaimonBuildTest(unittest.TestCase):
                  "include/paimon_rust/paimon.h"]
         for name in files:
             if name != missing:
-                self.write("installed/" + name)
+                self.write("installed/" + name, "" if name == empty else "complete")
         # Execute the real installation gate, replacing only the expensive build.
-        self.executable("build-thirdparty.sh", 'printf "%s\\n" "$*" > "$BUILD_LOG"\n')
+        if not installed_only:
+            self.executable("build-thirdparty.sh", 'printf "%s\\n" "$*" > "$BUILD_LOG"\n')
         self.env.update(DORIS_THIRDPARTY=str(self.work), TARGET_SYSTEM=system,
                         CLEAN=str(clean), PARALLEL="2", BUILD_LOG=str(self.work / "build.log"))
         result = self.run_bash(gate)
+        if installed_only and (missing is not None or expect_rebuild):
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Refresh the compilation image", result.stderr)
+            self.assertEqual((self.work / "installed/lib64/liblance_c.a").read_text(), "complete")
+            return
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((self.work / "build.log").exists(), missing is not None)
-        if missing is not None:
+        self.assertEqual((self.work / "build.log").exists(), missing is not None or expect_rebuild)
+        if missing is not None or expect_rebuild:
             args = (self.work / "build.log").read_text().strip()
             self.assertEqual(args, "-j 2" + (" --clean" if clean else ""))
             # A full rebuild also replaces Lance built with the previous Rust version.
@@ -96,9 +102,80 @@ class PaimonBuildTest(unittest.TestCase):
     def test_complete_install_is_reused(self):
         self.check_install("Linux", None)
 
+    def test_installed_only_image_preserves_dependencies(self):
+        self.check_install("Linux", "lib64/libpaimon_c.a", installed_only=True)
+
+    def test_installed_only_complete_image_is_reused(self):
+        self.check_install("Linux", None, installed_only=True)
+
+    def test_installed_only_interrupted_pair_preserves_dependencies(self):
+        self.write("installed/lib64/.paimon-installing")
+        self.check_install("Linux", None, expect_rebuild=True, installed_only=True)
+
+    def test_incomplete_pair_rebuilds(self):
+        self.write("installed/lib64/.paimon-installing")
+        self.check_install("Linux", None, expect_rebuild=True)
+
+    def test_empty_header_rebuilds(self):
+        self.check_install("Linux", None, empty="include/paimon_rust/paimon.h", expect_rebuild=True)
+
+    def test_empty_archive_rebuilds(self):
+        self.check_install("Linux", None, empty="lib64/libpaimon_c.a", expect_rebuild=True)
+
     def archive_installer(self):
         script = (ROOT / "thirdparty/build-thirdparty.sh").read_text()
-        return re.search(r"^install_rust_archive\(\) \{\n.*?^\}", script, re.M | re.S)[0]
+        return "\n".join(re.search(r"^" + name + r"\(\) \{\n.*?^\}", script, re.M | re.S)[0]
+                         for name in ("install_rust_archive", "install_paimon_rust"))
+
+    def test_header_archive_pair_publication(self):
+        archive = self.write("build/libpaimon_c.a", "new archive")
+        header = self.write("build/paimon.h", "new header")
+        target_archive = self.work / "installed/lib64/libpaimon_c.a"
+        target_header = self.work / "installed/include/paimon_rust/paimon.h"
+        marker = target_archive.parent / ".paimon-installing"
+        self.env.update(TP_INSTALL_DIR=str(self.work / "installed"), STRIP_TP_LIB="OFF",
+                        KERNEL="Linux", ARCHIVE=str(archive), HEADER=str(header))
+        failures = {
+            "header-copy": 'cp() { if [[ "$1" = -p && "$2" = "$HEADER" ]]; then '
+                           'printf partial > "${@: -1}"; return 1; fi; command cp "$@"; }',
+            "archive-publish": 'mv() { if [[ "${@: -1}" = */libpaimon_c.a ]]; then return 1; fi; '
+                               'command mv "$@"; }',
+            "header-publish": 'mv() { if [[ "${@: -1}" = */paimon.h ]]; then return 1; fi; '
+                              'command mv "$@"; }',
+            "success": "",
+        }
+        for replacement in (False, True):
+            for stage, injection in failures.items():
+                with self.subTest(replacement=replacement, stage=stage):
+                    for path in (target_archive, target_header, marker):
+                        if path.exists():
+                            path.unlink()
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                    if replacement:
+                        target_archive.write_text("old archive")
+                        target_header.write_text("old header")
+                    result = self.run_bash(self.archive_installer() + "\n" + injection
+                                           + '\ninstall_paimon_rust "$ARCHIVE" "$HEADER"')
+                    if stage == "success":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(target_header.read_text(), "new header")
+                        self.assertEqual(target_archive.read_text(), "new archive")
+                        self.assertFalse(marker.exists())
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        if replacement:
+                            self.assertEqual(target_header.read_text(), "old header")
+                        else:
+                            self.assertFalse(target_header.exists())
+                        self.assertEqual(marker.exists(), stage != "header-copy")
+                        # A retry must repair the pair and clear its incomplete marker.
+                        retry = self.run_bash(self.archive_installer()
+                                              + '\ninstall_paimon_rust "$ARCHIVE" "$HEADER"')
+                        self.assertEqual(retry.returncode, 0, retry.stderr)
+                        self.assertEqual(target_header.read_text(), "new header")
+                        self.assertEqual(target_archive.read_text(), "new archive")
+                        self.assertFalse(marker.exists())
+                    self.assertEqual(list(target_header.parent.glob("*.tmp.*")), [])
 
     def check_archive_publication(self, name):
         source = self.write("build/" + name, "new archive")
@@ -150,7 +227,7 @@ class PaimonBuildTest(unittest.TestCase):
     --version) echo 'cargo 1.94.0' ;;
     build)
         mkdir -p "$CARGO_TARGET_DIR/release"
-        touch "$CARGO_TARGET_DIR/release/libpaimon_c.a"
+        printf 'archive' > "$CARGO_TARGET_DIR/release/libpaimon_c.a"
         ;;
     metadata) printf '%s' "${CARGO_NET_OFFLINE:-unset}" > "$METADATA_LOG" ;;
     *) exit 90 ;;

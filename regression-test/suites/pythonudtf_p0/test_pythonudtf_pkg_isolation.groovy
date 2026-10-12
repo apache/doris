@@ -21,7 +21,9 @@ suite("test_pythonudtf_pkg_isolation") {
     def zipB = """${context.file.parent}/udtf_scripts/python_udtf_pkg_b/python_udtf_pkg_test.zip"""
 
     scp_udf_file_to_all_be(zipA)
+    scp_udf_file_to_all_fe(zipA)
     scp_udf_file_to_all_be(zipB)
+    scp_udf_file_to_all_fe(zipB)
 
     sql """DROP TABLE IF EXISTS py_udtf_pkg_tbl"""
     sql """

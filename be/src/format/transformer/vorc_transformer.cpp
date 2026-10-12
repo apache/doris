@@ -182,14 +182,16 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
                                  std::vector<std::string> column_names, bool output_object_data,
                                  TFileCompressType::type compress_type,
                                  const iceberg::Schema* iceberg_schema,
-                                 std::shared_ptr<io::FileSystem> fs)
+                                 std::shared_ptr<io::FileSystem> fs,
+                                 const std::vector<int32_t>& nan_count_field_ids)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _fs(fs),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
           _schema_str(std::move(schema)),
-          _iceberg_schema(iceberg_schema) {
+          _iceberg_schema(iceberg_schema),
+          _nan_count_field_ids(nan_count_field_ids) {
     // ORC recognizes GMT as its UTC fast path. Other UTC aliases can lack a zoneinfo file
     // or resolve through a locally overridden UTC file, shifting timestamp statistics.
     int32_t fixed_offset = 0;
@@ -249,6 +251,9 @@ Status VOrcTransformer::open() {
         return Status::InternalError("failed to create writer: {}", e.what());
     }
     _writer->addUserMetadata("CreatedBy", doris::get_short_version());
+    if (_iceberg_schema != nullptr) {
+        _nan_value_counter.emplace(*_iceberg_schema, _nan_count_field_ids);
+    }
     return Status::OK();
 }
 
@@ -419,6 +424,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         };
         switch (nested_field->field_type()->type_id()) {
         case iceberg::TypeID::UUID:
+            // Native UUID serde already writes network-order bytes; retain its ORC annotation.
+            if (primitive_type == TYPE_UUID) {
+                type->setAttribute(ICEBERG_BINARY_TYPE, "UUID");
+                break;
+            }
             use_iceberg_binary_type("UUID");
             break;
         case iceberg::TypeID::FIXED:
@@ -537,6 +547,12 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
         }
 
         stats->__set_value_counts(value_counts);
+        // ORC statistics carry no NaN count, so it comes from the counter fed during write() rather than
+        // from the footer read above. Left unset when no column was counted, so FE keeps reporting
+        // "unknown" instead of an empty claim -- the same shape an older BE produces.
+        if (_nan_value_counter.has_value() && !_nan_value_counter->empty()) {
+            stats->__set_nan_value_counts(_nan_value_counter->counts());
+        }
         if (has_any_null_count) {
             stats->__set_null_value_counts(null_value_counts);
         }
@@ -693,6 +709,9 @@ std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
 Status VOrcTransformer::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
+    }
+    if (_nan_value_counter.has_value()) {
+        _nan_value_counter->count(block);
     }
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
@@ -902,6 +921,11 @@ static Status normalize_iceberg_binary_column(const ColumnPtr& column, const Dat
 
     switch (nested_field.field_type()->type_id()) {
     case iceberg::TypeID::UUID:
+        if (type->get_primitive_type() == TYPE_UUID) {
+            // Native UUID SerDe emits network-order bytes; do not reinterpret its in-memory layout.
+            *normalized_column = column;
+            return Status::OK();
+        }
         return normalize_iceberg_uuid_column(column, normalized_column, skipped_rows);
     case iceberg::TypeID::FIXED:
         return normalize_iceberg_fixed_column(column, nested_field, normalized_column,

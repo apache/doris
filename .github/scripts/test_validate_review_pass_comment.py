@@ -76,6 +76,9 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
             ("claude-fable-5", "max"),
             ("claude-fable-5[1m]", "xhigh"),
             ("claude-fable-5[1m]", "max"),
+            ("gpt-6.1-sol", "xhigh"),
+            ("gpt-6.1-sol", "max"),
+            ("gpt-6.1-sol", "ultra"),
             ("gpt-6-sol", "xhigh"),
             ("gpt-6-sol", "max"),
             ("gpt-6-sol", "ultra"),
@@ -120,6 +123,7 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
             "claude-fable-5[1m]",
             "claude-fable-5-1",
             "claude-fable-5-1[1m]",
+            "gpt-6.1-sol",
             "gpt-6-sol",
             "gpt-6-astra",
         ):
@@ -129,8 +133,10 @@ class ValidateReviewPassCommentTest(unittest.TestCase):
                         validate(make_comment(model=model, effort=effort))
 
     def test_rejects_unlisted_model(self) -> None:
-        with self.assertRaisesRegex(ValidationError, "model is not allowed"):
-            validate(make_comment(model="gpt-5.6"))
+        for model in ("gpt-5.6", "gpt-6.1", "gpt-6.1-sol-preview", "gpt-6.1-sol[1m]"):
+            with self.subTest(model=model):
+                with self.assertRaisesRegex(ValidationError, "model is not allowed"):
+                    validate(make_comment(model=model))
 
     def test_rejects_a_different_head(self) -> None:
         with self.assertRaisesRegex(ValidationError, "current PR head"):

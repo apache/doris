@@ -44,6 +44,7 @@ import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
@@ -271,8 +272,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      */
     private static RangePartitionItem toRangePartitionItem(ConnectorMvccPartition partition,
             List<Column> partitionColumns) throws AnalysisException {
-        PartitionKey lowerKey = PartitionKey.createPartitionKey(
-                toPartitionValues(partition.getLowerBound()), partitionColumns);
+        // The NULL-min sentinel is not a wall-clock date: parsing it in a positive offset underflows year zero.
+        PartitionKey lowerKey = partition.getUpperBound().isEmpty()
+                ? PartitionKey.createInfinityPartitionKey(partitionColumns, false)
+                : PartitionKey.createPartitionKey(toPartitionValues(partition.getLowerBound()), partitionColumns);
         PartitionKey upperKey = partition.getUpperBound().isEmpty()
                 ? lowerKey.successor()
                 : PartitionKey.createPartitionKey(toPartitionValues(partition.getUpperBound()), partitionColumns);
@@ -315,8 +318,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 //     rows, it only loses partition pruning. Do NOT hoist this check out of the catch to
                 //     "fail loud" — that was tried (cfb0958e607) and every real-world hit was a legitimate
                 //     spec evolution, not a mis-wired connector, taking down 6 suites (CI 996541).
+                // Partition transforms can produce a different type from the source column.
+                List<Type> valueTypes = part.getPartitionValueTypes().isEmpty() ? types
+                        : part.getPartitionValueTypes().stream().map(ConnectorColumnConverter::convertType)
+                                .collect(Collectors.toList());
                 nameToPartitionItem.put(partitionName,
-                        toListPartitionItem(partitionName, types,
+                        toListPartitionItem(partitionName, valueTypes,
                                 part.getOrderedPartitionValues(), part.getPartitionValueNullFlags()));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",
@@ -711,6 +718,13 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     // ──────────────────── partition view (snapshot-aware) ────────────────────
+
+    @Override
+    public boolean supportInternalPartitionPruned(Optional<MvccSnapshot> snapshot) {
+        // Non-range connector views enumerate raw transforms and historical specs for counts.
+        // Those values are not source-column LIST keys, even when their types happen to match.
+        return getOrMaterialize(snapshot).getPartitionType() != PartitionType.UNPARTITIONED;
+    }
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {

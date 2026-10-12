@@ -871,7 +871,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // when ready to send, while retaining the existing table locks and callback cleanup scope.
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(builder.getDbId());
         Set<Long> commitTsoTableIds = tableList.stream().map(Table::getId).collect(Collectors.toSet());
-        long commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        long commitTso;
+        try {
+            commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        } catch (TransactionCommitFailedException e) {
+            // A previous commit may have succeeded before its response was lost. Recover its TSO
+            // and let the existing commit RPC handle idempotency, lazy publish and 2PC status checks.
+            TransactionState persisted = getTransactionState(builder.getDbId(), transactionId);
+            if (persisted == null || (persisted.getTransactionStatus() != TransactionStatus.COMMITTED
+                    && persisted.getTransactionStatus() != TransactionStatus.VISIBLE)) {
+                throw e;
+            }
+            commitTso = persisted.getCommitTSO();
+        }
         if (commitTso > 0) {
             builder.setCommitTso(commitTso).setEnableCheckCommitTsoFence(true);
         }

@@ -57,9 +57,10 @@ suite("test_uuid_orc_varbinary_mapping") {
                         "format"="orc", "backend_id"="${backend.BackendId}",
                         "enable_mapping_varbinary"="${binaryMapping}")"""
                 "order_qt_schema_${scannerV2}_${binaryMapping}" "DESC FUNCTION ${source}"
-                String uuidValue = binaryMapping ? "CAST(HEX(u) AS UUID)" : "u"
-                String nestedValue = binaryMapping ? "CAST(HEX(value) AS UUID)" : "value"
-                String structValue = binaryMapping ? "CAST(HEX(s.k) AS UUID)" : "s.k"
+                // UUID annotations override physical binary mapping, including nested leaves.
+                String uuidValue = "u"
+                String nestedValue = "value"
+                String structValue = "s.k"
                 "qt_values_${scannerV2}_${binaryMapping}" """SELECT id, ${uuidValue},
                         ARRAY_MAP(value -> ${nestedValue}, a),
                         ARRAY_MAP(value -> ${nestedValue}, MAP_KEYS(m)),

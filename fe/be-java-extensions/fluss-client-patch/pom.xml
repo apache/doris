@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>be-java-extensions</artifactId>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>fluss-client-patch</artifactId>
+    <name>Doris BE fluss client patch</name>
+    <description>
+        Doris's copies of the two fluss-client classes that end the process when a client thread
+        dies: org.apache.fluss.utils.FatalExitExceptionHandler and
+        org.apache.fluss.utils.concurrent.ShutdownableThread (their headers say why). Not a plugin:
+        the fluss plugin declares this artifact, so its jar lands in the plugin directory beside
+        fluss-client, and the jar's Doris-Shadows-Classes manifest entry is what makes PluginRuntime
+        search it ahead of fluss-client's copies.
+
+        A module of its own, not a second jar built by fluss-scanner, because of the Maven build
+        cache: a cache hit restores a module's own jar and nothing else, while copy-dependencies,
+        forced to run on a hit (fe/.mvn/maven-build-cache-config.xml), copies the jars of the
+        modules a plugin depends on. A second jar that fluss-scanner wrote into its own target/lib
+        was missing from every cache-restored build, and the plugin deployed without it. The
+        layout check (tools/be-java-plugins/check_plugin_layout.py) requires a shadowing jar to
+        hold nothing but the classes it names, which is all this module builds.
+    </description>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <!--
+          The artifact these classes replace, provided by the plugin that deploys them. Compiling
+          against it also means compiling against the slf4j 1.7 API shaded into it, the one these
+          classes link to inside the plugin; the fe parent pom's slf4j-api 2.x is narrowed to test
+          and fluss-client's own slf4j-api declaration excluded, as in fluss-scanner.
+        -->
+        <dependency>
+            <groupId>org.apache.fluss</groupId>
+            <artifactId>fluss-client</artifactId>
+            <version>${fluss.version}</version>
+            <scope>provided</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.code.findbugs</groupId>
+                    <artifactId>jsr305</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <!-- Merged with the parent's Doris-Jni-Plugin-Api-Version entry, not replacing it. -->
+                        <manifestEntries>
+                            <Doris-Shadows-Classes>org.apache.fluss.utils.FatalExitExceptionHandler,org.apache.fluss.utils.concurrent.ShutdownableThread</Doris-Shadows-Classes>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

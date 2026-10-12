@@ -46,7 +46,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-const int RowDescriptor::INVALID_IDX = -1;
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
         : _id(tdesc.id),
@@ -484,114 +483,22 @@ int TupleDescriptor::get_column_id(SlotId slot_id) const {
 RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl,
                              const std::vector<TTupleId>& row_tuples) {
     DCHECK_GT(row_tuples.size(), 0);
-    _num_materialized_slots = 0;
-    _num_slots = 0;
 
     for (int row_tuple : row_tuples) {
         TupleDescriptor* tupleDesc = desc_tbl.get_tuple_descriptor(row_tuple);
-        _num_materialized_slots += tupleDesc->num_materialized_slots();
-        _num_slots += tupleDesc->slots().size();
         _tuple_desc_map.push_back(tupleDesc);
         DCHECK(_tuple_desc_map.back() != nullptr);
     }
-
-    init_tuple_idx_map();
-    init_has_varlen_slots();
 }
 
-RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc) : _tuple_desc_map(1, tuple_desc) {
-    init_tuple_idx_map();
-    init_has_varlen_slots();
-    _num_slots = static_cast<int32_t>(tuple_desc->slots().size());
-}
+RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc) : _tuple_desc_map(1, tuple_desc) {}
 
-RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc) {
-    _tuple_desc_map.insert(_tuple_desc_map.end(), lhs_row_desc._tuple_desc_map.begin(),
-                           lhs_row_desc._tuple_desc_map.end());
-    _tuple_desc_map.insert(_tuple_desc_map.end(), rhs_row_desc._tuple_desc_map.begin(),
-                           rhs_row_desc._tuple_desc_map.end());
-    init_tuple_idx_map();
-    init_has_varlen_slots();
-
-    _num_slots = lhs_row_desc.num_slots() + rhs_row_desc.num_slots();
-}
-
-void RowDescriptor::init_tuple_idx_map() {
-    // find max id
-    TupleId max_id = 0;
-    for (auto& i : _tuple_desc_map) {
-        max_id = std::max(i->id(), max_id);
+int RowDescriptor::num_slots() const {
+    int count = 0;
+    for (const auto* tuple_desc : _tuple_desc_map) {
+        count += tuple_desc->slots().size();
     }
-
-    _tuple_idx_map.resize(max_id + 1, INVALID_IDX);
-    for (int i = 0; i < _tuple_desc_map.size(); ++i) {
-        _tuple_idx_map[_tuple_desc_map[i]->id()] = i;
-    }
-}
-
-void RowDescriptor::init_has_varlen_slots() {
-    _has_varlen_slots = false;
-    for (auto& i : _tuple_desc_map) {
-        if (i->has_varlen_slots()) {
-            _has_varlen_slots = true;
-            break;
-        }
-    }
-}
-
-int RowDescriptor::get_tuple_idx(TupleId id) const {
-    // comment CHECK temporarily to make fuzzy test run smoothly
-    // DCHECK_LT(id, _tuple_idx_map.size()) << "RowDescriptor: " << debug_string();
-    if (_tuple_idx_map.size() <= id) {
-        return RowDescriptor::INVALID_IDX;
-    }
-    return _tuple_idx_map[id];
-}
-
-void RowDescriptor::to_thrift(std::vector<TTupleId>* row_tuple_ids) {
-    row_tuple_ids->clear();
-
-    for (auto& i : _tuple_desc_map) {
-        row_tuple_ids->push_back(i->id());
-    }
-}
-
-void RowDescriptor::to_protobuf(
-        google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids) const {
-    row_tuple_ids->Clear();
-    for (auto* desc : _tuple_desc_map) {
-        row_tuple_ids->Add(desc->id());
-    }
-}
-
-bool RowDescriptor::is_prefix_of(const RowDescriptor& other_desc) const {
-    if (_tuple_desc_map.size() > other_desc._tuple_desc_map.size()) {
-        return false;
-    }
-
-    for (int i = 0; i < _tuple_desc_map.size(); ++i) {
-        // pointer comparison okay, descriptors are unique
-        if (_tuple_desc_map[i] != other_desc._tuple_desc_map[i]) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool RowDescriptor::equals(const RowDescriptor& other_desc) const {
-    if (_tuple_desc_map.size() != other_desc._tuple_desc_map.size()) {
-        return false;
-    }
-
-    for (int i = 0; i < _tuple_desc_map.size(); ++i) {
-        // pointer comparison okay, descriptors are unique
-        if (_tuple_desc_map[i] != other_desc._tuple_desc_map[i]) {
-            return false;
-        }
-    }
-
-    return true;
+    return count;
 }
 
 std::string RowDescriptor::debug_string() const {
@@ -606,27 +513,17 @@ std::string RowDescriptor::debug_string() const {
     }
     ss << "] ";
 
-    ss << "tuple_id_map: [";
-    for (int i = 0; i < _tuple_idx_map.size(); ++i) {
-        ss << _tuple_idx_map[i];
-        if (i != _tuple_idx_map.size() - 1) {
-            ss << ", ";
-        }
-    }
-    ss << "] ";
-
     return ss.str();
 }
 
 int RowDescriptor::get_column_id(int slot_id) const {
     int column_id_counter = 0;
     for (auto* const tuple_desc : _tuple_desc_map) {
-        for (auto* const slot : tuple_desc->slots()) {
-            if (slot->id() == slot_id) {
-                return column_id_counter;
-            }
-            column_id_counter++;
+        int tuple_column_id = tuple_desc->get_column_id(slot_id);
+        if (tuple_column_id != -1) {
+            return column_id_counter + tuple_column_id;
         }
+        column_id_counter += tuple_desc->slots().size();
     }
     return -1;
 }

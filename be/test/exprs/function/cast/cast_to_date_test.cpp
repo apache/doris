@@ -398,4 +398,56 @@ TEST_F(FunctionCastTest, test_from_time_to_date) {
     }
 }
 
+// A row that the input null map marks as NULL may still carry an arbitrary hidden payload in the
+// nested column. Strict cast parses the source value with a strict-mode serde batch, so the hidden
+// payload of a NULL row must not be validated.
+TEST_F(FunctionCastTest, numeric_to_date_skips_null_covered_payload) {
+    auto ctx = create_context(true);
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateV2>());
+
+    auto run_and_check = [&](const DataTypePtr& from_type, ColumnPtr from_column,
+                             const std::string& expected_non_null) {
+        auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+        ASSERT_TRUE(fn != nullptr);
+
+        Block block = {
+                {std::move(from_column), from_type, "from"},
+                {nullptr, to_type, "to"},
+        };
+        ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        // The row with the hidden payload stays NULL.
+        EXPECT_EQ(result.get_null_map_data()[0], 1);
+        EXPECT_EQ(result.get_null_map_data()[1], 0);
+        EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), expected_non_null);
+    };
+
+    // Nullable(BIGINT) -> Nullable(DATEV2), row 0 is NULL with hidden payload 1000 (invalid date).
+    run_and_check(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
+            ColumnHelper::create_nullable_column<DataTypeInt64>({1000, 20150102030405}, {1, 0}),
+            "2015-01-02");
+
+    // Nullable(DOUBLE) -> Nullable(DATEV2), row 0 is NULL with hidden payload 7777777.0.
+    run_and_check(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()),
+                  ColumnHelper::create_nullable_column<DataTypeFloat64>(
+                          {7777777.0, 20150102030405.0}, {1, 0}),
+                  "2015-01-02");
+
+    // An invalid value in a visible (non NULL) row must still fail in strict mode.
+    {
+        auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+        auto from_column =
+                ColumnHelper::create_nullable_column<DataTypeInt64>({1000, 7777777}, {1, 0});
+        auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+        ASSERT_TRUE(fn != nullptr);
+        Block block = {
+                {std::move(from_column), from_type, "from"},
+                {nullptr, to_type, "to"},
+        };
+        EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+    }
+}
+
 } // namespace doris

@@ -87,8 +87,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // This PR changes the connector SPI surface once, from major 10 to major 11.
-        Assertions.assertEquals("11.0", version.getProperty("api.version"));
+        // Major 13 carries textual write-input semantics on ConnectorColumn.
+        Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -98,6 +98,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
+            ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
