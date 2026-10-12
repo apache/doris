@@ -17,7 +17,7 @@
 
 suite("test_cast_string_to_nested_map_dedup") {
     // A duplicated key keeps its last value in every map of a string cast, also in the maps
-    // inside arrays, structs, map values and map keys, as it does in the top level map.
+    // inside arrays, structs and map values, as it does in the top level map.
     def check = {
         qt_top """ SELECT CAST('{"a":1,"a":2}' AS MAP<STRING, INT>) """
         qt_map_in_map """ SELECT CAST('{"outer":{"a":1,"a":2}}' AS MAP<STRING, MAP<STRING, INT>>) """
@@ -39,7 +39,6 @@ suite("test_cast_string_to_nested_map_dedup") {
         qt_struct_in_map """
             SELECT CAST('{"outer":{"m":{"a":1,"a":2}}}' AS MAP<STRING, STRUCT<m:MAP<STRING, INT>>>)
         """
-        qt_map_as_key """ SELECT CAST('{{"a":1,"a":2}:1}' AS MAP<MAP<STRING, INT>, INT>) """
     }
 
     sql """ set enable_strict_cast = false """

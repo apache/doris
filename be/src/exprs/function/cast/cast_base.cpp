@@ -76,8 +76,8 @@ ChildNullMask build_child_null_mask(const NullMap::value_type* parent_null_map,
             .mask_holder = nullptr};
 }
 
-// Remove the duplicated keys of every map in the column, also the maps inside arrays, structs,
-// map keys and map values. The last value of a key wins, as in map().
+// Remove the duplicated keys of every map in the column, also the maps inside arrays, structs
+// and map values. The last value of a key wins, as in map().
 static Status deduplicate_map_keys(IColumn& column) {
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         return deduplicate_map_keys(nullable->get_nested_column());
@@ -92,9 +92,7 @@ static Status deduplicate_map_keys(IColumn& column) {
         return Status::OK();
     }
     if (auto* map = check_and_get_column<ColumnMap>(column)) {
-        // Keys first: deduplicate_keys() compares them. Values last: the ones dropped with a
-        // duplicated key are not visited.
-        RETURN_IF_ERROR(deduplicate_map_keys(map->get_keys()));
+        // Values last: the ones dropped with a duplicated key are not visited.
         RETURN_IF_ERROR(map->deduplicate_keys());
         return deduplicate_map_keys(map->get_values());
     }

@@ -279,13 +279,12 @@ TEST_F(FunctionCastTest, test_cast_map_unchanged_key_with_null_row) {
 }
 
 // A duplicated key keeps its last value in every map of the result, also in the maps inside
-// arrays, structs, map values and map keys, as it does in the top level map.
+// arrays, structs and map values, as it does in the top level map.
 TEST_F(FunctionCastTest, test_from_string_deduplicates_nested_map_keys) {
     auto map_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())));
     auto string_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-    auto int_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     auto array_of_map_type =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(map_type));
 
@@ -306,10 +305,6 @@ TEST_F(FunctionCastTest, test_from_string_deduplicates_nested_map_keys) {
             {std::make_shared<DataTypeNullable>(
                      std::make_shared<DataTypeMap>(string_type, array_of_map_type)),
              R"({"outer":[{"a":1,"a":2}],"outer":[{"b":1,"b":2}]})", R"({"outer":[{"b":2}]})"},
-            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(map_type, int_type)),
-             R"({{"a":1,"a":2}:1})", R"({{"a":2}:1})"},
-            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(map_type, int_type)),
-             R"({{"a":1,"a":2}:1,{"a":2}:2})", R"({{"a":2}:2})"},
     };
 
     for (bool is_strict_mode : {false, true}) {
