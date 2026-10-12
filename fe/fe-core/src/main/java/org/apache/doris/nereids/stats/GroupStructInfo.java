@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -105,7 +106,23 @@ public class GroupStructInfo {
      * 19 scan join group) while refusing trees which are pathologically wide.
      */
     public static final int DEFAULT_MAX_SCANS_PER_GROUP = 20;
+    /**
+     * Snapshot value which marks a plan node that is deliberately excluded from the hbo
+     * fingerprint (its group is unsupported, e.g. a sort / topn). It is not a fingerprint and is
+     * never hashed: the publish path uses it to tell an expected gap from a lost snapshot. A
+     * concurrent map can not store a null marker, so an empty string is used.
+     */
+    public static final String UNSUPPORTED_FINGERPRINT = "";
+
     private static final List<HboScanDescriptor> INVALID_SCANS = Collections.emptyList();
+
+    /**
+     * Characters which structure the canonical form and therefore can not appear raw inside a
+     * literal value (see {@link #encodeLiteralValue}).
+     */
+    private static final String RESERVED_LITERAL_CHARS = "\\%(){}[],;:|";
+
+    private static final char[] HEX_DIGITS = "0123456789ABCDEF".toCharArray();
 
     /** Shared invalid instance: the group content is not supported by the simplified struct info. */
     public static final GroupStructInfo INVALID = new GroupStructInfo(false, "", "", "", INVALID_SCANS);
@@ -649,6 +666,57 @@ public class GroupStructInfo {
     }
 
     /**
+     * Encode a literal value so that it can not be read as the structure of the canonical form. A
+     * value carrying a parenthesis or a separator (e.g. {@code where s = 'a)b'}) would otherwise
+     * close its own {@code lit(...)} and could forge a conjunct next to it, which would let two
+     * different predicates share one fingerprint; an unbalanced parenthesis would also break the
+     * rendering of the simplified struct info. The reserved characters are percent encoded, so the
+     * encoding is the identity for the values which carry none of them (numbers, plain strings);
+     * {@link #decodeLiteralValue} reverses it for display.
+     */
+    public static String encodeLiteralValue(String value) {
+        StringBuilder sb = null;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (RESERVED_LITERAL_CHARS.indexOf(c) < 0) {
+                if (sb != null) {
+                    sb.append(c);
+                }
+                continue;
+            }
+            if (sb == null) {
+                sb = new StringBuilder(value.length() + 8);
+                sb.append(value, 0, i);
+            }
+            sb.append('%').append(HEX_DIGITS[(c >> 4) & 0xF]).append(HEX_DIGITS[c & 0xF]);
+        }
+        return sb == null ? value : sb.toString();
+    }
+
+    /** Reverse of {@link #encodeLiteralValue}: turn an encoded literal value back into its text. */
+    public static String decodeLiteralValue(String value) {
+        int start = value.indexOf('%');
+        if (start < 0) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        sb.append(value, 0, start);
+        for (int i = start; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '%' && i + 2 < value.length()
+                    && Character.digit(value.charAt(i + 1), 16) >= 0
+                    && Character.digit(value.charAt(i + 2), 16) >= 0) {
+                sb.append((char) ((Character.digit(value.charAt(i + 1), 16) << 4)
+                        | Character.digit(value.charAt(i + 2), 16)));
+                i += 2;
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
      * Rewrite every literal of a canonical string into its constant agnostic form ({@code lit(*)}),
      * i.e. turn a WITH_LITERAL canonical string into the NO_LITERAL one. Used to accept a struct info
      * which a user copied from a filter node of EXPLAIN for the constant agnostic fingerprint of the
@@ -712,7 +780,8 @@ public class GroupStructInfo {
                 return "lit(*)";
             }
             Literal literal = (Literal) expression;
-            return "lit(" + literal.getValue() + ":" + literal.getDataType() + ")";
+            return "lit(" + encodeLiteralValue(String.valueOf(literal.getValue()))
+                    + ":" + literal.getDataType() + ")";
         } else if (expression.children().isEmpty()) {
             return expression.getClass().getSimpleName();
         } else {
@@ -730,9 +799,13 @@ public class GroupStructInfo {
         }
     }
 
-    /** Equal-to, boolean and/or are commutative; everything else keeps its operand order. */
+    /**
+     * Equal-to (including its null safe form) and boolean and/or are commutative; everything else
+     * keeps its operand order.
+     */
     private static boolean isOrderInsensitive(Expression expression) {
         return expression instanceof EqualTo
+                || expression instanceof NullSafeEqual
                 || expression instanceof Or
                 || expression instanceof And;
     }

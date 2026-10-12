@@ -355,6 +355,11 @@ public class HboPlanStatisticsManager {
         hboPlanStatisticsProvider.putHboPlanStatsByFingerprint(fingerprint, runs);
         if (structCanonical != null && !structCanonical.isEmpty()) {
             learnedStructCanonical.put(fingerprint, structCanonical);
+        } else {
+            // the rows of the entry are replaced, so the label of the entry it replaces has to go
+            // away as well: otherwise SHOW reports the new count with the struct info, the state and
+            // the LIKE match of the previous SET
+            learnedStructCanonical.invalidate(fingerprint);
         }
     }
 

@@ -501,7 +501,13 @@ public class HboUtils {
                     planNode, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats);
             Optional<String> hash;
             if (nodeFingerprints != null && nodeFingerprints.containsKey(nodeId)) {
-                hash = Optional.ofNullable(nodeFingerprints.get(nodeId));
+                String snapshot = nodeFingerprints.get(nodeId);
+                if (GroupStructInfo.UNSUPPORTED_FINGERPRINT.equals(snapshot)) {
+                    // the node is deliberately excluded from the hbo fingerprint (its group is
+                    // unsupported), so its missing fingerprint is not a diagnostic gap
+                    continue;
+                }
+                hash = Optional.ofNullable(snapshot);
             } else {
                 // no planning-time snapshot for this node: skip it
                 skippedWithoutSnapshot++;

@@ -34,14 +34,18 @@ import java.util.Optional;
  * Canonical description and fingerprint of the equality conditions of a join, used as the key of
  * manually injected join expansion entries ({@code HBO SET EXPANSION}).
  *
- * <p>Only the hash (equality) conjuncts participate: the expansion behaviour of a join is a
- * property of the joined column pairs, so the key deliberately excludes the join type, the shape
- * of both sub trees and every non equality condition. That makes one injected entry reusable by
- * every query joining the same columns.
+ * <p>The join type and the residual (non equality) conditions take part in the key next to the hash
+ * (equality) conjuncts, because the injected factor replaces the output rows of the whole join: an
+ * inner join which matches nothing and a left outer join of the same columns produce very different
+ * row counts, and a selective residual predicate changes the output by orders of magnitude. The
+ * shape of both sub trees is still excluded, so one injected entry stays reusable by every query
+ * which joins the same columns with the same join type and the same residual conditions.
  *
- * <p>The canonical form is {@code JE{EqualTo(...);EqualTo(...)}} with the pairs sorted; a pair is
- * rendered by {@link GroupStructInfo#normalizeExpression(Expression)} which already sorts the two
- * operands of an equality (equality is commutative), so {@code a = b} and {@code b = a} collapse.
+ * <p>The canonical form is {@code JE{<join type>;EqualTo(...);...}} with the pairs and the residual
+ * conditions sorted; a pair is rendered by {@link GroupStructInfo#normalizeExpression(Expression)}
+ * which already sorts the two operands of an equality (equality is commutative), so {@code a = b}
+ * and {@code b = a} collapse. The residual conditions are rendered constant agnostically, like the
+ * rest of the join keys.
  */
 public class HboJoinConditions {
     private static final String PREFIX = "JE{";
@@ -76,7 +80,15 @@ public class HboJoinConditions {
             return Optional.empty();
         }
         pairs.sort(String::compareTo);
-        return Optional.of(PREFIX + String.join(SEP, pairs) + "}");
+        List<String> residuals = new ArrayList<>();
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            residuals.add(GroupStructInfo.toNoLiteral(GroupStructInfo.normalizeExpression(conjunct)));
+        }
+        residuals.sort(String::compareTo);
+        StringBuilder canonical = new StringBuilder(PREFIX).append(join.getJoinType());
+        pairs.forEach(pair -> canonical.append(SEP).append(pair));
+        residuals.forEach(residual -> canonical.append(SEP).append(residual));
+        return Optional.of(canonical.append("}").toString());
     }
 
     /** sha256 of the canonical string, empty when there is no equality condition. */

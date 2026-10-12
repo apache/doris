@@ -296,12 +296,18 @@ public class HboStructFreshness {
                     scanState = currentVersion == recorded.getVisibleVersion() ? STATE_LIVE : STATE_STALE;
                 }
                 currentRows = HboScanDescriptor.UNKNOWN;
-            } else if (recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()) {
+            } else if (recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()
+                    && (currentRows == HboScanDescriptor.UNKNOWN
+                            || currentRowsKind != recorded.getRowsKind())) {
                 // the visible version is a property of the whole table, so an unchanged version means
                 // that nothing was loaded into any of its partitions: the recorded state is still the
                 // current one, whatever the entry was measured on. (The read side can not use this
                 // shortcut: it knows which partitions the entry was measured on and which ones the
                 // query reads, and those can differ under one unchanged version.)
+                // Only the row counts which are not comparable skip the comparison below: a whole
+                // table estimate can move under one unchanged version (an unreported partition uses
+                // TableStatsMeta, which ALTER COLUMN STATS ... ROW_COUNT updates), and the read side
+                // compares those same kind rows first and stops applying such an entry.
                 scanState = STATE_LIVE;
             } else if (!recorded.hasScanRows() || !recorded.isPartitionSelectionComplete()) {
                 // the entry records no row count at all (a struct literal of an older format, for

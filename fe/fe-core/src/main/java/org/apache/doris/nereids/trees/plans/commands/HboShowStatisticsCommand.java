@@ -238,8 +238,11 @@ public class HboShowStatisticsCommand extends ShowCommand {
 
     /** Render a fan-out factor without a trailing {@code .0}. */
     private static String trimDouble(double value) {
-        return value == Math.floor(value) && !Double.isInfinite(value)
-                ? String.valueOf((long) value) : String.valueOf(value);
+        // a value outside the long range would saturate on the cast and be displayed as
+        // 9223372036854775807, so it keeps its double form (1.0E20)
+        boolean integral = value == Math.floor(value) && !Double.isInfinite(value)
+                && value >= Long.MIN_VALUE && value <= Long.MAX_VALUE;
+        return integral ? String.valueOf((long) value) : String.valueOf(value);
     }
 
     /**

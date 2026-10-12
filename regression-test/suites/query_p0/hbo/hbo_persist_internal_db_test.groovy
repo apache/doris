@@ -47,7 +47,7 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
             // a join expansion entry is the same kind of entry as a pinned row count - it lives in
             // the same table and is distinguished by stats_type, but its value column carries the
             // fan-out factor and its key is the join condition fingerprint
-            def condCanonical = "JE{EqualTo(col(internal.hbo_test.x.a),col(internal.hbo_test.y.a))}"
+            def condCanonical = "JE{INNER_JOIN;EqualTo(col(internal.hbo_test.x.a),col(internal.hbo_test.y.a))}"
             def condFingerprint = java.security.MessageDigest.getInstance("SHA-256")
                     .digest(condCanonical.getBytes("UTF-8")).encodeHex().toString()
             sql """ HBO SET STATISTICS VALUE=1000 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}' STRUCT='${condCanonical}'; """

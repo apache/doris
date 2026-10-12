@@ -689,7 +689,8 @@ public class NereidsPlanner extends Planner {
                 // marks a node which is deliberately excluded from the hbo fingerprint (an
                 // unsupported group such as sort / topn), so that the publish path does not warn
                 // about a fingerprint which was never meant to exist
-                nodeFingerprints.put(planId.asInt(), fingerprint.orElse(null));
+                nodeFingerprints.put(planId.asInt(),
+                        fingerprint.orElse(GroupStructInfo.UNSUPPORTED_FINGERPRINT));
             }
         }
     }
@@ -1356,6 +1357,12 @@ public class NereidsPlanner extends Planner {
             }
             Object fingerprint = node.getMutableState(MutableState.KEY_HBO_FP).orElse(null);
             Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
+            Object expansion = node.getMutableState(MutableState.KEY_HBO_EXPANSION).orElse(null);
+            Object condFingerprint = node.getMutableState(MutableState.KEY_HBO_COND_FP).orElse(null);
+            Object cond = node.getMutableState(MutableState.KEY_HBO_COND).orElse(null);
+            // the type of the row count entry is read from the entry of that line's own fingerprint
+            // (EXACT unless a guarded entry was injected), so the two lines of a filter root can not
+            // report each other's type
             if (fingerprint == null || struct == null) {
                 Object skip = node.getMutableState(MutableState.KEY_HBO_STRUCT_SKIP).orElse(null);
                 if (skip != null) {
@@ -1364,15 +1371,11 @@ public class NereidsPlanner extends Planner {
                     sb.append("  [").append(node.getId()).append("] ").append(kind)
                             .append(" hbo fingerprint skipped: ").append(skip).append('\n');
                 }
-                continue;
-            }
-            Object expansion = node.getMutableState(MutableState.KEY_HBO_EXPANSION).orElse(null);
-            Object condFingerprint = node.getMutableState(MutableState.KEY_HBO_COND_FP).orElse(null);
-            Object cond = node.getMutableState(MutableState.KEY_HBO_COND).orElse(null);
-            // the type of the row count entry is read from the entry of that line's own fingerprint
-            // (EXACT unless a guarded entry was injected), so the two lines of a filter root can not
-            // report each other's type
-            if (node instanceof PhysicalFilter) {
+                // the row count key of this node is missing (its group has no struct info, e.g. a
+                // hash join above an unsupported sort), but its join condition key is computed from
+                // the join itself and a pinned expansion factor can still be applied to it: that key
+                // is printed below like for any other node
+            } else if (node instanceof PhysicalFilter) {
                 // a filter root can be keyed in both literal modes: the literal carrying form (only
                 // that constant matches) and the constant agnostic form (every constant of the
                 // predicate shape matches), so both are printed as separate injectable entries
@@ -1408,6 +1411,15 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
+     * Quote a canonical struct info the way {@code HBO SET STATISTICS} expects it: delimited by
+     * single quotes, with an apostrophe doubled and a backslash escaped, exactly what
+     * {@code SqlLiteralUtils.parseStringLiteral} decodes again.
+     */
+    private static String quoteCanonical(String canonical) {
+        return "'" + canonical.replace("\\", "\\\\").replace("'", "''") + "'";
+    }
+
+    /**
      * Append one injectable hbo entry of a node. The parameters are printed with the spelling
      * {@code HBO SET STATISTICS} uses (quoted values), so the line can be copied as it is, and the
      * line of the entry which was actually used (or skipped by its guard) is marked.
@@ -1421,7 +1433,9 @@ public class NereidsPlanner extends Planner {
                 .append(" type=").append(type)
                 .append(" literal_mode=").append(literalMode)
                 .append(" fingerprint='").append(key).append("'")
-                .append(" struct='").append(struct).append("'");
+                // the canonical is quoted as a string literal: it can carry an apostrophe (e.g.
+                // "where s = 'O''Brien'"), and the line is meant to be pasted into HBO SET
+                .append(" struct=").append(quoteCanonical(String.valueOf(struct)));
         // the entry was rejected (its data moved too far, or its guard failed), or it was applied
         // with the data state the read side saw (live / drifted / unknown); a learned entry has no
         // state of its own and is only reported as used

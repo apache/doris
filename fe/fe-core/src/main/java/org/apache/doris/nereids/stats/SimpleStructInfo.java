@@ -252,9 +252,10 @@ public final class SimpleStructInfo {
 
     private String renderLiteral(String literal) {
         // lit(*) for the constant agnostic granularity, lit(value:type) otherwise: the type is
-        // dropped, the value is kept
+        // dropped, the value is kept, and the value is decoded again (the canonical escapes the
+        // characters which would otherwise be read as its own structure)
         int lastColon = literal.lastIndexOf(':');
-        return lastColon < 0 ? literal : literal.substring(0, lastColon);
+        return GroupStructInfo.decodeLiteralValue(lastColon < 0 ? literal : literal.substring(0, lastColon));
     }
 
     // ------------------------------------------------------------------------------------------

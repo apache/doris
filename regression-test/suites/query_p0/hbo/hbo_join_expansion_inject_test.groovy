@@ -21,9 +21,11 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     // factor and its key is the condition fingerprint.
     // Its purpose is join-order control: the injected join is estimated as
     // clamp(expansion * max(leftEst, rightEst), 1, leftEst * rightEst), so a join known to explode
-    // looks expensive and is scheduled as late as possible. The key excludes the join type, so the
-    // same conditions are shared by inner and outer joins; semi / anti joins can never expand and
-    // deliberately ignore the entry.
+    // looks expensive and is scheduled as late as possible. The key carries the join equality
+    // conditions, the join type and the residual (non equality) conditions, because the factor
+    // replaces the output rows of the whole join; the shape of both sub trees is excluded, so one
+    // entry is shared by every query with the same conditions and the same join type. Semi / anti
+    // joins can never expand and deliberately ignore the entry.
     sql "create database if not exists hbo_test;"
     sql "use hbo_test;"
     sql "drop table if exists hbo_je_t1;"
@@ -63,10 +65,10 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     assertTrue(baselineOrder[1].contains("a#"), baseline)
 
     // the condition fingerprint of the (t1.a = t2.a) join comes from the explain annotation
-    def condCanonical = "JE{EqualTo(col(internal.hbo_test.hbo_je_t1.a),col(internal.hbo_test.hbo_je_t2.a))}"
+    def condCanonical = "JE{INNER_JOIN;EqualTo(col(internal.hbo_test.hbo_je_t1.a),col(internal.hbo_test.hbo_je_t2.a))}"
     // the expansion entry of the join is listed as its own line of the annotation block
     def matcher = (annotation(query) =~
-            /\] join type=join_expansion literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='JE\{EqualTo\(col\(internal\.hbo_test\.hbo_je_t1\.a\),col\(internal\.hbo_test\.hbo_je_t2\.a\)\)\}'/)
+            /\] join type=join_expansion literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='JE\{INNER_JOIN;EqualTo\(col\(internal\.hbo_test\.hbo_je_t1\.a\),col\(internal\.hbo_test\.hbo_je_t2\.a\)\)\}'/)
     assertTrue(matcher.find(), "no condition fingerprint annotation:\n" + annotation(query))
     def condFingerprint = matcher.group(1)
     log.info("(t1.a = t2.a) condition fingerprint: ${condFingerprint}")
@@ -195,7 +197,7 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     // the struct literal is what the fingerprint is the sha256 of, for every type
     test {
         sql """ HBO SET STATISTICS VALUE=2 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
-                STRUCT='JE{EqualTo(col(internal.hbo_test.other.a),col(internal.hbo_test.other.b))}'; """
+                STRUCT='JE{INNER_JOIN;EqualTo(col(internal.hbo_test.other.a),col(internal.hbo_test.other.b))}'; """
         exception "hbo statistics STRUCT does not match the fingerprint ${condFingerprint}"
     }
     // the row count of a join is pinned by the struct info of its group (J{...}), while a JE{...}
