@@ -541,10 +541,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
-        return foldCast(rewriteChildren(cast, context), context);
-    }
-
-    private Expression foldCast(Cast cast, ExpressionRewriteContext context) {
+        cast = rewriteChildren(cast, context);
         Optional<Expression> checkedExpr = preProcess(cast);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
@@ -597,11 +594,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitTryCast(TryCast cast, ExpressionRewriteContext context) {
-        // TRY_CAST only handles its own conversion failures. Errors in its source expression
-        // must propagate, just as they do when BE evaluates the child before the conversion.
-        cast = rewriteChildren(cast, context);
         try {
-            return foldCast(cast, context);
+            return visitCast(cast, context);
         } catch (CastException c) {
             return new NullLiteral(cast.getDataType());
         }
