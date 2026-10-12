@@ -2159,6 +2159,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return false;
     }
 
+    // Keep the package-visible helper name used by tests added on the target branch.
+    static boolean requiresLegacyOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,
+            Set<Integer> readFieldIds, Map<Long, Boolean> schemaTimestamps) {
+        return requiresOrcTimestampReader(table, rawFiles, readFieldIds, schemaTimestamps);
+    }
+
     private static boolean readsTimestampLtz(RowType rowType, Set<Integer> readFieldIds) {
         return rowType.getFields().stream().anyMatch(
                 field -> readFieldIds.contains(field.id()) && containsTimestampLtz(field.type()));
