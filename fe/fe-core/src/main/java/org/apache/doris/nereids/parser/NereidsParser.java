@@ -337,7 +337,7 @@ public class NereidsParser {
     }
 
     public Map<String, String> parseProperties(String properties) {
-        return parse(properties, DorisParser::propertyItemList);
+        return parse(properties, parser -> parser.propertyItemListWithEof().propertyItemList());
     }
 
     private <T> T parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {

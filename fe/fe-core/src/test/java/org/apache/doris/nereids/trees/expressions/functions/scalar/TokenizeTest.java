@@ -82,4 +82,14 @@ public class TokenizeTest extends TestWithFeService {
                 tokenize::checkLegalityBeforeTypeCoercion);
         Assertions.assertEquals("tokenize second argument must be properties format", exception.getMessage());
     }
+
+    @Test
+    public void testTokenizeRejectsTrailingTokens() {
+        Tokenize tokenize = new Tokenize(new StringLiteral("alpha beta"),
+                new StringLiteral("\"parser\" = \"unicode\" trailing_tokens"));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                tokenize::checkLegalityBeforeTypeCoercion);
+        Assertions.assertEquals("tokenize second argument must be properties format", exception.getMessage());
+    }
 }
