@@ -32,6 +32,11 @@ import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
+import org.apache.doris.kerberos.HadoopAuthenticator;
+
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -203,7 +208,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             try {
                 result = context.executeAuthenticated(() ->
                         ops.withTable(handle.getDbName(), handle.getTableName(),
-                                table -> action.execute(table, session)));
+                                table -> action.execute(wrapTableForProcedure(table), session)));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -237,8 +242,11 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             groups = ops.withTable(handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks);
         } else {
             try {
-                groups = context.executeAuthenticated(() -> ops.withTable(
-                        handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks));
+                // A server-planned table (RESTTable) keeps its own newScan(), which asks the REST server for the
+                // file scan tasks; rebuilding it as a plain BaseTable would plan from local manifests instead.
+                groups = context.executeAuthenticated(() -> ops.withTable(handle.getDbName(), handle.getTableName(),
+                        table -> planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
+                                ? table : wrapTableForProcedure(table))));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -247,6 +255,36 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             }
         }
         return groups.stream().map(IcebergProcedureOps::toConnectorRewriteGroup).collect(Collectors.toList());
+    }
+
+    /**
+     * Routes the procedure table's {@code io()} through the plugin-side Kerberos {@code doAs} — the procedure-path
+     * mirror of {@code IcebergScanPlanProvider.wrapTableForScan} and
+     * {@code IcebergConnectorTransaction.openTransaction}. The {@code executeAuthenticated} scope around the body
+     * covers only the calling thread, while iceberg reads and writes metadata files on its shared worker pool:
+     * {@code expire_snapshots} reads the expired snapshots' manifest lists there after committing (CI:
+     * test_iceberg_hadoop_catalog_kerberos failed "Failed to open input stream for file: .../snap-*.avro"),
+     * {@code cherrypick_snapshot} writes the picked files' manifest there, and rewrite planning reads the manifests
+     * of a multi-manifest table there. The wrapped FileIO keeps prefix listing for {@code remove_orphan_files}
+     * ({@link IcebergAuthenticatedFileIO#withPrefixOperations}). Rewrite planning skips the wrap for a server-planned
+     * table, whose scan tasks come from the REST server ({@link #planInAuthScopeUntracked}).
+     *
+     * <p>Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) and offline tests (plain context /
+     * non-{@link BaseTable} fakes) get the table unchanged. Package-private for unit testing.
+     */
+    Table wrapTableForProcedure(Table table) {
+        if (!(context instanceof TcclPinningConnectorContext) || !(table instanceof BaseTable)) {
+            return table;
+        }
+        HadoopAuthenticator auth = ((TcclPinningConnectorContext) context).getPluginAuthenticator();
+        if (auth == null) {
+            return table;
+        }
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations rawOps = baseTable.operations();
+        return new BaseTable(new IcebergAuthenticatedTableOperations(rawOps,
+                IcebergAuthenticatedFileIO.withPrefixOperations(rawOps.io(), auth)),
+                table.name(), baseTable.reporter());
     }
 
     private <T> T withCatalogLease(Supplier<T> operation) {

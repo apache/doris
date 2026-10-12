@@ -56,6 +56,9 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
 
     int authCount;
     boolean failAuth;
+    /** Runs when a task has finished but {@link #executeAuthenticated} has not left its scope yet, so a test can
+     * see what the task did inside the scope. */
+    Runnable beforeScopeExit;
 
     /** Storage properties the fake returns from {@link #getStorageProperties()} — the typed fe-filesystem
      * seam both the scan and (design S3) the write path derive their BE-canonical static creds from via
@@ -168,7 +171,11 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
             // Deliberately do NOT call task -> the wrapped seam call must not run.
             throw new RuntimeException("auth failed");
         }
-        return task.call();
+        T result = task.call();
+        if (beforeScopeExit != null) {
+            beforeScopeExit.run();
+        }
+        return result;
     }
 
     /** Locations the connector asked the engine to clean (B1 managed-location cleanup). */
