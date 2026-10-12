@@ -3824,9 +3824,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     partitionExprs.add(context.findSlotRef(partitionExprId));
                 }
             }
-            return createHiveTableSinkDataPartition(partitionExprs, Config.be_exec_version);
+            return createHiveTableSinkDataPartition(partitionExprs, context.getBeExecVersion());
         } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
-            return createHiveTableSinkDataPartition(Collections.emptyList(), Config.be_exec_version);
+            return createHiveTableSinkDataPartition(Collections.emptyList(), context.getBeExecVersion());
         } else if (distributionSpec instanceof DistributionSpecMerge) {
             DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;
             Expr operationExpr = context.findSlotRef(mergeSpec.getOperationExprId());

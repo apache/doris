@@ -649,7 +649,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext, queryOptions.getBeExecVersion());
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();

@@ -17,8 +17,10 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.doris.thrift.TQueryOptions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -101,5 +103,21 @@ class CoordinatorContextTest {
         Assertions.assertTrue(queryGlobals.isSetNanoSeconds());
         Assertions.assertEquals("UTC", queryGlobals.getTimeZone());
         Assertions.assertTrue(queryGlobals.isLoadZeroTolerance());
+    }
+
+    @Test
+    void testQueryOptionsKeepPlanningBeExecVersion() {
+        int planningBeExecVersion = Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION;
+        int originalBeExecVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = planningBeExecVersion - 1;
+
+            TQueryOptions queryOptions = CoordinatorContext.initQueryOptions(
+                    new ConnectContext(), planningBeExecVersion);
+
+            Assertions.assertEquals(planningBeExecVersion, queryOptions.getBeExecVersion());
+        } finally {
+            Config.be_exec_version = originalBeExecVersion;
+        }
     }
 }

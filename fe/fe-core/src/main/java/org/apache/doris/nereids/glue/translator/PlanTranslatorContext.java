@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -66,6 +67,7 @@ public class PlanTranslatorContext {
     private final ConnectContext connectContext;
     private final StatementContext statementContext;
     private final ScanContext scanContext;
+    private final int beExecVersion;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private DescriptorTable descTable;
@@ -171,20 +173,20 @@ public class PlanTranslatorContext {
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
-        this.connectContext = ctx.getConnectContext();
-        this.statementContext = ctx.getStatementContext();
-        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
-                ? ScanContext.EMPTY
-                : ScanContext.builder()
-                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
-                        .build();
-        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
-        this.topnFilterContext = ctx.getTopnFilterContext();
-        this.descTable = new DescriptorTable();
+        this(ctx, new DescriptorTable(), Config.be_exec_version);
+    }
+
+    /** PlanTranslatorContext with a statement-scoped BE execution version. */
+    public PlanTranslatorContext(CascadesContext ctx, int beExecVersion) {
+        this(ctx, new DescriptorTable(), beExecVersion);
     }
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
+        this(ctx, descTable, Config.be_exec_version);
+    }
+
+    private PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable, int beExecVersion) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
         this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
@@ -195,6 +197,7 @@ public class PlanTranslatorContext {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.descTable = descTable;
+        this.beExecVersion = beExecVersion;
     }
 
     /**
@@ -202,12 +205,22 @@ public class PlanTranslatorContext {
      */
     @VisibleForTesting
     public PlanTranslatorContext() {
+        this(Config.be_exec_version);
+    }
+
+    @VisibleForTesting
+    PlanTranslatorContext(int beExecVersion) {
         this.connectContext = null;
         this.statementContext = new StatementContext();
         this.scanContext = ScanContext.EMPTY;
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
         this.descTable = new DescriptorTable();
+        this.beExecVersion = beExecVersion;
+    }
+
+    public int getBeExecVersion() {
+        return beExecVersion;
     }
 
     /**
