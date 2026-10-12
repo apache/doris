@@ -117,10 +117,11 @@ public class IcebergPluginTest {
     public void instantiatesNativeGcsFilesystem() throws Exception {
         Configuration conf = new Configuration();
         conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
-        try (FileSystem fs = FileSystem.getFileSystemClass("gs", conf).getDeclaredConstructor().newInstance()) {
-            Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
-                    fs.getClass().getName());
-        }
+        // This only checks construction. No resources are opened until initialize(), and close()
+        // requires the filesystem root that initialize() sets up.
+        FileSystem fs = FileSystem.getFileSystemClass("gs", conf).getDeclaredConstructor().newInstance();
+        Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                fs.getClass().getName());
     }
 
     @Test
