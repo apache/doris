@@ -158,9 +158,8 @@ suite("paimon_timestamp_types", "p0,external") {
         test_scale()
         // Keep testing legacy LTZ fallback with V2 disabled independently of the NTZ predicate tests.
         sql """set enable_file_scanner_v2=false"""
-        // V1 must still decode every timestamp scale. Legacy ORC LTZ files need Paimon's
-        // compatibility conversion even when JNI is not forced, while Parquet stays on the
-        // native V1 reader. The ts9 predicates above stay on V2 only.
+        // High-precision NTZ columns require JNI even with V2 disabled; the fallback must
+        // preserve all nine digits instead of retaining the old microsecond expectations.
         order_qt_c1_v1 """select * from ts_scale_orc"""
         order_qt_c2_v1 """select * from ts_scale_parquet"""
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
