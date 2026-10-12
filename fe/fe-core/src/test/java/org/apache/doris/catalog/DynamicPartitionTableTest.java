@@ -30,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -44,6 +45,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
+import org.apache.logging.log4j.Level;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -143,8 +145,14 @@ public class DynamicPartitionTableTest extends TestWithFeService {
             setDynamicPartitionDropProtection(true);
             alterTable("ALTER TABLE test.dynamic_partition_drop_protection SET "
                     + "('dynamic_partition.enable' = 'true')");
-            Env.getCurrentEnv().getDynamicPartitionScheduler()
-                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+            try (TestLogAppender appender = TestLogAppender.attach(DynamicPartitionScheduler.class, Level.WARN)) {
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
+                        .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+                Assertions.assertTrue(appender.contains(Level.WARN,
+                        "table [" + table.getId() + "-" + table.getName()
+                                + "] because global session variable '"
+                                + SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION + "' is enabled"));
+            }
 
             Assertions.assertTrue(table.getPartitionNames().contains("p_old"));
             Assertions.assertTrue(table.getPartitionNames().size() > 1,
