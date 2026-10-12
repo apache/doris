@@ -50,6 +50,7 @@ import org.apache.paimon.catalog.Catalog.DatabaseNotExistException;
 import org.apache.paimon.catalog.Catalog.TableAlreadyExistException;
 import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.format.OrcOptions;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaManager;
@@ -296,6 +297,12 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         Map<String, String> normalizedProperties = new HashMap<>(properties);
         normalizedProperties.remove(PRIMARY_KEY_IDENTIFIER);
         normalizedProperties.remove(PROP_COMMENT);
+        // Legacy ORC LTZ encoding depends on the writer and reader JVM time zones. Persist the
+        // portable encoding for new tables only; changing an existing table can reinterpret its files.
+        // Explicit table options take precedence over catalog defaults, including a legacy opt-in.
+        String orcTimestampLegacyKey = OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key();
+        normalizedProperties.putIfAbsent(orcTimestampLegacyKey, catalog.options().getOrDefault(
+                Catalog.TABLE_DEFAULT_OPTION_PREFIX + orcTimestampLegacyKey, "false"));
         if (normalizedProperties.containsKey(PROP_LOCATION)) {
             String path = normalizedProperties.remove(PROP_LOCATION);
             normalizedProperties.put(CoreOptions.PATH.key(), path);
