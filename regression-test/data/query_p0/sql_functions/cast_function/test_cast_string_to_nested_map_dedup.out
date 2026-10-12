@@ -17,9 +17,6 @@
 -- !struct_in_map --
 {"outer":{"m":{"a":2}}}
 
--- !map_as_key --
-{{"a":2}:1}
-
 -- !top --
 {"a":2}
 
@@ -37,9 +34,6 @@
 
 -- !struct_in_map --
 {"outer":{"m":{"a":2}}}
-
--- !map_as_key --
-{{"a":2}:1}
 
 -- !column --
 1	[{"a":2}]
