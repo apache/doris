@@ -25,6 +25,7 @@
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/viceberg_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
@@ -97,34 +98,19 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        TParquetCompressionType::type parquet_compression_type;
-        switch (_compress_type) {
-        case TFileCompressType::PLAIN: {
-            parquet_compression_type = TParquetCompressionType::UNCOMPRESSED;
-            break;
-        }
-        case TFileCompressType::SNAPPYBLOCK: {
-            parquet_compression_type = TParquetCompressionType::SNAPPY;
-            break;
-        }
-        case TFileCompressType::ZSTD: {
-            parquet_compression_type = TParquetCompressionType::ZSTD;
-            break;
-        }
-        case TFileCompressType::LZ4BLOCK: {
-            // Map Doris LZ4 to the Hadoop-framed Parquet LZ4 codec (not LZ4_RAW) so the file
-            // stays readable across Spark/Iceberg/Trino. See ParquetBuildHelper.
-            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
-            break;
-        }
-        default: {
-            return Status::InternalError("Unsupported compress type {} with parquet",
-                                         to_string(_compress_type));
-        }
+        auto parquet_compression_type =
+                ParquetBuildHelper::to_parquet_compression_type(_compress_type);
+        if (!parquet_compression_type.has_value()) {
+            Status delete_status = _fs->delete_file(_path);
+            if (!delete_status.ok()) {
+                LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path,
+                                            delete_status.to_string());
+            }
+            return parquet_compression_type.error();
         }
         // Parquet 1.0 coerces Arrow nanoseconds to microseconds, including nested fields.
         ParquetFileOptions parquet_options = {
-                .compression_type = parquet_compression_type,
+                .compression_type = parquet_compression_type.value(),
                 .parquet_version = contains_nanosecond_timestamp(_schema.root_struct())
                                            ? TParquetVersion::PARQUET_2_LATEST
                                            : TParquetVersion::PARQUET_1_0,
