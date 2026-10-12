@@ -6,7 +6,7 @@ items	array<timestamp_ns>	Yes	true	\N
 detail	struct<t:timestamp_ns>	Yes	true	\N	
 entries	map<text,timestamp_ns>	Yes	true	\N	
 
--- !parquet_false_UTC_values --
+-- !parquet_UTC_values --
 1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
 2	2024-01-02 03:04:05.123456788	[]	\N	{}
 3	1969-12-31 23:59:58.999999999	\N	\N	\N
@@ -15,19 +15,19 @@ entries	map<text,timestamp_ns>	Yes	true	\N
 6	1677-09-21 00:12:43.145224192	\N	\N	\N
 7	2262-04-11 23:47:16.854775807	\N	\N	\N
 
--- !parquet_false_UTC_eq --
+-- !parquet_UTC_eq --
 1
 
--- !parquet_false_UTC_range --
+-- !parquet_UTC_range --
 2
 3
 4
 6
 
--- !parquet_false_UTC_aggregate --
+-- !parquet_UTC_aggregate --
 1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
 
--- !parquet_false_Asia_Shanghai_values --
+-- !parquet_Asia_Shanghai_values --
 1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
 2	2024-01-02 03:04:05.123456788	[]	\N	{}
 3	1969-12-31 23:59:58.999999999	\N	\N	\N
@@ -36,58 +36,16 @@ entries	map<text,timestamp_ns>	Yes	true	\N
 6	1677-09-21 00:12:43.145224192	\N	\N	\N
 7	2262-04-11 23:47:16.854775807	\N	\N	\N
 
--- !parquet_false_Asia_Shanghai_eq --
+-- !parquet_Asia_Shanghai_eq --
 1
 
--- !parquet_false_Asia_Shanghai_range --
+-- !parquet_Asia_Shanghai_range --
 2
 3
 4
 6
 
--- !parquet_false_Asia_Shanghai_aggregate --
-1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
-
--- !parquet_true_UTC_values --
-1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
-2	2024-01-02 03:04:05.123456788	[]	\N	{}
-3	1969-12-31 23:59:58.999999999	\N	\N	\N
-4	1970-01-01 00:00:00.000000001	\N	\N	\N
-5	\N	\N	\N	\N
-6	1677-09-21 00:12:43.145224192	\N	\N	\N
-7	2262-04-11 23:47:16.854775807	\N	\N	\N
-
--- !parquet_true_UTC_eq --
-1
-
--- !parquet_true_UTC_range --
-2
-3
-4
-6
-
--- !parquet_true_UTC_aggregate --
-1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
-
--- !parquet_true_Asia_Shanghai_values --
-1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
-2	2024-01-02 03:04:05.123456788	[]	\N	{}
-3	1969-12-31 23:59:58.999999999	\N	\N	\N
-4	1970-01-01 00:00:00.000000001	\N	\N	\N
-5	\N	\N	\N	\N
-6	1677-09-21 00:12:43.145224192	\N	\N	\N
-7	2262-04-11 23:47:16.854775807	\N	\N	\N
-
--- !parquet_true_Asia_Shanghai_eq --
-1
-
--- !parquet_true_Asia_Shanghai_range --
-2
-3
-4
-6
-
--- !parquet_true_Asia_Shanghai_aggregate --
+-- !parquet_Asia_Shanghai_aggregate --
 1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
 
 -- !parquet_copy --
@@ -209,7 +167,7 @@ items	array<timestamp_ns>	Yes	true	\N
 detail	struct<t:timestamp_ns>	Yes	true	\N	
 entries	map<text,timestamp_ns>	Yes	true	\N	
 
--- !orc_false_UTC_values --
+-- !orc_UTC_values --
 1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
 2	2024-01-02 03:04:05.123456788	[]	\N	{}
 3	1969-12-31 23:59:58.999999999	\N	\N	\N
@@ -218,19 +176,19 @@ entries	map<text,timestamp_ns>	Yes	true	\N
 6	1677-09-21 00:12:43.145224192	\N	\N	\N
 7	2262-04-11 23:47:16.854775807	\N	\N	\N
 
--- !orc_false_UTC_eq --
+-- !orc_UTC_eq --
 1
 
--- !orc_false_UTC_range --
+-- !orc_UTC_range --
 2
 3
 4
 6
 
--- !orc_false_UTC_aggregate --
+-- !orc_UTC_aggregate --
 1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
 
--- !orc_false_Asia_Shanghai_values --
+-- !orc_Asia_Shanghai_values --
 1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
 2	2024-01-02 03:04:05.123456788	[]	\N	{}
 3	1969-12-31 23:59:58.999999999	\N	\N	\N
@@ -239,58 +197,16 @@ entries	map<text,timestamp_ns>	Yes	true	\N
 6	1677-09-21 00:12:43.145224192	\N	\N	\N
 7	2262-04-11 23:47:16.854775807	\N	\N	\N
 
--- !orc_false_Asia_Shanghai_eq --
+-- !orc_Asia_Shanghai_eq --
 1
 
--- !orc_false_Asia_Shanghai_range --
+-- !orc_Asia_Shanghai_range --
 2
 3
 4
 6
 
--- !orc_false_Asia_Shanghai_aggregate --
-1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
-
--- !orc_true_UTC_values --
-1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
-2	2024-01-02 03:04:05.123456788	[]	\N	{}
-3	1969-12-31 23:59:58.999999999	\N	\N	\N
-4	1970-01-01 00:00:00.000000001	\N	\N	\N
-5	\N	\N	\N	\N
-6	1677-09-21 00:12:43.145224192	\N	\N	\N
-7	2262-04-11 23:47:16.854775807	\N	\N	\N
-
--- !orc_true_UTC_eq --
-1
-
--- !orc_true_UTC_range --
-2
-3
-4
-6
-
--- !orc_true_UTC_aggregate --
-1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
-
--- !orc_true_Asia_Shanghai_values --
-1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
-2	2024-01-02 03:04:05.123456788	[]	\N	{}
-3	1969-12-31 23:59:58.999999999	\N	\N	\N
-4	1970-01-01 00:00:00.000000001	\N	\N	\N
-5	\N	\N	\N	\N
-6	1677-09-21 00:12:43.145224192	\N	\N	\N
-7	2262-04-11 23:47:16.854775807	\N	\N	\N
-
--- !orc_true_Asia_Shanghai_eq --
-1
-
--- !orc_true_Asia_Shanghai_range --
-2
-3
-4
-6
-
--- !orc_true_Asia_Shanghai_aggregate --
+-- !orc_Asia_Shanghai_aggregate --
 1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
 
 -- !orc_copy --

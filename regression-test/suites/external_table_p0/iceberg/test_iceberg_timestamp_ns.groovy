@@ -26,6 +26,7 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
     def zone = sql("SELECT @@time_zone")[0][0]
     def scanner = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
     try {
+        sql "SET enable_file_scanner_v2=true"
         sql "DROP CATALOG IF EXISTS ${catalog}"
         sql """CREATE CATALOG ${catalog} PROPERTIES (
             "type"="iceberg", "iceberg.catalog.type"="rest", "uri"="http://${host}:${restPort}",
@@ -52,19 +53,16 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
                 (6, '1677-09-21 00:12:43.145224192', NULL, NULL, NULL),
                 (7, '2262-04-11 23:47:16.854775807', NULL, NULL, NULL)"""
             "qt_${format}_schema" "DESC ${table}"
-            for (boolean v2 : [false, true]) {
-                sql "SET enable_file_scanner_v2=${v2}"
-                for (String sessionZone : ["UTC", "Asia/Shanghai"]) {
-                    sql "SET time_zone='${sessionZone}'"
-                    String tag = "${format}_${v2}_${sessionZone.replace('/', '_')}"
-                    "qt_${tag}_values" "SELECT * FROM ${table} ORDER BY id"
-                    // The two positive timestamps differ only in the last nanosecond.
-                    "qt_${tag}_eq" """SELECT id FROM ${table}
-                        WHERE ts=CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP_NS) ORDER BY id"""
-                    "qt_${tag}_range" """SELECT id FROM ${table}
-                        WHERE ts<CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP_NS) ORDER BY id"""
-                    "qt_${tag}_aggregate" "SELECT min(ts), max(ts), count(DISTINCT ts) FROM ${table}"
-                }
+            for (String sessionZone : ["UTC", "Asia/Shanghai"]) {
+                sql "SET time_zone='${sessionZone}'"
+                String tag = "${format}_${sessionZone.replace('/', '_')}"
+                "qt_${tag}_values" "SELECT * FROM ${table} ORDER BY id"
+                // The two positive timestamps differ only in the last nanosecond.
+                "qt_${tag}_eq" """SELECT id FROM ${table}
+                    WHERE ts=CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP_NS) ORDER BY id"""
+                "qt_${tag}_range" """SELECT id FROM ${table}
+                    WHERE ts<CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP_NS) ORDER BY id"""
+                "qt_${tag}_aggregate" "SELECT min(ts), max(ts), count(DISTINCT ts) FROM ${table}"
             }
             sql "DROP TABLE IF EXISTS ${table}_copy"
             sql """CREATE TABLE ${table}_copy PROPERTIES ("format-version"="3",

@@ -29,7 +29,6 @@
 #include <limits>
 #include <list>
 
-#include "core/data_type_serde/orc_serde_utils.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vexpr.h"
@@ -419,12 +418,6 @@ Status OrcReader::_create_file_reader() {
         try {
             _reader = orc::createReader(
                     std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
-            if (orc_serde_utils::has_nanosecond_timestamp(_reader->getType())) {
-                // ORC and cctz disagree on pre-transition local offsets. UTC preserves the
-                // wall-clock value across the full nanosecond range without that conversion.
-                _ctz = "GMT";
-                _time_zone = cctz::utc_time_zone();
-            }
         } catch (std::exception& e) {
             // invoker maybe just skip Status.NotFound and continue
             // so we need distinguish between it and other kinds of errors
@@ -1605,10 +1598,6 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
             return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
         }
     case orc::TypeKind::TIMESTAMP:
-        if (orc_type->hasAttributeKey("iceberg.timestamp-unit") &&
-            orc_type->getAttributeValue("iceberg.timestamp-unit") == "NANOS") {
-            return DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, true);
-        }
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
                                                             6);
     case orc::TypeKind::DECIMAL:
@@ -1959,14 +1948,12 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
 #undef DISPATCH
     case PrimitiveType::TYPE_INT:
         return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
-    case PrimitiveType::TYPE_TIMESTAMP_NS:
     case PrimitiveType::TYPE_UUID: {
         OrcDecodedColumnView view;
         view.file_type = orc_column_type;
         view.selected_type = orc_column_type;
         view.batch = cvb;
         view.rows = num_values;
-        view.timezone = &_time_zone;
         return data_type->get_serde()->read_column_from_orc(*data_column, view);
     }
     case PrimitiveType::TYPE_DECIMAL32:
