@@ -289,4 +289,44 @@ TEST_F(FunctionCastTest, string_to_timestamp_ns_strict_rejects_non_strict_format
                                                              "Invalid TIMESTAMP_NS value");
 }
 
+// A row that the input null map marks as NULL may still carry an arbitrary hidden payload in the
+// nested column. Strict cast parses the source value with a strict-mode serde batch, so the hidden
+// payload of a NULL row must not be validated.
+TEST_F(FunctionCastTest, numeric_to_timestamp_ns_skips_null_covered_payload) {
+    auto ctx = create_context(true);
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeTimeStampNs>());
+
+    // Row 0 is NULL with hidden payload 16770921001243, which is outside the signed
+    // epoch-nanosecond range; row 1 is a valid timestamp.
+    ColumnPtr from_column = ColumnHelper::create_nullable_column<DataTypeInt64>(
+            {16770921001243, 19700101000000}, {1, 0});
+
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_EQ(result.get_null_map_data()[0], 1);
+    EXPECT_EQ(result.get_null_map_data()[1], 0);
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1),
+              "1970-01-01 00:00:00.000000000");
+
+    // An out-of-range value in a visible (non NULL) row must still fail in strict mode.
+    {
+        ColumnPtr overflow_column = ColumnHelper::create_nullable_column<DataTypeInt64>(
+                {16770921001243, 22620412000000}, {1, 0});
+        Block overflow_block = {
+                {std::move(overflow_column), from_type, "from"},
+                {nullptr, to_type, "to"},
+        };
+        EXPECT_FALSE(fn(ctx.get(), overflow_block, {0}, 1, overflow_block.rows(), nullptr).ok());
+    }
+}
+
 } // namespace doris

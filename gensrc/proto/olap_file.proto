@@ -711,6 +711,7 @@ message BinlogConfigPB {
     optional int64 max_history_nums = 4;
     optional BinlogFormatPB binlog_format = 5;
     optional bool need_historical_value = 6;
+    optional int64 config_version = 7 [default = 0];
 }
 
 // ATTN: When adding or deleting fields, please update `message TabletMetaCloudPB`

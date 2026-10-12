@@ -123,6 +123,39 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         Assertions.assertTrue(exception.getMessage().contains("dfs.ha.namenodes.ns1"), exception.getMessage());
     }
 
+    @Test
+    public void testAlterPreservesLegacyEmptyNameservices() throws Exception {
+        for (String nameservices : new String[] {",", " ", ""}) {
+            Map<String, String> properties = hiveCatalogProperties();
+            properties.put("dfs.nameservices", nameservices);
+            PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                    1L, "test-catalog", null, properties, "", null);
+
+            Assertions.assertTrue(catalog.validatePropertiesBeforeUpdate(properties,
+                    Collections.singletonMap("test_connection", "false")));
+            Assertions.assertEquals(nameservices, catalog.getProperties().get("dfs.nameservices"));
+        }
+    }
+
+    @Test
+    public void testDdlRejectsSubmittedEmptyNameservices() {
+        for (String nameservices : new String[] {",", " ", ""}) {
+            Map<String, String> properties = hiveCatalogProperties();
+            PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                    1L, "test-catalog", null, properties, "", null);
+            DdlException alterException = Assertions.assertThrows(DdlException.class,
+                    () -> catalog.validatePropertiesBeforeUpdate(properties,
+                            Collections.singletonMap("dfs.nameservices", nameservices)));
+            Assertions.assertTrue(alterException.getMessage().contains("dfs.nameservices"));
+
+            properties.put("dfs.nameservices", nameservices);
+            PluginDrivenExternalCatalog createCatalog = new PluginDrivenExternalCatalog(
+                    2L, "create-catalog", null, properties, "", null);
+            DdlException createException = Assertions.assertThrows(DdlException.class, createCatalog::checkProperties);
+            Assertions.assertTrue(createException.getMessage().contains("dfs.nameservices"));
+        }
+    }
+
     private static Map<String, String> hiveCatalogProperties() {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "hms");

@@ -352,4 +352,31 @@ public class PaimonColumnValueTest {
         result.put(key2, value2);
         return result;
     }
+
+    @Test
+    public void testJniUtcYearBounds() {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        org.apache.doris.jni.spi.vec.ColumnType columnType =
+                org.apache.doris.jni.spi.vec.ColumnType.parseType("ts", "timestamptz(6)");
+        for (String text : new String[] {"0000-12-31T23:59:59Z", "+10000-01-01T00:00:00Z"}) {
+            java.time.Instant instant = java.time.Instant.parse(text);
+            PaimonColumnValue value = new PaimonColumnValue(GenericRow.of(Timestamp.fromInstant(instant)),
+                    0, columnType, new LocalZonedTimestampType(6), "America/Los_Angeles");
+            org.apache.doris.jni.spi.vec.VectorColumn column =
+                    org.apache.doris.jni.spi.vec.VectorColumn.createWritableColumn(columnType, 1);
+            try {
+                // Doris accepts year zero; only the UTC instant outside years 0..9999 is invalid.
+                if (text.startsWith("0000")) {
+                    column.appendValue(value);
+                    Assertions.assertEquals(java.time.LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC),
+                            column.getTimeStampTzColumn(0, 1)[0]);
+                } else {
+                    Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+                }
+            } finally {
+                column.close();
+            }
+        }
+    }
+
 }

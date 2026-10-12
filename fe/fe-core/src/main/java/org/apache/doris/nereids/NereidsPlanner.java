@@ -91,6 +91,7 @@ import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
+import org.apache.doris.tso.MasterTsoProvider;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -434,6 +435,10 @@ public class NereidsPlanner extends Planner {
         PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.COLLECT_TABLES,
                 () -> keepOrShowPlanProcess(showPlanProcess,
                         () -> cascadesContext.newTableCollector(true, true).collect()));
+        if (statementContext.isRowBinlogReferenceTsoRequired()) {
+            statementContext.getOrRegisterRowBinlogReferenceTso(
+                    () -> MasterTsoProvider.getCurrentTso(statementContext.getConnectContext()));
+        }
         // Read the preload result produced by the collect-phase rule before taking internal table locks.
         ExternalMetadataPreloadResult preloadResult = statementContext.getExternalMetadataPreloadResult()
                 .orElse(ExternalMetadataPreloadResult.skipped(
