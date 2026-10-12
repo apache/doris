@@ -63,6 +63,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -569,6 +570,19 @@ public class PaimonJniScannerTest {
         Assertions.assertTrue(structType.isStruct());
         Assertions.assertEquals(Arrays.asList("hash#name", "region,code", "colon:name"),
                 structType.getChildNames());
+    }
+
+    @Test
+    public void testVariantAccessPathsStayAlignedWithRequiredFields() {
+        Map<String, String> params = createBaseParams();
+        params.put("variant_access_path.1.0", encodeFields("name"));
+        params.put("variant_access_path.1.1", encodeFields("profile", "city"));
+
+        List<List<List<String>>> paths = PaimonJniScanner.variantAccessPathsByColumn(params, 3);
+        Assertions.assertTrue(paths.get(0).isEmpty());
+        Assertions.assertEquals(Collections.singletonList("name"), paths.get(1).get(0));
+        Assertions.assertEquals(Arrays.asList("profile", "city"), paths.get(1).get(1));
+        Assertions.assertTrue(paths.get(2).isEmpty());
     }
 
     @Test
