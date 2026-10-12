@@ -22,18 +22,97 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.thrift.TVectorSearchOptions;
+import org.apache.doris.thrift.TVectorSearchParams;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 
 public class VectorSearchTableValuedFunctionTest {
+    private TVectorSearchOptions parseOptions(Map<String, String> params) throws Exception {
+        return VectorSearchTableValuedFunction.buildVectorSearchOptions(params, true);
+    }
+
+    @Test
+    public void testRejectInvalidDistanceBoundsBeforeMetadataAccess() {
+        for (String value : new String[] {"NaN", "Infinity", "-Infinity", "1e100", "invalid", ""}) {
+            AnalysisException error = Assert.assertThrows(AnalysisException.class,
+                    () -> new VectorSearchTableValuedFunction(
+                            Collections.singletonMap("distance_upper_bound", value)));
+            Assert.assertTrue(error.getMessage(), error.getMessage().contains("finite FLOAT"));
+        }
+    }
+
+    @Test
+    public void testDistanceBoundsRoundTrip() throws Exception {
+        Assert.assertFalse(VectorSearchTableValuedFunction.parseDistanceBounds(Collections.emptyMap())
+                .isSetDistanceLowerBound());
+        for (Map<String, String> properties : Arrays.asList(
+                Collections.singletonMap("distance_lower_bound", "-0.5"),
+                Collections.singletonMap("distance_upper_bound", "0"),
+                ImmutableMap.of("distance_lower_bound", "0.1", "distance_upper_bound", "1.5"))) {
+            TVectorSearchParams params = VectorSearchTableValuedFunction.parseDistanceBounds(properties);
+            TVectorSearchParams decoded = new TVectorSearchParams();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(params));
+            Assert.assertEquals(params, decoded);
+            Assert.assertEquals(properties.containsKey("distance_lower_bound"), decoded.isSetDistanceLowerBound());
+            Assert.assertEquals(properties.containsKey("distance_upper_bound"), decoded.isSetDistanceUpperBound());
+            if (decoded.isSetDistanceLowerBound()) {
+                Assert.assertEquals((double) Float.parseFloat(properties.get("distance_lower_bound")),
+                        decoded.getDistanceLowerBound(), 0.0);
+            }
+        }
+    }
+
+    @Test
+    public void testRejectEmptyOrReversedDistanceRange() {
+        for (String upper : new String[] {"0", "-1", "0.00000000000000000000000000000000000000000000001"}) {
+            AnalysisException error = Assert.assertThrows(AnalysisException.class,
+                    () -> new VectorSearchTableValuedFunction(
+                            ImmutableMap.of("distance_lower_bound", "0", "distance_upper_bound", upper)));
+            Assert.assertTrue(error.getMessage(), error.getMessage().contains("must be less than"));
+        }
+        Assert.assertThrows(AnalysisException.class, () -> VectorSearchTableValuedFunction.parseDistanceBounds(
+                ImmutableMap.of("distance_lower_bound", "1", "distance_upper_bound", "1.00000001")));
+        Assert.assertThrows(AnalysisException.class, () -> VectorSearchTableValuedFunction.parseDistanceBounds(
+                Collections.singletonMap("distance_lower_bound", "NaN")));
+    }
+
+    @Test
+    public void testQueryParallelismOptions() throws Exception {
+        Assert.assertNull(parseOptions(Collections.emptyMap()));
+        Assert.assertFalse(parseOptions(Collections.singletonMap("nprobes", "4")).isSetQueryParallelism());
+        for (String value : new String[] {"-1", "0", "1", "4", "2147483647"}) {
+            TVectorSearchOptions options = parseOptions(Collections.singletonMap("query_parallelism", value));
+            Assert.assertNotNull("query_parallelism must be serialized", options);
+            TVectorSearchOptions decoded = new TVectorSearchOptions();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(options));
+            Assert.assertTrue(decoded.isSetQueryParallelism());
+            Assert.assertEquals(Integer.parseInt(value), decoded.getQueryParallelism());
+            Assert.assertFalse(decoded.isSetNprobes());
+        }
+    }
+
+    @Test
+    public void testRejectInvalidQueryParallelism() {
+        for (String value : new String[] {"-2", "2147483648", "1.5", "abc", ""}) {
+            AnalysisException error = Assert.assertThrows(AnalysisException.class,
+                    () -> parseOptions(Collections.singletonMap("query_parallelism", value)));
+            Assert.assertTrue(error.getMessage(), error.getMessage().contains("query_parallelism"));
+        }
+    }
+
     @Test
     public void testParseQuotedMultiLevelNamespace() throws AnalysisException {
         TableName tableName = VectorSearchTableValuedFunction.parseTableName(
@@ -58,7 +137,8 @@ public class VectorSearchTableValuedFunctionTest {
             AnalysisException exception = Assert.assertThrows(AnalysisException.class,
                     () -> VectorSearchTableValuedFunction.parseTableName(table));
             Assert.assertTrue(exception.getMessage(),
-                    exception.getMessage().contains("cannot select a version, tag or branch"));
+                    exception.getMessage().contains("cannot select a version, tag or branch;"
+                            + " use the 'version', 'timestamp', 'tag' or 'branch' property"));
         }
     }
 

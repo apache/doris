@@ -839,6 +839,54 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testExternalIdentityPartitionValidation() {
+        for (String engine : new String[] {"hive", "paimon", "maxcompute"}) {
+            String prefix = "create table partition_validation (id int, ts datetime, dt date) engine=" + engine;
+            PartitionDesc partition = getCreateTableStmt(prefix + " partition by (dt) ()");
+            Assertions.assertEquals(java.util.Collections.singletonList("dt"), partition.getPartitionColNames());
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> getCreateTableStmt(prefix + " partition by (date_trunc(ts, 'day')) ()"));
+            Assertions.assertTrue(exception.getMessage().contains("only supports partitioning by columns"));
+        }
+    }
+
+    @Test
+    public void testExternalPartitionDefinitionsRejected() {
+        for (String engine : new String[] {"hive", "paimon", "maxcompute", "iceberg"}) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> getCreateTableStmt("create table partition_validation (id int, dt date) engine=" + engine
+                            + " partition by list(dt) (partition p1 values in ('2026-01-01'))"));
+            String expected = engine.equals("hive") ? "Partition values expressions is not supported in hive catalog"
+                    : "does not support explicit partition definitions";
+            Assertions.assertTrue(exception.getMessage().contains(expected), exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testExternalPartitionModelRestrictions() {
+        AnalysisException hiveException = Assertions.assertThrows(AnalysisException.class,
+                () -> getCreateTableStmt("create table partition_validation (id int, dt date) engine=hive"
+                        + " partition by range(dt) ()"));
+        Assertions.assertTrue(hiveException.getMessage().contains("Only support 'LIST' partition type in hive catalog"));
+
+        PartitionDesc iceberg = getCreateTableStmt("create table partition_validation (id int, ts datetime)"
+                + " engine=iceberg partition by (bucket(4, id), day(ts)) ()");
+        Assertions.assertEquals(2, iceberg.getPartitionExprs().size());
+
+        PartitionDesc elasticsearch = getCreateTableStmt("create table partition_validation (id int, dt date)"
+                + " engine=elasticsearch partition by range(dt) ()");
+        Assertions.assertEquals(java.util.Collections.singletonList("dt"), elasticsearch.getPartitionColNames());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> getCreateTableStmt("create table partition_validation (id int, dt date) engine=elasticsearch"
+                        + " partition by list(dt) ()"));
+        for (String engine : new String[] {"jdbc", "odbc", "mysql", "broker"}) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> getCreateTableStmt("create table partition_validation (id int, dt date) engine=" + engine
+                            + " partition by list(dt) ()"));
+        }
+    }
+
+    @Test
     public void testPartitionCheckForHive() {
         try {
             getCreateTableStmt("CREATE TABLE `tb11`(\n"

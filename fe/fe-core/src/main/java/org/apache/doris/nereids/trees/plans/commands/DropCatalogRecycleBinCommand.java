@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -71,7 +74,19 @@ public class DropCatalogRecycleBinCommand extends Command implements ForwardWith
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate();
         Env.getCurrentEnv().dropCatalogRecycleBin(idType, id);
+    }
+
+    /**
+     * validate
+     */
+    public void validate() throws org.apache.doris.common.AnalysisException {
+        // Erasing from the recycle bin is irreversible and takes a raw object id, so it can not be
+        // authorized at db/table level. Restrict it to ADMIN, same as the other catalog-wide admin ops.
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
     }
 
     @Override

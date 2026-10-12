@@ -104,7 +104,8 @@ public class StreamingJobPropertiesTest {
         Assert.assertEquals(StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND,
                 p.getMaxIntervalSecond());
         // but validate() should throw
-        Assert.assertThrows(AnalysisException.class, p::validate);
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class, p::validate);
+        Assert.assertTrue(exception.getMessage().contains("max_interval must be at least 1 second"));
     }
 
     @Test

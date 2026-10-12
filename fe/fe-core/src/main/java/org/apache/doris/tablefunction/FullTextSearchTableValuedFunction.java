@@ -47,8 +47,8 @@ public class FullTextSearchTableValuedFunction extends LanceExternalSearchTableV
     private static final String MAX_FUZZY_DISTANCE = "max_fuzzy_distance";
     private static final String SLOP = "slop";
     private static final Set<String> PROPERTIES = ImmutableSet.of(
-            TABLE, COLUMN, QUERY, TOP_K, OFFSET, FILTER, COVERAGE_MODE,
-            QUERY_TYPE, OPERATOR, MAX_FUZZY_DISTANCE, SLOP);
+            TABLE, COLUMN, QUERY, TOP_K, OFFSET, FILTER, PREFILTER, COVERAGE_MODE,
+            QUERY_TYPE, OPERATOR, MAX_FUZZY_DISTANCE, SLOP, VERSION, TIMESTAMP, TAG, BRANCH);
 
     public FullTextSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {

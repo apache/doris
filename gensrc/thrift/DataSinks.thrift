@@ -231,6 +231,8 @@ struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
     3: optional TFetchOption fetch_option;
+    // Absent for old FEs, whose Flight schema comparison requires legacy field metadata.
+    4: optional bool enable_arrow_type_metadata = false;
 }
 
 struct TResultFileSink {

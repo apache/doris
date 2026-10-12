@@ -550,7 +550,8 @@ void block_converter_test(std::vector<PrimitiveType> cols, int row_num, bool is_
     std::shared_ptr<arrow::RecordBatch> record_batch;
     std::shared_ptr<arrow::Schema> schema;
     Status status = Status::OK();
-    status = get_arrow_schema_from_block(*source_block, &schema, TimezoneUtils::default_time_zone);
+    status = DorisArrowSchemaConvertor(TimezoneUtils::default_time_zone)
+                     .get_arrow_schema_from_block(*source_block, &schema);
     ASSERT_TRUE(status.ok() && schema);
     cctz::time_zone default_timezone;
     ASSERT_TRUE(
@@ -587,7 +588,8 @@ TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
 TEST(DataTypeSerDeArrowTest, ArrowBlockConvertorReusesBothDirectionsAndValidatesSlices) {
     auto source = create_test_block({TYPE_INT, TYPE_STRING, TYPE_VARBINARY}, 4, true);
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(*source, &schema, "UTC").ok());
+    ASSERT_TRUE(
+            DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(*source, &schema).ok());
     ArrowFlightArrowBlockConvertor convertor(schema, cctz::utc_time_zone());
     std::shared_ptr<arrow::RecordBatch> batch;
     ASSERT_TRUE(convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch).ok());
@@ -607,7 +609,7 @@ void expect_target_converter_matches_plain(const std::vector<PrimitiveType>& typ
                                            ArrowConvertorFactory target_converter) {
     auto block = create_test_block(types, 4, false);
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(*block, &schema, "UTC").ok());
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(*block, &schema).ok());
 
     std::shared_ptr<arrow::RecordBatch> plain_batch;
     ASSERT_TRUE(
@@ -651,7 +653,7 @@ TEST(DataTypeSerDeArrowTest, PaimonCommonScalarTypesUseDeclaredConverter) {
 TEST(DataTypeSerDeArrowTest, PlainArrowWritesAggregateStateBinaryTypes) {
     auto block = create_test_block({TYPE_HLL, TYPE_BITMAP, TYPE_QUANTILE_STATE}, 3, false);
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(*block, &schema, "UTC").ok());
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(*block, &schema).ok());
     std::shared_ptr<arrow::RecordBatch> batch;
     Status status = convert_to_arrow_batch_for_test(
             *block, schema, arrow::default_memory_pool(), &batch, cctz::utc_time_zone(), 0,
@@ -668,7 +670,7 @@ TEST(DataTypeSerDeArrowTest, PlainArrowWritesAggregateStateBinaryTypes) {
 TEST(DataTypeSerDeArrowTest, PlainArrowWritesTimeV2) {
     auto block = create_test_block({TYPE_TIMEV2}, 3, false);
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(*block, &schema, "UTC").ok());
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(*block, &schema).ok());
     ASSERT_EQ(arrow::Type::DOUBLE, schema->field(0)->type()->id());
 
     std::shared_ptr<arrow::RecordBatch> batch;
@@ -1428,27 +1430,31 @@ TEST(DataTypeSerDeArrowTest, ConvertDateTimeV2ToNaiveArrowType) {
     const auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
     std::shared_ptr<arrow::DataType> arrow_type;
 
-    auto status = convert_to_arrow_type(datetime_type, &arrow_type, "Asia/Shanghai");
+    auto status = DorisArrowSchemaConvertor("Asia/Shanghai")
+                          .convert_to_arrow_type(datetime_type, &arrow_type);
     ASSERT_TRUE(status.ok()) << status;
     auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
     EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
     EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
 
-    status = convert_to_arrow_type(datetime_type, &arrow_type, "Asia/Shanghai", true);
+    status = ArrowFlightSchemaConvertor("Asia/Shanghai")
+                     .convert_to_arrow_type(datetime_type, &arrow_type);
     ASSERT_TRUE(status.ok()) << status;
     timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
     EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
     EXPECT_TRUE(timestamp_type->timezone().empty());
 
     const auto timestamptz_type = std::make_shared<DataTypeTimeStampTz>(6);
-    status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Asia/Shanghai", true);
+    status = ArrowFlightSchemaConvertor("Asia/Shanghai")
+                     .convert_to_arrow_type(timestamptz_type, &arrow_type);
     ASSERT_TRUE(status.ok()) << status;
     timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
     EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
     EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
 
     const auto array_type = std::make_shared<DataTypeArray>(datetime_type);
-    status = convert_to_arrow_type(array_type, &arrow_type, "Asia/Shanghai", true);
+    status = ArrowFlightSchemaConvertor("Asia/Shanghai")
+                     .convert_to_arrow_type(array_type, &arrow_type);
     ASSERT_TRUE(status.ok()) << status;
     const auto list_type = std::static_pointer_cast<arrow::ListType>(arrow_type);
     timestamp_type = std::static_pointer_cast<arrow::TimestampType>(list_type->value_type());
@@ -1459,7 +1465,8 @@ TEST(DataTypeSerDeArrowTest, CanonicalizeUtcTimezoneForArrow) {
     const auto timestamptz_type = std::make_shared<DataTypeTimeStampTz>(6);
     std::shared_ptr<arrow::DataType> arrow_type;
 
-    auto status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Z", true);
+    auto status =
+            ArrowFlightSchemaConvertor("Z").convert_to_arrow_type(timestamptz_type, &arrow_type);
     ASSERT_TRUE(status.ok()) << status;
     const auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
     EXPECT_EQ("UTC", timestamp_type->timezone());
@@ -1544,7 +1551,9 @@ TEST(DataTypeSerDeArrowTest, NestedDateTimeV2PlainArrowAcceptsNaiveSchema) {
     block.insert(ColumnWithTypeAndName(struct_column->get_ptr(), struct_type, "event_struct"));
 
     std::shared_ptr<arrow::Schema> naive_schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(block, &naive_schema, "Asia/Shanghai", true).ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("Asia/Shanghai")
+                        .get_arrow_schema_from_block(block, &naive_schema)
+                        .ok());
     std::shared_ptr<arrow::RecordBatch> naive_batch;
     const auto status = convert_to_arrow_batch_for_test(
             block, naive_schema, arrow::default_memory_pool(), &naive_batch,

@@ -298,6 +298,7 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_schema() {
     st = Status::create(callback->response_->status());
     ARROW_RETURN_NOT_OK(to_arrow_status(st));
 
+    ARROW_RETURN_NOT_OK(to_arrow_status(register_arrow_variant_extension()));
     if (callback->response_->has_schema() && !callback->response_->schema().empty()) {
         auto input =
                 arrow::io::BufferReader::FromString(std::string(callback->response_->schema()));

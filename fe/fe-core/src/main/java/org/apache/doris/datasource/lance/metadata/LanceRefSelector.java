@@ -28,6 +28,9 @@ import java.util.Optional;
  * with a snapshot inside that branch). A tag and a snapshot exclude each other.
  */
 public final class LanceRefSelector {
+    /** Lance's name for the main chain. Lance rejects it as a branch name, so it never names a real branch. */
+    public static final String MAIN_BRANCH = "main";
+
     private static final LanceRefSelector LATEST = new LanceRefSelector(Optional.empty(), Optional.empty(),
             Optional.empty());
 
@@ -56,8 +59,14 @@ public final class LanceRefSelector {
         return new LanceRefSelector(Optional.empty(), Optional.of(tag), Optional.empty());
     }
 
-    /** A branch, at its latest version or at the snapshot selected inside it. */
+    /**
+     * A branch, at its latest version or at the snapshot selected inside it. {@value #MAIN_BRANCH}
+     * is the main chain, which lives at the table root rather than under {@code tree/}.
+     */
     public static LanceRefSelector branch(String branch, Optional<TableSnapshot> snapshot) {
+        if (MAIN_BRANCH.equals(branch)) {
+            return snapshot(snapshot);
+        }
         return new LanceRefSelector(snapshot, Optional.empty(), Optional.of(branch));
     }
 

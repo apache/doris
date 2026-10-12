@@ -497,8 +497,6 @@ supportedShowStatement
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     | SHOW PYTHON VERSIONS                                                           #showPythonVersions
     | SHOW PYTHON PACKAGES IN STRING_LITERAL                                         #showPythonPackages
-    | SHOW LANCE INDEX JOBS ((FROM | IN) db=multipartIdentifier)? (WHERE expression)?   #showLanceIndexJobs
-    | SHOW LANCE INDEX JOB jobId=INTEGER_VALUE                                          #showLanceIndexJob
     ;
 
 supportedLoadStatement
@@ -2204,7 +2202,6 @@ nonReserved
     | JSON
     | JSONB
     | LABEL
-    | LANCE
     | LAST
     | LDAP
     | LDAP_ADMIN_PASSWORD

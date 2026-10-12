@@ -229,6 +229,12 @@ public:
 
     size_t end_row() const { return _end_row; }
 
+    void set_sequential_row_start(size_t row) {
+        DCHECK(!has_active_offset_index());
+        _start_row = row;
+        _end_row = row;
+    }
+
     bool has_active_offset_index() const {
         if constexpr (OFFSET_INDEX) {
             return _offset_index != nullptr;

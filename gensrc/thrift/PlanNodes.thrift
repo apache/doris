@@ -487,6 +487,9 @@ struct TVectorSearchParams {
     3: optional i64 top_k
     4: optional i64 offset
     5: optional TVectorMetric metric
+    // FLOAT bounds: inclusive lower and exclusive upper.
+    6: optional double distance_lower_bound
+    7: optional double distance_upper_bound
 }
 
 enum TFtsCoverageMode {
@@ -538,8 +541,9 @@ enum TSearchFilterFormat {
     SUBSTRAIT
 }
 
-// A search filter is evaluated before candidate selection. A normal SQL predicate above the search
-// relation remains a post-search filter and is not serialized here.
+// A TVF search filter is evaluated by the search provider. TExternalSearchRequest.prefilter
+// controls whether Lance applies it before or after vector/FTS candidate selection. A normal SQL
+// predicate above the search relation remains a Doris residual.
 struct TSearchFilter {
     1: optional TSearchFilterFormat format
     2: optional binary payload
@@ -552,6 +556,8 @@ struct TVectorSearchOptions {
     2: optional i32 refine_factor
     3: optional i32 ef
     4: optional bool use_index
+    // Lance: -1 uses available CPU parallelism, 0 selects automatically, positive values cap it.
+    5: optional i32 query_parallelism
 }
 
 // The active union field identifies the logical search kind. A future hybrid field can contain both
@@ -568,6 +574,9 @@ struct TExternalSearchRequest {
     2: optional TExternalSearchQuery search_query
     3: optional TSearchFilter search_filter
     4: optional TVectorSearchOptions vector_search_options
+    // Applies only to search_filter. Defaults to false (postfilter); Doris WHERE predicates remain
+    // residuals regardless of this setting.
+    5: optional bool prefilter
 }
 
 // A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero

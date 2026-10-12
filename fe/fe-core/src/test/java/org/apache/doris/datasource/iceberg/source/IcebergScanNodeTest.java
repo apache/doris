@@ -30,6 +30,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
@@ -40,7 +41,10 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
@@ -57,6 +61,8 @@ import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTableCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
+import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
@@ -97,6 +103,7 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.PartitionData;
@@ -125,6 +132,7 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.Closeable;
@@ -1817,6 +1825,69 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSplitKeepsOldSpecIdentityValuesAfterEvolvingToUnpartitioned() throws Exception {
+        // A file written under identity(p) keeps p=7 only in its manifest partition metadata. Gating on
+        // the CURRENT spec drops that value once the default spec evolves to unpartitioned, and keying
+        // the partition-key classification off the columns common to all specs leaves BE reading p from
+        // a file that does not store it, so the column comes back NULL in both cases.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        String location = temporaryFolder.newFolder("identity_evolved_table").toURI().toString();
+        Table table = new HadoopTables(new Configuration()).create(schema, spec, location);
+        table.newFastAppend()
+                .appendFile(DataFiles.builder(table.spec())
+                        .withPath(location + "data/p=7/old.parquet")
+                        .withFileSizeInBytes(1024L)
+                        .withRecordCount(2L)
+                        .withFormat(FileFormat.PARQUET)
+                        .withPartitionPath("p=7")
+                        .build())
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        Assert.assertTrue(table.spec().isUnpartitioned());
+
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        setIcebergTable(node, table);
+        setPrivateField(node, "formatVersion", 2);
+        setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+        setPrivateField(node, "partitionMapInfos", new HashMap<>());
+        // Exactly what doInitialize computes for this table.
+        setPrivateField(node, "isPartitionedTable", table.spec().isPartitioned());
+        setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
+
+        // p must stay a partition key even though the current spec no longer mentions it; otherwise BE
+        // ignores the split value and reads the (absent) physical column.
+        Assert.assertEquals(ImmutableList.of("p"), orderedPathPartitionKeys(node));
+
+        FileScanTask task;
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            Iterator<FileScanTask> iterator = tasks.iterator();
+            Assert.assertTrue(iterator.hasNext());
+            task = iterator.next();
+        }
+
+        IcebergSplit split = createIcebergSplit(node, task);
+        Assert.assertEquals(ImmutableMap.of("p", "7"), split.getIcebergPartitionValues());
+        Assert.assertEquals(Integer.valueOf(0), split.getPartitionSpecId());
+        // A plain read does not project the row ID, so no row-ID partition JSON is generated.
+        Assert.assertNull(split.getPartitionDataJson());
+
+        // What BE actually receives: p=7 as a columns-from-path constant for this range.
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        setIcebergParams(node, rangeDesc, split);
+        Assert.assertEquals(ImmutableList.of("p"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(ImmutableList.of("7"), rangeDesc.getColumnsFromPath());
+
+        // Display parity: the CURRENT spec is unpartitioned, so the table still reports no scanned
+        // partitions and the batch-mode estimate stays at the unpartitioned default.
+        Assert.assertEquals(1, node.numApproximateSplits());
+    }
+
+    @Test
     public void testBatchSplitCarriesDroppedEqualitySchemaThroughThrift() throws Exception {
         Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
         Types.NestedField equalityKey = Types.NestedField.required("k")
@@ -1950,6 +2021,7 @@ public class IcebergScanNodeTest {
             node.addSlot(0, new Column("record_key", Type.INT));
             setIcebergTable(node, table);
             setPrivateField(node, "isPartitionedTable", keepPartitioned);
+            setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
             setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
             setPrivateField(node, "formatVersion", 2);
             setPrivateField(node, "partitionMapInfos", new HashMap<>());
@@ -2035,6 +2107,7 @@ public class IcebergScanNodeTest {
         TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         setIcebergTable(node, table);
         setPrivateField(node, "isPartitionedTable", keepPartitioned);
+        setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
         setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
         setPrivateField(node, "formatVersion", 2);
         setPrivateField(node, "partitionMapInfos", new HashMap<>());
@@ -2173,6 +2246,7 @@ public class IcebergScanNodeTest {
         node.addSlot(0, IcebergRowId.createHiddenColumn());
         setIcebergTable(node, table);
         setPrivateField(node, "isPartitionedTable", table.spec().isPartitioned());
+        setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
         setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
         setPrivateField(node, "formatVersion", 2);
         setPrivateField(node, "partitionMapInfos", new HashMap<>());
@@ -3595,6 +3669,82 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testManifestCachePlanningResolvesDroppedEqualityDeleteField() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "k", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "row_tag", Types.StringType.get()));
+        String tableLocation = temporaryFolder.getRoot().toPath()
+                .resolve("manifest_cache_dropped_equality_key").toUri().toString();
+        Table table = new HadoopTables(new Configuration()).create(
+                schema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/old.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(2)
+                .build()).commit();
+        table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec())
+                .ofEqualityDeletes(1)
+                .withPath(tableLocation + "/data/eq-delete.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build()).commit();
+        // The live equality delete still references field 1 after it leaves the current schema.
+        table.updateSchema().deleteColumn("k").commit();
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/new.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build()).commit();
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(ExternalCatalog.class));
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(ExternalTable.class));
+        setPrivateField(node, "source", source);
+        setPrivateField(node, "icebergTable", table);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<IcebergManifestCacheLoader> loader =
+                        Mockito.mockStatic(IcebergManifestCacheLoader.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            loader.when(() -> IcebergManifestCacheLoader.loadDeleteFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        List<DeleteFile> files = new ArrayList<>();
+                        try (CloseableIterable<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                                invocation.getArgument(2), table.io(), table.specs())) {
+                            reader.forEach(file -> files.add(file.copy()));
+                        }
+                        return ManifestCacheValue.forDeleteFiles(files);
+                    });
+            loader.when(() -> IcebergManifestCacheLoader.loadDataFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        List<DataFile> files = new ArrayList<>();
+                        try (CloseableIterable<DataFile> reader = ManifestFiles.read(
+                                invocation.getArgument(2), table.io(), table.specs())) {
+                            reader.forEach(file -> files.add(file.copy()));
+                        }
+                        return ManifestCacheValue.forDataFiles(files);
+                    });
+
+            List<FileScanTask> tasks = node.loadFileScanTasksWithManifestCache(
+                    table.newScan(), table.currentSnapshot());
+
+            Map<String, Integer> deleteCounts = new HashMap<>();
+            tasks.forEach(task -> deleteCounts.put(task.file().location(), task.deletes().size()));
+            Assert.assertEquals(ImmutableMap.of(
+                    tableLocation + "/data/old.parquet", 1,
+                    tableLocation + "/data/new.parquet", 0), deleteCounts);
+        }
+    }
+
+    @Test
     public void testPinnedBranchUsesFrozenSnapshotWithCurrentSchema() throws Exception {
         Schema snapshotSchema = new Schema(11, ImmutableList.of(
                 Types.NestedField.optional(1, "old_name", Types.StringType.get())));
@@ -4011,6 +4161,13 @@ public class IcebergScanNodeTest {
         Mockito.when(task.length()).thenReturn(128L);
         Mockito.when(task.deletes()).thenReturn(ImmutableList.of(deleteFile));
         return task;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> orderedPathPartitionKeys(IcebergScanNode node) throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod("getOrderedPathPartitionKeys");
+        method.setAccessible(true);
+        return (List<String>) method.invoke(node);
     }
 
     private static IcebergSplit createIcebergSplit(IcebergScanNode node, FileScanTask task)

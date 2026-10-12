@@ -658,7 +658,8 @@ public:
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
 
-            int64_t days_from_unix_epoch = value.daynr() - 719528;
+            // Partition hashes must use the same Gregorian ordinal as the DATE file payload.
+            int64_t days_from_unix_epoch = daynr_to_epoch_days(value.daynr());
             uint32_t hash_value = HashUtil::murmur_hash3_32(&days_from_unix_epoch,
                                                             sizeof(days_from_unix_epoch), 0);
 
@@ -1149,9 +1150,8 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            // datetime_diff<DAY> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value));
+            // Iceberg day partitions describe external DATE ordinals, not MySQL day numbers.
+            *p_out = daynr_to_epoch_days(value.daynr());
             ++p_in;
             ++p_out;
         }

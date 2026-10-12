@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.lance.metadata;
 
+import org.apache.doris.common.util.TimeUtils;
+
 import org.lance.Version;
 
 import java.time.Instant;
@@ -26,6 +28,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.NavigableSet;
+import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
 
@@ -53,6 +56,28 @@ public final class LanceSnapshotResolver {
     }
 
     private static final Pattern VERSION_NUMBER = Pattern.compile("[+-]?[0-9]+");
+
+    /** The time formats {@link #parseTimestamp} accepts, for error messages. */
+    public static final String TIMESTAMP_FORMATS = "'yyyy-MM-dd HH:mm:ss' or 'yyyy-MM-dd HH:mm:ss.SSS'";
+
+    /**
+     * Parses a time-travel timestamp in the session time zone, with second or millisecond
+     * precision, into epoch milliseconds; empty if the value is in neither format. Commit times
+     * are compared in full, so a commit later within the requested millisecond is not selected.
+     */
+    public static OptionalLong parseTimestamp(String value) {
+        long timestamp;
+        try {
+            timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
+            if (timestamp < 0) {
+                timestamp = TimeUtils.msTimeStringToLong(value, TimeUtils.getTimeZone());
+            }
+        } catch (ArithmeticException e) {
+            // A year too large for epoch milliseconds.
+            return OptionalLong.empty();
+        }
+        return timestamp < 0 ? OptionalLong.empty() : OptionalLong.of(timestamp);
+    }
 
     /**
      * Whether a {@code FOR VERSION AS OF} value is a version number rather than a tag name. A

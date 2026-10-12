@@ -20,38 +20,17 @@ package org.apache.doris.common;
 import java.lang.reflect.Field;
 
 /**
- * Validators for the Lance index admission configuration items in {@link Config}. The
- * unresolved-job quotas and the static bounds must stay positive (section 9.7 enabling
- * precondition), so every handler rejects a zero, negative, or unparsable value before
- * assigning. The handlers extend {@link ConfigBase.DefaultConfHandler} and delegate to
+ * Validators for the Lance index configuration items in {@link Config}. The static bounds
+ * must stay positive, so the handler rejects a zero, negative, or unparsable value before
+ * assigning. The handler extends {@link ConfigBase.DefaultConfHandler} and delegates to
  * {@code super.handle} after validation: a bare {@code ConfHandler} implementation would
  * validate without ever assigning, letting ADMIN SET FRONTEND CONFIG pass with no effect.
  * Note the callback only runs on the ADMIN SET path; values loaded from fe.conf bypass it
- * ({@code ConfigBase.setFields} assigns directly), so the admission path re-asserts the
- * positive invariant where the values are consumed.
+ * ({@code ConfigBase.setFields} assigns directly), so the consuming validation path
+ * re-asserts the positive invariant where the values are used.
  */
 public final class LanceIndexConfigValidator {
     private LanceIndexConfigValidator() {
-    }
-
-    /**
-     * Accepts only a positive long: validates first, then assigns via the default handler.
-     */
-    public static class PositiveLongConfigHandler extends ConfigBase.DefaultConfHandler {
-        @Override
-        public void handle(Field field, String confVal) throws Exception {
-            String trimmedVal = confVal == null ? "" : confVal.trim();
-            final long value;
-            try {
-                value = Long.parseLong(trimmedVal);
-            } catch (NumberFormatException e) {
-                throw new ConfigException(field.getName() + " must be a positive long, but got: " + confVal, e);
-            }
-            if (value <= 0) {
-                throw new ConfigException(field.getName() + " must be a positive long, but got: " + confVal);
-            }
-            super.handle(field, trimmedVal);
-        }
     }
 
     /**

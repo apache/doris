@@ -1,0 +1,15 @@
+{
+  "parentBranch": null,
+  "identifier": {
+    "version_mapping": [
+      [
+        4,
+        "db8ce527ff5c415b9a220a4a54108997"
+      ]
+    ]
+  },
+  "parentVersion": 4,
+  "createAt": 1790693536,
+  "manifestSize": 1244,
+  "metadata": {}
+}

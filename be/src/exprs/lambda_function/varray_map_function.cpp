@@ -109,9 +109,9 @@ public:
         // offset column
         MutableColumnPtr array_column_offset;
         size_t nested_array_column_rows = 0;
-        ColumnPtr first_array_offsets = nullptr;
         //2. get the result column from executed expr, and the needed is nested column of array
         std::vector<ColumnPtr> lambda_datas(arguments.size());
+        std::vector<ColumnPtr> lambda_offsets(arguments.size());
         DataTypes lambda_argument_types(arguments.size());
 
         for (int i = 0; i < arguments.size(); ++i) {
@@ -139,35 +139,90 @@ public:
 
             // here is the array column
             const auto& col_array = assert_cast<const ColumnArray&>(*column_array);
+            lambda_offsets[i] = col_array.get_offsets_ptr();
 
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
-                first_array_offsets = col_array.get_offsets_ptr();
                 const auto& off_data = col_array.get_offsets_column();
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
                 args_info.offsets_ptr = &col_array.get_offsets();
-            } else {
-                // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
-                // c_array1: [0,1,2,3,4,5,6,7,8,9]
-                const auto& array_offsets =
-                        assert_cast<const ColumnArray::ColumnOffsets&>(*first_array_offsets)
-                                .get_data();
-                if (nested_array_column_rows != col_array.get_data_ptr()->size() ||
-                    (!array_offsets.empty() &&
-                     memcmp(array_offsets.data(), col_array.get_offsets().data(),
-                            sizeof(array_offsets[0]) * array_offsets.size()) != 0)) {
-                    return Status::InvalidArgument(
-                            "in array map function, the input column size "
-                            "are "
-                            "not equal completely, nested column data rows 1st size is {}, {}th "
-                            "size is {}.",
-                            nested_array_column_rows, i + 1, col_array.get_data_ptr()->size());
-                }
             }
             lambda_datas[i] = col_array.get_data_ptr();
             const auto& col_type = assert_cast<const DataTypeArray&>(*type_array);
             lambda_argument_types[i] = col_type.get_nested_type();
         }
+
+        const auto& first_array_offsets =
+                assert_cast<const ColumnArray::ColumnOffsets&>(*lambda_offsets[0]).get_data();
+        const auto& null_map_data = outside_null_map->get_data();
+        const bool has_null =
+                std::ranges::any_of(null_map_data, [](uint8_t is_null) { return is_null; });
+        bool has_hidden_nested_data = false;
+        if (!has_null) {
+            // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
+            // c_array1: [0,1,2,3,4,5,6,7,8,9]
+            for (int i = 1; i < arguments.size(); ++i) {
+                const auto& offsets =
+                        assert_cast<const ColumnArray::ColumnOffsets&>(*lambda_offsets[i])
+                                .get_data();
+                if (nested_array_column_rows != lambda_datas[i]->size() ||
+                    (!first_array_offsets.empty() &&
+                     memcmp(first_array_offsets.data(), offsets.data(),
+                            sizeof(first_array_offsets[0]) * first_array_offsets.size()) != 0)) {
+                    return Status::InvalidArgument(
+                            "in array map function, the input column size are not equal "
+                            "completely, nested column data rows 1st size is {}, {}th size is {}.",
+                            nested_array_column_rows, i + 1, lambda_datas[i]->size());
+                }
+            }
+        } else {
+            std::vector<size_t> previous_offsets(arguments.size(), 0);
+            for (size_t row = 0; row < count; ++row) {
+                const size_t first_row_size = first_array_offsets[row] - previous_offsets[0];
+                has_hidden_nested_data |= null_map_data[row] != 0 && first_row_size > 0;
+                for (int i = 1; i < arguments.size(); ++i) {
+                    const auto& offsets =
+                            assert_cast<const ColumnArray::ColumnOffsets&>(*lambda_offsets[i])
+                                    .get_data();
+                    const size_t row_size = offsets[row] - previous_offsets[i];
+                    has_hidden_nested_data |= null_map_data[row] != 0 && row_size > 0;
+                    if (null_map_data[row] == 0 && first_row_size != row_size) {
+                        return Status::InvalidArgument(
+                                "in array map function, the input column size are not equal "
+                                "completely at row {}, 1st size is {}, {}th size is {}.",
+                                row, first_row_size, i + 1, row_size);
+                    }
+                    previous_offsets[i] = offsets[row];
+                }
+                previous_offsets[0] = first_array_offsets[row];
+            }
+        }
+
+        // NULL rows are skipped. If they retain hidden payload, rebuild only result offsets;
+        // the bounded execution path reads each argument through its own original offsets.
+        if (has_hidden_nested_data) {
+            auto res_offsets = ColumnArray::ColumnOffsets::create();
+            auto& res_offsets_data = res_offsets->get_data();
+            res_offsets_data.reserve(count);
+            size_t previous_offset = 0;
+            size_t compacted_rows = 0;
+            for (size_t row = 0; row < count; ++row) {
+                const size_t current_offset = first_array_offsets[row];
+                if (null_map_data[row] == 0) {
+                    const size_t row_size = current_offset - previous_offset;
+                    compacted_rows += row_size;
+                }
+                res_offsets_data.push_back(compacted_rows);
+                previous_offset = current_offset;
+            }
+
+            nested_array_column_rows = compacted_rows;
+            array_column_offset = std::move(res_offsets);
+            args_info.offsets_ptr =
+                    &assert_cast<const ColumnArray::ColumnOffsets&>(*array_column_offset)
+                             .get_data();
+        }
+
         std::set<int> required_input_column_ids;
         children[0]->collect_slot_column_ids(required_input_column_ids);
         context->lambda_execution_context().collect_visible_binding_column_positions(
@@ -229,7 +284,7 @@ public:
         // if column_array is NULL, we know the array_data_column will not write any data,
         // so the column is empty. eg : (x) -> concat('|',x + "1"). if still execute the lambda function, will cause the bolck rows are not equal
         // the x column is empty, but "|" is const literal, size of column is 1, so the block rows is 1, but the x column is empty, will be coredump.
-        if (std::ranges::any_of(lambda_datas, [](const auto& v) { return v->empty(); })) {
+        if (nested_array_column_rows == 0) {
             DataTypePtr nested_type;
             bool is_nullable = result_type->is_nullable();
             if (is_nullable) {
@@ -273,7 +328,11 @@ public:
                 columns = columns_guard.release();
             } else {
                 for (int i = 0; i < column_size; i++) {
-                    columns[i] = data_types[i]->create_column();
+                    if (i < lambda_argument_base && !materialized_input_columns[i]) {
+                        columns[i] = ColumnNothing::create(0);
+                    } else {
+                        columns[i] = data_types[i]->create_column();
+                    }
                 }
             }
             // batch_size of array nested data every time inorder to avoid memory overflow
@@ -281,18 +340,24 @@ public:
                 long max_step = batch_size - columns[lambda_argument_base]->size();
                 long current_step = std::min(
                         max_step, (long)(args_info.cur_size - args_info.current_offset_in_array));
-                size_t pos = args_info.array_start + args_info.current_offset_in_array;
                 for (int i = 0; i < arguments.size() && current_step > 0; ++i) {
-                    columns[lambda_argument_base + i]->insert_range_from(*lambda_datas[i], pos,
-                                                                         current_step);
+                    const auto& source_offsets =
+                            assert_cast<const ColumnArray::ColumnOffsets&>(*lambda_offsets[i])
+                                    .get_data();
+                    const size_t source_pos = source_offsets[args_info.current_row_idx - 1] +
+                                              args_info.current_offset_in_array;
+                    columns[lambda_argument_base + i]->insert_range_from(*lambda_datas[i],
+                                                                         source_pos, current_step);
                 }
                 args_info.current_offset_in_array += current_step;
                 args_info.current_repeat_times += current_step;
                 if (args_info.current_offset_in_array >= args_info.cur_size) {
                     args_info.current_row_eos = true;
                 }
-                _repeat_input_columns(columns, block, args_info.current_repeat_times,
-                                      materialized_input_columns, args_info.current_row_idx);
+                _repeat_input_columns(
+                        columns, block, args_info.current_repeat_times, materialized_input_columns,
+                        expr_selector == nullptr ? args_info.current_row_idx
+                                                 : (*expr_selector)[args_info.current_row_idx]);
                 args_info.current_repeat_times = 0;
                 if (args_info.current_row_eos) {
                     //current row is end of array, move to next row
@@ -306,6 +371,12 @@ public:
                     args_info.cur_size = (*args_info.offsets_ptr)[args_info.current_row_idx] -
                                          args_info.array_start;
                 }
+            }
+
+            // Trailing NULL or empty array rows can finish the input without filling a batch.
+            // Do not evaluate the lambda on an empty block.
+            if (columns[lambda_argument_base]->empty()) {
+                break;
             }
 
             if (!mem_reuse) {
