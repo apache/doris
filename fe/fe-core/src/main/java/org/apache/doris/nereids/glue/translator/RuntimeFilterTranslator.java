@@ -23,15 +23,19 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -159,6 +163,8 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    updateConditionCacheEligibility(scanNode, filter.getTargetExpressions().get(i),
+                            filter.getSrcExpr().getDataType());
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
@@ -177,6 +183,17 @@ public class RuntimeFilterTranslator {
             if (SessionVariable.isFeDebug()) {
                 throw e;
             }
+        }
+    }
+
+    static void updateConditionCacheEligibility(PlanNode targetNode, Expression target, DataType sourceType) {
+        // Include the implicit cast inserted when translating the runtime-filter target.
+        if (!target.getDataType().equals(sourceType)) {
+            target = new Cast(target, sourceType);
+        }
+        // RF probes become scan predicates even when no PhysicalFilter is attached to the scan.
+        if (ExpressionUtils.containsNonCacheableExpression(ImmutableList.of(target))) {
+            targetNode.setEnableConditionCache(false);
         }
     }
 

@@ -132,6 +132,7 @@ private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
 
+    RuntimeProfile::Counter* _condition_cache_lookup_counter = nullptr;
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;

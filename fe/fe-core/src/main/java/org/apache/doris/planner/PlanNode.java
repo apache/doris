@@ -108,6 +108,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected Set<TupleId> nullableTupleIds = Sets.newHashSet();
 
     protected List<Expr> conjuncts = Lists.newArrayList();
+    // Enabled only after Nereids has checked the scan's expression dependencies.
+    private boolean enableConditionCache = false;
 
     // Conjuncts used to filter the original load file.
     // In the load execution plan, the difference between "preFilterConjuncts" and "conjuncts" is that
@@ -204,6 +206,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.tblRefIds = Lists.newArrayList(node.tblRefIds);
         this.nullableTupleIds = Sets.newHashSet(node.nullableTupleIds);
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
+        this.enableConditionCache = node.enableConditionCache;
 
         this.cardinality = -1;
         this.compactData = node.compactData;
@@ -401,6 +404,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return conjuncts;
     }
 
+    public void setEnableConditionCache(boolean enableConditionCache) {
+        this.enableConditionCache = enableConditionCache;
+    }
+
     public void addConjuncts(List<Expr> conjuncts) {
         if (conjuncts == null) {
             return;
@@ -565,6 +572,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         TPlanNode msg = new TPlanNode();
         msg.node_id = id.asInt();
         msg.setNereidsId(nereidsId);
+        if (this instanceof ScanNode) {
+            msg.setEnableConditionCache(enableConditionCache);
+        }
         msg.setIsSerialOperator(isSerialOperator() && fragment.useSerialSource(ConnectContext.get()));
         msg.num_children = children.size();
         msg.limit = limit;
