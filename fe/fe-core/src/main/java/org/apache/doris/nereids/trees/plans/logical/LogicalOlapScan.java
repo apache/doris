@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -386,6 +388,11 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         this.partitionPrunablePredicates = partitionPrunablePredicates == null
                 ? Optional.empty()
                 : partitionPrunablePredicates;
+        Preconditions.checkArgument(partitionPruned || !this.partitionPrunablePredicates.isPresent(),
+                "partition prunable predicates require a pruned partition state");
+        Preconditions.checkArgument(!this.partitionPrunablePredicates.isPresent()
+                        || this.partitionPrunablePredicates.get().covers(this.selectedPartitionIds),
+                "partition prunable predicates must cover the selected partitions");
         this.scanParams = scanParams;
     }
 
@@ -435,6 +442,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return hasPartitionPredicate;
     }
 
+    @Override
     public Optional<PartitionPrunablePredicate> getPartitionPrunablePredicates() {
         return partitionPrunablePredicates;
     }
@@ -456,6 +464,71 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
+    }
+
+    /**
+     * Copy a partition-pruning result from another scan of the same table and bind its proof to this scan's
+     * output slots. This keeps slot lineage repair at the scan-state transition instead of deferring it to
+     * statistics derivation or physical post-processing.
+     */
+    public LogicalOlapScan withPartitionPruningFrom(LogicalOlapScan source) {
+        return withSelectedPartitionIds(source.selectedPartitionIds)
+                .withReboundPartitionPruningProofFrom(source);
+    }
+
+    /** Rebind only the partition-pruning proof while preserving this scan's own pruning state. */
+    public LogicalOlapScan withReboundPartitionPruningProofFrom(LogicalOlapScan source) {
+        Preconditions.checkArgument(getTable().getId() == source.getTable().getId(),
+                "partition-pruning proof can only be rebound between scans of the same table");
+        return withPartitionPrunablePredicates(
+                source.rebindPartitionPrunablePredicates(selectedIndexId, getOutput()));
+    }
+
+    private Optional<PartitionPrunablePredicate> rebindPartitionPrunablePredicates(
+            long targetIndexId, List<Slot> targetOutput) {
+        if (!partitionPrunablePredicates.isPresent()) {
+            return Optional.empty();
+        }
+        Map<String, Slot> targetSlotsByBaseColumn = directBaseColumnSlots(targetIndexId, targetOutput);
+        Map<Slot, Slot> slotMapping = new HashMap<>();
+        for (Slot partitionSlot : partitionPrunablePredicates.get().getPartitionSlots()) {
+            Optional<String> baseColumnName = directBaseColumnName(selectedIndexId, partitionSlot);
+            if (!baseColumnName.isPresent()) {
+                return Optional.empty();
+            }
+            Slot targetSlot = targetSlotsByBaseColumn.get(baseColumnName.get());
+            if (targetSlot == null) {
+                return Optional.empty();
+            }
+            slotMapping.put(partitionSlot, targetSlot);
+        }
+        return Optional.of(partitionPrunablePredicates.get().rebindSlots(slotMapping));
+    }
+
+    private Map<String, Slot> directBaseColumnSlots(long indexId, List<Slot> output) {
+        Map<String, Slot> slotsByBaseColumn = new HashMap<>(output.size());
+        for (Slot slot : output) {
+            directBaseColumnName(indexId, slot).ifPresent(name -> slotsByBaseColumn.putIfAbsent(name, slot));
+        }
+        return slotsByBaseColumn;
+    }
+
+    private Optional<String> directBaseColumnName(long indexId, Slot slot) {
+        if (!(slot instanceof SlotReference)) {
+            return Optional.empty();
+        }
+        Optional<Column> column = ((SlotReference) slot).getOriginalColumn();
+        if (!column.isPresent()) {
+            return Optional.empty();
+        }
+        if (indexId == getTable().getBaseIndexId()) {
+            return Optional.of(column.get().getName().toLowerCase(Locale.ROOT));
+        }
+        Expr defineExpr = column.get().getDefineExpr();
+        if (!(defineExpr instanceof SlotRef)) {
+            return Optional.empty();
+        }
+        return Optional.of(((SlotRef) defineExpr).getColumnName().toLowerCase(Locale.ROOT));
     }
 
     @Override
@@ -573,6 +646,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      */
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds,
             boolean hasPartitionPredicate) {
+        Optional<PartitionPrunablePredicate> retainedProof = partitionPrunablePredicates
+                .filter(proof -> proof.covers(selectedPartitionIds));
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.of(getLogicalProperties()),
@@ -581,7 +656,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                retainedProof, scanParams));
     }
 
     /**
@@ -769,7 +844,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
-     * Return a new scan with the specified partition pruning state.
+     * Return a new scan with the specified partition pruning state. Resetting the state invalidates the
+     * predicate proof recorded for the previous pruning result.
      */
     public LogicalOlapScan withPartitionPruned(boolean partitionPruned) {
         return AbstractPlan.copyWithSameId(this, () ->
@@ -780,7 +856,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams));
+                partitionPruned ? partitionPrunablePredicates : Optional.empty(), scanParams));
     }
 
     public List<Long> getSelectedTabletIds() {

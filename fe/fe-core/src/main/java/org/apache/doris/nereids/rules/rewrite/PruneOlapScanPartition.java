@@ -96,9 +96,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         if (rewrittenLogicalRelation instanceof LogicalEmptyRelation) {
                             return rewrittenLogicalRelation;
                         }
-                        boolean skipPrunePredicate = ctx.connectContext.getSessionVariable().skipPrunePredicate
-                                || ctx.statementContext.isDelete();
-                        if (!skipPrunePredicate && prunedRes.second.isPresent()) {
+                        if (prunedRes.second.isPresent()) {
                             // Defer the predicate removal to PlanPostProcessor so that materialized-view
                             // rewrite still sees the original predicates. Otherwise, partition predicates
                             // that are equivalent to the surviving partition list would be silently

@@ -499,6 +499,25 @@ public class OlapTableTest {
     }
 
     @Test
+    public void testGetSelectedPartitionRowCountEstimatesUnknownPartitionsFromRemainingRows() {
+        OlapTable olapTable = new OlapTable();
+        MaterializedIndex knownIndex = new MaterializedIndex(10, MaterializedIndex.IndexState.NORMAL);
+        knownIndex.setRowCountReported(true);
+        knownIndex.setRowCount(30);
+        MaterializedIndex selectedUnknownIndex = new MaterializedIndex(10, MaterializedIndex.IndexState.NORMAL);
+        selectedUnknownIndex.setRowCountReported(false);
+        MaterializedIndex otherUnknownIndex = new MaterializedIndex(10, MaterializedIndex.IndexState.NORMAL);
+        otherUnknownIndex.setRowCountReported(false);
+        olapTable.addPartition(new Partition(1, "p1", knownIndex, null));
+        olapTable.addPartition(new Partition(2, "p2", selectedUnknownIndex, null));
+        olapTable.addPartition(new Partition(3, "p3", otherUnknownIndex, null));
+
+        double rowCount = olapTable.getRowCountForSelectedPartitions(Arrays.asList(1L, 2L), 10, 100);
+
+        Assertions.assertEquals(65, rowCount, 0.001);
+    }
+
+    @Test
     public void testGetSchemaAllIndexes() {
         OlapTable table = Mockito.spy(new OlapTable());
         List<Column> schema1 = Lists.newArrayList();

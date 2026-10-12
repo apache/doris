@@ -43,6 +43,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.model.Statistics;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -197,6 +198,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         this.partitionPrunablePredicates = partitionPrunablePredicates == null
                 ? Optional.empty()
                 : partitionPrunablePredicates;
+        Preconditions.checkArgument(!this.partitionPrunablePredicates.isPresent()
+                        || this.partitionPrunablePredicates.get().covers(this.selectedPartitionIds),
+                "partition prunable predicates must cover the selected partitions");
         this.scanParams = scanParams == null ? Optional.empty() : scanParams;
     }
 
@@ -218,6 +222,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return hasPartitionPredicate;
     }
 
+    @Override
     public Optional<PartitionPrunablePredicate> getPartitionPrunablePredicates() {
         return partitionPrunablePredicates;
     }
