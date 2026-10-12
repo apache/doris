@@ -543,8 +543,7 @@ public:
                     // in both branches below.
                     StringRef options_value;
                     if (args.size() == 4) {
-                        options_value =
-                                args_block.get_by_position(args[3]).column->get_data_at(0);
+                        options_value = args_block.get_by_position(args[3]).column->get_data_at(0);
                     }
 
                     if (parameters_const) {
