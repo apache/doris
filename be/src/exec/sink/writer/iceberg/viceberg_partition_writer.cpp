@@ -25,6 +25,7 @@
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/viceberg_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
@@ -75,36 +76,15 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     Status open_status;
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        TParquetCompressionType::type parquet_compression_type;
-        switch (_compress_type) {
-        case TFileCompressType::PLAIN: {
-            parquet_compression_type = TParquetCompressionType::UNCOMPRESSED;
+        auto parquet_compression_type =
+                ParquetBuildHelper::to_parquet_compression_type(_compress_type);
+        if (!parquet_compression_type.has_value()) {
+            // The target file is already created, so let the shared cleanup below remove it
+            // instead of returning early.
+            open_status = parquet_compression_type.error();
             break;
         }
-        case TFileCompressType::SNAPPYBLOCK: {
-            parquet_compression_type = TParquetCompressionType::SNAPPY;
-            break;
-        }
-        case TFileCompressType::ZSTD: {
-            parquet_compression_type = TParquetCompressionType::ZSTD;
-            break;
-        }
-        case TFileCompressType::LZ4BLOCK: {
-            // Map Doris LZ4 to the Hadoop-framed Parquet LZ4 codec (not LZ4_RAW) so the file
-            // stays readable across Spark/Iceberg/Trino. See ParquetBuildHelper.
-            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
-            break;
-        }
-        default: {
-            open_status = Status::InternalError("Unsupported compress type {} with parquet",
-                                                to_string(_compress_type));
-            break;
-        }
-        }
-        if (!open_status.ok()) {
-            break;
-        }
-        ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type,
+        ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type.value(),
                                               .parquet_version = TParquetVersion::PARQUET_1_0,
                                               .parquet_disable_dictionary = false,
                                               .enable_int96_timestamps = false};

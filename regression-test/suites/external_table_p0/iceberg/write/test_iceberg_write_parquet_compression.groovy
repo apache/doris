@@ -16,7 +16,8 @@
 // under the License.
 
 // Verifies that Doris writes Iceberg Parquet LZ4 as Hadoop-framed Parquet "LZ4"
-// (not LZ4_RAW) and that Iceberg ORC/delete-file LZ4 paths are reachable.
+// (not LZ4_RAW), that Iceberg ORC/delete-file LZ4 paths are reachable, and that
+// `write.parquet.compression-codec=gzip` is honoured by the Parquet data/delete writers.
 suite("test_iceberg_write_parquet_compression", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -137,9 +138,10 @@ suite("test_iceberg_write_parquet_compression", "p0,external") {
         ORDER BY compression
     """
 
-    // GZIP is intentionally not yet supported by the Doris Parquet writer; the INSERT must
-    // fail explicitly rather than silently fall back. Remove this block when GZIP support is
-    // added (and update the cross-engine product test expectation in tandem).
+    // GZIP is a standard Iceberg Parquet codec (the table default before Iceberg 1.4) and used to
+    // be rejected by the Doris Parquet writer with "Unsupported compress type GZ with parquet".
+    // The assertions below are intentionally not `qt_` cases: the expected result is a single
+    // codec name, so an explicit check keeps the intent obvious.
     sql """ drop table if exists ${db}.tbl_gzip """
     sql """
     CREATE TABLE ${db}.tbl_gzip (a STRING, b BIGINT) PROPERTIES (
@@ -148,8 +150,59 @@ suite("test_iceberg_write_parquet_compression", "p0,external") {
         'format-version' = '2',
         'write.parquet.compression-codec' = 'gzip'
     )"""
-    test {
-        sql """ INSERT INTO ${db}.tbl_gzip VALUES ('doris0', 0) """
-        exception "Unsupported compress type GZ with parquet"
-    }
+    sql """ INSERT INTO ${db}.tbl_gzip VALUES ('doris0', 0), ('doris1', 1) """
+    def gzipRows = sql """ SELECT a, b FROM ${db}.tbl_gzip ORDER BY b """
+    assertEquals(2, gzipRows.size())
+    assertEquals("doris1", gzipRows[1][0].toString())
+    def gzipDataFiles = sql """ SELECT file_path FROM ${db}.tbl_gzip\$files ORDER BY file_path """
+    String gzipDataFile = gzipDataFiles[0][0].toString()
+    def gzipDataCodec = sql """
+        SELECT DISTINCT compression
+        FROM parquet_meta(
+            "uri" = "${gzipDataFile}",
+            "s3.access_key" = "admin",
+            "s3.secret_key" = "password",
+            "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+            "s3.region" = "us-east-1",
+            "mode" = "parquet_metadata"
+        )
+    """
+    assertEquals("GZIP", gzipDataCodec[0][0].toString().toUpperCase())
+
+    // The delete-file writer must honour the same table property, otherwise DELETE/merge-on-read
+    // on a gzip table fails where INSERT succeeds.
+    sql """ drop table if exists ${db}.tbl_gzip_delete """
+    sql """
+    CREATE TABLE ${db}.tbl_gzip_delete (id INT, name STRING) PROPERTIES (
+        'write-format' = 'parquet',
+        'write.format.default' = 'parquet',
+        'format-version' = '2',
+        'write.parquet.compression-codec' = 'gzip',
+        'write.delete.mode' = 'merge-on-read',
+        'write.update.mode' = 'merge-on-read',
+        'write.merge.mode' = 'merge-on-read'
+    )"""
+    sql """ INSERT INTO ${db}.tbl_gzip_delete VALUES (1, 'a'), (2, 'b'), (3, 'c') """
+    sql """ DELETE FROM ${db}.tbl_gzip_delete WHERE id = 2 """
+    def gzipDeleteRows = sql """ SELECT id, name FROM ${db}.tbl_gzip_delete ORDER BY id """
+    assertEquals(2, gzipDeleteRows.size())
+    assertEquals("3", gzipDeleteRows[1][0].toString())
+    def gzipDeleteFiles = sql """
+        SELECT file_path
+        FROM ${db}.tbl_gzip_delete\$delete_files
+        ORDER BY file_path
+    """
+    String gzipDeleteFile = gzipDeleteFiles[0][0].toString()
+    def gzipDeleteCodec = sql """
+        SELECT DISTINCT compression
+        FROM parquet_meta(
+            "uri" = "${gzipDeleteFile}",
+            "s3.access_key" = "admin",
+            "s3.secret_key" = "password",
+            "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+            "s3.region" = "us-east-1",
+            "mode" = "parquet_metadata"
+        )
+    """
+    assertEquals("GZIP", gzipDeleteCodec[0][0].toString().toUpperCase())
 }
