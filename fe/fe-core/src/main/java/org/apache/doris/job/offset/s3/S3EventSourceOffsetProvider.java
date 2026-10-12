@@ -91,8 +91,8 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
     // Includes both committed task messages and skipped messages whose deletion must be retried.
     private transient List<String> receiptsToDelete = new ArrayList<>();
     private transient S3EventOffset currentOffset;
-    // Recovered keys map to their latest receipts and are removed after successful SQS deletion.
-    private transient Map<String, String> recoveredCommittedFiles;
+    // File -> message ID -> receipt; an expired receipt stays null until that message is received again.
+    private transient Map<String, Map<String, String>> unackedCommittedFiles;
     // Display-only statistic; unavailable after restart until another batch commits.
     private transient long lastSourceEventTimestampSeconds;
     // Approximate visible backlog only; null means the queue statistic is unavailable.
@@ -280,7 +280,6 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
                     VISIBILITY_INTERVAL_MULTIPLIER * jobProperties.getMaxIntervalSecond());
             try {
                 if (batch != null) {
-                    // Invalid handles do not invalidate the batch; still refresh its queue statistic.
                     if (!receipts.isEmpty()) {
                         renewBatchVisibility(client, batch, receipts, visibilityTimeoutSeconds);
                     }
@@ -366,12 +365,19 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
         } finally {
             if (!invalidReceipts.isEmpty()) {
                 synchronized (this) {
-                    // Receipt expiry does not invalidate the task's fixed file list.
+                    batch.receiptsExpired = true;
                     batch.receiptHandles.removeAll(invalidReceipts);
-                    // The task may have committed and copied these handles while the RPC was in progress.
+                    invalidateReceipts(batch.fileReceipts, invalidReceipts);
+                    // Commit may have completed while the renewal RPC was in progress.
+                    if (unackedCommittedFiles != null) {
+                        invalidateReceipts(unackedCommittedFiles, invalidReceipts);
+                    }
                     receiptsToDelete.removeAll(invalidReceipts);
                 }
             }
+        }
+        if (!invalidReceipts.isEmpty()) {
+            throw new IllegalStateException("S3 EVENT batch receipts expired; receive the batch again before retrying");
         }
         if (!renewed) {
             throw new IllegalStateException(
@@ -384,6 +390,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             int visibilityTimeoutSeconds) {
         List<String> files = new ArrayList<>();
         List<String> receipts = new ArrayList<>();
+        Map<String, Map<String, String>> fileReceipts = new HashMap<>();
         List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         Set<String> selectedFiles = new HashSet<>();
         long fileBytes = 0;
@@ -424,6 +431,8 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             for (ParsedMessage candidate : candidates) {
                 for (int i = 0; i < candidate.files.size(); i++) {
                     String key = candidate.files.get(i);
+                    fileReceipts.computeIfAbsent(key, ignored -> new HashMap<>())
+                            .put(candidate.messageId, candidate.receiptHandle);
                     // SQS may deliver the same key more than once; scan it once but acknowledge every receipt.
                     if (selectedFiles.add(key)) {
                         TBrokerFileStatus file = candidate.fileStatuses.get(i);
@@ -444,7 +453,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
         } while (!closed && System.nanoTime() < fetchEndTimeNanos);
 
         if (!files.isEmpty()) {
-            makeReadyBatch(files, fileStatuses, receipts, batchEventTimestampSeconds);
+            makeReadyBatch(files, fileStatuses, receipts, fileReceipts, batchEventTimestampSeconds);
         }
         if (receivedMessages > 0) {
             log.info("S3 EVENT receive batch: queue={}, receivedMessages={}, skippedMessages={}, "
@@ -557,7 +566,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
                         jobId, message.messageId(), i, e.getMessage());
                 continue;
             }
-            if (isCommitted(key, message.receiptHandle())) {
+            if (isCommitted(key, message.messageId(), message.receiptHandle())) {
                 continue;
             }
             files.add(key);
@@ -571,26 +580,31 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
         if (files.isEmpty()) {
             return ParsedMessage.skipped(message.receiptHandle());
         }
-        return new ParsedMessage(message.receiptHandle(), files, fileStatuses, eventTimestampSeconds);
+        return new ParsedMessage(message.messageId(), message.receiptHandle(),
+                files, fileStatuses, eventTimestampSeconds);
     }
 
-    private synchronized boolean isCommitted(String file, String receiptHandle) {
-        if (recoveredCommittedFiles != null && recoveredCommittedFiles.containsKey(file)) {
-            recoveredCommittedFiles.put(file, receiptHandle);
-            return true;
+    private synchronized boolean isCommitted(String file, String messageId, String receiptHandle) {
+        boolean committed = (unackedCommittedFiles != null && unackedCommittedFiles.containsKey(file))
+                || (currentOffset != null && currentOffset.getFiles().contains(file));
+        if (committed) {
+            if (unackedCommittedFiles == null) {
+                unackedCommittedFiles = new HashMap<>();
+            }
+            unackedCommittedFiles.computeIfAbsent(file, ignored -> new HashMap<>()).put(messageId, receiptHandle);
         }
-        return currentOffset != null && currentOffset.getFiles().contains(file);
+        return committed;
     }
 
     private synchronized void makeReadyBatch(List<String> files, List<TBrokerFileStatus> fileStatuses,
-            List<String> receipts, long eventTimestampSeconds) {
+            List<String> receipts, Map<String, Map<String, String>> fileReceipts, long eventTimestampSeconds) {
         if (closed) {
             return;
         }
         Preconditions.checkState(!files.isEmpty() && !receipts.isEmpty(),
                 "Cannot create an empty S3 EVENT batch");
         S3EventOffset offset = new S3EventOffset(files, fileStatuses);
-        readyBatch = new TaskBatch(offset, new ArrayList<>(receipts), eventTimestampSeconds);
+        readyBatch = new TaskBatch(offset, new ArrayList<>(receipts), fileReceipts, eventTimestampSeconds);
     }
 
     private List<String> collectReceiptsToRelease(
@@ -654,11 +668,15 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
                                 + "succeededMessages={}, failedMessages={}",
                         queueUrl, chunk.size(), response.successful().size(), response.failed().size());
                 synchronized (this) {
-                    if (recoveredCommittedFiles != null && !recoveredCommittedFiles.isEmpty()) {
+                    if (unackedCommittedFiles != null && !unackedCommittedFiles.isEmpty()) {
                         Set<String> deletedReceipts = response.successful().stream()
                                 .map(entry -> chunk.get(Integer.parseInt(entry.id())))
                                 .collect(Collectors.toSet());
-                        recoveredCommittedFiles.values().removeAll(deletedReceipts);
+                        unackedCommittedFiles.entrySet().removeIf(entry -> {
+                            Map<String, String> messageReceipts = entry.getValue();
+                            boolean removed = messageReceipts.values().removeAll(deletedReceipts);
+                            return removed && messageReceipts.isEmpty();
+                        });
                     }
                 }
                 failed.addAll(getRetryableReceiptHandles(chunk, response.failed()));
@@ -693,7 +711,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             log.warn("SQS {} failed: id={}, code={}, senderFault={}",
                     operation, failure.id(), failure.code(), failure.senderFault());
             if (isInvalidReceipt(failure)) {
-                // discard unusable receipts; durable event deduplication is outside this mode's scope.
+                // Keep committed files until a fresh receipt confirms deletion.
                 log.warn("SQS {} receipt is no longer usable: id={}; message deletion is not confirmed",
                         operation, failure.id());
             }
@@ -745,13 +763,26 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             restoreFromPersistInfo(job.getOffsetProviderPersist());
         }
         // Capture after transaction replay; subsequent commits and resumes must not replace this snapshot.
-        if (recoveredCommittedFiles == null) {
-            recoveredCommittedFiles = new HashMap<>();
+        if (unackedCommittedFiles == null) {
+            unackedCommittedFiles = new HashMap<>();
             if (currentOffset != null) {
                 for (String file : currentOffset.getFiles()) {
-                    recoveredCommittedFiles.put(file, null);
+                    unackedCommittedFiles.put(file, new HashMap<>());
                 }
             }
+        }
+        // The scheduler serializes this resume hook with fetches, after transaction progress is replayed.
+        TaskBatch batch = readyBatch != null ? readyBatch : runningBatch;
+        if (batch != null) {
+            boolean committed = currentOffset != null && currentOffset.getFiles().equals(batch.offset.getFiles());
+            if (committed) {
+                rememberCommittedBatch(batch);
+                receiptsToDelete.addAll(batch.receiptHandles);
+            }
+            readyBatch = null;
+            runningBatch = null;
+            log.info("S3 EVENT resume batch: jobId={}, committed={}, files={}, receipts={}",
+                    jobId, committed, batch.offset.getFiles().size(), batch.receiptHandles.size());
         }
     }
 
@@ -773,6 +804,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public synchronized String getCommitOffsetJson(Offset runningOffset, long taskId, List<Long> scanBackendIds) {
         Preconditions.checkState(runningBatch != null, "No running S3 EVENT batch");
+        Preconditions.checkState(!runningBatch.receiptsExpired, "S3 EVENT batch receipts expired before commit");
         S3EventOffset offset = (S3EventOffset) runningOffset;
         Preconditions.checkState(runningBatch.offset.getFiles().equals(offset.getFiles()),
                 "S3 EVENT running offset changed before commit");
@@ -786,31 +818,51 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
         Preconditions.checkState(currentOffset != null
                         && currentOffset.getFiles().equals(runningBatch.offset.getFiles()),
                 "Committed S3 EVENT offset does not match the running batch");
+        rememberCommittedBatch(runningBatch);
         receiptsToDelete = new ArrayList<>(runningBatch.receiptHandles);
         lastSourceEventTimestampSeconds = runningBatch.eventTimestampSeconds;
         runningBatch = null;
     }
 
+    private void rememberCommittedBatch(TaskBatch batch) {
+        if (unackedCommittedFiles == null) {
+            unackedCommittedFiles = new HashMap<>();
+        }
+        batch.fileReceipts.forEach((file, receipts) ->
+                unackedCommittedFiles.computeIfAbsent(file, ignored -> new HashMap<>()).putAll(receipts));
+    }
+
+    private static void invalidateReceipts(Map<String, Map<String, String>> files, Set<String> invalidReceipts) {
+        files.values().forEach(receipts -> receipts.replaceAll(
+                (messageId, receipt) -> invalidReceipts.contains(receipt) ? null : receipt));
+    }
+
     private static class TaskBatch {
         private final S3EventOffset offset;
         private final List<String> receiptHandles;
+        private final Map<String, Map<String, String>> fileReceipts;
         private final long eventTimestampSeconds;
+        private boolean receiptsExpired;
 
-        private TaskBatch(S3EventOffset offset, List<String> receiptHandles, long eventTimestampSeconds) {
+        private TaskBatch(S3EventOffset offset, List<String> receiptHandles,
+                Map<String, Map<String, String>> fileReceipts, long eventTimestampSeconds) {
             this.offset = offset;
             this.receiptHandles = receiptHandles;
+            this.fileReceipts = fileReceipts;
             this.eventTimestampSeconds = eventTimestampSeconds;
         }
     }
 
     private static class ParsedMessage {
+        private final String messageId;
         private final String receiptHandle;
         private final List<String> files;
         private final List<TBrokerFileStatus> fileStatuses;
         private final long eventTimestampSeconds;
 
-        private ParsedMessage(String receiptHandle, List<String> files, List<TBrokerFileStatus> fileStatuses,
-                long eventTimestampSeconds) {
+        private ParsedMessage(String messageId, String receiptHandle, List<String> files,
+                List<TBrokerFileStatus> fileStatuses, long eventTimestampSeconds) {
+            this.messageId = messageId;
             this.receiptHandle = receiptHandle;
             this.files = files;
             this.fileStatuses = fileStatuses;
@@ -818,7 +870,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
         }
 
         private static ParsedMessage skipped(String receiptHandle) {
-            return new ParsedMessage(receiptHandle, Collections.emptyList(), Collections.emptyList(), 0);
+            return new ParsedMessage(null, receiptHandle, Collections.emptyList(), Collections.emptyList(), 0);
         }
     }
 }

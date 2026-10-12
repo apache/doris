@@ -735,9 +735,157 @@ public class S3EventSourceOffsetProviderTest {
             provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
             Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
             Mockito.verify(sqsClient, Mockito.times(2)).receiveMessage(Mockito.any(ReceiveMessageRequest.class));
+            Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                    .thenReturn(response(filesMessage("c", "logs/c.csv")),
+                            response(filesMessage("fresh-a", "logs/a.csv").toBuilder().messageId("id-old").build()),
+                            ReceiveMessageResponse.builder().build());
+            provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+            provider.updateOffset(nextOffset());
+            provider.onTaskCommitted(1, 1);
+            provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+            Assertions.assertFalse(provider.hasMoreDataToConsume());
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    public void testResumeDiscardsReadyBatchAndReceivesFreshReceipt() {
+        assertResumeReceivesFreshReceipt(false);
+    }
+
+    @Test
+    public void testResumeDiscardsRunningBatchAndReceivesFreshReceipt() {
+        assertResumeReceivesFreshReceipt(true);
+    }
+
+    private void assertResumeReceivesFreshReceipt(boolean running) {
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("old", "logs/a.csv")),
+                        response(filesMessage("fresh", "logs/a.csv")));
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        if (running) {
+            nextOffset();
+        }
+        provider.replayIfNeed(Mockito.mock(StreamingInsertJob.class));
+        Assertions.assertFalse(provider.hasMoreDataToConsume());
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Assertions.assertEquals(Collections.singletonList("logs/a.csv"), nextOffset().getFiles());
+        provider.updateOffset(nextOffset());
+        provider.onTaskCommitted(1, 1);
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(ReceiveMessageResponse.builder().build());
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Mockito.verify(sqsClient, Mockito.never())
+                .changeMessageVisibilityBatch(Mockito.any(ChangeMessageVisibilityBatchRequest.class));
+        ArgumentCaptor<DeleteMessageBatchRequest> deleted = ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
+        Mockito.verify(sqsClient).deleteMessageBatch(deleted.capture());
+        Assertions.assertEquals(Collections.singletonList("fresh"), deleteHandles(deleted.getValue()));
+    }
+
+    @Test
+    public void testExpiredReceiptPreventsCommit() {
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("old", "logs/a.csv"), filesMessage("valid", "logs/b.csv")));
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        S3EventOffset offset = nextOffset();
+        Mockito.when(sqsClient.changeMessageVisibilityBatch(Mockito.any(ChangeMessageVisibilityBatchRequest.class)))
+                .thenReturn(ChangeMessageVisibilityBatchResponse.builder().failed(BatchResultErrorEntry.builder()
+                        .id("0").code("ReceiptHandleIsInvalid").build()).build());
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> provider.fetchRemoteMeta(jobProperties(1), tvfProperties));
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> provider.getCommitOffsetJson(offset, 1, Collections.emptyList()));
+    }
+
+    @Test
+    public void testExpiredCommittedReceiptSurvivesLaterCommit() {
+        provider.replayIfNeed(Mockito.mock(StreamingInsertJob.class));
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("b", "logs/b.csv")),
+                        response(filesMessage("c", "logs/c.csv")),
+                        response(filesMessage("fresh-b", "logs/b.csv").toBuilder().messageId("id-b").build()),
+                        ReceiveMessageResponse.builder().build());
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        provider.updateOffset(nextOffset());
+        provider.onTaskCommitted(1, 1);
+        Mockito.when(sqsClient.deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class)))
+                .thenAnswer(invocation -> {
+                    DeleteMessageBatchRequest request = invocation.getArgument(0);
+                    if ("b".equals(request.entries().get(0).receiptHandle())) {
+                        return DeleteMessageBatchResponse.builder().failed(BatchResultErrorEntry.builder()
+                                .id("0").code("ReceiptHandleIsInvalid").build()).build();
+                    }
+                    return DeleteMessageBatchResponse.builder().successful(request.entries().stream()
+                            .map(entry -> DeleteMessageBatchResultEntry.builder().id(entry.id()).build())
+                            .collect(Collectors.toList())).build();
+                });
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Assertions.assertEquals(Collections.singletonList("logs/c.csv"), nextOffset().getFiles());
+        provider.updateOffset(nextOffset());
+        provider.onTaskCommitted(1, 1);
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Assertions.assertFalse(provider.hasMoreDataToConsume());
+        Assertions.assertEquals("{\"files\":[\"logs/c.csv\"]}", provider.getPersistInfo());
+    }
+
+    @Test
+    public void testResumeAcknowledgesBatchWhoseCommitWasReplayed() {
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("committed", "logs/a.csv")),
+                        ReceiveMessageResponse.builder().build());
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        S3EventOffset offset = nextOffset();
+        // Cloud replay can restore the commit before the task callback updates transient state.
+        provider.updateOffset(offset);
+        provider.replayIfNeed(Mockito.mock(StreamingInsertJob.class));
+        Assertions.assertFalse(provider.hasMoreDataToConsume());
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Assertions.assertEquals("{\"files\":[\"logs/a.csv\"]}", provider.getPersistInfo());
+        ArgumentCaptor<DeleteMessageBatchRequest> deleted = ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
+        Mockito.verify(sqsClient).deleteMessageBatch(deleted.capture());
+        Assertions.assertEquals(Collections.singletonList("committed"), deleteHandles(deleted.getValue()));
+        Mockito.verify(sqsClient, Mockito.never())
+                .changeMessageVisibilityBatch(Mockito.any(ChangeMessageVisibilityBatchRequest.class));
+    }
+
+    @Test
+    public void testPartialDeletionKeepsDuplicateKeyUntilEveryMessageIsAcknowledged() {
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("first", "logs/a.csv"),
+                        filesMessage("second", "logs/a.csv", "logs/b.csv")),
+                        response(filesMessage("c", "logs/c.csv")),
+                        response(filesMessage("fresh", "logs/a.csv", "logs/b.csv")
+                                .toBuilder().messageId("id-second").build()),
+                        ReceiveMessageResponse.builder().build());
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Assertions.assertEquals(Arrays.asList("logs/a.csv", "logs/b.csv"), nextOffset().getFiles());
+        provider.updateOffset(nextOffset());
+        provider.onTaskCommitted(2, 2);
+        Mockito.when(sqsClient.deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class)))
+                .thenAnswer(invocation -> {
+                    DeleteMessageBatchRequest request = invocation.getArgument(0);
+                    if ("first".equals(request.entries().get(0).receiptHandle())) {
+                        return DeleteMessageBatchResponse.builder()
+                                .successful(DeleteMessageBatchResultEntry.builder().id("0").build())
+                                .failed(BatchResultErrorEntry.builder().id("1")
+                                        .code("ReceiptHandleIsInvalid").build()).build();
+                    }
+                    return DeleteMessageBatchResponse.builder().successful(request.entries().stream()
+                            .map(entry -> DeleteMessageBatchResultEntry.builder().id(entry.id()).build())
+                            .collect(Collectors.toList())).build();
+                });
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Assertions.assertEquals(Collections.singletonList("logs/c.csv"), nextOffset().getFiles());
+        provider.updateOffset(nextOffset());
+        provider.onTaskCommitted(1, 1);
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Assertions.assertFalse(provider.hasMoreDataToConsume());
+        // Successful acknowledgement removes the old keys rather than retaining them forever.
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("new-event", "logs/a.csv", "logs/b.csv")));
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Assertions.assertEquals(Arrays.asList("logs/a.csv", "logs/b.csv"), nextOffset().getFiles());
     }
 
     @Test
@@ -769,7 +917,7 @@ public class S3EventSourceOffsetProviderTest {
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
                 .thenReturn(response(filesMessage("b", "logs/b.csv")),
                         response(filesMessage("c", "logs/c.csv")),
-                        response(filesMessage("late-a", "logs/a.csv")),
+                        response(filesMessage("late-a", "logs/a.csv").toBuilder().messageId("id-a").build()),
                         ReceiveMessageResponse.builder().build());
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
         provider.updateOffset(nextOffset());
@@ -813,11 +961,11 @@ public class S3EventSourceOffsetProviderTest {
                 nextOffset().getFiles());
         Assertions.assertEquals(3, nextOffset().getFileStatuses().size());
         Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
-        Map<String, String> recovered = Deencapsulation.getField(provider, "recoveredCommittedFiles");
-        Assertions.assertEquals(Collections.singletonMap("logs/a.csv", "mixed"), recovered);
+        Map<String, Map<String, String>> recovered = Deencapsulation.getField(provider, "unackedCommittedFiles");
+        Assertions.assertEquals(Collections.singletonMap("id-mixed", "mixed"), recovered.get("logs/a.csv"));
         provider.updateOffset(nextOffset());
         provider.onTaskCommitted(3, 3);
-        Assertions.assertEquals(Collections.singletonMap("logs/a.csv", "mixed"), recovered);
+        Assertions.assertEquals(Collections.singletonMap("id-mixed", "mixed"), recovered.get("logs/a.csv"));
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
                 .thenReturn(ReceiveMessageResponse.builder().build());
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
@@ -841,9 +989,9 @@ public class S3EventSourceOffsetProviderTest {
 
         Assertions.assertThrows(IllegalStateException.class,
                 () -> provider.fetchRemoteMeta(jobProperties(1), tvfProperties));
-        Map<String, String> recovered = Deencapsulation.getField(provider, "recoveredCommittedFiles");
+        Map<String, Map<String, String>> recovered = Deencapsulation.getField(provider, "unackedCommittedFiles");
         Assertions.assertFalse(recovered.containsKey("logs/a.csv"));
-        Assertions.assertEquals("b", recovered.get("logs/b.csv"));
+        Assertions.assertEquals(Collections.singletonMap("id-b", "b"), recovered.get("logs/b.csv"));
         Assertions.assertTrue(recovered.containsKey("logs/unseen.csv"));
 
         Mockito.when(sqsClient.deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class)))
@@ -852,7 +1000,7 @@ public class S3EventSourceOffsetProviderTest {
                         .successful(DeleteMessageBatchResultEntry.builder().id("0").build()).build());
         Assertions.assertThrows(IllegalStateException.class,
                 () -> provider.fetchRemoteMeta(jobProperties(1), tvfProperties));
-        Assertions.assertEquals("b", recovered.get("logs/b.csv"));
+        Assertions.assertEquals(Collections.singletonMap("id-b", "b"), recovered.get("logs/b.csv"));
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
                 .thenReturn(ReceiveMessageResponse.builder().build());
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
