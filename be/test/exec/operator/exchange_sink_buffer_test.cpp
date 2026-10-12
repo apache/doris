@@ -18,26 +18,20 @@
 #include "exec/operator/exchange_sink_buffer.h"
 
 #include <brpc/controller.h>
+#include <google/protobuf/util/message_differencer.h>
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <set>
 #include <string>
 
+#include "util/defer_op.h"
 #include "util/proto_util.h"
 
 namespace doris {
-
-namespace exchange_sink_buffer::detail {
-
-void copy_block_metadata_without_column_values(const PBlock& src, PBlock* dst);
-std::shared_ptr<PTransmitDataParams> make_http_request_without_column_values(
-        const PTransmitDataParams& src);
-
-} // namespace exchange_sink_buffer::detail
-
 namespace {
 
-PBlock make_block_with_column_values(const std::string& column_values) {
+PBlock make_block(const std::string& column_values) {
     PBlock block;
 
     auto* int_meta = block.add_column_metas();
@@ -65,150 +59,156 @@ PBlock make_block_with_column_values(const std::string& column_values) {
     return block;
 }
 
-// Minimal closure shape accepted by request_embed_attachmentv2(): it only touches cntl_.
+// Minimal closure shape accepted by the attachment helpers: they only touch cntl_.
 struct ExchangeSinkBufferTestClosure {
     std::shared_ptr<brpc::Controller> cntl_ = std::make_shared<brpc::Controller>();
 };
 
-PTransmitDataParams make_transmit_data_params(const std::string& column_values) {
-    PTransmitDataParams request;
-    request.mutable_finst_id()->set_hi(1);
-    request.mutable_finst_id()->set_lo(2);
-    request.set_node_id(3);
-    request.set_sender_id(4);
-    request.set_be_number(5);
-    request.set_eos(true);
-    request.set_packet_seq(6);
-
-    auto* query_statistics = request.mutable_query_statistics();
-    query_statistics->set_scan_rows(7);
-    query_statistics->set_scan_bytes(8);
-    auto* node_statistics = query_statistics->add_nodes_statistics();
-    node_statistics->set_node_id(9);
-    node_statistics->set_peak_memory_bytes(10);
-
-    request.set_transfer_by_attachment(false);
-    request.mutable_query_id()->set_hi(11);
-    request.mutable_query_id()->set_lo(12);
-    request.mutable_exec_status()->set_status_code(13);
-    request.mutable_exec_status()->add_error_msgs("exec status");
-    request.mutable_block()->CopyFrom(make_block_with_column_values(column_values));
-    return request;
+bool equal_except_column_values(const PBlock& expected, const PBlock& actual) {
+    google::protobuf::util::MessageDifferencer differencer;
+    differencer.IgnoreField(PBlock::descriptor()->FindFieldByName("column_values"));
+    return differencer.Compare(expected, actual);
 }
 
 } // namespace
 
-TEST(ExchangeSinkBufferTest, CopyBlockMetadataWithoutColumnValues) {
+// borrow_block() copies every PBlock field by hand except column_values. Adding a field to
+// PBlock must extend it, which this test pins down with the exact field set.
+TEST(ExchangeSinkBufferTest, BorrowBlockCoversEveryPBlockField) {
+    std::set<std::string> fields;
+    for (int i = 0; i < PBlock::descriptor()->field_count(); ++i) {
+        fields.insert(PBlock::descriptor()->field(i)->name());
+    }
+    EXPECT_EQ(fields,
+              (std::set<std::string> {"column_metas", "column_values", "compressed",
+                                      "uncompressed_size", "compression_type", "be_exec_version"}));
+}
+
+TEST(ExchangeSinkBufferTest, BorrowBlockCopiesMetadataAndBorrowsPayload) {
     const std::string column_values = "large-column-values";
-    auto src = make_block_with_column_values(column_values);
-    PBlock dst;
+    auto owner = make_block(column_values);
+    const std::string* owner_payload = &owner.column_values();
 
-    exchange_sink_buffer::detail::copy_block_metadata_without_column_values(src, &dst);
+    PTransmitDataParams request;
+    // Return the borrows on every exit, so a failing assertion cannot turn into a double free.
+    Defer give_back([&]() { release_borrowed_blocks(&request); });
+    borrow_block(&owner, request.mutable_block(), BlockSource::SHARED);
 
-    EXPECT_EQ(dst.column_metas_size(), 2);
-    EXPECT_EQ(dst.column_metas(0).name(), "int_col");
-    EXPECT_EQ(dst.column_metas(0).type(), PGenericType::INT32);
-    EXPECT_FALSE(dst.column_metas(0).is_nullable());
-    EXPECT_EQ(dst.column_metas(0).be_exec_version(), 12);
+    EXPECT_TRUE(equal_except_column_values(owner, request.block()));
+    EXPECT_EQ(&request.block().column_values(), owner_payload);
 
-    EXPECT_EQ(dst.column_metas(1).name(), "struct_col");
-    EXPECT_EQ(dst.column_metas(1).type(), PGenericType::STRUCT);
-    EXPECT_TRUE(dst.column_metas(1).is_nullable());
-    EXPECT_TRUE(dst.column_metas(1).result_is_nullable());
-    EXPECT_EQ(dst.column_metas(1).function_name(), "named_struct");
-    ASSERT_EQ(dst.column_metas(1).children_size(), 1);
-    EXPECT_EQ(dst.column_metas(1).children(0).name(), "child_string");
-    EXPECT_EQ(dst.column_metas(1).children(0).type(), PGenericType::STRING);
-
-    // The payload is left for the attachment, but the field must stay present so the
-    // receiver-side PBlock::CopyFrom() keeps the bytes written back after extraction.
-    EXPECT_TRUE(dst.has_column_values());
-    EXPECT_TRUE(dst.column_values().empty());
-    EXPECT_TRUE(src.has_column_values());
-    EXPECT_EQ(src.column_values(), column_values);
-    EXPECT_EQ(dst.be_exec_version(), 37);
-    EXPECT_TRUE(dst.compressed());
-    EXPECT_EQ(dst.compression_type(), segment_v2::CompressionTypePB::LZ4);
-    EXPECT_EQ(dst.uncompressed_size(), 4096);
+    release_borrowed_blocks(&request);
+    EXPECT_FALSE(request.has_block());
+    EXPECT_EQ(request.blocks_size(), 0);
+    EXPECT_EQ(&owner.column_values(), owner_payload);
+    EXPECT_EQ(owner.column_values(), column_values);
+    EXPECT_TRUE(equal_except_column_values(make_block(column_values), owner));
 }
 
-TEST(ExchangeSinkBufferTest, MakeHttpRequestWithoutColumnValues) {
-    const std::string column_values = "borrowed-column-values";
-    auto src = make_transmit_data_params(column_values);
+// An owned (unicast) block hands its column_metas over without copying; the payload is still only
+// borrowed, so release returns it to the owner exactly like the shared case.
+TEST(ExchangeSinkBufferTest, BorrowOwnedBlockMovesMetadataAndBorrowsPayload) {
+    const std::string column_values = "owned-column-values";
+    auto owner = make_block(column_values);
+    const std::string* owner_payload = &owner.column_values();
+    const PColumnMeta* first_meta = &owner.column_metas(0);
 
-    auto dst = exchange_sink_buffer::detail::make_http_request_without_column_values(src);
+    PTransmitDataParams request;
+    Defer give_back([&]() { release_borrowed_blocks(&request); });
+    borrow_block(&owner, request.add_blocks(), BlockSource::OWNED);
 
-    ASSERT_NE(dst, nullptr);
-    EXPECT_EQ(dst->finst_id().hi(), 1);
-    EXPECT_EQ(dst->finst_id().lo(), 2);
-    EXPECT_EQ(dst->node_id(), 3);
-    EXPECT_EQ(dst->sender_id(), 4);
-    EXPECT_EQ(dst->be_number(), 5);
-    EXPECT_TRUE(dst->eos());
-    EXPECT_EQ(dst->packet_seq(), 6);
+    EXPECT_TRUE(equal_except_column_values(make_block(column_values), request.blocks(0)));
+    EXPECT_EQ(&request.blocks(0).column_metas(0), first_meta);
+    EXPECT_EQ(owner.column_metas_size(), 0);
+    EXPECT_EQ(&request.blocks(0).column_values(), owner_payload);
 
-    ASSERT_TRUE(dst->has_query_statistics());
-    EXPECT_EQ(dst->query_statistics().scan_rows(), 7);
-    EXPECT_EQ(dst->query_statistics().scan_bytes(), 8);
-    ASSERT_EQ(dst->query_statistics().nodes_statistics_size(), 1);
-    EXPECT_EQ(dst->query_statistics().nodes_statistics(0).node_id(), 9);
-    EXPECT_EQ(dst->query_statistics().nodes_statistics(0).peak_memory_bytes(), 10);
+    release_borrowed_blocks(&request);
+    EXPECT_EQ(request.blocks_size(), 0);
+    EXPECT_EQ(&owner.column_values(), owner_payload);
+    EXPECT_EQ(owner.column_values(), column_values);
 
-    EXPECT_TRUE(dst->has_transfer_by_attachment());
-    EXPECT_FALSE(dst->transfer_by_attachment());
-    ASSERT_TRUE(dst->has_query_id());
-    EXPECT_EQ(dst->query_id().hi(), 11);
-    EXPECT_EQ(dst->query_id().lo(), 12);
-    ASSERT_TRUE(dst->has_exec_status());
-    EXPECT_EQ(dst->exec_status().status_code(), 13);
-    ASSERT_EQ(dst->exec_status().error_msgs_size(), 1);
-    EXPECT_EQ(dst->exec_status().error_msgs(0), "exec status");
-
-    ASSERT_TRUE(dst->has_block());
-    EXPECT_EQ(dst->block().column_metas_size(), 2);
-    EXPECT_TRUE(dst->block().has_column_values());
-    EXPECT_TRUE(dst->block().column_values().empty());
-    EXPECT_EQ(dst->block().be_exec_version(), 37);
-    EXPECT_TRUE(dst->block().compressed());
-    EXPECT_EQ(dst->block().compression_type(), segment_v2::CompressionTypePB::LZ4);
-    EXPECT_EQ(dst->block().uncompressed_size(), 4096);
-
-    EXPECT_EQ(src.block().column_values(), column_values);
-    EXPECT_EQ(dst->blocks_size(), 0);
-    EXPECT_FALSE(dst->has_row_batch());
+    // The request is reused: a second owned block takes over the pooled, cleared metas.
+    auto next_owner = make_block("next");
+    borrow_block(&next_owner, request.add_blocks(), BlockSource::OWNED);
+    EXPECT_EQ(request.blocks(0).column_metas_size(), 2);
+    EXPECT_EQ(request.blocks(0).column_metas(1).children_size(), 1);
+    EXPECT_EQ(next_owner.column_metas_size(), 0);
+    // next_owner is destroyed before the Defer runs; return its borrow first.
+    release_borrowed_blocks(&request);
 }
 
-// Mirrors the broadcast HTTP send/receive round trip: the metadata-only request is serialized
-// into the attachment together with the borrowed payload, the receiver extracts it the way
-// PInternalService::transmit_block_by_http does, and VDataStreamMgr::transmit_block then copies
-// the block with PBlock::CopyFrom, which only carries fields whose presence bit is set.
-TEST(ExchangeSinkBufferTest, HttpRequestKeepsColumnValuesThroughAttachmentAndCopyFrom) {
+TEST(ExchangeSinkBufferTest, ReleaseBorrowedBlocksReturnsEveryPayload) {
+    auto first = make_block("first");
+    auto second = make_block("second");
+
+    PTransmitDataParams request;
+    Defer give_back([&]() { release_borrowed_blocks(&request); });
+    borrow_block(&first, request.add_blocks(), BlockSource::SHARED);
+    borrow_block(&second, request.add_blocks(), BlockSource::SHARED);
+    ASSERT_EQ(request.blocks_size(), 2);
+    EXPECT_EQ(&request.blocks(0).column_values(), &first.column_values());
+    EXPECT_EQ(&request.blocks(1).column_values(), &second.column_values());
+
+    release_borrowed_blocks(&request);
+    EXPECT_EQ(request.blocks_size(), 0);
+    EXPECT_EQ(first.column_values(), "first");
+    EXPECT_EQ(second.column_values(), "second");
+
+    // The request is reused for the next rpc; borrowing again must start from a clean slate.
+    borrow_block(&first, request.add_blocks(), BlockSource::SHARED);
+    ASSERT_EQ(request.blocks_size(), 1);
+    EXPECT_EQ(request.blocks(0).column_metas_size(), 2);
+    release_borrowed_blocks(&request);
+}
+
+// Mirrors a broadcast http send: two channels borrow the same shared block, one of them goes
+// through the attachment path, and the shared block as well as the other channel's request are
+// untouched. The receiver then extracts the payload the way transmit_block_by_http does, and the
+// PBlock::CopyFrom of VDataStreamMgr keeps it.
+TEST(ExchangeSinkBufferTest, HttpSendDoesNotMutateSharedBlock) {
     const std::string column_values = "broadcast-column-values";
-    auto src = make_transmit_data_params(column_values);
+    auto shared = make_block(column_values);
 
-    auto http_request = exchange_sink_buffer::detail::make_http_request_without_column_values(src);
+    PTransmitDataParams http_request;
+    PTransmitDataParams other_request;
+    Defer give_back([&]() {
+        release_borrowed_blocks(&http_request);
+        release_borrowed_blocks(&other_request);
+    });
+    for (auto* request : {&http_request, &other_request}) {
+        request->mutable_finst_id()->set_hi(1);
+        request->mutable_finst_id()->set_lo(2);
+        request->set_node_id(3);
+        request->set_sender_id(4);
+        request->set_be_number(5);
+        request->set_eos(false);
+        request->set_packet_seq(6);
+    }
+    borrow_block(&shared, http_request.mutable_block(), BlockSource::SHARED);
+    borrow_block(&shared, other_request.mutable_block(), BlockSource::SHARED);
+
     auto closure = std::make_unique<ExchangeSinkBufferTestClosure>();
-    auto status =
-            request_embed_attachmentv2(http_request.get(), src.block().column_values(), closure);
+    auto status = request_embed_attachment_borrowed_blocksv2(&http_request, closure);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    // The shared broadcast block is untouched by the HTTP send.
-    EXPECT_EQ(src.block().column_values(), column_values);
+
+    EXPECT_EQ(shared.column_values(), column_values);
+    EXPECT_EQ(&http_request.block().column_values(), &shared.column_values());
+    EXPECT_EQ(&other_request.block().column_values(), &shared.column_values());
+    release_borrowed_blocks(&http_request);
+    release_borrowed_blocks(&other_request);
+    EXPECT_EQ(shared.column_values(), column_values);
 
     PTransmitDataParams extracted;
     status = attachment_extract_request_contain_block(&extracted, closure->cntl_.get());
     ASSERT_TRUE(status.ok()) << status.to_string();
-    ASSERT_TRUE(extracted.has_block());
-    EXPECT_TRUE(extracted.block().has_column_values());
-    EXPECT_EQ(extracted.block().column_values(), column_values);
-    EXPECT_EQ(extracted.block().column_metas_size(), 2);
     EXPECT_EQ(extracted.packet_seq(), 6);
+    ASSERT_TRUE(extracted.has_block());
+    EXPECT_TRUE(equal_except_column_values(shared, extracted.block()));
+    EXPECT_EQ(extracted.block().column_values(), column_values);
 
     PBlock copied;
     copied.CopyFrom(extracted.block());
-    EXPECT_TRUE(copied.has_column_values());
     EXPECT_EQ(copied.column_values(), column_values);
-    EXPECT_EQ(copied.column_metas_size(), 2);
-    EXPECT_EQ(copied.uncompressed_size(), 4096);
 }
 
 } // namespace doris

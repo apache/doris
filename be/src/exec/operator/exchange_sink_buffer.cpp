@@ -51,64 +51,55 @@
 
 namespace doris {
 
-namespace exchange_sink_buffer::detail {
-
-void add_borrowed_broadcast_block(PTransmitDataParams& request, PBlock& source) {
-    auto* block = request.add_blocks();
-    block->mutable_column_metas()->CopyFrom(source.column_metas());
-    block->set_be_exec_version(source.be_exec_version());
-    block->set_compressed(source.compressed());
-    block->set_compression_type(source.compression_type());
-    block->set_uncompressed_size(source.uncompressed_size());
-    block->set_allocated_column_values(source.mutable_column_values());
+void borrow_block(PBlock* src, PBlock* dst, BlockSource source) {
+    if (source == BlockSource::OWNED) {
+        // O(1) pointer swap; the owner is destroyed right after the send and takes the request's
+        // cleared metas with it.
+        dst->mutable_column_metas()->Swap(src->mutable_column_metas());
+    } else {
+        dst->mutable_column_metas()->CopyFrom(src->column_metas());
+    }
+    // set_allocated_column_values() stores the owner's std::string pointer as is; the thirdparty
+    // protobuf is built without NDEBUG checks, otherwise ArenaStringPtr::SetAllocated would move the
+    // string into a fresh copy and delete the owner's one.
+    dst->set_be_exec_version(src->be_exec_version());
+    dst->set_compressed(src->compressed());
+    dst->set_compression_type(src->compression_type());
+    dst->set_uncompressed_size(src->uncompressed_size());
+    // A shared owner is borrowed by several channels at the same time, so read its payload through
+    // the const accessor: mutable_column_values() would write the owner's presence bits on every
+    // borrow. A serialized block always carries the field, so the pointer is the owner's string.
+    DCHECK(src->has_column_values());
+    dst->set_allocated_column_values(const_cast<std::string*>(&src->column_values()));
 }
 
-void copy_block_metadata_without_column_values(const PBlock& src, PBlock* dst) {
-    for (int i = 0; i < src.column_metas_size(); ++i) {
-        dst->add_column_metas()->CopyFrom(src.column_metas(i));
+namespace {
+
+// Borrow every block of the batch into `dst`: one `blocks` element per block in multi-block mode,
+// the singular `block` otherwise (a single-block batch holds exactly one request).
+template <typename Requests, typename GetBlock>
+void borrow_blocks(Requests& requests, GetBlock get_block, BlockSource source, bool multi_blocks,
+                   PTransmitDataParams* dst) {
+    DCHECK(multi_blocks || requests.size() == 1);
+    for (auto& req : requests) {
+        if (PBlock* block = get_block(req); block && !block->column_metas().empty()) {
+            borrow_block(block, multi_blocks ? dst->add_blocks() : dst->mutable_block(), source);
+        }
     }
-    // The payload travels in the brpc attachment, but the receiver writes it back through
-    // mutable_column_values() after ParseFromString(), which only sets the proto2 presence bit
-    // when the serialized request carries the field. Mark column_values present with an empty
-    // value, exactly as request_embed_attachment_contain_blockv2() leaves it after moving the
-    // owned payload out, so PBlock::CopyFrom() on the receiver keeps the extracted bytes.
-    dst->set_column_values("");
-    dst->set_be_exec_version(src.be_exec_version());
-    dst->set_compressed(src.compressed());
-    dst->set_compression_type(src.compression_type());
-    dst->set_uncompressed_size(src.uncompressed_size());
 }
 
-std::shared_ptr<PTransmitDataParams> make_http_request_without_column_values(
-        const PTransmitDataParams& src) {
-    DORIS_CHECK(src.has_block());
-    DORIS_CHECK(src.blocks_size() == 0);
-    DORIS_CHECK(!src.has_row_batch());
+} // namespace
 
-    auto dst = std::make_shared<PTransmitDataParams>();
-    dst->mutable_finst_id()->CopyFrom(src.finst_id());
-    dst->set_node_id(src.node_id());
-    dst->set_sender_id(src.sender_id());
-    dst->set_be_number(src.be_number());
-    dst->set_eos(src.eos());
-    dst->set_packet_seq(src.packet_seq());
-    if (src.has_query_statistics()) {
-        dst->mutable_query_statistics()->CopyFrom(src.query_statistics());
+void release_borrowed_blocks(PTransmitDataParams* request) {
+    if (request->has_block()) {
+        static_cast<void>(request->mutable_block()->release_column_values());
+        request->clear_block();
     }
-    if (src.has_transfer_by_attachment()) {
-        dst->set_transfer_by_attachment(src.transfer_by_attachment());
+    for (auto& block : *request->mutable_blocks()) {
+        static_cast<void>(block.release_column_values());
     }
-    if (src.has_query_id()) {
-        dst->mutable_query_id()->CopyFrom(src.query_id());
-    }
-    if (src.has_exec_status()) {
-        dst->mutable_exec_status()->CopyFrom(src.exec_status());
-    }
-    copy_block_metadata_without_column_values(src.block(), dst->mutable_block());
-    return dst;
+    request->clear_blocks();
 }
-
-} // namespace exchange_sink_buffer::detail
 
 Status BroadcastPBlockHolder::prepare_serialized_block(bool send_multi_blocks,
                                                        size_t num_receivers) {
@@ -117,19 +108,10 @@ Status BroadcastPBlockHolder::prepare_serialized_block(bool send_multi_blocks,
         return Status::OK();
     }
     PTransmitDataParams fragment;
-    if (send_multi_blocks) {
-        // Match the existing multi-block request's metadata and proto2 field presence.
-        add_borrowed_broadcast_block(fragment, *_pblock);
-    } else {
-        fragment.set_allocated_block(_pblock.get());
-    }
-    Defer detach([&] {
-        if (send_multi_blocks) {
-            static_cast<void>(fragment.mutable_blocks(0)->release_column_values());
-        } else {
-            static_cast<void>(fragment.release_block());
-        }
-    });
+    // Match the metadata and proto2 field presence of the request _send_rpc() builds.
+    Defer release_blocks([&]() { release_borrowed_blocks(&fragment); });
+    borrow_block(_pblock.get(), send_multi_blocks ? fragment.add_blocks() : fragment.mutable_block(),
+                 BlockSource::SHARED);
     // Protobuf cannot encode >= 2 GiB messages. Leave these on the existing path,
     // where the complete request is checked for HTTP attachment transport.
     if (fragment.ByteSizeLong() >= MIN_HTTP_BRPC_SIZE) {
@@ -318,7 +300,8 @@ Status ExchangeSinkBuffer::add_block(Channel* channel, BroadcastTransmitInfo&& r
     return Status::OK();
 }
 
-// Keep the existing send state machine intact; this change only adjusts ownership in one branch.
+// The unicast and broadcast branches only differ in where their blocks come from; splitting
+// them is left for a dedicated refactor.
 // NOLINTNEXTLINE(readability-function-size, readability-function-cognitive-complexity)
 Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
     // A successful callback may synchronously call _send_rpc() to send the next queued packet.
@@ -374,7 +357,8 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         return Status::OK();
     }
 
-    auto mem_byte = 0;
+    // int64_t: a single block can exceed 2 GiB (the http attachment case), which an int would wrap.
+    int64_t mem_byte = 0;
     if (q_ptr && !q_ptr->empty()) {
         auto& q = *q_ptr;
 
@@ -394,34 +378,16 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         }
 
         // If we have data to shuffle which is not broadcasted
-        auto& request = requests[0];
         auto& brpc_request = instance_data.request;
         brpc_request->set_sender_id(channel->_parent->sender_id());
         brpc_request->set_be_number(channel->_parent->be_number());
 
-        if (_send_multi_blocks) {
-            for (auto& req : requests) {
-                if (req.block && !req.block->column_metas().empty()) {
-                    auto add_block = brpc_request->add_blocks();
-                    add_block->Swap(req.block.get());
-                }
-            }
-        } else {
-            if (request.block && !request.block->column_metas().empty()) {
-                // Use set_allocated_block as a scoped borrow to avoid copying the serialized
-                // payload. The TransmitInfo unique_ptr remains the real owner, and release_block()
-                // below detaches the borrowed block before this reusable protobuf request is
-                // cleared or destroyed.
-                brpc_request->set_allocated_block(request.block.get());
-            }
-        }
-        Defer release_block([&]() {
-            if (!_send_multi_blocks && request.block) {
-                static_cast<void>(brpc_request->release_block());
-            } else {
-                brpc_request->clear_blocks();
-            }
-        });
+        // Declared before borrowing so that an exception thrown while filling the request still
+        // returns the borrows already taken before the owners in `requests` are destroyed.
+        Defer release_blocks([&]() { release_borrowed_blocks(brpc_request.get()); });
+        borrow_blocks(
+                requests, [](TransmitInfo& req) { return req.block.get(); }, BlockSource::OWNED,
+                _send_multi_blocks, brpc_request.get());
 
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
@@ -528,40 +494,14 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                     return !req.block_holder->serialized_block().empty() ||
                            req.block_holder->get_block()->column_metas().empty();
                 });
-        auto& request = requests[0];
         auto& brpc_request = instance_data.request;
         brpc_request->set_sender_id(channel->_parent->sender_id());
         brpc_request->set_be_number(channel->_parent->be_number());
 
-        if (_send_multi_blocks && !use_shared_protobuf) {
-            for (const auto& req : requests) {
-                if (auto block = req.block_holder->get_block();
-                    block && !block->column_metas().empty()) {
-                    // Broadcast blocks are shared by multiple channels. Borrow the large
-                    // column_values string for this RPC request and release it below before
-                    // clear_blocks(), so BroadcastPBlockHolder remains the real owner.
-                    add_borrowed_broadcast_block(*brpc_request, *block);
-                }
-            }
-        } else if (!_send_multi_blocks) {
-            if (request.block_holder->get_block() &&
-                !request.block_holder->get_block()->column_metas().empty()) {
-                // Same scoped-borrow pattern as above: the broadcast holder owns this PBlock.
-                // release_block() below detaches it before protobuf cleanup can delete it.
-                brpc_request->set_allocated_block(request.block_holder->get_block());
-            }
-        }
-        auto detach_blocks = [&]() {
-            if (!_send_multi_blocks && request.block_holder->get_block()) {
-                static_cast<void>(brpc_request->release_block());
-            } else {
-                for (int i = 0; i < brpc_request->mutable_blocks()->size(); ++i) {
-                    static_cast<void>(brpc_request->mutable_blocks(i)->release_column_values());
-                }
-                brpc_request->clear_blocks();
-            }
-        };
-        Defer release_block(detach_blocks);
+        Defer release_blocks([&]() { release_borrowed_blocks(brpc_request.get()); });
+        borrow_blocks(
+                requests, [](BroadcastTransmitInfo& req) { return req.block_holder->get_block(); },
+                BlockSource::SHARED, _send_multi_blocks, brpc_request.get());
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
         brpc_request->set_eos(requests.back().eos);
@@ -618,25 +558,17 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         });
         {
             if (enable_http_send_block(*brpc_request)) {
-                // The broadcast holder is shared by all destination channels. For HTTP we must
-                // serialize a request without column_values, but must not release/restore the
-                // shared block because different RPC callback threads can send the same holder
-                // concurrently. Copy only the small request/block metadata and borrow the
-                // column_values string as read-only attachment data.
-                auto http_request =
-                        exchange_sink_buffer::detail::make_http_request_without_column_values(
-                                *brpc_request);
                 auto send_remote_block_closure = AutoReleaseClosure<
                         PTransmitDataParams,
-                        ExchangeSendCallback<PTransmitDataResult>>::create_unique(http_request,
+                        ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
                                                                                   send_callback);
-                RETURN_IF_ERROR(transmit_block_httpv2_with_attachment_data(
-                        _context->exec_env(), std::move(send_remote_block_closure),
-                        channel->_brpc_dest_addr, brpc_request->block().column_values()));
+                RETURN_IF_ERROR(transmit_block_httpv2(_context->exec_env(),
+                                                      std::move(send_remote_block_closure),
+                                                      channel->_brpc_dest_addr));
             } else if (use_shared_protobuf) {
-                // The HTTP decision above needs the complete singular request. Detach its
-                // borrowed block before encoding only the per-RPC routing fields.
-                detach_blocks();
+                // The HTTP decision above needs the complete request. Return its borrowed
+                // blocks before encoding only the per-RPC routing fields.
+                release_borrowed_blocks(brpc_request.get());
                 auto serialized_request = std::make_shared<brpc::SerializedRequest>();
                 RETURN_IF_ERROR(_serialize_broadcast_request(*brpc_request, requests,
                                                              serialized_request.get()));

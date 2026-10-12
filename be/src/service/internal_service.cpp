@@ -529,6 +529,8 @@ void PInternalService::tablet_writer_add_block_by_http(google::protobuf::RpcCont
         tablet_writer_add_block(controller, new_request, response, new_done);
     } else {
         st.to_protobuf(response->mutable_status());
+        // Answer the rpc and free new_request; otherwise the client waits for its timeout.
+        new_done->Run();
     }
 }
 
