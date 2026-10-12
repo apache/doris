@@ -186,6 +186,20 @@ class GcsFileSystemProviderTest {
     }
 
     @Test
+    void validatesOwnedCredentialsEvenWhenS3IsSelected() {
+        for (Map<String, String> selection : java.util.List.of(Map.of("provider", "S3"),
+                Map.of("fs.s3.support", "true"))) {
+            Map<String, String> props = new HashMap<>(selection);
+            props.put("gs.credential_provider_type", "DEFAULT");
+            Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(props));
+        }
+        Assertions.assertDoesNotThrow(() -> provider.validateProperties(Map.of("provider", "S3")));
+        Assertions.assertDoesNotThrow(() -> provider.validateProperties(Map.of("provider", "GCP")));
+        Assertions.assertEquals(Set.of("S3", "MINIO"), provider.fallbackProviders());
+        Assertions.assertTrue(provider.supportsGuess(Map.of("gs.impersonation_service_account", "")));
+    }
+
+    @Test
     void name_isGcs() {
         Assertions.assertEquals("GCS", provider.name());
     }

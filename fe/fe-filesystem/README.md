@@ -152,8 +152,24 @@ The same codec restores properties for SHOW CREATE and Cloud stages. Partial ALT
 the distinction between an absent field and an explicitly empty value.
 
 The GCS codec uses host-provided `fe-grpc` and `fe-thrift` generated types (provided dependencies),
-without depending on `fe-core`. Filesystem plugin API 3.0 includes this extension point; plugins must
+without depending on `fe-core`. Filesystem plugin API 4.0 includes this extension point; plugins must
 be rebuilt for the matching host API.
+
+### Overlapping provider matches
+
+The binding registry honors an explicit registered `provider` name or `fs.<x>.support` flags before
+heuristic matching. A provider can declare `fallbackProviders()` to suppress general-purpose
+heuristic matches when it also matches. This applies to both primary and multi-provider binding;
+explicit matches are never suppressed. Providers without this declaration retain their existing
+multi-match behavior. The default HDFS binding for catalogs is preserved.
+
+`validateProperties()` runs on every loaded provider before selection, so invalid provider-owned
+credentials cannot silently disappear when another plugin is chosen. It must be deterministic and
+perform no I/O. Forced provider binding validates with the effective provider name too.
+
+GCS owns its endpoint/credential recognition and declares S3 and MinIO as heuristic fallbacks.
+S3 and its shared protocol library do not depend on GCS authentication classes. Filesystem plugin
+API 4.0 adds these two default hooks; all plugins must be rebuilt for that host API.
 
 ### S3 Delegation Pattern
 

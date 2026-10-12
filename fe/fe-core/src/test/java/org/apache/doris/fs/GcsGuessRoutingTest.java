@@ -79,6 +79,37 @@ public class GcsGuessRoutingTest {
         }
     }
 
+    @Test
+    public void testNativeGcsHintsWithoutEndpointDoNotBindS3OrMinio() {
+        for (Map.Entry<String, String> hint : Map.of(
+                "provider", "GCP", "gs.credential_provider_type", "DEFAULT",
+                "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com",
+                "warehouse", "gs://bucket/warehouse").entrySet()) {
+            Map<String, String> props = new HashMap<>();
+            props.put("s3.region", "us-east1");
+            props.put("_STORAGE_TYPE_", "S3");
+            props.put(hint.getKey(), hint.getValue());
+            bindings(props, "GCS");
+        }
+        bindings(Map.of("s3.region", "us-east1", "gs.impersonation_service_account", ""), "GCS");
+        bindings(Map.of("s3.region", "us-east-1"), "S3");
+    }
+
+    @Test
+    public void testNativeCredentialsCannotBeIgnoredByS3Selection() {
+        for (Map<String, String> selection : List.of(Map.of("provider", "S3"),
+                Map.of("fs.s3.support", "true"))) {
+            Map<String, String> props = new HashMap<>(selection);
+            props.put("gs.credential_provider_type", "DEFAULT");
+            props.put("s3.region", "us-east-1");
+            Assertions.assertThrows(IllegalArgumentException.class, () -> StorageAdapter.of(props));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> StorageAdapter.ofAll(props));
+        }
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> StorageAdapter.ofProvider("S3", Map.of("s3.region", "us-east-1",
+                        "gs.credential_provider_type", "DEFAULT")));
+    }
+
     private static Map<String, String> properties(String endpoint) {
         Map<String, String> props = new HashMap<>();
         props.put("s3.endpoint", endpoint);

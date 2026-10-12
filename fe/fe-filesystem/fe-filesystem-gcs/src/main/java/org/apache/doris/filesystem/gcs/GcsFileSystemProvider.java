@@ -41,7 +41,7 @@ import java.util.Set;
  *
  * <p>Selected explicitly by {@code provider=GCS}/{@code GCP} or {@code fs.gcs.support=true};
  * otherwise, when the user declared no filesystem explicitly, by
- * {@link S3CompatSignals#guessIsGcs} (a {@code gs.endpoint}, or an endpoint on
+ * {@link GcsAuthResolver#guessIsGcs} (a {@code gs.endpoint}, or an endpoint on
  * {@code storage.googleapis.com}). Delegates I/O to {@link S3FileSystem}.
  */
 public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemProperties> {
@@ -109,6 +109,20 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
     }
 
     @Override
+    public void validateProperties(Map<String, String> properties) {
+        GcsAuthResolver.resolve(properties);
+        if (GcsAuthResolver.hasNativeCredentialProperties(properties)
+                && S3CompatSignals.hasExplicitS3Request(properties)) {
+            throw new IllegalArgumentException("Native GCP authentication cannot be used with S3 properties.");
+        }
+    }
+
+    @Override
+    public Set<String> fallbackProviders() {
+        return Set.of("S3", "MINIO");
+    }
+
+    @Override
     public Optional<ObjectStorageCredentialCodec> credentialCodec() {
         return Optional.of(new GcsCredentialCodec());
     }
@@ -143,7 +157,7 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
                 || S3CompatSignals.isFsSupport(properties, FS_GCS_SUPPORT)) {
             return true;
         }
-        return S3CompatSignals.guessAllowed(properties) && S3CompatSignals.guessIsGcs(properties);
+        return S3CompatSignals.guessAllowed(properties) && GcsAuthResolver.guessIsGcs(properties);
     }
 
     @Override
@@ -172,7 +186,7 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
 
     @Override
     public boolean supportsGuess(Map<String, String> properties) {
-        return !S3CompatSignals.hasExplicitS3Request(properties) && S3CompatSignals.guessIsGcs(properties);
+        return !S3CompatSignals.hasExplicitS3Request(properties) && GcsAuthResolver.guessIsGcs(properties);
     }
 
     @Override

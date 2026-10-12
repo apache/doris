@@ -41,6 +41,11 @@ under the License.
     </description>
 
     <dependencies>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-filesystem-gcs-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
         <!-- Share the serializable GCP FileIO factory with the BE metadata scanner. -->
         <dependency>
             <groupId>org.apache.doris</groupId>

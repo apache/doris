@@ -112,8 +112,7 @@ public final class GcsAuthResolver {
             if ("provider".equals(key) && ("GCP".equalsIgnoreCase(value) || "GCS".equalsIgnoreCase(value))) {
                 return true;
             }
-            if ((CREDENTIAL_PROVIDER_TYPE.equals(key) || IMPERSONATION_SERVICE_ACCOUNT.equals(key))
-                    && isNotBlank(value)) {
+            if (CREDENTIAL_PROVIDER_TYPE.equals(key) || IMPERSONATION_SERVICE_ACCOUNT.equals(key)) {
                 return true;
             }
             if (("uri".equals(key) || "warehouse".equals(key))
