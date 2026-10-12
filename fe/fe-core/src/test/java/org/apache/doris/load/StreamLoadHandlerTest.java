@@ -27,7 +27,9 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
@@ -61,6 +63,45 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class StreamLoadHandlerTest {
+    @Test
+    public void testSchemaVersionLockTimeoutDoesNotReadMetadata() throws Exception {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn("tbl");
+        Mockito.when(table.tryReadLock(1, TimeUnit.MILLISECONDS)).thenReturn(false);
+        verifySchemaVersionReadFailure(table, UserException.class);
+        Mockito.verify(table).tryReadLock(1, TimeUnit.MILLISECONDS);
+        Mockito.verify(table, Mockito.never()).getBaseSchemaVersion();
+        Mockito.verify(table, Mockito.never()).readUnlock();
+    }
+
+    @Test
+    public void testSchemaVersionReadFailureReleasesLock() throws Exception {
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doThrow(new IllegalStateException("schema read failed")).when(table).getBaseSchemaVersion();
+        verifySchemaVersionReadFailure(table, IllegalStateException.class);
+        MonitoredReentrantReadWriteLock lock = Deencapsulation.getField(table, "rwLock");
+        Assertions.assertEquals(0, lock.getReadHoldCount());
+        Mockito.verify(table).readUnlock();
+    }
+
+    private void verifySchemaVersionReadFailure(OlapTable table, Class<? extends Throwable> failure) throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
+        Mockito.when(database.getTableOrMetaException("tbl", TableType.OLAP)).thenReturn(table);
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setDb("db");
+        request.setTbl("tbl");
+        request.setThriftRpcTimeoutMs(1);
+        StreamLoadHandler handler = new StreamLoadHandler(request, null, new TStreamLoadPutResult(), "127.0.0.1");
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertThrows(failure, () -> Deencapsulation.invoke(handler, "setDbAndTable"));
+        }
+    }
+
     @Test
     public void testSchemaVersionReadWaitsForBaseIndexReplacement() throws Exception {
         OlapTable table = Mockito.spy(new OlapTable());
