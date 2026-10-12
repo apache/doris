@@ -1197,6 +1197,22 @@ TEST(RoundFunctionTest, decimal_scale_boundaries) {
                                                                 0, -1, false, true);
 }
 
+TEST(RoundFunctionTest, decimal_rounding_overflow) {
+    auto func = std::dynamic_pointer_cast<Decimal32CeilFunction>(Decimal32CeilFunction::create());
+    auto col_general = ColumnDecimal<TYPE_DECIMAL32>::create(1, 9);
+    col_general->get_element(0) = Decimal32(123456789);
+    auto col_scale = ColumnInt32::create();
+    col_scale->insert(Field::create_field<TYPE_INT>(-1));
+
+    Block block;
+    block.insert(
+            {std::move(col_general), std::make_shared<DataTypeDecimal32>(9, 9), "col_general"});
+    block.insert({std::move(col_scale), std::make_shared<DataTypeInt32>(), "col_scale"});
+    block.insert({nullptr, std::make_shared<DataTypeDecimal32>(9, 9), "col_res"});
+
+    EXPECT_THROW(static_cast<void>(func->execute_impl(nullptr, block, {0, 1}, 2, 1)), Exception);
+}
+
 /// tests for func(Column, Column) with float input
 TEST(RoundFunctionTest, normal_float) {
     float_checker<FloatTruncateFunction, TYPE_FLOAT>(trunc_float32_cases, false);
