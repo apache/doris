@@ -159,6 +159,12 @@ m	map<text,text>	Yes	false	\N	NONE
 -- !sql16 --
 204
 
+-- !replaced_before --
+1	aaaa
+
+-- !replaced_after --
+2	bbbb
+
 -- !sql17 --
 c1	text	Yes	false	\N	NONE
 
