@@ -270,6 +270,12 @@ final class IcebergTableCache {
             this.sizeEstimate = estimateWeight
                     ? MetaCacheSizeEstimator.estimateSafely("iceberg_table_estimator_failure",
                             () -> {
+                                if (!IcebergCacheSizeEstimator.areSnapshotsLoaded(table)) {
+                                    // Serializing or weighing a lazily supplied snapshot list would fetch every
+                                    // snapshot remotely on each miss. Decline retention; borrowers keep reading
+                                    // the live table, whose supplier still serves historical snapshots.
+                                    return MetaCacheSizeEstimate.incomplete("iceberg_snapshots_not_loaded");
+                                }
                                 long serializedMetadataBytes = 0L;
                                 if (table instanceof BaseTable) {
                                     TableMetadata metadata = ((BaseTable) table).operations().current();

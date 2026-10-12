@@ -21,9 +21,12 @@ import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.connector.cache.ReflectiveObjectSizeEstimator;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
@@ -33,21 +36,60 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.iceberg.IcebergTable;
 import org.apache.paimon.table.lance.LanceTable;
 import org.apache.paimon.table.object.ObjectTable;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.MultisetType;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VectorType;
 
 import java.net.URI;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Set;
 
 /**
  * Retained-size formulas for Paimon table-cache entries.
  *
  * <p>The table's shallow size includes references to FileIO, catalog loaders, and lock factories,
- * but their graphs are catalog-scoped executable services rather than entry-owned metadata. Walking
- * those graphs both double-counts shared state and reaches strongly encapsulated JDK objects. The
- * estimator therefore expands only immutable metadata owned by the entry.
+ * but their graphs are executable services rather than entry-owned metadata. Walking those graphs
+ * both double-counts shared state and reaches strongly encapsulated JDK objects. The estimator
+ * therefore expands only immutable metadata owned by the entry, plus a fixed allowance for a FileIO
+ * the table may own.
+ *
+ * <p>A cached value is weighed once, at admission, but a {@link FileStoreTable} keeps growing afterwards: the
+ * first {@code latestSnapshot()} or scan builds its transient store (a {@code FileStore} holding its own
+ * {@code RowType} copies of the schema and a copy of the options) and field lookups build the four lazy index
+ * maps of every {@code RowType}. That growth is reserved from the schema's shape. On Paimon 1.4.2 it measures
+ * about 1-2 KB per table, 200-270 bytes per field, another 200 bytes per field nested in a row, 40 bytes per
+ * option and, for a partial-update table's merge function, about 150 more bytes per field; the constants below
+ * keep a margin above that.
  */
 final class PaimonCacheSizeEstimator {
+    private static final long STORE_GROWTH_BASE_BYTES = 2048L;
+    private static final long STORE_GROWTH_FIELD_BYTES = 320L;
+    private static final long STORE_GROWTH_NESTED_FIELD_BYTES = 256L;
+    // A child type of an array, map, multiset or vector: the store's copy of it.
+    private static final long STORE_GROWTH_TYPE_NODE_BYTES = 128L;
+    private static final long STORE_GROWTH_OPTION_BYTES = 64L;
+    // A partition, primary or bucket key: its slot in the derived key types; a primary key is also copied as a
+    // renamed key field.
+    private static final long STORE_GROWTH_KEY_BYTES = 192L;
+    // A partial-update table's merge function factory, built with its store, keeps sequence-group and aggregator
+    // maps for every field: about 150 bytes per field more than the other merge engines on Paimon 1.4.2.
+    private static final long STORE_GROWTH_PARTIAL_UPDATE_FIELD_BYTES = 256L;
+    // A table can own its FileIO: a REST catalog gives each table a RESTTokenFileIO (holding the vended token it
+    // fetches on first data access, an STS key id, secret and security token of about 2 KB) or a ResolvingFileIO,
+    // and an external table of any kind (format, object, Lance and Iceberg tables included) always a
+    // ResolvingFileIO; a Hive catalog resolves a FileIO for each table location. Their tokens and backend maps
+    // appear only after admission, and Paimon offers no IO-free way to read that state or to tell an owned FileIO
+    // from one the catalog shares. Every table, whatever its kind, is therefore charged a fixed 16 KB for its
+    // FileIO, several times any STS token seen so far; a token refresh replaces the token rather than adding to
+    // it. Charging a catalog-shared FileIO to each table only makes the estimate conservative.
+    private static final long FILE_IO_BYTES = 16L * 1024L;
+
     private PaimonCacheSizeEstimator() {
     }
 
@@ -72,6 +114,7 @@ final class PaimonCacheSizeEstimator {
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.options()));
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.comment()));
             bytes = add(bytes, JvmSizeUtils.stringSize(location(table)));
+            bytes = add(bytes, estimateFileIO(table.fileIO()));
         }
         return MetaCacheSizeEstimate.complete(bytes);
     }
@@ -98,8 +141,68 @@ final class PaimonCacheSizeEstimator {
                     ((DelegatedFileStoreTable) table).wrapped(), visited));
         }
         bytes = add(bytes, estimateCompleteOnce(table.schema(), visited));
+        bytes = add(bytes, estimateStoreGrowth(table.schema()));
+        bytes = add(bytes, estimateTableFileIO(table.fileIO(), visited));
         bytes = add(bytes, estimatePath(table.location(), visited));
         return add(bytes, estimateCatalogEnvironment(table.catalogEnvironment(), visited));
+    }
+
+    /** Reserves the store and index graph this table builds after admission; no IO, no store access. */
+    private static long estimateStoreGrowth(TableSchema schema) {
+        long bytes = add(STORE_GROWTH_BASE_BYTES,
+                multiply(schema.options().size(), STORE_GROWTH_OPTION_BYTES));
+        long keys = (long) schema.partitionKeys().size() + schema.primaryKeys().size() + schema.bucketKeys().size();
+        bytes = add(bytes, multiply(keys, STORE_GROWTH_KEY_BYTES));
+        for (String primaryKey : schema.primaryKeys()) {
+            bytes = add(bytes, JvmSizeUtils.stringSize(primaryKey));
+        }
+        if (CoreOptions.fromMap(schema.options()).mergeEngine() == CoreOptions.MergeEngine.PARTIAL_UPDATE) {
+            bytes = add(bytes, multiply(schema.fields().size(), STORE_GROWTH_PARTIAL_UPDATE_FIELD_BYTES));
+        }
+        return add(bytes, estimateFieldGrowth(schema.fields(), STORE_GROWTH_FIELD_BYTES));
+    }
+
+    private static long estimateFieldGrowth(List<DataField> fields, long perFieldBytes) {
+        long bytes = multiply(fields.size(), perFieldBytes);
+        for (DataField field : fields) {
+            bytes = add(bytes, estimateTypeGrowth(field.type()));
+        }
+        return bytes;
+    }
+
+    private static long estimateTypeGrowth(DataType type) {
+        if (type instanceof RowType) {
+            return estimateFieldGrowth(((RowType) type).getFields(),
+                    STORE_GROWTH_FIELD_BYTES + STORE_GROWTH_NESTED_FIELD_BYTES);
+        }
+        if (type instanceof ArrayType) {
+            return estimateChildTypeGrowth(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MultisetType) {
+            return estimateChildTypeGrowth(((MultisetType) type).getElementType());
+        }
+        if (type instanceof VectorType) {
+            return estimateChildTypeGrowth(((VectorType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            MapType mapType = (MapType) type;
+            return add(estimateChildTypeGrowth(mapType.getKeyType()),
+                    estimateChildTypeGrowth(mapType.getValueType()));
+        }
+        return 0L;
+    }
+
+    private static long estimateChildTypeGrowth(DataType child) {
+        return add(STORE_GROWTH_TYPE_NODE_BYTES, estimateTypeGrowth(child));
+    }
+
+    /** The allowance a table carries for its FileIO; the fallback branches of one table share theirs. */
+    private static long estimateTableFileIO(FileIO fileIO, Set<Object> visited) {
+        return visited.add(fileIO) ? estimateFileIO(fileIO) : 0L;
+    }
+
+    static long estimateFileIO(FileIO fileIO) {
+        return add(JvmSizeUtils.instanceSize(fileIO.getClass()), FILE_IO_BYTES);
     }
 
     private static long estimateCompleteOnce(Object value, Set<Object> visited) {
@@ -159,5 +262,9 @@ final class PaimonCacheSizeEstimator {
 
     private static long add(long left, long right) {
         return JvmSizeUtils.saturatedAdd(left, right);
+    }
+
+    private static long multiply(long left, long right) {
+        return JvmSizeUtils.saturatedMultiply(left, right);
     }
 }
