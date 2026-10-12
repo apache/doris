@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.storage;
 
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
-import org.apache.doris.datasource.property.storage.auth.ObjCredentialFactory;
 import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.thrift.TCredProviderType;
@@ -106,7 +105,7 @@ public final class S3ThriftAdapter {
                 ? DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
         String usePathStyle = properties.getOrDefault(USE_PATH_STYLE, "false");
         s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
-        ObjCredentialFactory.fromAuthentication(authentication)
+        ObjectStorageCredentialAdapter.fromAuthentication(authentication)
                 .ifPresent(credential -> credential.applyTo(s3Info));
         if (authentication.filter(ObjectStorageAuthentication::isAnonymous).isPresent()
                 || (authentication.isEmpty() && getCredentialsProviderMode(properties,

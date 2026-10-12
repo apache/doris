@@ -28,7 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.datasource.property.storage.auth.GcpCredentialAdapter;
+import org.apache.doris.datasource.storage.ObjectStorageCredentialAdapter;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -131,8 +131,9 @@ public class ShowCreateStorageVaultCommand extends ShowCommand {
         properties.put("s3.region", objectInfo.getRegion());
         properties.put("s3.root.path", objectInfo.getPrefix());
         properties.put("s3.bucket", objectInfo.getBucket());
-        if (objectInfo.hasCredential() && objectInfo.getCredential().hasGcpCredential()) {
-            properties.putAll(GcpCredentialAdapter.toProperties(objectInfo.getCredential().getGcpCredential()));
+        if (objectInfo.hasCredential()) {
+            properties.putAll(ObjectStorageCredentialAdapter.toProperties(
+                    objectInfo.getProvider().name(), objectInfo.getCredential()));
         } else {
             // Masking even empty keys would produce nonempty HMAC credentials conflicting with native auth.
             properties.put("s3.access_key", objectInfo.getAk());

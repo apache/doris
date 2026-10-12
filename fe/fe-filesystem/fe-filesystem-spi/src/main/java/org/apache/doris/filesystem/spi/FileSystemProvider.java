@@ -61,6 +61,11 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
         return Optional.empty();
     }
 
+    /** Optional codec for this provider's native BE/Cloud credentials. */
+    default Optional<ObjectStorageCredentialCodec> credentialCodec() {
+        return Optional.empty();
+    }
+
     /** Translate protocol-native fields back into provider-owned user properties. */
     default Map<String, String> credentialToProperties(Map<String, String> credential) {
         throw new UnsupportedOperationException(name() + " has no native credential property codec");

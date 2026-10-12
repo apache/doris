@@ -25,6 +25,7 @@ import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.fs.FileSystemPluginManager;
@@ -176,13 +177,24 @@ public final class StorageAdapter {
         return manager().getProviders().stream().anyMatch(provider -> provider.clearablePropertyKeys().contains(key));
     }
 
-    public static Map<String, String> credentialToProperties(String providerName, Map<String, String> credential) {
+    /** Resolve a native wire codec through the registered filesystem providers. */
+    public static ObjectStorageCredentialCodec credentialCodec(String providerName) {
+        ObjectStorageCredentialCodec selected = null;
         for (FileSystemProvider<?> provider : manager().getProviders()) {
-            if (provider.name().equalsIgnoreCase(providerName)) {
-                return provider.credentialToProperties(credential);
+            Optional<ObjectStorageCredentialCodec> codec = provider.credentialCodec();
+            if (codec.isPresent() && codec.get().provider().equalsIgnoreCase(providerName)) {
+                if (selected != null) {
+                    throw new StoragePropertiesException(
+                            "Multiple credential codecs for provider '" + providerName + "'");
+                }
+                selected = codec.get();
             }
         }
-        throw new StoragePropertiesException("Filesystem provider '" + providerName + "' is not available");
+        if (selected == null) {
+            throw new StoragePropertiesException("Native credential codec for provider '" + providerName
+                    + "' is not available");
+        }
+        return selected;
     }
 
     /**

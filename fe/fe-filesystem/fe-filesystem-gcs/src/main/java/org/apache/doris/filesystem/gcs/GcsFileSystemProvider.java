@@ -25,6 +25,7 @@ import org.apache.doris.filesystem.s3.S3CompatSignals;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
@@ -105,6 +106,11 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
             });
             return new ObjectStorageAuthentication("GCP", auth.isAnonymous(), credential, updates);
         });
+    }
+
+    @Override
+    public Optional<ObjectStorageCredentialCodec> credentialCodec() {
+        return Optional.of(new GcsCredentialCodec());
     }
 
     @Override

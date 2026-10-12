@@ -46,6 +46,11 @@ class FileSystemProviderTypedPropertiesTest {
         Assertions.assertSame(properties, ((TestFileSystem) fileSystem).properties);
     }
 
+    @Test
+    void providerWithoutNativeCredentialsDoesNotAdvertiseACodec() {
+        Assertions.assertTrue(new TypedProvider().credentialCodec().isEmpty());
+    }
+
     private static class TypedProvider implements FileSystemProvider<TestProperties> {
         @Override
         public boolean supports(Map<String, String> properties) {

@@ -15,42 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.storage.auth;
+package org.apache.doris.filesystem.gcs;
 
 import org.apache.doris.cloud.proto.Cloud.GcpCredentialPB;
-import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
-import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.cloud.proto.Cloud.ObjectStoreCredentialPB;
+import org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec;
 import org.apache.doris.thrift.TCredential;
 import org.apache.doris.thrift.TGcpCredential;
 import org.apache.doris.thrift.TGcpCredentialProviderType;
-import org.apache.doris.thrift.TObjStorageType;
-import org.apache.doris.thrift.TS3StorageParam;
 
+import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TBinaryProtocol;
+
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-/** GCP native credential shared by the Cloud protobuf and BE Thrift paths. */
-public final class GcpCredentialAdapter implements ObjCredential {
-    private final Map<String, String> fields;
-
-    public GcpCredentialAdapter(Map<String, String> fields) {
-        this.fields = Map.copyOf(fields);
-    }
-
-    public static Map<String, String> toProperties(GcpCredentialPB credential) {
-        Map<String, String> fields = new HashMap<>();
-        fields.put("credential_provider_type", credential.getCredentialProviderType().name());
-        if (credential.hasImpersonationServiceAccount()) {
-            fields.put("impersonation_service_account", credential.getImpersonationServiceAccount());
-        }
-        return StorageAdapter.credentialToProperties("GCS", fields);
+/** Native GCP wire encoding belongs to the GCS plugin, alongside its authentication rules. */
+public final class GcsCredentialCodec implements ObjectStorageCredentialCodec {
+    @Override
+    public String provider() {
+        return "GCP";
     }
 
     @Override
-    public void applyTo(ObjectStoreInfoPB.Builder builder) {
-        if (!builder.hasProvider()) {
-            builder.setProvider(ObjectStoreInfoPB.Provider.GCP);
-        }
+    public byte[] toCloudCredential(Map<String, String> fields) {
         GcpCredentialPB.Builder credential = GcpCredentialPB.newBuilder();
         if (fields.containsKey("credential_provider_type")) {
             credential.setCredentialProviderType(GcpCredentialPB.CredentialProviderType.valueOf(
@@ -59,14 +49,11 @@ public final class GcpCredentialAdapter implements ObjCredential {
         if (fields.containsKey("impersonation_service_account")) {
             credential.setImpersonationServiceAccount(fields.get("impersonation_service_account"));
         }
-        builder.getCredentialBuilder().setGcpCredential(credential);
+        return ObjectStoreCredentialPB.newBuilder().setGcpCredential(credential).build().toByteArray();
     }
 
     @Override
-    public void applyTo(TS3StorageParam param) {
-        if (!param.isSetProvider()) {
-            param.setProvider(TObjStorageType.GCP);
-        }
+    public byte[] toThriftCredential(Map<String, String> fields) throws IOException {
         TGcpCredential credential = new TGcpCredential();
         if (fields.containsKey("credential_provider_type")) {
             credential.setCredentialProviderType(TGcpCredentialProviderType.valueOf(
@@ -75,6 +62,26 @@ public final class GcpCredentialAdapter implements ObjCredential {
         if (fields.containsKey("impersonation_service_account")) {
             credential.setImpersonationServiceAccount(fields.get("impersonation_service_account"));
         }
-        param.setCredential(new TCredential().setGcpCredential(credential));
+        try {
+            return new TSerializer(new TBinaryProtocol.Factory())
+                    .serialize(new TCredential().setGcpCredential(credential));
+        } catch (TException e) {
+            throw new IOException("Cannot encode GCS credentials for BE", e);
+        }
+    }
+
+    @Override
+    public Map<String, String> toProperties(byte[] cloudCredential) throws IOException {
+        ObjectStoreCredentialPB envelope = ObjectStoreCredentialPB.parseFrom(cloudCredential);
+        if (!envelope.hasGcpCredential()) {
+            throw new IOException("Missing GCP credentials in the Cloud credential envelope");
+        }
+        GcpCredentialPB credential = envelope.getGcpCredential();
+        Map<String, String> fields = new HashMap<>();
+        fields.put("credential_provider_type", credential.getCredentialProviderType().name());
+        if (credential.hasImpersonationServiceAccount()) {
+            fields.put("impersonation_service_account", credential.getImpersonationServiceAccount());
+        }
+        return new GcsFileSystemProvider().credentialToProperties(fields);
     }
 }

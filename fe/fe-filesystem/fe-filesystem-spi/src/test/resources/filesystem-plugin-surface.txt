@@ -18,6 +18,7 @@ org.apache.doris.filesystem.spi.FileSystemProvider#create(java.util.Map):org.apa
 org.apache.doris.filesystem.spi.FileSystemProvider#create(org.apache.doris.extension.spi.PluginContext):org.apache.doris.extension.spi.Plugin
 org.apache.doris.filesystem.spi.FileSystemProvider#create(org.apache.doris.filesystem.properties.FileSystemProperties):org.apache.doris.filesystem.FileSystem
 org.apache.doris.filesystem.spi.FileSystemProvider#createUntyped(org.apache.doris.filesystem.properties.FileSystemProperties):org.apache.doris.filesystem.FileSystem
+org.apache.doris.filesystem.spi.FileSystemProvider#credentialCodec():java.util.Optional
 org.apache.doris.filesystem.spi.FileSystemProvider#credentialToProperties(java.util.Map):java.util.Map
 org.apache.doris.filesystem.spi.FileSystemProvider#description():java.lang.String
 org.apache.doris.filesystem.spi.FileSystemProvider#modifiableCredentialPropertyKeys():java.util.Set
@@ -72,3 +73,7 @@ org.apache.doris.filesystem.spi.ObjStorage#listObjectsWithPrefix(java.lang.Strin
 org.apache.doris.filesystem.spi.ObjStorage#openInputStreamAt(java.lang.String,long):java.io.InputStream
 org.apache.doris.filesystem.spi.ObjStorage#putObject(java.lang.String,org.apache.doris.filesystem.spi.RequestBody):void
 org.apache.doris.filesystem.spi.ObjStorage#uploadPart(java.lang.String,java.lang.String,int,org.apache.doris.filesystem.spi.RequestBody):org.apache.doris.filesystem.UploadPartResult
+org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec#provider():java.lang.String
+org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec#toCloudCredential(java.util.Map):byte[]
+org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec#toProperties(byte[]):java.util.Map
+org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec#toThriftCredential(java.util.Map):byte[]

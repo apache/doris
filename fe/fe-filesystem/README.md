@@ -141,6 +141,20 @@ At runtime, `DirectoryPluginRuntimeManager` creates an isolated `ClassLoader` pe
 `software.amazon.awssdk.*`, `org.apache.hadoop.*`) are loaded parent-first to avoid cross-
 ClassLoader cast failures.
 
+### Native object-storage credential codecs
+
+Providers with native credentials expose an optional `ObjectStorageCredentialCodec` through
+`FileSystemProvider.credentialCodec()`. The plugin owns provider-specific field names and converts
+resolved credentials to the existing Cloud protobuf and BE Thrift envelopes. Only JDK maps and byte
+arrays cross this SPI; the API/SPI modules retain their dependency-free protocol boundary.
+`fe-core` selects the registered codec and transfers the envelopes without inspecting provider fields.
+The same codec restores properties for SHOW CREATE and Cloud stages. Partial ALTER maps must retain
+the distinction between an absent field and an explicitly empty value.
+
+The GCS codec uses host-provided `fe-grpc` and `fe-thrift` generated types (provided dependencies),
+without depending on `fe-core`. Filesystem plugin API 3.0 includes this extension point; plugins must
+be rebuilt for the matching host API.
+
 ### S3 Delegation Pattern
 
 Several cloud providers (OSS, COS, OBS) are S3-compatible. Instead of duplicating the S3

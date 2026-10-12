@@ -21,7 +21,6 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
-import org.apache.doris.datasource.property.storage.auth.ObjCredentialFactory;
 import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
@@ -122,7 +121,7 @@ public final class CloudObjectStoreAdapter {
             }
         }
 
-        ObjCredentialFactory.fromAuthentication(authentication)
+        ObjectStorageCredentialAdapter.fromAuthentication(authentication)
                 .ifPresent(credential -> credential.applyTo(builder));
         return builder;
     }
@@ -132,7 +131,8 @@ public final class CloudObjectStoreAdapter {
         builder.clearCredential();
         StorageAdapter.resolveAuthentication(properties)
                 .filter(auth -> !auth.getCredentialUpdates().isEmpty())
-                .ifPresent(auth -> ObjCredentialFactory.fromCredential(auth.getProvider(), auth.getCredentialUpdates())
+                .ifPresent(auth -> ObjectStorageCredentialAdapter.fromCredential(
+                        auth.getProvider(), auth.getCredentialUpdates())
                         .applyTo(builder));
     }
 

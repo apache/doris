@@ -38,7 +38,7 @@ public class ObjectInfo {
     // only used for aws
     private final String externalId;
     private final String token;
-    private final Cloud.GcpCredentialPB gcpCredential;
+    private final Cloud.ObjectStoreCredentialPB credential;
 
     // Used to get sts token
     public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk,
@@ -75,8 +75,8 @@ public class ObjectInfo {
 
     private ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk, String bucket,
             String endpoint, String region, String prefix, String roleName, String arn, String externalId,
-            String token, Cloud.GcpCredentialPB gcpCredential) {
-        this.gcpCredential = gcpCredential;
+            String token, Cloud.ObjectStoreCredentialPB credential) {
+        this.credential = credential;
         this.provider = provider;
         this.ak = ak;
         this.sk = sk;
@@ -94,13 +94,12 @@ public class ObjectInfo {
         return provider;
     }
 
-    private static Cloud.GcpCredentialPB nativeCredential(Cloud.ObjectStoreInfoPB info) {
-        return info.hasCredential() && info.getCredential().hasGcpCredential()
-                ? info.getCredential().getGcpCredential() : null;
+    private static Cloud.ObjectStoreCredentialPB nativeCredential(Cloud.ObjectStoreInfoPB info) {
+        return info.hasCredential() ? info.getCredential() : null;
     }
 
-    public Cloud.GcpCredentialPB getGcpCredential() {
-        return gcpCredential;
+    public Cloud.ObjectStoreCredentialPB getCredential() {
+        return credential;
     }
 
     public String getAk() {

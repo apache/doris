@@ -68,6 +68,7 @@ public class FileSystemPluginSurfaceTest {
     /** The types a filesystem plugin implements or calls. Everything reachable on them is the contract. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             FileSystemProvider.class,
+            ObjectStorageCredentialCodec.class,
             org.apache.doris.filesystem.auth.ObjectStorageAuthentication.class,
             ObjFileSystem.class,
             ObjStorage.class,
