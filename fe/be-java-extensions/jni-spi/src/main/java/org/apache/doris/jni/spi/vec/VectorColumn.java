@@ -1242,7 +1242,15 @@ public class VectorColumn {
     }
 
     private void putTimeStampTz(int rowId, LocalDateTime v) {
-        // TimeStampTz use the same storage format as DateTimeV2
+        // NULLs use an out-of-range sentinel, but real UTC values must fit Doris before bit packing.
+        if (isNullAt(rowId)) {
+            OffHeap.putLong(null, data + rowId * 8L, 0L);
+            return;
+        }
+        // Year zero is valid in Doris (PostgreSQL 1 BC); negative years cannot be packed.
+        if (v.getYear() < 0 || v.getYear() > 9999) {
+            throw new IllegalArgumentException("TIMESTAMPTZ is outside the Doris 0000-9999 range: " + v);
+        }
         long time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
                     v.getMinute(), v.getSecond(), v.getNano() / 1000);
         OffHeap.putLong(null, data + rowId * 8L, time);

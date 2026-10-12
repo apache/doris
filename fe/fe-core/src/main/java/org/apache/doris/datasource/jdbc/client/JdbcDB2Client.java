@@ -104,8 +104,7 @@ public class JdbcDB2Client extends JdbcClient {
             case "XML":
                 return ScalarType.createStringType();
             case "BLOB":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             default:
                 return Type.UNSUPPORTED;
         }

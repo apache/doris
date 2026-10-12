@@ -456,6 +456,21 @@ TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructPreservesEncodedAndTypedBytes
     EXPECT_TRUE(typed->is_typed());
 }
 
+TEST(DataTypeVariantV2SerdeOutputTest, PaimonKeepsItsOwnBinaryLayout) {
+    DataTypeVariantV2SerDe serde;
+    auto values = encoded_json({R"({"a":42})"});
+    auto builder = binary_variant_arrow_builder();
+    const auto status = serde.write_column_to_paimon_arrow(
+            nullptr, *values, nullptr, nullptr, builder.get(), 0, 1, cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder->Finish(&array).ok());
+    const auto& storage = assert_cast<const arrow::StructArray&>(*array);
+    const auto& binary = assert_cast<const arrow::BinaryArray&>(*storage.field(0));
+    auto expected = values->get_value_ref(0).value;
+    EXPECT_EQ(binary.GetView(0), std::string_view(expected.data, expected.size));
+}
+
 TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPrimitive) {
     DataTypeVariantV2SerDe serde;
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});

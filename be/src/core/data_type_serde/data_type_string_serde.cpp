@@ -568,7 +568,12 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_iceberg_arrow(
         arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
         const cctz::time_zone& ctz) const {
     if (!is_iceberg_uuid_field(field)) {
-        // Keep the existing CHAR/STRING fixed-binary binding until external type mappings change.
+        // Iceberg fixed(N) is a byte binding, so text padding must not change its physical value.
+        if (array_builder->type()->id() == arrow::Type::FIXED_SIZE_BINARY) {
+            return Status::InvalidArgument(
+                    "Iceberg fixed writer requires Doris VARBINARY, got {} for Arrow field {}",
+                    type->get_name(), field->ToString());
+        }
         return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
     }
     if (!is_string_type(type->get_primitive_type()) ||
@@ -761,9 +766,9 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const IColumn& from_column,
-                                                                      int64_t row_num,
-                                                                      JsonbWriter& writer) const {
+Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(
+        const IColumn& from_column, int64_t row_num, JsonbWriter& writer,
+        const FormatOptions& options) const {
     if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
         return Status::NotSupported(
                 "DataTypeStringSerDeBase only supports ColumnString for serialize_column_to_jsonb");

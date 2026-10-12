@@ -73,6 +73,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -905,6 +906,65 @@ public class IcebergConnectorTransactionTest {
                 () -> txn.beginWrite(SESSION, "db1", "t1", boundContext));
         Assertions.assertTrue(ex.getMessage().contains("partition spec changed"),
                 "a stale static overwrite must fail at begin before it can degrade to an always-true filter");
+    }
+
+    @Test
+    public void overwriteStaticNullBinaryKeyReplacesOnlyTheNullPartition() {
+        // A NULL static key must become key IS NULL for full and hybrid specs; matching bytes or text
+        // instead would replace the wrong partition.
+        for (org.apache.iceberg.types.Type keyType : Arrays.asList(
+                Types.BinaryType.get(), Types.FixedType.ofLength(16), Types.UUIDType.get())) {
+            for (boolean hybrid : new boolean[] {false, true}) {
+                InMemoryCatalog catalog = freshCatalog();
+                TableIdentifier id = TableIdentifier.of("db1", "t1");
+                Schema schema = new Schema(Types.NestedField.optional(1, "key", keyType),
+                        Types.NestedField.optional(2, "region", Types.StringType.get()));
+                PartitionSpec.Builder builder = PartitionSpec.builderFor(schema).identity("key");
+                if (hybrid) {
+                    builder.identity("region");
+                }
+                PartitionSpec spec = builder.build();
+                Table table = catalog.createTable(id, schema, spec, props("write.format.default", "parquet"));
+                Object nonNullKey = keyType.typeId() == org.apache.iceberg.types.Type.TypeID.UUID
+                        ? java.util.UUID.fromString("00112233-4455-6677-8899-aabbccddeeff")
+                        : ByteBuffer.wrap(new byte[16]);
+                table.newAppend()
+                        .appendFile(binaryKeyFile(spec, "s3://b/db1/t1/null-key.parquet", null))
+                        .appendFile(binaryKeyFile(spec, "s3://b/db1/t1/non-null-key.parquet", nonNullKey))
+                        .commit();
+
+                IcebergConnectorTransaction txn = txnFor(
+                        opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+                txn.beginWrite(SESSION, "db1", "t1",
+                        overwriteStaticCtx(table, Collections.singletonMap("key", null)));
+                txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/replacement.parquet", 1L, 1024L,
+                        hybrid ? Arrays.asList("null", "us") : Collections.singletonList("null"))));
+                txn.commit();
+
+                Set<String> live = new HashSet<>();
+                for (DataFile file : currentDataFiles(catalog.loadTable(id))) {
+                    live.add(file.path().toString());
+                }
+                Assertions.assertEquals(new HashSet<>(Arrays.asList(
+                        "s3://b/db1/t1/non-null-key.parquet", "s3://b/db1/t1/replacement.parquet")),
+                        live, keyType + " hybrid=" + hybrid);
+            }
+        }
+    }
+
+    private static DataFile binaryKeyFile(PartitionSpec spec, String path, Object key) {
+        org.apache.iceberg.PartitionData partition = new org.apache.iceberg.PartitionData(spec.partitionType());
+        partition.set(0, key);
+        if (spec.fields().size() > 1) {
+            partition.set(1, "us");
+        }
+        return DataFiles.builder(spec)
+                .withPath(path)
+                .withFileSizeInBytes(1024)
+                .withRecordCount(1)
+                .withFormat(FileFormat.PARQUET)
+                .withPartition(partition)
+                .build();
     }
 
     @Test
