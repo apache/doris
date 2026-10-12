@@ -16,11 +16,7 @@
 # under the License.
 
 x-kerberos-image: &kerberos-image
-  image: doris-kerberos-minimal:${CONTAINER_UID}
-  build:
-    context: .
-    dockerfile: Dockerfile
-    network: host
+  image: doristhirdpartydocker/hive@sha256:b094fbc1a61c65116fbe2f0bca562687a10af418e7a0b2865f8d7b70cd8ad03e
 
 x-kerberos-service: &kerberos-service
   <<: *kerberos-image
