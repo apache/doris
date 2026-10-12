@@ -50,6 +50,9 @@ suite("test_iceberg_write_partition_distribution",
     sql """drop database if exists ${dbName} force"""
     sql """create database ${dbName}"""
     sql """use ${dbName}"""
+    // The writers follow the source fragment's parallelism, and the 128-partition cap applies to the partitions
+    // routed to each writer. Pin enough writers for 300 partitions: a fuzzy session can pick one or two.
+    sql """set parallel_pipeline_task_num = 8"""
 
     // Identity partitions: 200 partitions in one INSERT.
     sql """drop table if exists identity_partitions"""
