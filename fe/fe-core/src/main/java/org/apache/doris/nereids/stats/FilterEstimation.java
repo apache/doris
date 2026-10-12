@@ -882,9 +882,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder(context.statistics).setRowCount(rowCount);
         // update key col stats
         for (Slot slot : not.child().getInputSlots()) {
-            ColumnStatistic originColStats = context.statistics.findColumnStatistics(slot);
-            ColumnStatistic childColStats = childStats.findColumnStatistics(slot);
             if (context.isKeySlot(slot)) {
+                // read the statistics of this slot here, and not for every input slot of the child:
+                // the child of NOT also contains slots this estimation does not care about, e.g. the
+                // alias slot of an unnested subquery, and their statistics need not be recorded
+                ColumnStatistic originColStats = context.statistics.findColumnStatistics(slot);
+                ColumnStatistic childColStats = childStats.findColumnStatistics(slot);
                 ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(childColStats);
                 // update column stats for
                 // 1. not (A=B)
