@@ -87,9 +87,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 14 adds the filesystem authentication SPI changes on top of major 13's
-        // textual write-input semantics on ConnectorColumn.
-        Assertions.assertEquals("14.0", version.getProperty("api.version"));
+        // Major 15 replaces filesystem credential maps with typed, protocol-independent descriptions.
+        Assertions.assertEquals("15.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

@@ -41,20 +41,6 @@ under the License.
             <artifactId>fe-filesystem-gcs-common</artifactId>
             <version>${revision}</version>
         </dependency>
-        <!-- Generated wire types are host-provided; the plugin never depends on fe-core.
-             Only byte arrays cross the credential codec SPI, avoiding protocol classloader coupling. -->
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>fe-grpc</artifactId>
-            <version>${revision}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>fe-thrift</artifactId>
-            <version>${revision}</version>
-            <scope>provided</scope>
-        </dependency>
         <dependency>
             <groupId>com.google.auth</groupId>
             <artifactId>google-auth-library-oauth2-http</artifactId>

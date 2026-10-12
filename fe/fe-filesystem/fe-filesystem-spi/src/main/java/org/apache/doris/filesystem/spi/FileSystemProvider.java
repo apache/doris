@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.spi;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.auth.NativeObjectStorageCredential;
 import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.FileSystemCapability;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
@@ -78,14 +79,12 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
         return Collections.emptySet();
     }
 
-    /** Optional codec for this provider's native BE/Cloud credentials. */
-    default Optional<ObjectStorageCredentialCodec> credentialCodec() {
+    /**
+     * Restore provider-owned property names from a typed identity. Empty means this plugin does not
+     * handle the credential type. Neither user property names nor wire formats are interpreted by core.
+     */
+    default Optional<Map<String, String>> credentialToProperties(NativeObjectStorageCredential credential) {
         return Optional.empty();
-    }
-
-    /** Translate protocol-native fields back into provider-owned user properties. */
-    default Map<String, String> credentialToProperties(Map<String, String> credential) {
-        throw new UnsupportedOperationException(name() + " has no native credential property codec");
     }
 
     /** Provider-owned credential properties accepted by a storage vault ALTER. */

@@ -233,6 +233,7 @@ under the License.
         <module>fe-iceberg-common</module>
         <module>fe-catalog</module>
         <module>fe-filesystem</module>
+        <module>fe-storage-protocol</module>
         <module>fe-extension-spi</module>
         <module>fe-connector</module>
         <module>fe-extension-loader</module>

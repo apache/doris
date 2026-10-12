@@ -19,13 +19,13 @@ package org.apache.doris.datasource.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.filesystem.auth.NativeObjectStorageCredential;
 import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
-import org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.fs.FileSystemPluginManager;
@@ -177,22 +177,22 @@ public final class StorageAdapter {
         return manager().getProviders().stream().anyMatch(provider -> provider.clearablePropertyKeys().contains(key));
     }
 
-    /** Resolve a native wire codec through the registered filesystem providers. */
-    public static ObjectStorageCredentialCodec credentialCodec(String providerName) {
-        ObjectStorageCredentialCodec selected = null;
+    /** Restore user properties through the plugin owning the decoded identity description. */
+    public static Map<String, String> credentialToProperties(NativeObjectStorageCredential credential) {
+        Map<String, String> selected = null;
         for (FileSystemProvider<?> provider : manager().getProviders()) {
-            Optional<ObjectStorageCredentialCodec> codec = provider.credentialCodec();
-            if (codec.isPresent() && codec.get().provider().equalsIgnoreCase(providerName)) {
+            Optional<Map<String, String>> properties = provider.credentialToProperties(credential);
+            if (properties.isPresent()) {
                 if (selected != null) {
                     throw new StoragePropertiesException(
-                            "Multiple credential codecs for provider '" + providerName + "'");
+                            "Multiple credential property owners for provider: " + credential.getProvider());
                 }
-                selected = codec.get();
+                selected = properties.get();
             }
         }
         if (selected == null) {
-            throw new StoragePropertiesException("Native credential codec for provider '" + providerName
-                    + "' is not available");
+            throw new StoragePropertiesException("Filesystem plugin for credential properties is not available: "
+                    + credential.getProvider());
         }
         return selected;
     }

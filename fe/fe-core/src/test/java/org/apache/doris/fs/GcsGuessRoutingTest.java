@@ -17,7 +17,12 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
+import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
+import org.apache.doris.datasource.storage.ObjectStorageCredentialAdapter;
+import org.apache.doris.datasource.storage.S3ThriftAdapter;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.thrift.TS3StorageParam;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -108,6 +113,30 @@ public class GcsGuessRoutingTest {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> StorageAdapter.ofProvider("S3", Map.of("s3.region", "us-east-1",
                         "gs.credential_provider_type", "DEFAULT")));
+    }
+
+    @Test
+    public void testTypedIdentityConnectsPluginCloudAndBeWithoutLosingAlterPresence() {
+        Map<String, String> properties = Map.of("provider", "GCP",
+                "gs.credential_provider_type", "COMPUTE_ENGINE",
+                "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com");
+        ObjectStoreInfoPB.Builder cloud = CloudObjectStoreAdapter.getObjStoreInfoPB(properties);
+        TS3StorageParam thrift = S3ThriftAdapter.getS3TStorageParam(properties);
+        Assertions.assertEquals("COMPUTE_ENGINE", cloud.getCredential().getGcpCredential()
+                .getCredentialProviderType().name());
+        Assertions.assertEquals("COMPUTE_ENGINE", thrift.getCredential().getGcpCredential()
+                .getCredentialProviderType().name());
+        Assertions.assertEquals("target@test.iam.gserviceaccount.com", thrift.getCredential()
+                .getGcpCredential().getImpersonationServiceAccount());
+        Assertions.assertEquals(Map.of("gs.credential_provider_type", "COMPUTE_ENGINE",
+                "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com"),
+                ObjectStorageCredentialAdapter.toProperties("GCP", cloud.getCredential()));
+        CloudObjectStoreAdapter.applyCredentialPatch(cloud, Map.of("gs.impersonation_service_account", ""));
+        Assertions.assertFalse(cloud.getCredential().getGcpCredential().hasCredentialProviderType());
+        Assertions.assertTrue(cloud.getCredential().getGcpCredential().hasImpersonationServiceAccount());
+        Assertions.assertEquals("", cloud.getCredential().getGcpCredential().getImpersonationServiceAccount());
+        CloudObjectStoreAdapter.applyCredentialPatch(cloud, Map.of("provider", "GCP"));
+        Assertions.assertFalse(cloud.hasCredential());
     }
 
     private static Map<String, String> properties(String endpoint) {

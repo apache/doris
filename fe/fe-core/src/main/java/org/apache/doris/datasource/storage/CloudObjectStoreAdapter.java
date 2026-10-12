@@ -130,10 +130,8 @@ public final class CloudObjectStoreAdapter {
     public static void applyCredentialPatch(Cloud.ObjectStoreInfoPB.Builder builder, Map<String, String> properties) {
         builder.clearCredential();
         StorageAdapter.resolveAuthentication(properties)
-                .filter(auth -> !auth.getCredentialUpdates().isEmpty())
-                .ifPresent(auth -> ObjectStorageCredentialAdapter.fromCredential(
-                        auth.getProvider(), auth.getCredentialUpdates())
-                        .applyTo(builder));
+                .flatMap(ObjectStorageAuthentication::getCredentialUpdates)
+                .ifPresent(credential -> ObjectStorageCredentialAdapter.fromCredential(credential).applyTo(builder));
     }
 
     private static boolean hasCredentialsProviderType(Map<String, String> properties) {

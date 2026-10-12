@@ -19,70 +19,51 @@ package org.apache.doris.datasource.storage;
 
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreCredentialPB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
+import org.apache.doris.filesystem.auth.NativeObjectStorageCredential;
 import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
-import org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec;
+import org.apache.doris.storage.protocol.ObjectStorageCredentialTranslator;
 import org.apache.doris.thrift.TCredential;
 import org.apache.doris.thrift.TObjStorageType;
 import org.apache.doris.thrift.TS3StorageParam;
 
-import org.apache.thrift.TDeserializer;
-import org.apache.thrift.TException;
-import org.apache.thrift.protocol.TBinaryProtocol;
-
-import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 
-/** Transfers plugin-encoded credentials into core wire envelopes without interpreting provider fields. */
+/** Connects provider-resolved identities to the host protocol adapter without provider-specific logic. */
 public final class ObjectStorageCredentialAdapter {
-    private final ObjectStorageCredentialCodec codec;
-    private final Map<String, String> fields;
+    private final NativeObjectStorageCredential credential;
 
-    private ObjectStorageCredentialAdapter(ObjectStorageCredentialCodec codec, Map<String, String> fields) {
-        this.codec = codec;
-        this.fields = Map.copyOf(fields);
+    private ObjectStorageCredentialAdapter(NativeObjectStorageCredential credential) {
+        this.credential = credential;
     }
 
     public static Optional<ObjectStorageCredentialAdapter> fromAuthentication(
             Optional<ObjectStorageAuthentication> authentication) {
-        return authentication.filter(ObjectStorageAuthentication::isNative)
-                .map(auth -> fromCredential(auth.getProvider(), auth.getCredential()));
+        return authentication.flatMap(ObjectStorageAuthentication::getCredential)
+                .map(ObjectStorageCredentialAdapter::fromCredential);
     }
 
-    public static ObjectStorageCredentialAdapter fromCredential(String provider, Map<String, String> fields) {
-        return new ObjectStorageCredentialAdapter(StorageAdapter.credentialCodec(provider), fields);
+    public static ObjectStorageCredentialAdapter fromCredential(NativeObjectStorageCredential credential) {
+        return new ObjectStorageCredentialAdapter(credential);
     }
 
     public static Map<String, String> toProperties(String provider, ObjectStoreCredentialPB credential) {
-        try {
-            return StorageAdapter.credentialCodec(provider).toProperties(credential.toByteArray());
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Cannot decode native object-storage credentials", e);
-        }
+        return StorageAdapter.credentialToProperties(ObjectStorageCredentialTranslator.fromCloud(provider, credential));
     }
 
     public void applyTo(ObjectStoreInfoPB.Builder builder) {
-        try {
-            ObjectStoreCredentialPB credential = ObjectStoreCredentialPB.parseFrom(codec.toCloudCredential(fields));
-            if (!builder.hasProvider()) {
-                builder.setProvider(ObjectStoreInfoPB.Provider.valueOf(codec.provider()));
-            }
-            builder.setCredential(credential);
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Cannot encode native object-storage credentials for Cloud", e);
+        ObjectStoreCredentialPB encoded = ObjectStorageCredentialTranslator.toCloud(credential);
+        if (!builder.hasProvider()) {
+            builder.setProvider(ObjectStoreInfoPB.Provider.valueOf(credential.getProvider()));
         }
+        builder.setCredential(encoded);
     }
 
     public void applyTo(TS3StorageParam param) {
-        try {
-            TCredential credential = new TCredential();
-            new TDeserializer(new TBinaryProtocol.Factory()).deserialize(credential, codec.toThriftCredential(fields));
-            if (!param.isSetProvider()) {
-                param.setProvider(TObjStorageType.valueOf(codec.provider()));
-            }
-            param.setCredential(credential);
-        } catch (IOException | TException e) {
-            throw new IllegalArgumentException("Cannot encode native object-storage credentials for BE", e);
+        TCredential encoded = ObjectStorageCredentialTranslator.toThrift(credential);
+        if (!param.isSetProvider()) {
+            param.setProvider(TObjStorageType.valueOf(credential.getProvider()));
         }
+        param.setCredential(encoded);
     }
 }

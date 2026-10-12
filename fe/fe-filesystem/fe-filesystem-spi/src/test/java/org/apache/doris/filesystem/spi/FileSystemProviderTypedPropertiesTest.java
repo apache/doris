@@ -47,8 +47,9 @@ class FileSystemProviderTypedPropertiesTest {
     }
 
     @Test
-    void providerWithoutNativeCredentialsDoesNotAdvertiseACodec() {
-        Assertions.assertTrue(new TypedProvider().credentialCodec().isEmpty());
+    void providerWithoutNativeCredentialsDoesNotClaimCredentialProperties() {
+        Assertions.assertTrue(new TypedProvider().credentialToProperties(
+                new org.apache.doris.filesystem.auth.GcpCredentialSpec(null, null)).isEmpty());
     }
 
     private static class TypedProvider implements FileSystemProvider<TestProperties> {

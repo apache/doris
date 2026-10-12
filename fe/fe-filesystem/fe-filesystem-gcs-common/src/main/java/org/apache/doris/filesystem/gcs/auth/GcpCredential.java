@@ -19,7 +19,7 @@ package org.apache.doris.filesystem.gcs.auth;
 
 
 
-/** GCP native credential shared by the Cloud protobuf and BE Thrift paths. */
+/** Validated GCP identity used by the GCS authentication implementation. */
 public final class GcpCredential {
     public static final String CREDENTIAL_PROVIDER_TYPE = "gs.credential_provider_type";
     public static final String IMPERSONATION_SERVICE_ACCOUNT = "gs.impersonation_service_account";

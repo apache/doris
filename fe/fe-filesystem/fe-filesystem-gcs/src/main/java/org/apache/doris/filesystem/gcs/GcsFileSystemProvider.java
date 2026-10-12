@@ -18,6 +18,8 @@
 package org.apache.doris.filesystem.gcs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.auth.GcpCredentialSpec;
+import org.apache.doris.filesystem.auth.NativeObjectStorageCredential;
 import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.gcs.auth.GcpCredential;
 import org.apache.doris.filesystem.gcs.auth.GcsAuthResolver;
@@ -25,7 +27,6 @@ import org.apache.doris.filesystem.s3.S3CompatSignals;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
-import org.apache.doris.filesystem.spi.ObjectStorageCredentialCodec;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
@@ -90,21 +91,21 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
     @Override
     public Optional<ObjectStorageAuthentication> resolveAuthentication(Map<String, String> properties) {
         return GcsAuthResolver.resolve(properties).map(auth -> {
-            Map<String, String> credential = new HashMap<>();
-            Map<String, String> updates = new HashMap<>();
-            auth.getNativeCredential().ifPresent(nativeCredential -> {
-                credential.put("credential_provider_type", nativeCredential.getCredentialProviderType().name());
-                if (!nativeCredential.getImpersonationServiceAccount().isEmpty()) {
-                    credential.put("impersonation_service_account", nativeCredential.getImpersonationServiceAccount());
-                }
-                if (properties.containsKey(GcpCredential.CREDENTIAL_PROVIDER_TYPE)) {
-                    updates.put("credential_provider_type", nativeCredential.getCredentialProviderType().name());
-                }
-                if (properties.containsKey(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT)) {
-                    updates.put("impersonation_service_account", nativeCredential.getImpersonationServiceAccount());
-                }
-            });
-            return new ObjectStorageAuthentication("GCP", auth.isAnonymous(), credential, updates);
+            if (auth.isAnonymous()) {
+                return ObjectStorageAuthentication.anonymous("GCP");
+            }
+            if (auth.getNativeCredential().isEmpty()) {
+                return ObjectStorageAuthentication.hmac("GCP");
+            }
+            GcpCredential nativeCredential = auth.getNativeCredential().orElseThrow();
+            GcpCredentialSpec.ProviderType type = GcpCredentialSpec.ProviderType.valueOf(
+                    nativeCredential.getCredentialProviderType().name());
+            String principal = nativeCredential.getImpersonationServiceAccount();
+            GcpCredentialSpec resolved = new GcpCredentialSpec(type, principal.isEmpty() ? null : principal);
+            GcpCredentialSpec updates = new GcpCredentialSpec(
+                    properties.containsKey(GcpCredential.CREDENTIAL_PROVIDER_TYPE) ? type : null,
+                    properties.containsKey(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT) ? principal : null);
+            return ObjectStorageAuthentication.nativeAuthentication(resolved, updates);
         });
     }
 
@@ -123,19 +124,17 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
     }
 
     @Override
-    public Optional<ObjectStorageCredentialCodec> credentialCodec() {
-        return Optional.of(new GcsCredentialCodec());
-    }
-
-    @Override
-    public Map<String, String> credentialToProperties(Map<String, String> credential) {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.get("credential_provider_type"));
-        String principal = credential.get("impersonation_service_account");
-        if (principal != null && !principal.isEmpty()) {
-            properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, principal);
+    public Optional<Map<String, String>> credentialToProperties(NativeObjectStorageCredential credential) {
+        if (!(credential instanceof GcpCredentialSpec)) {
+            return Optional.empty();
         }
-        return properties;
+        GcpCredentialSpec gcp = (GcpCredentialSpec) credential;
+        Map<String, String> properties = new HashMap<>();
+        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE,
+                gcp.getProviderType().orElse(GcpCredentialSpec.ProviderType.DEFAULT).name());
+        gcp.getImpersonationServiceAccount().filter(principal -> !principal.isEmpty())
+                .ifPresent(principal -> properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, principal));
+        return Optional.of(properties);
     }
 
     @Override

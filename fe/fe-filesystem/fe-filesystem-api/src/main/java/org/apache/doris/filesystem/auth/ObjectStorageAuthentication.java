@@ -17,27 +17,44 @@
 
 package org.apache.doris.filesystem.auth;
 
-import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
-/**
- * Provider-resolved authentication, with no property parsing or SDK dependencies.
- *
- * <p>The provider identifies the wire credential variant (for example, GCP). Credential map keys
- * are fields of that variant, not user-facing configuration keys. Only protocol adapters interpret
- * these fields; callers use the authentication mode and pass the maps through unchanged.</p>
- */
+/** Provider-resolved authentication, independent of user property aliases, SDKs and wire formats. */
 public final class ObjectStorageAuthentication {
     private final String provider;
     private final boolean anonymous;
-    private final Map<String, String> credential;
-    private final Map<String, String> credentialUpdates;
+    private final NativeObjectStorageCredential credential;
+    private final NativeObjectStorageCredential credentialUpdates;
 
-    public ObjectStorageAuthentication(String provider, boolean anonymous, Map<String, String> credential,
-            Map<String, String> credentialUpdates) {
-        this.provider = provider;
+    private ObjectStorageAuthentication(String provider, boolean anonymous,
+            NativeObjectStorageCredential credential, NativeObjectStorageCredential credentialUpdates) {
+        this.provider = Objects.requireNonNull(provider, "provider");
         this.anonymous = anonymous;
-        this.credential = Map.copyOf(credential);
-        this.credentialUpdates = Map.copyOf(credentialUpdates);
+        this.credential = credential;
+        this.credentialUpdates = credentialUpdates;
+    }
+
+    public static ObjectStorageAuthentication nativeAuthentication(NativeObjectStorageCredential credential,
+            NativeObjectStorageCredential updates) {
+        Objects.requireNonNull(credential, "credential");
+        Objects.requireNonNull(updates, "updates");
+        if (credential.isEmpty()) {
+            throw new IllegalArgumentException("Resolved native credentials must not be empty");
+        }
+        if (!credential.getProvider().equals(updates.getProvider())) {
+            throw new IllegalArgumentException("Credential and ALTER patch must identify the same provider");
+        }
+        return new ObjectStorageAuthentication(credential.getProvider(), false, credential,
+                updates.isEmpty() ? null : updates);
+    }
+
+    public static ObjectStorageAuthentication hmac(String provider) {
+        return new ObjectStorageAuthentication(provider, false, null, null);
+    }
+
+    public static ObjectStorageAuthentication anonymous(String provider) {
+        return new ObjectStorageAuthentication(provider, true, null, null);
     }
 
     public String getProvider() {
@@ -49,15 +66,15 @@ public final class ObjectStorageAuthentication {
     }
 
     public boolean isNative() {
-        return !credential.isEmpty();
+        return credential != null;
     }
 
-    public Map<String, String> getCredential() {
-        return credential;
+    public Optional<NativeObjectStorageCredential> getCredential() {
+        return Optional.ofNullable(credential);
     }
 
     /** Only explicitly supplied native fields, including empty values that clear persisted fields. */
-    public Map<String, String> getCredentialUpdates() {
-        return credentialUpdates;
+    public Optional<NativeObjectStorageCredential> getCredentialUpdates() {
+        return Optional.ofNullable(credentialUpdates);
     }
 }

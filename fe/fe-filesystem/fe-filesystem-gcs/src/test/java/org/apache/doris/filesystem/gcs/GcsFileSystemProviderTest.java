@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.gcs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.auth.GcpCredentialSpec;
 import org.apache.doris.filesystem.auth.ObjectStorageAuthentication;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3ObjStorage;
@@ -263,20 +264,21 @@ class GcsFileSystemProviderTest {
         Assertions.assertEquals("GCP", defaults.getProvider());
         Assertions.assertTrue(defaults.isNative());
         Assertions.assertFalse(defaults.isAnonymous());
-        Assertions.assertEquals(Map.of("credential_provider_type", "DEFAULT"), defaults.getCredential());
+        Assertions.assertEquals(new GcpCredentialSpec(GcpCredentialSpec.ProviderType.DEFAULT, null),
+                defaults.getCredential().orElseThrow());
         Assertions.assertTrue(defaults.getCredentialUpdates().isEmpty());
 
         ObjectStorageAuthentication clear = provider.resolveAuthentication(
                 Map.of("gs.impersonation_service_account", "")).get();
         Assertions.assertEquals(defaults.getCredential(), clear.getCredential());
-        Assertions.assertEquals(Map.of("impersonation_service_account", ""), clear.getCredentialUpdates());
-        Assertions.assertFalse(clear.getCredentialUpdates().containsKey("credential_provider_type"));
+        Assertions.assertEquals(new GcpCredentialSpec(null, ""), clear.getCredentialUpdates().orElseThrow());
 
         Map<String, String> properties = Map.of("gs.credential_provider_type", "COMPUTE_ENGINE",
                 "gs.impersonation_service_account", "reader@project.iam.gserviceaccount.com");
         ObjectStorageAuthentication explicit = provider.resolveAuthentication(properties).get();
         Assertions.assertEquals(explicit.getCredential(), explicit.getCredentialUpdates());
-        Assertions.assertEquals(properties, provider.credentialToProperties(explicit.getCredential()));
+        Assertions.assertEquals(properties,
+                provider.credentialToProperties(explicit.getCredential().orElseThrow()).orElseThrow());
     }
 
     @Test

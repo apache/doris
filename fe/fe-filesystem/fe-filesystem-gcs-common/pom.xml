@@ -31,7 +31,7 @@ under the License.
 
     <artifactId>fe-filesystem-gcs-common</artifactId>
     <name>Doris GCS authentication and property rules</name>
-    <description>Provider implementation shared by GCS and S3-compatible plugins; not part of the host API.</description>
+    <description>GCS property and authentication rules shared by GCS and Iceberg; not part of the host API.</description>
     <dependencies>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
