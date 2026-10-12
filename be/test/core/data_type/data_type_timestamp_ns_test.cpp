@@ -23,6 +23,8 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <orc/Type.hh>
+#include <orc/Vector.hh>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -464,16 +466,18 @@ TEST(DataTypeTimeStampNsTest, SerDeRoundTripsTextProtobufAndBinary) {
     EXPECT_EQ(binary_data, source_data);
 }
 
-TEST(DataTypeTimeStampNsTest, SerDeExplicitlyRejectsUnsupportedOrcIo) {
+TEST(DataTypeTimeStampNsTest, SerDeWritesEmptyOrcBatch) {
     const DataTypeTimeStampNs type;
     const auto serde = type.get_serde();
     auto column = type.create_column();
 
     Arena arena;
     DataTypeSerDe::FormatOptions options;
+    orc::TimestampVectorBatch batch(0, *orc::getDefaultPool());
     const auto orc_write_status =
-            serde->write_column_to_orc("UTC", *column, nullptr, nullptr, 0, 0, arena, options);
-    EXPECT_TRUE(orc_write_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << orc_write_status;
+            serde->write_column_to_orc("UTC", *column, nullptr, &batch, 0, 0, arena, options);
+    EXPECT_TRUE(orc_write_status.ok()) << orc_write_status;
+    EXPECT_EQ(0, batch.numElements);
 }
 
 TEST(DataTypeTimeStampNsTest, DataTypeLiteralField) {
@@ -680,6 +684,38 @@ TEST(DataTypeTimeStampNsTest, SerDeBatchRejectsMultipleFractionalSeparators) {
     EXPECT_FALSE(
             serde->from_string_strict_mode_batch(*invalid_string, *strict_result, options, nullptr)
                     .ok());
+}
+
+TEST(DataTypeTimeStampNsTest, OrcRoundTripPreservesNanoseconds) {
+    DataTypeTimeStampNs type;
+    auto serde = type.get_serde();
+    auto input = type.create_column();
+    auto& values = assert_cast<ColumnTimeStampNs&>(*input).get_data();
+    for (int64_t nanos : {-1000000001LL, 0LL, 1LL, 123456789LL}) {
+        values.emplace_back(nanos);
+    }
+    orc::TimestampVectorBatch batch(4, *orc::getDefaultPool());
+    for (size_t i = 0; i < 4; ++i) {
+        batch.notNull[i] = 1;
+    }
+    Arena arena;
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(
+            serde->write_column_to_orc("UTC", *input, nullptr, &batch, 0, 4, arena, options).ok());
+    auto orc_type = orc::createPrimitiveType(orc::TIMESTAMP);
+    auto output = type.create_column();
+    auto timezone = cctz::utc_time_zone();
+    OrcDecodedColumnView view;
+    view.file_type = orc_type.get();
+    view.batch = &batch;
+    view.rows = 4;
+    view.timezone = &timezone;
+    ASSERT_TRUE(serde->read_column_from_orc(*output, view).ok());
+    const auto& result = assert_cast<const ColumnTimeStampNs&>(*output).get_data();
+    ASSERT_EQ(result.size(), values.size());
+    for (size_t i = 0; i < result.size(); ++i) {
+        EXPECT_EQ(result[i].epoch_nanos(), values[i].epoch_nanos());
+    }
 }
 
 } // namespace doris

@@ -305,7 +305,7 @@ static std::string iceberg_json_scalar_text(const rapidjson::Value& value) {
 
 static void normalize_iceberg_json_timestamp(PrimitiveType primitive_type, std::string* value) {
     if (primitive_type != TYPE_DATETIME && primitive_type != TYPE_DATETIMEV2 &&
-        primitive_type != TYPE_TIMESTAMPTZ) {
+        primitive_type != TYPE_TIMESTAMPTZ && primitive_type != TYPE_TIMESTAMP_NS) {
         return;
     }
     if (const size_t separator = value->find('T'); separator != std::string::npos) {

@@ -164,6 +164,10 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
         return std::make_unique<TimestampType>(true);
     } else if (lower_type_string == "timestamp") {
         return std::make_unique<TimestampType>(false);
+    } else if (lower_type_string == "timestamp_ns") {
+        return std::make_unique<TimestampType>(false, true);
+    } else if (lower_type_string == "timestamptz_ns") {
+        return std::make_unique<TimestampType>(true, true);
     } else if (lower_type_string == "string") {
         return std::make_unique<StringType>();
     } else if (lower_type_string == "uuid") {

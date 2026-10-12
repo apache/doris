@@ -54,6 +54,17 @@ public:
     virtual ~ArrowSchemaUtilTest() = default;
 };
 
+TEST(ArrowSchemaUtilTest, TimestampNsSchemaPreservesNanosecondUnit) {
+    const std::string json = R"({"type":"struct","fields":[
+        {"id":1,"name":"ts","required":false,"type":"timestamp_ns"}]})";
+    auto schema = SchemaParser::from_json(json);
+    IcebergArrowSchemaConvertor converter(*schema, "Asia/Shanghai", json);
+    std::shared_ptr<arrow::Schema> arrow_schema;
+    ASSERT_TRUE(converter.get_arrow_schema(&arrow_schema).ok());
+    EXPECT_TRUE(arrow_schema->field(0)->type()->Equals(arrow::timestamp(arrow::TimeUnit::NANO)));
+    EXPECT_EQ(schema->columns()[0].field_type()->to_string(), "timestamp_ns");
+}
+
 TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
     auto* env = ExecEnv::GetInstance();
     auto* previous_pool = env->_arrow_memory_pool;

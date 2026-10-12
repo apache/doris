@@ -62,6 +62,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
@@ -659,6 +660,11 @@ bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
     case ::orc::TypeKind::DATE:
         return set_date_zone_map(statistics, zone_map);
     case ::orc::TypeKind::TIMESTAMP: {
+        if (type.hasAttributeKey("iceberg.timestamp-unit") &&
+            type.getAttributeValue("iceberg.timestamp-unit") == "NANOS") {
+            // The microsecond statistics carrier cannot safely prune nanosecond values.
+            return false;
+        }
         // ORC stores timestamp statistics as wall-clock values in UTC coordinates. Restore them
         // with UTC so the session timezone does not shift the civil time.
         static const auto utc_time_zone = cctz::utc_time_zone();
@@ -947,6 +953,12 @@ Status OrcReader::init(RuntimeState* state) {
     try {
         _state->reader = ::orc::createReader(std::move(input_stream), options);
         _state->root_type = &_state->reader->getType();
+        if (orc_serde_utils::has_nanosecond_timestamp(*_state->root_type)) {
+            // Use the same UTC wall-clock carrier as the writer; historical local offsets
+            // differ between ORC and cctz and can push boundary values out of range.
+            _state->timezone = "GMT";
+            _state->timezone_obj = cctz::utc_time_zone();
+        }
     } catch (const std::exception& e) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
@@ -1062,7 +1074,12 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         data_type = std::make_shared<DataTypeDateV2>();
         break;
     case ::orc::TypeKind::TIMESTAMP:
-        data_type = std::make_shared<DataTypeDateTimeV2>(6);
+        if (type.hasAttributeKey("iceberg.timestamp-unit") &&
+            type.getAttributeValue("iceberg.timestamp-unit") == "NANOS") {
+            data_type = std::make_shared<DataTypeTimeStampNs>();
+        } else {
+            data_type = std::make_shared<DataTypeDateTimeV2>(6);
+        }
         break;
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
         if (_enable_mapping_timestamp_tz) {

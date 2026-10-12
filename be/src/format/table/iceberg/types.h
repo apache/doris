@@ -317,22 +317,24 @@ class TimestampType : public PrimitiveType {
 public:
     ~TimestampType() override = default;
 
-    TimestampType(bool adjust_to_utc) : _adjust_to_utc(adjust_to_utc) {}
+    TimestampType(bool adjust_to_utc, bool nanoseconds = false)
+            : _adjust_to_utc(adjust_to_utc), _nanoseconds(nanoseconds) {}
 
     TypeID type_id() const override { return TypeID::TIMESTAMP; }
 
     bool should_adjust_to_utc() const { return _adjust_to_utc; }
+    bool is_nanosecond() const { return _nanoseconds; }
 
     std::string to_string() const override {
-        if (should_adjust_to_utc()) {
-            return "timestamptz";
-        } else {
-            return "timestamp";
+        if (_nanoseconds) {
+            return should_adjust_to_utc() ? "timestamptz_ns" : "timestamp_ns";
         }
+        return should_adjust_to_utc() ? "timestamptz" : "timestamp";
     }
 
 private:
     bool _adjust_to_utc;
+    bool _nanoseconds;
 };
 
 class TimeType : public PrimitiveType {

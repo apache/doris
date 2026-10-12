@@ -399,6 +399,18 @@ final class IcebergPartitionUtils {
                 // Iceberg time is stored as microseconds since midnight.
                 long micros = (Long) value;
                 return LocalTime.ofNanoOfDay(micros * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_NANO:
+                if (value == null) {
+                    return null;
+                }
+                long nanos = (Long) value;
+                LocalDateTime timestampNs = LocalDateTime.ofEpochSecond(
+                        Math.floorDiv(nanos, 1_000_000_000L),
+                        (int) Math.floorMod(nanos, 1_000_000_000L), ZoneOffset.UTC);
+                if (((org.apache.iceberg.types.Types.TimestampNanoType) type).shouldAdjustToUTC()) {
+                    return timestampNs.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                }
+                return timestampNs.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             case TIMESTAMP:
                 if (value == null) {
                     return null;
@@ -479,6 +491,13 @@ final class IcebergPartitionUtils {
                 case DATE:
                     // Iceberg date is days since epoch (1970-01-01).
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
+                case TIMESTAMP_NANO:
+                    LocalDateTime timestampNs = LocalDateTime.parse(valueStr.replace('T', ' '),
+                            TIMESTAMP_PARTITION_FORMAT);
+                    // Widen before combining: the minimum nanosecond timestamp's whole second overflows long.
+                    return BigDecimal.valueOf(timestampNs.toEpochSecond(ZoneOffset.UTC))
+                            .multiply(BigDecimal.valueOf(1_000_000_000L))
+                            .add(BigDecimal.valueOf(timestampNs.getNano())).longValueExact();
                 case TIMESTAMP:
                     return parseTimestampToMicros(valueStr, (TimestampType) icebergType, zone);
                 case DECIMAL:
@@ -801,6 +820,11 @@ final class IcebergPartitionUtils {
                 return false;
             }
             PartitionField partitionField = fields.get(0);
+            if (spec.schema().findType(partitionField.sourceId()).typeId() == Type.TypeID.TIMESTAMP_NANO) {
+                // Calendar boundaries and the NULL sentinel can exceed TIMESTAMP_NS's domain.
+                // Leave pruning to Iceberg instead of building invalid Doris RANGE boundaries.
+                return false;
+            }
             String transformName = partitionField.transform().toString();
             if (!YEAR.equals(transformName) && !MONTH.equals(transformName)
                     && !DAY.equals(transformName) && !HOUR.equals(transformName)) {

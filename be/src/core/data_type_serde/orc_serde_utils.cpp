@@ -23,6 +23,19 @@
 
 namespace doris::orc_serde_utils {
 
+bool has_nanosecond_timestamp(const ::orc::Type& type) {
+    if (type.getKind() == ::orc::TIMESTAMP && type.hasAttributeKey("iceberg.timestamp-unit") &&
+        type.getAttributeValue("iceberg.timestamp-unit") == "NANOS") {
+        return true;
+    }
+    for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
+        if (has_nanosecond_timestamp(*type.getSubtype(child))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 size_t orc_decode_row_count(size_t rows, const std::vector<size_t>* selected_rows) {
     if (selected_rows == nullptr) {
         return rows;

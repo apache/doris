@@ -836,6 +836,19 @@ class Int32ToDate : public PhysicalToLogicalConverter {
     }
 };
 
+struct Int64ToTimestampNs : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& source, ColumnPtr& target) override {
+        const auto& input = assert_cast<const ColumnInt64&>(*remove_nullable(source)).get_data();
+        auto& output =
+                assert_cast<ColumnTimeStampNs&>(*get_mutable_inner_column(target)).get_data();
+        // Only the unadjusted TIMESTAMP(NANOS) annotation selects this converter.
+        for (int64_t nanos : input) {
+            output.emplace_back(nanos);
+        }
+        return Status::OK();
+    }
+};
+
 struct Int64ToTimestamp : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);

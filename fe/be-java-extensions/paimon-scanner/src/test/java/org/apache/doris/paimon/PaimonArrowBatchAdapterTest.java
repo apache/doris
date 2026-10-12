@@ -174,9 +174,7 @@ public class PaimonArrowBatchAdapterTest {
                 Assertions.assertNull(ntz.getTimezone());
                 Assertions.assertEquals(TimeUnit.MICROSECOND, ltz.getUnit());
                 Assertions.assertEquals("Asia/Shanghai", ltz.getTimezone());
-                // Doris timestamps have microsecond precision, so a wider Paimon target still
-                // uses a microsecond transport instead of pretending the input contains nanos.
-                Assertions.assertEquals(TimeUnit.MICROSECOND, ntz9.getUnit());
+                Assertions.assertEquals(TimeUnit.NANOSECOND, ntz9.getUnit());
                 Assertions.assertNull(ntz9.getTimezone());
             }
         }
@@ -199,13 +197,33 @@ public class PaimonArrowBatchAdapterTest {
                 root.allocateNew();
                 ((TimeStampVector) root.getVector("ntz")).setSafe(0, ntzMicros);
                 ((TimeStampVector) root.getVector("ltz")).setSafe(0, ltzInstantMicros);
-                ((TimeStampVector) root.getVector("ntz9")).setSafe(0, ntzMicros);
+                ((TimeStampVector) root.getVector("ntz9")).setSafe(0, ntzMicros * 1_000L + 789);
                 root.setRowCount(1);
 
                 InternalRow row = adapter.rows(root).row(0);
                 Assertions.assertEquals(ntzMicros, row.getTimestamp(0, 6).toMicros());
                 Assertions.assertEquals(ltzInstantMicros, row.getTimestamp(1, 6).toMicros());
                 Assertions.assertEquals(ntzMicros, row.getTimestamp(2, 9).toMicros());
+                Assertions.assertEquals(456789, row.getTimestamp(2, 9).getNanoOfMillisecond());
+            }
+        }
+    }
+
+    @Test
+    public void testNanosecondTransportPreservesSignedBounds() throws Exception {
+        RowType inputType = DataTypes.ROW(DataTypes.FIELD(0, "ts", DataTypes.TIMESTAMP(9)));
+        try (RootAllocator allocator = new RootAllocator()) {
+            PaimonArrowBatchAdapter adapter = new PaimonArrowBatchAdapter(inputType, ZoneId.of("UTC"), allocator);
+            try (ArrowStreamReader reader = schemaReader(adapter, allocator)) {
+                VectorSchemaRoot root = reader.getVectorSchemaRoot();
+                root.allocateNew();
+                for (long nanos : new long[] {Long.MIN_VALUE, -1, 0, 1, Long.MAX_VALUE}) {
+                    ((TimeStampVector) root.getVector("ts")).setSafe(0, nanos);
+                    root.setRowCount(1);
+                    org.apache.paimon.data.Timestamp value = adapter.rows(root).row(0).getTimestamp(0, 9);
+                    Assertions.assertEquals(Math.floorDiv(nanos, 1_000_000L), value.getMillisecond());
+                    Assertions.assertEquals(Math.floorMod(nanos, 1_000_000L), value.getNanoOfMillisecond());
+                }
             }
         }
     }

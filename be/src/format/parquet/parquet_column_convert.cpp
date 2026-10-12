@@ -308,6 +308,8 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
                               convert_params.get(), physical_converter);
     } else if (src_logical_primitive == TYPE_DATEV2) {
         physical_converter = std::make_unique<Int32ToDate>();
+    } else if (src_logical_primitive == TYPE_TIMESTAMP_NS) {
+        physical_converter = std::make_unique<Int64ToTimestampNs>();
     } else if (src_logical_primitive == TYPE_DATETIMEV2) {
         if (src_physical_type == tparquet::Type::INT96) {
             // int96 only stores nanoseconds in standard parquet file

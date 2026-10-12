@@ -204,6 +204,10 @@ final class PaimonArrowBatchAdapter {
             TimeUnit unit = precision > 3
                     ? TimeUnit.MICROSECOND
                     : precision > 0 ? TimeUnit.MILLISECOND : TimeUnit.SECOND;
+            if (timeZone == null && precision > 6) {
+                // The transport must retain the sub-microsecond digits of TIMESTAMP_NS inputs.
+                unit = TimeUnit.NANOSECOND;
+            }
             return new FieldType(nullable, new ArrowType.Timestamp(unit, timeZone), null);
         }
     }

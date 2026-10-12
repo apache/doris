@@ -302,6 +302,11 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
     } else if (logicalType.__isset.TIME) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable);
     } else if (logicalType.__isset.TIMESTAMP) {
+        if (logicalType.TIMESTAMP.unit.__isset.NANOS && !logicalType.TIMESTAMP.isAdjustedToUTC) {
+            // Materialize nanoseconds before any table cast; DATETIMEV2 would discard the remainder.
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, nullable);
+            return ans;
+        }
         if (_enable_mapping_timestamp_tz) {
             if (logicalType.TIMESTAMP.isAdjustedToUTC) {
                 // treat TIMESTAMP with isAdjustedToUTC as TIMESTAMPTZ

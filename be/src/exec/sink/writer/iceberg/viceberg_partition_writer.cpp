@@ -30,6 +30,31 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
+namespace {
+bool contains_nanosecond_timestamp(const iceberg::Type& type) {
+    switch (type.type_id()) {
+    case iceberg::TypeID::TIMESTAMP:
+        return static_cast<const iceberg::TimestampType&>(type).is_nanosecond();
+    case iceberg::TypeID::STRUCT:
+        for (const auto& field : static_cast<const iceberg::StructType&>(type).fields()) {
+            if (contains_nanosecond_timestamp(*field.field_type())) {
+                return true;
+            }
+        }
+        return false;
+    case iceberg::TypeID::LIST:
+        return contains_nanosecond_timestamp(
+                *static_cast<const iceberg::ListType&>(type).element_field().field_type());
+    case iceberg::TypeID::MAP: {
+        const auto& map = static_cast<const iceberg::MapType&>(type);
+        return contains_nanosecond_timestamp(*map.key_field().field_type()) ||
+               contains_nanosecond_timestamp(*map.value_field().field_type());
+    }
+    default:
+        return false;
+    }
+}
+} // namespace
 
 VIcebergPartitionWriter::VIcebergPartitionWriter(
         const TDataSink& t_sink, std::vector<std::string> partition_values,
@@ -84,10 +109,14 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
             open_status = parquet_compression_type.error();
             break;
         }
-        ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type.value(),
-                                              .parquet_version = TParquetVersion::PARQUET_1_0,
-                                              .parquet_disable_dictionary = false,
-                                              .enable_int96_timestamps = false};
+        // Parquet 1.0 coerces Arrow nanoseconds to microseconds, including nested fields.
+        ParquetFileOptions parquet_options = {
+                .compression_type = parquet_compression_type.value(),
+                .parquet_version = contains_nanosecond_timestamp(_schema.root_struct())
+                                           ? TParquetVersion::PARQUET_2_LATEST
+                                           : TParquetVersion::PARQUET_1_0,
+                .parquet_disable_dictionary = false,
+                .enable_int96_timestamps = false};
         _file_format_transformer = std::make_unique<VIcebergParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options, _iceberg_schema_json, _schema, _nan_count_field_ids);
