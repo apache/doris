@@ -389,6 +389,14 @@ def build_ingestion_payload(args, input_text, output_text, events):
             if key not in ("type", "_line_number")
         }
 
+    superseded = next((event for event in reversed(events)
+                       if event.get("type") == "review.superseded"), None)
+    if superseded is not None:
+        trace_metadata["review_superseded"] = {
+            key: value for key, value in superseded.items()
+            if key not in ("type", "_line_number")
+        }
+
     completed_items = [
         event
         for event in events
