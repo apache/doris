@@ -242,6 +242,10 @@ public class StmtExecutor {
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
+    // Direct execute() calls finish their own profiles.
+    private boolean isInQueryRetry;
+    // queryRetry must finish the profile.
+    private boolean finishProfileInQueryRetry;
     private Boolean isForwardedToMaster = null;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
@@ -662,6 +666,21 @@ public class StmtExecutor {
     }
 
     public void queryRetry(TUniqueId queryId) throws Exception {
+        isInQueryRetry = true;
+        try {
+            executeWithReplanRetries(queryId);
+        } finally {
+            isInQueryRetry = false;
+            // Finish after the last attempt, including planning failures.
+            if (finishProfileInQueryRetry && context.isReturnResultFromLocal()
+                    && profile.getQueryFinishTimestamp() == Long.MAX_VALUE) {
+                updateProfile(true);
+            }
+            finishProfileInQueryRetry = false;
+        }
+    }
+
+    private void executeWithReplanRetries(TUniqueId queryId) throws Exception {
         TUniqueId firstQueryId = queryId;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
@@ -672,6 +691,7 @@ public class StmtExecutor {
             retryTime = ((Queriable) parsedStmt).hasOutFileClause() ? 1 : retryTime;
         }
         for (int i = 1; i <= retryTime; i++) {
+            profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
             try {
                 if (disableCloudVersionCacheOnRetry) {
                     executeWithVersionCacheDisabled(queryId);
@@ -680,6 +700,7 @@ public class StmtExecutor {
                 }
                 return;
             } catch (UserException e) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                 if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
                     // We have retried internally(in handleQueryWithRetry()) for other kinds of exceptions.
                     // And for error in SystemInfoService.NEED_REPLAN_ERRORS, they are not handled internally but here
@@ -704,7 +725,15 @@ public class StmtExecutor {
                         DebugUtil.printId(queryId), randomMillis);
                 Thread.sleep(randomMillis);
                 context.getState().reset();
+                if (finishProfileInQueryRetry) {
+                    profile.clearExecutionProfiles();
+                }
+                // Drop the old execution state before replanning.
+                planner = null;
+                setCoord(null);
+                profile.clearPlan();
             } catch (Exception e) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                 throw e;
             }
         }
@@ -739,6 +768,7 @@ public class StmtExecutor {
     }
 
     public void execute(TUniqueId queryId) throws Exception {
+        profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
         externalDmlAuditCoordinator = null;
@@ -753,6 +783,7 @@ public class StmtExecutor {
             } catch (NereidsException | ParseException e) {
                 // COMPUTE_GROUPS_NO_ALIVE_BE, planner can't get alive be, need retry
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                    profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                     LOG.debug("planner failed with cloud compute group error, need retry. {}",
                             context.getQueryIdentifier(), e);
                     throw new UserException(e.getMessage());
@@ -775,6 +806,13 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            if (context.getState().getStateType() == MysqlStateType.ERR) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
+            }
+            if (context.getSessionVariable().enableProfile() && !deferredForArrowFlight) {
+                profile.getSummaryProfile().recordQueryAttempt(context.queryId(),
+                        context.getState().getStateType() == MysqlStateType.ERR);
+            }
             // Preserve the effective per-query compute group before SET_VAR values are reverted.
             // Audit logging runs after this method returns and otherwise sees the session value.
             if (Config.isCloudMode()) {
@@ -790,6 +828,12 @@ public class StmtExecutor {
                     LOG.warn("failed to snapshot changed session variables for audit. {}",
                             context.getQueryIdentifier(), t);
                 }
+            }
+            // Record this attempt before restoring SET_VAR.
+            if (finishProfileInQueryRetry && parsedStmt instanceof LogicalPlanAdapter
+                    && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command
+                    && !DebugUtil.printId(context.queryId()).equals(profile.getId())) {
+                updateProfile(false);
             }
             // revert Session Value
             try {
@@ -1141,10 +1185,17 @@ public class StmtExecutor {
     }
 
     public void finalizeQuery() {
-        // The final profile report occurs after be returns the query data, and the profile cannot be
-        // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
-        // for the profile before unregisterQuery().
-        updateProfile(true);
+        finalizeQuery(false);
+    }
+
+    void finalizeQuery(boolean willRetry) {
+        if (willRetry) {
+            // Discard the failed attempt; keep the statement open.
+            profile.clearExecutionProfiles();
+        } else {
+            // Update before unregistering to keep the final BE reports.
+            updateProfile(true);
+        }
         QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
     }
 
@@ -1210,6 +1261,8 @@ public class StmtExecutor {
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
         for (int i = 0; i < retryTime; i++) {
+            boolean willRetry = false;
+            boolean letQueryRetryFinishProfile = false;
             try {
                 // reset query id for each retry
                 if (i > 0) {
@@ -1243,13 +1296,19 @@ public class StmtExecutor {
                         }
                     }
                 }
+                if (i > 0) {
+                    profile.getSummaryProfile().setQueryScheduleStartTime(TimeUtils.getStartTimeMs());
+                }
+                profile.getSummaryProfile().startQueryAttempt(context.queryId(), TimeUtils.getStartTimeMs());
                 handleQueryStmt();
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                     // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
                     // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
+                    letQueryRetryFinishProfile = isInQueryRetry && e instanceof UserException;
                     throw e;
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
@@ -1305,12 +1364,20 @@ public class StmtExecutor {
                 }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                    willRetry = true;
                 } else {
                     throw e;
                 }
+            } catch (Exception e) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
+                throw e;
             } finally {
-                if (context.isReturnResultFromLocal()) {
-                    finalizeQuery();
+                if (letQueryRetryFinishProfile) {
+                    // Unregister now; the outer retry loop will finish the profile.
+                    finishProfileInQueryRetry = true;
+                    QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
+                } else if (context.isReturnResultFromLocal()) {
+                    finalizeQuery(willRetry);
                 }
                 LOG.debug("Finalize query {}", DebugUtil.printId(context.queryId()));
             }
@@ -1424,7 +1491,34 @@ public class StmtExecutor {
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
-            profile.updateSummary(getSummaryInfo(isFinished), isFinished, this.planner);
+            if (isFinished && ((coord != null && !coord.getExecStatus().ok())
+                    || (!deferredForArrowFlight && context.getState().getStateType() == MysqlStateType.ERR))) {
+                profile.getSummaryProfile().recordFailedAttempt(queryId());
+            }
+            if (isFinished) {
+                profile.getSummaryProfile().recordQueryAttempt(queryId(), false);
+            }
+            boolean isCommand = parsedStmt instanceof LogicalPlanAdapter
+                    && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command;
+            // Finish command profiles after the outer retry loop.
+            if (isFinished && isInQueryRetry && isCommand) {
+                finishProfileInQueryRetry = true;
+                isFinished = false;
+            }
+            Map<String, String> summaryInfo;
+            if (isFinished && finishProfileInQueryRetry && isCommand
+                    && DebugUtil.printId(context.queryId()).equals(profile.getId())) {
+                // Keep this attempt's settings after SET_VAR is restored.
+                long now = System.currentTimeMillis();
+                SummaryBuilder completion = new SummaryBuilder().endTime(TimeUtils.longToTimeString(now))
+                        .taskState(coord == null ? context.getState().toString()
+                                : coord.getExecStatus().getErrorCode().name());
+                addTotalTime(completion, now - context.getStartTime());
+                summaryInfo = completion.build();
+            } else {
+                summaryInfo = getSummaryInfo(isFinished);
+            }
+            profile.updateSummary(summaryInfo, isFinished, this.planner);
             if (planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
                 profile.setPhysicalPlan(nereidsPlanner.getPhysicalPlan());

@@ -18,10 +18,23 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionType;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+import java.util.Arrays;
 
 public class SummaryProfileTest {
 
@@ -177,4 +190,193 @@ public class SummaryProfileTest {
         Assertions.assertEquals("2ms", executionSummary.getInfoString(SummaryProfile.NEREIDS_OPTIMIZE_TIME));
         Assertions.assertEquals(32, profile.getNereidsOptimizeTimeMs());
     }
+
+    @Test
+    public void testReplanUsesFinalAttemptPhaseTimes() {
+        SummaryProfile profile = new SummaryProfile();
+        profile.setQueryBeginTime(1);
+        profile.setParseSqlFinishTime(6);
+        profile.setNereidsLockTableStartTime(8);
+        profile.setNereidsLockTableFinishTime(10);
+        profile.setNereidsAnalysisTime(15);
+        profile.setQueryPlanFinishTime(66);
+        profile.setQueryScheduleFinishTime(78);
+        profile.addNereidsPreloadExternalMetadataTime(11);
+        profile.addExternalTableGetTableMetaTime(22);
+        profile.addGetPartitionVersionTime(33_000_000);
+        profile.setTransactionBeginTime(TransactionType.HMS);
+        profile.addHmsAddPartitionCnt(7);
+        profile.update(ImmutableMap.of());
+        Assertions.assertEquals("7", profile.getExecutionSummary().getInfoString(SummaryProfile.HMS_ADD_PARTITION_CNT));
+        profile.clearExecutionDetails();
+        profile.clearPlanDetails();
+        profile.setQueryBeginTime(1000);
+        profile.setQueryPlanFinishTime(1010);
+        profile.setQueryScheduleFinishTime(1020);
+        profile.update(ImmutableMap.of());
+        Assertions.assertEquals("10ms", profile.getExecutionSummary().getInfoString(SummaryProfile.PLAN_TIME));
+        Assertions.assertEquals("10ms", profile.getExecutionSummary().getInfoString(SummaryProfile.SCHEDULE_TIME));
+        Assertions.assertEquals("N/A", profile.getExecutionSummary().getInfoString(SummaryProfile.NEREIDS_ANALYSIS_TIME));
+        Assertions.assertEquals(10, profile.getScheduleTimeMs());
+        Assertions.assertEquals(0, profile.getNereidsPreloadExternalMetadataTimeMs());
+        Assertions.assertEquals(0, profile.getExternalCatalogMetaTimeMs());
+        Assertions.assertEquals(0, profile.getGetPartitionVersionTimeMs());
+        Assertions.assertEquals("N/A", profile.getExecutionSummary().getInfoString(SummaryProfile.HMS_ADD_PARTITION_CNT));
+    }
+
+    @Test
+    public void testRedispatchExcludesFailedAttemptAndBackoff() throws Exception {
+        SummaryProfile profile = new SummaryProfile();
+        profile.setQueryBeginTime(1);
+        profile.setParseSqlFinishTime(6);
+        profile.setQueryPlanFinishTime(66);
+        profile.setQueryScheduleFinishTime(78);
+        profile.setQueryFetchResultFinishTime(91);
+        profile.updateFragmentCompressedSize(1234);
+        profile.updateFragmentRpcCount(7);
+        profile.clearExecutionDetails();
+        profile.setQueryScheduleStartTime(1000);
+        Field assignTime = SummaryProfile.class.getDeclaredField("assignFragmentTime");
+        assignTime.setAccessible(true);
+        assignTime.setLong(profile, 1010);
+        profile.setQueryScheduleFinishTime(1012);
+        profile.update(ImmutableMap.of());
+        Assertions.assertEquals(1, profile.getQueryBeginTime());
+        Assertions.assertEquals("60ms", profile.getExecutionSummary().getInfoString(SummaryProfile.PLAN_TIME));
+        Assertions.assertEquals("12ms", profile.getExecutionSummary().getInfoString(SummaryProfile.SCHEDULE_TIME));
+        Assertions.assertEquals("N/A", profile.getExecutionSummary().getInfoString(SummaryProfile.WAIT_FETCH_RESULT_TIME));
+        Assertions.assertEquals(12, profile.getScheduleTimeMs());
+        Assertions.assertEquals(10, profile.getFragmentAssignTimsMs());
+        Assertions.assertEquals("10ms", profile.getExecutionSummary().getInfoString(SummaryProfile.ASSIGN_FRAGMENT_TIME));
+        Assertions.assertEquals(0, profile.getFragmentCompressedSizeByte());
+        Assertions.assertEquals(0, profile.getFragmentRPCCount());
+        Assertions.assertEquals("0", profile.getExecutionSummary().getInfoString(SummaryProfile.FRAGMENT_RPC_COUNT));
+    }
+
+    @Test
+    public void testRetryCleanupAfterSerialization() {
+        SummaryProfile profile = new SummaryProfile();
+        profile.setQueryBeginTime(1);
+        profile.setParseSqlFinishTime(6);
+        profile.setQueryPlanFinishTime(66);
+        profile.setQueryScheduleFinishTime(78);
+        profile.updateFragmentRpcCount(7);
+        profile.setTransactionBeginTime(TransactionType.HMS);
+        profile.addHmsAddPartitionCnt(9);
+        SummaryProfile restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(profile), SummaryProfile.class);
+        restored.setRpcPhase1Latency(ImmutableMap.of(new TNetworkAddress("backend", 1234),
+                Arrays.asList(1L, 2L, 3L, 4L)));
+        restored.update(ImmutableMap.of());
+        Assertions.assertNotEquals("{}", restored.getExecutionSummary().getInfoString(
+                SummaryProfile.SCHEDULE_TIME_PER_BE));
+        restored.clearExecutionDetails();
+        Assertions.assertEquals("{}", restored.getExecutionSummary().getInfoString(SummaryProfile.SCHEDULE_TIME_PER_BE));
+        Assertions.assertEquals(0, restored.getFragmentRPCCount());
+        Assertions.assertEquals("60ms", restored.getExecutionSummary().getInfoString(SummaryProfile.PLAN_TIME));
+        Assertions.assertEquals("9", restored.getExecutionSummary().getInfoString(SummaryProfile.HMS_ADD_PARTITION_CNT));
+        restored.clearPlanDetails();
+        Assertions.assertEquals(1, restored.getQueryBeginTime());
+        Assertions.assertEquals("N/A", restored.getExecutionSummary().getInfoString(SummaryProfile.PLAN_TIME));
+        Assertions.assertEquals("N/A", restored.getExecutionSummary().getInfoString(SummaryProfile.HMS_ADD_PARTITION_CNT));
+        Assertions.assertEquals(7, profile.getFragmentRPCCount());
+        SummaryProfile clean = new SummaryProfile();
+        clean.clearExecutionDetails();
+        clean.clearPlanDetails();
+        Assertions.assertEquals(0, clean.getFragmentRPCCount());
+    }
+
+    @Test
+    public void testFailedAttemptsSurviveCleanupWithoutDoubleCounting() {
+        SummaryProfile profile = new SummaryProfile();
+        TUniqueId first = new TUniqueId(1, 1);
+        profile.recordFailedAttempt(first);
+        profile.recordFailedAttempt(new TUniqueId(1, 1));
+        profile.clearExecutionDetails();
+        profile.clearPlanDetails();
+        profile.recordFailedAttempt(new TUniqueId(1, 2));
+        profile.update(ImmutableMap.of());
+        Assertions.assertEquals("2", profile.getExecutionSummary().getInfoString(SummaryProfile.QUERY_RETRY_TIMES));
+    }
+
+    @Test
+    public void testFailedAttemptDurationIsRecordedOnce() {
+        SummaryProfile profile = new SummaryProfile();
+        TUniqueId firstId = new TUniqueId(1, 1);
+        profile.setQueryBeginTime(1000);
+        try (MockedStatic<TimeUtils> clock = Mockito.mockStatic(TimeUtils.class)) {
+            clock.when(TimeUtils::getStartTimeMs).thenReturn(1100L);
+            profile.recordFailedAttempt(firstId);
+            clock.when(TimeUtils::getStartTimeMs).thenReturn(1500L);
+            profile.recordFailedAttempt(firstId);
+            profile.clearExecutionDetails();
+            profile.clearPlanDetails();
+            profile.update(ImmutableMap.of());
+            String text = profile.getExecutionSummary().getInfoString("QueryRetryDetails");
+            Assertions.assertNotNull(text);
+            Assertions.assertNotEquals("null", text);
+            JsonObject attempts = JsonParser.parseString(text).getAsJsonObject();
+            Assertions.assertEquals(1, attempts.size());
+            JsonObject first = attempts.getAsJsonObject(DebugUtil.printId(firstId));
+            Assertions.assertEquals(100, first.get("durationMs").getAsLong());
+            Assertions.assertEquals("FAILED", first.get("state").getAsString());
+        }
+    }
+
+    @Test
+    public void testAttemptDurationsExcludeWaitAndSurviveStorage() {
+        SummaryProfile profile = new SummaryProfile();
+        TUniqueId firstId = new TUniqueId(1, 1);
+        TUniqueId finalId = new TUniqueId(1, 2);
+        try (MockedStatic<TimeUtils> clock = Mockito.mockStatic(TimeUtils.class)) {
+            profile.startQueryAttempt(firstId, 1000);
+            profile.startQueryAttempt(firstId, 1050);
+            clock.when(TimeUtils::getStartTimeMs).thenReturn(1100L);
+            profile.recordFailedAttempt(firstId);
+            profile.clearExecutionDetails();
+            profile.clearPlanDetails();
+            profile.startQueryAttempt(finalId, 5000);
+            clock.when(TimeUtils::getStartTimeMs).thenReturn(5300L);
+            profile.recordQueryAttempt(finalId, false);
+            clock.when(TimeUtils::getStartTimeMs).thenReturn(6000L);
+            profile.recordQueryAttempt(finalId, false);
+            SummaryProfile stored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(profile), SummaryProfile.class);
+            stored.update(ImmutableMap.of());
+            JsonObject attempts = JsonParser.parseString(stored.getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_DETAILS)).getAsJsonObject();
+            Assertions.assertEquals(2, attempts.size());
+            Assertions.assertEquals(100, attempts.getAsJsonObject(DebugUtil.printId(firstId))
+                    .get("durationMs").getAsLong());
+            JsonObject last = attempts.getAsJsonObject(DebugUtil.printId(finalId));
+            Assertions.assertEquals(300, last.get("durationMs").getAsLong());
+            Assertions.assertEquals("SUCCEEDED", last.get("state").getAsString());
+            Assertions.assertEquals("1", stored.getExecutionSummary().getInfoString(SummaryProfile.QUERY_RETRY_TIMES));
+        }
+    }
+
+    @Test
+    public void testUnstartedAttemptHasNoDuration() {
+        SummaryProfile profile = new SummaryProfile();
+        profile.recordFailedAttempt(new TUniqueId(1, 1));
+        profile.update(ImmutableMap.of());
+        Assertions.assertEquals("{}", profile.getExecutionSummary().getInfoString(SummaryProfile.QUERY_RETRY_DETAILS));
+    }
+
+    @Test
+    public void testLateFailureUpdatesStateWithoutExtendingDuration() {
+        SummaryProfile profile = new SummaryProfile();
+        TUniqueId id = new TUniqueId(1, 1);
+        profile.startQueryAttempt(id, 1000);
+        try (MockedStatic<TimeUtils> clock = Mockito.mockStatic(TimeUtils.class)) {
+            clock.when(TimeUtils::getStartTimeMs).thenReturn(1100L);
+            profile.recordQueryAttempt(id, false);
+            clock.when(TimeUtils::getStartTimeMs).thenReturn(1500L);
+            profile.recordFailedAttempt(id);
+            JsonObject attempt = JsonParser.parseString(profile.getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_DETAILS)).getAsJsonObject()
+                    .getAsJsonObject(DebugUtil.printId(id));
+            Assertions.assertEquals(100, attempt.get("durationMs").getAsLong());
+            Assertions.assertEquals("FAILED", attempt.get("state").getAsString());
+        }
+    }
+
 }
