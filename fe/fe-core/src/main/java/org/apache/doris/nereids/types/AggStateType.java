@@ -56,6 +56,7 @@ public class AggStateType extends DataType {
             .put("hist", "histogram")
             .put("map_agg", "map_agg_v2")
             .put("window_funnel", "window_funnel_v2")
+            .put("bitmap_intersect_v1", "bitmap_intersect")
             .build();
 
     private final String functionName;
@@ -91,6 +92,14 @@ public class AggStateType extends DataType {
                 "AggStateType' subTypes.size()!=subTypeNullables.size()");
         this.returnNullable = returnNullable;
         this.looseTypeCoercionAllowed = looseTypeCoercionAllowed;
+    }
+
+    /** Resolve SQL type declarations without changing the decoder for persisted states. */
+    public static AggStateType fromSql(String functionName, List<DataType> subTypes,
+            List<Boolean> subTypeNullables, boolean returnNullable) {
+        String resolvedName = "bitmap_intersect".equalsIgnoreCase(functionName)
+                ? "bitmap_intersect_v2" : functionName;
+        return new AggStateType(resolvedName, subTypes, subTypeNullables, returnNullable);
     }
 
     public List<DataType> getSubTypes() {

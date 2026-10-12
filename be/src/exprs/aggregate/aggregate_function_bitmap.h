@@ -100,6 +100,10 @@ struct AggregateFunctionBitmapIntersectOp {
     }
 };
 
+struct AggregateFunctionBitmapIntersectOpV2 : AggregateFunctionBitmapIntersectOp {
+    static constexpr auto name = "bitmap_intersect_v2";
+};
+
 struct AggregateFunctionGroupBitmapXorOp {
     static constexpr auto name = "group_bitmap_xor";
 
@@ -136,9 +140,28 @@ struct AggregateFunctionBitmapData {
 
     void merge(const BitmapValue& data) { Op::merge(value, data, is_first); }
 
-    void write(BufferWritable& buf) const { DataTypeBitMap::serialize_as_stream(value, buf); }
+    void merge(const AggregateFunctionBitmapData& data) {
+        if constexpr (std::is_same_v<Op, AggregateFunctionBitmapIntersectOpV2>) {
+            if (data.is_first) {
+                return;
+            }
+        }
+        merge(data.value);
+    }
 
-    void read(BufferReadable& buf) { DataTypeBitMap::deserialize_as_stream(value, buf); }
+    void write(BufferWritable& buf) const {
+        if constexpr (std::is_same_v<Op, AggregateFunctionBitmapIntersectOpV2>) {
+            buf.write_binary(is_first);
+        }
+        DataTypeBitMap::serialize_as_stream(value, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        if constexpr (std::is_same_v<Op, AggregateFunctionBitmapIntersectOpV2>) {
+            buf.read_binary(is_first);
+        }
+        DataTypeBitMap::deserialize_as_stream(value, buf);
+    }
 
     void reset() {
         is_first = true;
@@ -250,11 +273,22 @@ protected:
 };
 
 template <typename Op>
-class AggregateFunctionBitmapOp final
-        : public AggregateFunctionBitmapSerializationHelper<AggregateFunctionBitmapData<Op>,
-                                                            AggregateFunctionBitmapOp<Op>>,
-          UnaryExpression,
-          NullableAggregateFunction {
+class AggregateFunctionBitmapOp;
+
+// Intersect needs the initialization flag as well as the bitmap. An uninitialized
+// state is an identity for merge, whereas an initialized empty bitmap is not.
+template <typename Op>
+using AggregateFunctionBitmapOpBase =
+        std::conditional_t<std::is_same_v<Op, AggregateFunctionBitmapIntersectOpV2>,
+                           IAggregateFunctionDataHelper<AggregateFunctionBitmapData<Op>,
+                                                        AggregateFunctionBitmapOp<Op>>,
+                           AggregateFunctionBitmapSerializationHelper<
+                                   AggregateFunctionBitmapData<Op>, AggregateFunctionBitmapOp<Op>>>;
+
+template <typename Op>
+class AggregateFunctionBitmapOp final : public AggregateFunctionBitmapOpBase<Op>,
+                                        UnaryExpression,
+                                        NullableAggregateFunction {
 public:
     using ResultDataType = BitmapValue;
     using ColVecType = ColumnBitmap;
@@ -263,9 +297,7 @@ public:
     String get_name() const override { return Op::name; }
 
     AggregateFunctionBitmapOp(const DataTypes& argument_types_)
-            : AggregateFunctionBitmapSerializationHelper<AggregateFunctionBitmapData<Op>,
-                                                         AggregateFunctionBitmapOp<Op>>(
-                      argument_types_) {}
+            : AggregateFunctionBitmapOpBase<Op>(argument_types_) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeBitMap>(); }
 
@@ -310,7 +342,7 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        this->data(place).merge(this->data(rhs).get());
+        this->data(place).merge(this->data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
