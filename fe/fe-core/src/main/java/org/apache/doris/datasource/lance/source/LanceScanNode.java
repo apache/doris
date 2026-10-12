@@ -224,10 +224,10 @@ public class LanceScanNode extends FileQueryScanNode {
     @Override
     protected void convertPredicate() {
         if (searchKind.isExternalSearch()) {
-            // The TVF "filter" property is already serialized in externalSearchRequest and is
-            // evaluated by Lance before candidate search. Outer WHERE conjuncts have different
-            // semantics: keep them as Doris scan residuals. Each fragment first returns its Lance
-            // ANN candidates, then Doris evaluates these conjuncts before the local/global TopN.
+            // The TVF "filter" property is serialized in externalSearchRequest; prefilter
+            // controls whether Lance applies it before search or after candidate selection. Outer
+            // WHERE conjuncts remain Doris scan residuals and are evaluated before local/global
+            // TopN.
         } else {
             LancePredicateConverter.ConversionResult result =
                     new LancePredicateConverter(plannedMetadata.getSchema()).convert(conjuncts);
@@ -354,6 +354,18 @@ public class LanceScanNode extends FileQueryScanNode {
                         .append(scanPlan.vectorIndexStatus).append("\n");
                 result.append(prefix).append("lanceVectorColumn=")
                         .append(vector.getColumn()).append("\n");
+                if (externalSearchRequest.isSetVectorSearchOptions()
+                        && externalSearchRequest.getVectorSearchOptions().isSetQueryParallelism()) {
+                    result.append(prefix).append("lanceQueryParallelism=")
+                            .append(externalSearchRequest.getVectorSearchOptions().getQueryParallelism()).append("\n");
+                }
+                if (vector.isSetDistanceLowerBound() || vector.isSetDistanceUpperBound()) {
+                    result.append(prefix).append("lanceDistanceRange=[")
+                            .append(vector.isSetDistanceLowerBound() ? vector.getDistanceLowerBound() : "-inf")
+                            .append(", ")
+                            .append(vector.isSetDistanceUpperBound() ? vector.getDistanceUpperBound() : "+inf")
+                            .append(")\n");
+                }
                 result.append(prefix).append("lanceMetric=")
                         .append(vector.isSetMetric()
                                 ? VectorSearchTableValuedFunction.metricName(vector.getMetric()) : "default")
@@ -381,8 +393,7 @@ public class LanceScanNode extends FileQueryScanNode {
                             .append(fullText.getPhraseSlop()).append("\n");
                 }
             }
-            result.append(prefix).append("lanceVersion=")
-                    .append(plannedMetadata.getVersion()).append("\n");
+            appendSnapshotExplain(result, prefix);
             result.append(prefix).append("lanceSearchFragments=")
                     .append(scanPlan.fragmentCount).append("\n");
             result.append(prefix).append("lanceSearchUnindexedFragments=")
@@ -392,13 +403,7 @@ public class LanceScanNode extends FileQueryScanNode {
             result.append(prefix).append("lanceSearchIndexFragments=")
                     .append(scanPlan.indexedFragmentCount).append("\n");
         } else {
-            result.append(prefix).append("lanceCatalogType=")
-                    .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
-            result.append(prefix).append("lanceVersion=").append(scanPlan.version).append("\n");
-            result.append(prefix).append("lanceManagedVersioning=")
-                    .append(plannedMetadata.isManagedVersioning()).append("\n");
-            plannedMetadata.getBranch().ifPresent(branch ->
-                    result.append(prefix).append("lanceBranch=").append(branch).append("\n"));
+            appendSnapshotExplain(result, prefix);
             result.append(prefix).append("lanceFragments=").append(scanPlan.fragmentCount).append("\n");
             if (scanPlan.fragmentsPerSplit > 0) {
                 result.append(prefix).append("lanceFragmentGrouping=DEBUG\n");
@@ -426,6 +431,17 @@ public class LanceScanNode extends FileQueryScanNode {
             }
         }
         return result.toString();
+    }
+
+    /** The snapshot this node plans from; table scans and searches show it the same way. */
+    private void appendSnapshotExplain(StringBuilder result, String prefix) {
+        result.append(prefix).append("lanceCatalogType=")
+                .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
+        result.append(prefix).append("lanceVersion=").append(plannedMetadata.getVersion()).append("\n");
+        result.append(prefix).append("lanceManagedVersioning=")
+                .append(plannedMetadata.isManagedVersioning()).append("\n");
+        plannedMetadata.getBranch().ifPresent(branch ->
+                result.append(prefix).append("lanceBranch=").append(branch).append("\n"));
     }
 
     TExternalSearchRequest createSplitSearchRequest() {

@@ -1183,6 +1183,12 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
+        // COM_QUERY forwarding carries SQL text but not Flight's typed placeholder bindings.
+        if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL
+                && !statementContext.getIdToPlaceholderRealExpr().isEmpty()) {
+            throw new UserException("Flight SQL queries with bound parameters cannot be forwarded; "
+                    + "connect to master FE");
+        }
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());

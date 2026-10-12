@@ -18,8 +18,19 @@
 #pragma once
 
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
 
 namespace doris::paimon {
+
+class PaimonArrowSchemaConvertor final : public ArrowSchemaConvertor {
+public:
+    explicit PaimonArrowSchemaConvertor(std::string serialized_schema)
+            : _serialized_schema(std::move(serialized_schema)) {}
+    Status get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const override;
+
+private:
+    const std::string _serialized_schema;
+};
 
 // Paimon reads use native Parquet/ORC or the JNI scanner, which apply the table's
 // timestamp and nested-type semantics. This adapter implements the Arrow write protocol only;

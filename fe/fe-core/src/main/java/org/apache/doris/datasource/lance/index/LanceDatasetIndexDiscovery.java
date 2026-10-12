@@ -47,7 +47,9 @@ public final class LanceDatasetIndexDiscovery {
      * Describes only user-created indexes. The Lance JNI bulk describe path also tries to
      * materialize details for internal indexes, whose details are not supported by the SDK.
      * Legacy indexes that cannot be described because all their segments lack details are
-     * omitted. This disables their FE segment planning, not the scanner's automatic index use.
+     * omitted, so the FE plans no segments for them. Vector and full-text searches use only the
+     * segments the FE plans and therefore never use such an index; an ordinary scan may still use
+     * a legacy scalar index through Lance's own index selection.
      */
     public static List<IndexDescription> describeUserIndexes(Dataset dataset) {
         List<String> listedNames = dataset.listIndexes();
@@ -98,7 +100,7 @@ public final class LanceDatasetIndexDiscovery {
                 if (indexesWithoutDetails.contains(name)) {
                     LOG.warn("Skipping FE metadata and segment planning for legacy Lance index '{}' "
                             + "at dataset version {}: all physical segments lack index details; "
-                            + "scanner index selection remains unchanged", name, dataset.version());
+                            + "vector and full-text searches will not use it", name, dataset.version());
                     continue;
                 }
             }

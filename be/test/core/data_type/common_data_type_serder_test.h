@@ -362,7 +362,9 @@ public:
     static std::shared_ptr<arrow::RecordBatch> serialize_arrow(
             const std::shared_ptr<Block>& block) {
         std::shared_ptr<arrow::Schema> block_arrow_schema;
-        EXPECT_EQ(get_arrow_schema_from_block(*block, &block_arrow_schema, "UTC"), Status::OK());
+        EXPECT_EQ(DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(*block,
+                                                                               &block_arrow_schema),
+                  Status::OK());
         std::cout << "schema: " << block_arrow_schema->ToString(true) << std::endl;
         // convert block to arrow
         std::shared_ptr<arrow::RecordBatch> result;

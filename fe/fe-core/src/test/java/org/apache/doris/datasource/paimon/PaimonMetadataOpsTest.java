@@ -26,6 +26,7 @@ import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -35,9 +36,13 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.format.OrcOptions;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.hive.HiveCatalog;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.Table;
@@ -48,6 +53,7 @@ import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.DoubleType;
 import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.Assert;
@@ -141,6 +147,81 @@ public class PaimonMetadataOpsTest {
         Assert.assertEquals(0, table.partitionKeys().size());
         Assert.assertTrue(table.primaryKeys().contains("id"));
         Assert.assertEquals(1, table.primaryKeys().size());
+    }
+
+    @Test
+    public void testNewTablesPersistModernOrcTimestampEncoding() throws Exception {
+        for (String format : Arrays.asList("orc", "parquet")) {
+            String tableName = getTableName();
+            createTable("create table " + dbName + "." + tableName
+                    + " (ts timestamptz(6), local_ts datetime(6)) engine = paimon"
+                    + " properties ('file.format' = '" + format + "')");
+
+            Table table = ops.getCatalog().getTable(new Identifier(dbName, tableName));
+            Assert.assertTrue(table.rowType().getTypeAt(0) instanceof LocalZonedTimestampType);
+            Assert.assertTrue(table.rowType().getTypeAt(1) instanceof TimestampType);
+            Assert.assertEquals("false", table.options().get(OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key()));
+        }
+    }
+
+    @Test
+    public void testExplicitOrcTimestampEncodingIsPreserved() throws Exception {
+        for (String legacy : Arrays.asList("true", "false")) {
+            String tableName = getTableName();
+            createTable("create table " + dbName + "." + tableName
+                    + " (ts timestamptz(6)) engine = paimon properties ('file.format' = 'orc', '"
+                    + OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key() + "' = '" + legacy + "')");
+
+            Assert.assertEquals(legacy, ops.getCatalog().getTable(new Identifier(dbName, tableName))
+                    .options().get(OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key()));
+        }
+    }
+
+    @Test
+    public void testOrcTimestampEncodingHonorsCatalogDefaultAndTableOverride() throws Exception {
+        String key = OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key();
+        Options options = new Options();
+        options.setString(Catalog.TABLE_DEFAULT_OPTION_PREFIX + key, "true");
+        try (FileSystemCatalog remoteCatalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse), CatalogContext.create(options))) {
+            PaimonMetadataOps catalogOps = new PaimonMetadataOps(paimonCatalog, remoteCatalog);
+            for (boolean override : Arrays.asList(false, true)) {
+                String tableName = getTableName();
+                catalogOps.createTable(parseCreateTableInfo("create table " + dbName + "." + tableName
+                        + " (ts timestamptz(6)) engine = paimon properties ('file.format' = 'orc'"
+                        + (override ? ", '" + key + "' = 'false'" : "") + ")"));
+
+                Assert.assertEquals(override ? "false" : "true", remoteCatalog
+                        .loadTableSchema(new Identifier(dbName, tableName)).options().get(key));
+            }
+        }
+    }
+
+    @Test
+    public void testExistingLegacyOrcTableEncodingIsNotChanged() throws Exception {
+        String key = OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key();
+        for (boolean explicitLegacy : Arrays.asList(false, true)) {
+            String tableName = getTableName();
+            Identifier identifier = new Identifier(dbName, tableName);
+            Schema.Builder schema = Schema.newBuilder().column("ts", new LocalZonedTimestampType(6))
+                    .option("file.format", "orc");
+            if (explicitLegacy) {
+                schema.option(key, "true");
+            }
+            // SDK-created tables model historical schemas where the legacy option may be absent.
+            ops.getCatalog().createTable(identifier, schema.build(), false);
+            createTable("create table if not exists " + dbName + "." + tableName
+                    + " (ts timestamptz(6)) engine = paimon");
+            Assert.assertEquals(explicitLegacy ? "true" : null,
+                    ops.getCatalog().getTable(identifier).options().get(key));
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put("snapshot.num-retained.min", "2");
+            ops.updateTableProperties(mockExternalTable(tableName), properties, 123L);
+            ops.getCatalog().invalidateTable(identifier);
+            Assert.assertEquals(explicitLegacy ? "true" : null,
+                    ops.getCatalog().getTable(identifier).options().get(key));
+        }
     }
 
     @Test
@@ -336,6 +417,64 @@ public class PaimonMetadataOpsTest {
         Assert.assertEquals(1, table.partitionKeys().size());
         Assert.assertTrue(table.primaryKeys().contains("c0"));
         Assert.assertEquals(1, table.primaryKeys().size());
+    }
+
+    @Test
+    public void testRejectPartitionExpressionsBeforeCreatingTable() throws Exception {
+        for (String partitionClause : Arrays.asList(
+                "auto partition by range(date_trunc(ts, 'day')) ()",
+                "auto partition by list(date_trunc(ts, 'day')) ()",
+                "partition by (date_trunc(ts, 'day')) ()",
+                "partition by (dt, date_trunc(ts, 'day')) ()")) {
+            assertPartitionRejected(partitionClause, "Paimon only supports partitioning by columns");
+        }
+    }
+
+    @Test
+    public void testRejectPartitionDefinitionsBeforeCreatingTable() throws Exception {
+        for (String partitionClause : Arrays.asList(
+                "partition by range(dt) (partition p1 values less than ('2026-01-02'))",
+                "partition by range(dt) (partition p1 values [('2026-01-01'), ('2026-01-02')))",
+                "partition by list(dt) (partition p1 values in ('2026-01-01'))",
+                "partition by range(dt) (from ('2026-01-01') to ('2026-01-03') interval 1 day)",
+                "auto partition by range(dt) (partition p1 values less than ('2026-01-02'))")) {
+            assertPartitionRejected(partitionClause, "Paimon does not support explicit partition definitions");
+        }
+    }
+
+    private void assertPartitionRejected(String partitionClause, String message) throws Exception {
+        String tableName = getTableName();
+        String sql = "create table " + dbName + "." + tableName
+                + " (id int, ts datetime not null, dt date not null) engine = paimon " + partitionClause;
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class, () -> createTable(sql));
+        Assert.assertTrue(exception.getMessage(), exception.getMessage().contains(message));
+        Assert.assertThrows(Catalog.TableNotExistException.class,
+                () -> ops.getCatalog().getTable(new Identifier(dbName, tableName)));
+    }
+
+    @Test
+    public void testIdentityPartitionSyntaxes() throws Exception {
+        for (String partitionClause : Arrays.asList(
+                "partition by (dt) ()",
+                "partition by range(dt) ()",
+                "partition by list(dt) ()",
+                "auto partition by range(dt) ()",
+                "auto partition by list(dt) ()")) {
+            String tableName = getTableName();
+            createTable("create table " + dbName + "." + tableName
+                    + " (id int, dt date not null) engine = paimon " + partitionClause);
+            Assert.assertEquals(Arrays.asList("dt"),
+                    ops.getCatalog().getTable(new Identifier(dbName, tableName)).partitionKeys());
+        }
+    }
+
+    @Test
+    public void testMultipleIdentityPartitionColumns() throws Exception {
+        String tableName = getTableName();
+        createTable("create table " + dbName + "." + tableName
+                + " (id int, region string, dt date not null) engine = paimon partition by (region, dt) ()");
+        Assert.assertEquals(Arrays.asList("region", "dt"),
+                ops.getCatalog().getTable(new Identifier(dbName, tableName)).partitionKeys());
     }
 
     @Test

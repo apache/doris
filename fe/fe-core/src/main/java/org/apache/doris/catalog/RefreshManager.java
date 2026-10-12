@@ -263,7 +263,11 @@ public class RefreshManager {
             }
             if (!Strings.isNullOrEmpty(log.getNewTableName())) {
                 // this is a rename table op
-                db.get().unregisterTable(log.getTableName());
+                db.get().unregisterTableForReplay(log.getTableName());
+                if (db.get().getTableForReplay(log.getNewTableName()).isPresent()
+                        || db.get().hasLocalTableName(log.getNewTableName())) {
+                    db.get().unregisterTableForReplay(log.getNewTableName());
+                }
                 db.get().resetMetaCacheNames();
             } else {
                 List<String> modifiedPartNames = log.getPartitionNames();

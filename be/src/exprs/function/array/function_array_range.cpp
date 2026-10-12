@@ -243,9 +243,9 @@ private:
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;
                     int move = 0;
-                    while (doris::datetime_diff<UNIT::value, DateTimeV2ValueType,
-                                                DateTimeV2ValueType>(idx, end_row) > 0) {
-                        if (move > max_array_size_as_field) {
+                    // A value below end belongs to the range even if less than one unit remains.
+                    while (idx < end_row) {
+                        if (move >= max_array_size_as_field) {
                             return Status::InvalidArgument("Array size exceeds the limit {}",
                                                            max_array_size_as_field);
                         }
@@ -253,8 +253,22 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(idx,
-                                                                                        step_row);
+                        auto next = idx;
+                        bool advanced;
+                        if constexpr (UNIT::value == TimeUnit::DAY ||
+                                      UNIT::value == TimeUnit::WEEK) {
+                            const Int64 days = static_cast<Int64>(step_row) *
+                                               (UNIT::value == TimeUnit::WEEK ? 7 : 1);
+                            advanced = next.template date_add_days<false>(days);
+                        } else {
+                            advanced = next.template date_add_interval<UNIT::value>(
+                                    TimeInterval(UNIT::value, step_row, false));
+                        }
+                        // The successor can exceed the date range after emitting a valid value.
+                        if (!advanced) {
+                            break;
+                        }
+                        idx = next;
                     }
                     dest_offsets.push_back(offset);
                 }

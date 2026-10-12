@@ -1033,6 +1033,11 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
+    @Override
+    public void onCreateTableConflict(long dbId, OlapTable table) throws DdlException {
+        dropMaterializedIndex(dbId, table.getId(), table.getIndexIdList(), true);
+    }
+
     public void dropMaterializedIndex(long dbId, long tableId, List<Long> indexIds, boolean dropTable)
             throws DdlException {
         if (Config.enable_check_compatibility_mode) {

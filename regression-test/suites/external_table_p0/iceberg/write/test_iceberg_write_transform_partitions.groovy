@@ -50,6 +50,37 @@ suite("test_iceberg_write_transform_partitions", "p0,external,iceberg,external_d
     }
 
     try {
+        String validationTable = "create_partition_validation"
+        sql """DROP TABLE IF EXISTS `${validationTable}`"""
+        try {
+            // Iceberg supports transforms, but explicit Doris partition bounds have no Iceberg equivalent.
+            [
+                ["PARTITION BY LIST(dt) (PARTITION p1 VALUES IN ('2026-01-01'))",
+                        "Iceberg does not support explicit partition definitions"],
+                ["PARTITION BY RANGE(dt) (PARTITION p1 VALUES LESS THAN ('2026-01-02'))",
+                        "Iceberg does not support explicit partition definitions"],
+                ["PARTITION BY (date_trunc(ts, 'day')) ()", "unsupported partition for date_trunc"]
+            ].each { entry ->
+                test {
+                    sql """CREATE TABLE `${validationTable}` (id INT, ts DATETIME, dt DATE) ${entry[0]}"""
+                    exception entry[1]
+                }
+                assertEquals([], sql("""SHOW TABLES LIKE '${validationTable}'"""))
+            }
+
+            sql """
+                CREATE TABLE `${validationTable}` (id INT, ts DATETIME)
+                PARTITION BY (bucket(4, id), day(ts)) ()
+            """
+            String ddl = sql("""SHOW CREATE TABLE `${validationTable}`""")[0][1].toString().toLowerCase()
+            assertTrue(ddl.contains("bucket"))
+            assertTrue(ddl.contains("day"))
+            sql """INSERT INTO `${validationTable}` VALUES (1, '2026-01-01 12:00:00')"""
+            assertEquals(1, sql("""SELECT COUNT(*) FROM `${validationTable}`""")[0][0].intValue())
+        } finally {
+            sql """DROP TABLE IF EXISTS `${validationTable}`"""
+        }
+
         sql """ set time_zone = 'Asia/Shanghai'; """
         test_write_transform_partitions("bucket_int_4");
         test_write_transform_partitions("bucket_bigint_4");

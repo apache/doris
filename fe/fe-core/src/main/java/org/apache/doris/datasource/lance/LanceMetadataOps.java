@@ -301,9 +301,14 @@ public class LanceMetadataOps implements ExternalMetadataOps {
         if (!catalog.isRestCatalogConfigured()) {
             throw new DdlException("RENAME TABLE is not supported for Lance filesystem catalogs");
         }
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        ExternalTable source = db == null ? null : db.getTableNullable(oldName);
+        if (source == null) {
+            throw new DdlException("Failed to resolve Lance rename source: " + dbName + "." + oldName);
+        }
         execute("Failed to rename Lance table " + dbName + "." + oldName + " to " + newName,
                 client -> {
-                    client.renameTable(dbName, oldName, newName);
+                    client.renameTable(source.getRemoteDbName(), source.getRemoteName(), newName);
                     return null;
                 });
     }
@@ -313,7 +318,10 @@ public class LanceMetadataOps implements ExternalMetadataOps {
         catalog.invalidateTableAccessCache();
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().unregisterTable(oldName);
+            db.get().unregisterTableForReplay(oldName);
+            if (db.get().getTableForReplay(newName).isPresent() || db.get().hasLocalTableName(newName)) {
+                db.get().unregisterTableForReplay(newName);
+            }
             db.get().resetMetaCacheNames();
         }
     }

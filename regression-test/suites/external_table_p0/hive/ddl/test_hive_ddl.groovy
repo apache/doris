@@ -488,6 +488,26 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             sql """ create database if not exists `test_hive_db_tbl` """;
             sql """use `${catalog_name}`.`test_hive_db_tbl`"""
 
+            // Inferred Hive engines must reject unsupported models before creating HMS metadata.
+            String rejectedTable = "partition_model_rejected_${file_format}"
+            sql """DROP TABLE IF EXISTS `${rejectedTable}`"""
+            try {
+                [
+                    ["PARTITION BY (date_trunc(ts, 'day')) ()", "Hive only supports partitioning by columns"],
+                    ["PARTITION BY RANGE(dt) ()", "Only support 'LIST' partition type in hive catalog"],
+                    ["PARTITION BY LIST(dt) (PARTITION p1 VALUES IN ('2026-01-01'))",
+                            "Partition values expressions is not supported in hive catalog"]
+                ].each { entry ->
+                    test {
+                        sql """CREATE TABLE `${rejectedTable}` (id INT, ts DATETIME, dt DATE) ${entry[0]}"""
+                        exception entry[1]
+                    }
+                    assertEquals([], sql("""SHOW TABLES LIKE '${rejectedTable}'"""))
+                }
+            } finally {
+                sql """DROP TABLE IF EXISTS `${rejectedTable}`"""
+            }
+
             sql """ drop table if exists unpart_tbl_${file_format}"""
             sql """
                 CREATE TABLE unpart_tbl_${file_format}(

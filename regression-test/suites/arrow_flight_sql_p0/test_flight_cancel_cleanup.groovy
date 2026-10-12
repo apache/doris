@@ -73,8 +73,10 @@ suite("test_flight_cancel_cleanup", "arrow_flight_sql") {
                 assertTrue(info.endpoints.size() > 1, "Expected distributed Flight result endpoints")
             }
             def ids = info.endpoints.collect { endpoint ->
-                Any.parseFrom(endpoint.ticket.bytes).unpack(FlightSql.TicketStatementQuery.class)
+                def queryId = Any.parseFrom(endpoint.ticket.bytes).unpack(FlightSql.TicketStatementQuery.class)
                         .statementHandle.toStringUtf8().split("&")[0]
+                // Flight tickets omit leading zeroes; the BE diagnostic API requires two 16-digit halves.
+                queryId.split("-").collect { it.padLeft(16, "0") }.join("-")
             }.unique()
             // Abort only one endpoint; the cancellation must reach every participating BE.
             [info.endpoints[0]].each { endpoint ->

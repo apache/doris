@@ -730,6 +730,27 @@ void ColumnReader::_generate_read_ranges(RowRange page_row_range, RowRanges* res
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_get_page_read_ranges(
+        int64_t* right_row, RowRanges* read_ranges) {
+    RETURN_IF_ERROR(_chunk_reader->ensure_first_data_page_parsed());
+    *right_row = _chunk_reader->page_end_row();
+    _generate_read_ranges(RowRange {_current_row_index, *right_row}, read_ranges);
+    if (read_ranges->count() == 0) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_chunk_reader->parse_page_header());
+    const auto parsed_end = _chunk_reader->page_end_row();
+    if (*right_row != parsed_end) {
+        // Parsing a selected later page can discard its OffsetIndex. Both the selection and the
+        // page-advance decision must use the reconciled bound, or unread values shift into the next page.
+        *right_row = parsed_end;
+        read_ranges->clear();
+        _generate_read_ranges(RowRange {_current_row_index, *right_row}, read_ranges);
+    }
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(
         io::FileReaderSPtr file, NativeFieldSchema* field, size_t max_buf_size, RuntimeState* state,
         const std::string& page_cache_file_key, const ParquetReaderCompat& compat,
@@ -1331,18 +1352,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_fixed_width_filter(
     }
 
     int64_t right_row = 0;
-    if constexpr (OFFSET_INDEX == false) {
-        RETURN_IF_ERROR(_chunk_reader->parse_page_header());
-    } else {
-        RETURN_IF_ERROR(_chunk_reader->ensure_first_data_page_parsed());
-    }
-    right_row = _chunk_reader->page_end_row();
     RowRanges read_ranges;
-    _generate_read_ranges(RowRange {_current_row_index, right_row}, &read_ranges);
+    RETURN_IF_ERROR(_get_page_read_ranges(&right_row, &read_ranges));
     if (read_ranges.count() == 0) {
         _current_row_index = right_row;
     } else {
-        RETURN_IF_ERROR(_chunk_reader->parse_page_header());
         RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
         if (!_chunk_reader->can_filter_fixed_width_values(conjuncts, column_id, _serde.get(),
                                                           &_decode_context)) {
@@ -1468,18 +1482,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_dictionary_filter(
     }
 
     int64_t right_row = 0;
-    if constexpr (OFFSET_INDEX == false) {
-        RETURN_IF_ERROR(_chunk_reader->parse_page_header());
-        right_row = _chunk_reader->page_end_row();
-    } else {
-        right_row = _chunk_reader->page_end_row();
-    }
     RowRanges read_ranges;
-    _generate_read_ranges(RowRange {_current_row_index, right_row}, &read_ranges);
+    RETURN_IF_ERROR(_get_page_read_ranges(&right_row, &read_ranges));
     if (read_ranges.count() == 0) {
         _current_row_index = right_row;
     } else {
-        RETURN_IF_ERROR(_chunk_reader->parse_page_header());
         RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
         if (_chunk_reader->current_encoding() != tparquet::Encoding::RLE_DICTIONARY) {
             return Status::OK();
@@ -1764,17 +1771,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     }
 
     int64_t right_row = 0;
-    if constexpr (OFFSET_INDEX == false) {
-        RETURN_IF_ERROR(_chunk_reader->parse_page_header());
-    } else {
-        RETURN_IF_ERROR(_chunk_reader->ensure_first_data_page_parsed());
-    }
-    right_row = _chunk_reader->page_end_row();
+    RowRanges read_ranges;
+    RETURN_IF_ERROR(_get_page_read_ranges(&right_row, &read_ranges));
 
     do {
-        // generate the row ranges that should be read
-        RowRanges read_ranges;
-        _generate_read_ranges(RowRange {_current_row_index, right_row}, &read_ranges);
         if (read_ranges.count() == 0) {
             // skip the whole page
             _current_row_index = right_row;
@@ -1800,7 +1800,6 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
                 }
             }
             // load page data to decode or skip values
-            RETURN_IF_ERROR(_chunk_reader->parse_page_header());
             RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
             size_t has_read = 0;
             for (size_t idx = 0; idx < read_ranges.range_size(); idx++) {

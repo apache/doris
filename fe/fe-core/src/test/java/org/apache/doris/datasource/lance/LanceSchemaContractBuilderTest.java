@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.lance.job.LanceIndexSchemaContract;
 
 import org.apache.arrow.vector.types.DateUnit;
 import org.apache.arrow.vector.types.FloatingPointPrecision;

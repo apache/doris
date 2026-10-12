@@ -27,53 +27,37 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String lanceRestPort = context.config.otherConfigs.get("lance_rest_port")
-    // Admitted jobs are durable and stay PENDING forever in this delivery slice: dispatch,
-    // FORCE_RELEASE and job GC only land in later slices, so their fences and quota charges
-    // can never be released here. Every index name (and the filesystem catalog itself,
-    // because fence/quota keys include the persisted catalog id) carries this per-run suffix
-    // so that rerunning the suite on a shared pipeline cluster can never collide with a
-    // previous run's leftovers.
+    // The authoritative admission preflight runs against real Lance metadata but the
+    // synchronous execution path has not landed: a mutation that would be admitted ends
+    // in the shared not-supported rejection, and nothing is created or dropped. Index
+    // names still carry this per-run suffix so rerunning the suite on a shared pipeline
+    // cluster can never collide with leftovers from other suites.
     String runSuffix = "${System.currentTimeMillis()}"
     String filesystemCatalog = "test_lance_index_admission_${runSuffix}"
     String restCatalog = "test_lance_index_admission_rest"
-    String user = "test_lance_index_admission_user"
-    String password = "C123_567p"
     String tableName = "vs_ivf_pq_f32"
-    String quotaTableName = "predicate_pushdown"
     // vs_ivf_pq_f32 ships with one preloaded IVF_PQ index on the embedding column; its
     // authoritative logical metadata (metric_type=L2, compression.num_sub_vectors=4,
-    // compression.num_bits=4) is the anchor for the CREATE IF NOT EXISTS and admitted
-    // DROP cases below.
+    // compression.num_bits=4) is the anchor for the CREATE IF NOT EXISTS mismatch cases
+    // below.
     String preloadedIndex = "embedding_ivf_pq_f32"
     String createIndexName = "idx_create_${runSuffix}"
-    String quotaIndexNameA = "idx_quota_a_${runSuffix}"
-    String quotaIndexNameB = "idx_quota_b_${runSuffix}"
     String absentIndexName = "idx_absent_${runSuffix}"
 
-    // The filesystem catalog is fresh per run by construction, and once it holds unresolved
-    // jobs DROP CATALOG is guarded, so there is deliberately no DROP for it here.
     sql """DROP CATALOG IF EXISTS `${restCatalog}`"""
-    try_sql "DROP USER '${user}'@'%'"
 
-    // Both settings are masterOnly. Read them on the master even if the suite's
-    // ordinary JDBC connection points at a follower. SHOW uses the experimental
-    // display name for the gate, while ADMIN SET accepts its unprefixed alias.
+    // The gate is masterOnly. Read it on the master even if the suite's ordinary JDBC
+    // connection points at a follower. SHOW uses the experimental display name for the
+    // gate, while ADMIN SET accepts its unprefixed alias.
     def gateRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'experimental_enable_lance_index_mutation'"""
-    def quotaRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_max_unresolved_per_table'"""
     assertEquals(1, gateRows.size())
-    assertEquals(1, quotaRows.size())
     String originalGate = gateRows[0][1].toString()
-    String originalQuota = quotaRows[0][1].toString()
-    // The main scenario admits two jobs on one table, independently of the
-    // cluster's original quota. The dedicated quota case temporarily lowers it.
-    String suiteQuota = Math.max(2L, originalQuota.toLong()).toString()
     Throwable suiteFailure = null
 
     try {
-        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "${suiteQuota}")"""
         // Open the mutation gate for this suite only. masterOnly configs set through
         // ADMIN SET land on the master node locally, which is where admission reads them;
-        // the finally block below restores the gate no matter where the suite fails (T4).
+        // the finally block below restores the gate no matter where the suite fails.
         master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "true")"""
 
         sql """
@@ -89,35 +73,27 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
             )
         """
 
-        // CREATE INDEX is admitted and returns a single-column JobId result set with one row.
-        def createRows = sql """CREATE INDEX `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
-                PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
-        assertEquals(1, createRows.size())
-        assertEquals(1, createRows[0].size())
-        String createJobId = createRows[0][0].toString()
-
-        // SHOW LANCE INDEX JOBS exposes JobId, CatalogName, DbName, TableName, IndexName,
-        // Operation, State and further inspection columns (design section 2.3); the job is
-        // visible as PENDING right after admission.
-        def jobsAfterCreate = sql_return_maparray """SHOW LANCE INDEX JOBS FROM `${filesystemCatalog}`.`doris`
-                WHERE TableName = "${tableName}" """
-        def createJobRow = jobsAfterCreate.find { it.IndexName == createIndexName }
-        assertTrue(createJobRow != null)
-        assertEquals(createJobId, createJobRow.JobId.toString())
-        assertEquals("PENDING", createJobRow.State.toString())
-
-        // A same-name CREATE passes the authoritative preflight (the admitted job has not
-        // built anything yet) and is then stopped by the durable same-name fence.
+        // CREATE INDEX passes static validation and the whole authoritative preflight
+        // (snapshot read, case analysis, column resolution, schema contract), then ends
+        // in the shared not-supported rejection: no index is created.
         test {
             sql """CREATE INDEX `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
                     PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
-            exception "is fenced by unresolved job"
+            exception "CREATE INDEX is not supported for Lance catalog tables"
+        }
+
+        // Nothing was created above, so a same-name CREATE runs the same preflight and
+        // ends in the same rejection.
+        test {
+            sql """CREATE INDEX `${createIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
+                    PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
+            exception "CREATE INDEX is not supported for Lance catalog tables"
         }
 
         // The preloaded index persists num_bits=4 (lance_build_preinstalled_catalog.py
         // PQ_BUILD_PARAMS), which is outside the SQL-expressible parameter space: static
         // validation pins num_bits to 8, and the authoritative preflight compares an omitted
-        // num_bits as the job-persisted 8. No admitted request can therefore no-op against
+        // num_bits as the always-persisted 8. No admitted request can therefore no-op against
         // this index; the matching-definition no-op path is covered by LanceIndexAdmissionTest
         // against mocked snapshots. What this fixture pins live is the fail-closed mismatch
         // at each layer.
@@ -128,7 +104,7 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         }
 
         // An omitted num_bits passes static validation, but the preflight compares the
-        // job-persisted 8 against the on-disk 4: an authoritative mismatch, not a no-op.
+        // always-persisted 8 against the on-disk 4: an authoritative mismatch, not a no-op.
         test {
             sql """CREATE INDEX IF NOT EXISTS `${preloadedIndex}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
                     PROPERTIES("index_type"="IVF_PQ", "num_partitions"="256", "num_sub_vectors"="4")"""
@@ -142,52 +118,17 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
             exception "already exists with a different definition"
         }
 
-        // DROP IF EXISTS of an authoritatively absent name is an immediate zero-row no-op...
+        // DROP IF EXISTS of an authoritatively absent name completes as a no-op. Without the
+        // JobId result set there is nothing to return, so the statement finishes with the
+        // default OK packet, which the framework surfaces as a single zero update-count row.
         def dropNoopRows = sql """DROP INDEX IF EXISTS `${absentIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}`"""
-        assertTrue(dropNoopRows.isEmpty())
+        assertEquals(1, dropNoopRows.size())
+        assertEquals(0, dropNoopRows[0][0])
 
         // ...while plain DROP of an absent name fails.
         test {
             sql """DROP INDEX `${absentIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}`"""
             exception "not found"
-        }
-
-        // Per-table unresolved-job quota on a dedicated table (row_id is the only NOT NULL
-        // scalar column of predicate_pushdown): with the limit at one, the first
-        // differently-named job is admitted and the second is rejected. The quota key
-        // includes the persisted catalog id, so the per-run catalog keeps this rerun-safe.
-        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "1")"""
-        try {
-            def admittedQuotaRows = sql """CREATE INDEX `${quotaIndexNameA}` ON `${filesystemCatalog}`.`doris`.`${quotaTableName}` (row_id) USING BTREE"""
-            assertEquals(1, admittedQuotaRows.size())
-            test {
-                sql """CREATE INDEX `${quotaIndexNameB}` ON `${filesystemCatalog}`.`doris`.`${quotaTableName}` (row_id) USING BTREE"""
-                exception "quota exceeded"
-            }
-        } finally {
-            // Restore immediately so the remaining cases of this run are unaffected; the
-            // outer finally restores the original cluster settings even if this fails.
-            master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "${suiteQuota}")"""
-        }
-
-        // Job inspection is authorized row by row: a user without SHOW privilege on the
-        // target sees no jobs at all, and a direct lookup of an existing job id gets the
-        // same fixed non-disclosing "not found" response as a missing job.
-        sql """CREATE USER '${user}'@'%' IDENTIFIED BY '${password}'"""
-        sql """GRANT SELECT_PRIV ON regression_test TO '${user}'@'%'"""
-        if (isCloudMode()) {
-            def clusters = sql "SHOW CLUSTERS"
-            assertTrue(!clusters.isEmpty())
-            sql """GRANT USAGE_PRIV ON CLUSTER `${clusters[0][0]}` TO '${user}'@'%'"""
-        }
-
-        connect(user, password, context.config.jdbcUrl) {
-            def invisibleJobs = sql """SHOW LANCE INDEX JOBS"""
-            assertTrue(invisibleJobs.isEmpty())
-            test {
-                sql """SHOW LANCE INDEX JOB ${createJobId}"""
-                exception "Lance index job not found"
-            }
         }
 
         // REST catalogs keep failing fast before admission even with the gate open.
@@ -222,23 +163,12 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         }
 
         // DROP INDEX IF EXISTS of the preloaded index resolves to a name that is present in
-        // the authoritative snapshot, so it is admitted as a second durable job on the table.
-        def dropRows = sql """DROP INDEX IF EXISTS `${preloadedIndex}` ON `${filesystemCatalog}`.`doris`.`${tableName}`"""
-        assertEquals(1, dropRows.size())
-        assertEquals(1, dropRows[0].size())
-        String dropJobId = dropRows[0][0].toString()
-        assertTrue(dropJobId != createJobId)
-
-        def jobsAfterDrop = sql_return_maparray """SHOW LANCE INDEX JOBS FROM `${filesystemCatalog}`.`doris`
-                WHERE TableName = "${tableName}" """
-        def createJobRowAfterDrop = jobsAfterDrop.find { it.IndexName == createIndexName }
-        def dropJobRow = jobsAfterDrop.find { it.IndexName == preloadedIndex }
-        assertTrue(createJobRowAfterDrop != null)
-        assertTrue(dropJobRow != null)
-        assertEquals(createJobId, createJobRowAfterDrop.JobId.toString())
-        assertEquals(dropJobId, dropJobRow.JobId.toString())
-        assertEquals("PENDING", createJobRowAfterDrop.State.toString())
-        assertEquals("PENDING", dropJobRow.State.toString())
+        // the authoritative snapshot, so the preflight passes and the statement ends in the
+        // shared not-supported rejection: nothing is dropped.
+        test {
+            sql """DROP INDEX IF EXISTS `${preloadedIndex}` ON `${filesystemCatalog}`.`doris`.`${tableName}`"""
+            exception "DROP INDEX is not supported for Lance catalog tables"
+        }
     } catch (Throwable failure) {
         suiteFailure = failure
         throw failure
@@ -248,9 +178,8 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         Throwable cleanupFailure = suiteFailure
         [
             { master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "${originalGate}")""" },
-            { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "${originalQuota}")""" },
-            { sql "DROP USER IF EXISTS '${user}'@'%'" },
-            { sql """DROP CATALOG IF EXISTS `${restCatalog}`""" }
+            { sql """DROP CATALOG IF EXISTS `${restCatalog}`""" },
+            { sql """DROP CATALOG IF EXISTS `${filesystemCatalog}`""" }
         ].each { cleanup ->
             try {
                 cleanup()
@@ -265,7 +194,5 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         if (suiteFailure == null && cleanupFailure != null) {
             throw cleanupFailure
         }
-        // The filesystem catalog stays behind: admitted jobs remain unresolved and guard
-        // DROP CATALOG until FORCE_RELEASE lands in a later slice.
     }
 }

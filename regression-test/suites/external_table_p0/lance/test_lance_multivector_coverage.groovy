@@ -62,7 +62,8 @@ suite("test_lance_multivector_coverage", "p0,external") {
     }
     def source = { String table, String column, queries, String metric, boolean indexed,
                    int k, int offset, String filter ->
-        String predicate = filter == null ? "" : ', "filter"="' + filter + '"'
+        String predicate = filter == null ? ""
+                : ', "filter"="' + filter + '", "prefilter"="true"'
         """vector_search("table"="${catalog}.`default`.${table}", "column"="${column}",
             "query_vector"='${JsonOutput.toJson(queries)}', "metric"="${metric}",
             "use_index"="${indexed}", "nprobes"="4", "refine_factor"="64",

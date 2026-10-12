@@ -87,6 +87,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -156,12 +157,19 @@ public class ConnectContext {
     // for arrow flight
     protected volatile String peerIdentity;
     private final Map<String, PreparedQuery> preparedQuerys = new HashMap<>();
+    private static final long MAX_FLIGHT_PARAMETER_BYTES = 16L * 1024 * 1024;
+    private long flightParameterBytes;
+    private boolean flightPreparedQueriesClosed;
 
     private static class PreparedQuery {
         private final String sql;
-        private final String catalog;
-        private final String database;
-        private final Schema schema;
+        private String catalog;
+        private String database;
+        private Schema schema;
+        private int parameterCount;
+        private List<Literal> parameters;
+        private long bindingVersion;
+        private long parameterBytes;
 
         private PreparedQuery(String sql, String catalog, String database, Schema schema) {
             this.sql = sql;
@@ -427,7 +435,7 @@ public class ConnectContext {
         }
         resetSessionVariable();
         userVars = new HashMap<>();
-        preparedQuerys.clear();
+        clearPreparedQueries();
         preparedStatementContextMap.clear();
         runningQuery = null;
         queryId = null;
@@ -924,35 +932,157 @@ public class ConnectContext {
         this.loginTime = System.currentTimeMillis();
     }
 
-    public synchronized void addPreparedQuery(String preparedStatementId, String preparedQuery) {
-        addPreparedQuery(preparedStatementId, preparedQuery, null);
-    }
-
-    public synchronized void addPreparedQuery(String preparedStatementId, String preparedQuery, Schema schema) {
-        preparedQuerys.put(preparedStatementId,
-                new PreparedQuery(preparedQuery, getDefaultCatalog(), getDatabase(), schema));
-    }
-
-    public synchronized Schema getPreparedQuerySchema(String preparedStatementId) {
-        PreparedQuery query = preparedQuerys.get(preparedStatementId);
-        return query == null ? null : query.schema;
-    }
-
-    public synchronized String getPreparedQuery(String preparedStatementId) {
-        PreparedQuery query = preparedQuerys.get(preparedStatementId);
-        if (query == null) {
-            return null;
+    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+        synchronized (preparedQuerys) {
+            addPreparedQuery(preparedStatementId, preparedQuery, null);
         }
-        // A handle must not execute unqualified SQL in a different namespace than its advertised schema.
-        if (!Objects.equals(query.catalog, getDefaultCatalog()) || !Objects.equals(query.database, getDatabase())) {
-            preparedQuerys.remove(preparedStatementId);
-            return null;
-        }
-        return query.sql;
     }
 
-    public synchronized void removePreparedQuery(String preparedStatementId) {
-        preparedQuerys.remove(preparedStatementId);
+    public void addPreparedQuery(String preparedStatementId, String preparedQuery, Schema schema) {
+        synchronized (preparedQuerys) {
+            if (flightPreparedQueriesClosed) {
+                throw new IllegalStateException("Flight SQL session is closed");
+            }
+            removePreparedQuery(preparedStatementId);
+            preparedQuerys.put(preparedStatementId,
+                    new PreparedQuery(preparedQuery, getDefaultCatalog(), getDatabase(), schema));
+        }
+    }
+
+    public void addPreparedQuery(String id, String sql, Schema schema, int parameterCount) {
+        synchronized (preparedQuerys) {
+            addPreparedQuery(id, sql, schema);
+            preparedQuerys.get(id).parameterCount = parameterCount;
+        }
+    }
+
+    public int getPreparedQueryParameterCount(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query == null ? -1 : query.parameterCount;
+        }
+    }
+
+    public List<Literal> getPreparedQueryParameters(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query == null ? null : query.parameters;
+        }
+    }
+
+    public long beginPreparedQueryBinding(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                return -1;
+            }
+            flightParameterBytes -= query.parameterBytes;
+            query.parameterBytes = 0;
+            query.parameters = null;
+            return ++query.bindingVersion;
+        }
+    }
+
+    public boolean isPreparedQueryBindingCurrent(String id, long version) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            return query != null && query.bindingVersion == version;
+        }
+    }
+
+    public void setPreparedQueryParameters(String id, List<Literal> parameters, Schema schema) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                throw new IllegalStateException("Prepared statement expired");
+            }
+            long bytes = parameters == null ? 0 : parameters.size() * 128L;
+            if (parameters != null) {
+                for (Literal parameter : parameters) {
+                    if (parameter.getValue() instanceof String) {
+                        bytes += 2L * ((String) parameter.getValue()).length();
+                    }
+                }
+            }
+            // A per-upload limit alone allows many handles to retain unbounded parameter memory in one session.
+            if (flightParameterBytes - query.parameterBytes + bytes > MAX_FLIGHT_PARAMETER_BYTES) {
+                throw new IllegalArgumentException("Prepared query parameters exceed the 16 MiB session limit");
+            }
+            flightParameterBytes += bytes - query.parameterBytes;
+            query.parameterBytes = bytes;
+            // Keep a detached immutable snapshot using a Java 8-compatible copy implementation.
+            query.parameters = parameters == null ? null : ImmutableList.copyOf(parameters);
+            query.schema = schema;
+        }
+    }
+
+    public boolean setPreparedQueryParameters(String id, List<Literal> parameters, Schema schema, long version) {
+        synchronized (preparedQuerys) {
+            if (!isPreparedQueryBindingCurrent(id, version)) {
+                return false;
+            }
+            setPreparedQueryParameters(id, parameters, schema);
+            return true;
+        }
+    }
+
+    public boolean refreshPreparedQueryNamespace(String id) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(id);
+            if (query == null) {
+                return false;
+            }
+            if (query.parameterCount == 0) {
+                query.catalog = getDefaultCatalog();
+                query.database = getDatabase();
+            }
+            return true;
+        }
+    }
+
+    public Schema getPreparedQuerySchema(String preparedStatementId) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(preparedStatementId);
+            return query == null ? null : query.schema;
+        }
+    }
+
+    public String getPreparedQuery(String preparedStatementId) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.get(preparedStatementId);
+            if (query == null) {
+                return null;
+            }
+            // A handle must not execute unqualified SQL in a different namespace than its advertised schema.
+            if (!Objects.equals(query.catalog, getDefaultCatalog()) || !Objects.equals(query.database, getDatabase())) {
+                removePreparedQuery(preparedStatementId);
+                return null;
+            }
+            return query.sql;
+        }
+    }
+
+    public void closePreparedQueries() {
+        synchronized (preparedQuerys) {
+            flightPreparedQueriesClosed = true;
+            clearPreparedQueries();
+        }
+    }
+
+    public void clearPreparedQueries() {
+        synchronized (preparedQuerys) {
+            preparedQuerys.clear();
+            flightParameterBytes = 0;
+        }
+    }
+
+    public void removePreparedQuery(String preparedStatementId) {
+        synchronized (preparedQuerys) {
+            PreparedQuery query = preparedQuerys.remove(preparedStatementId);
+            if (query != null) {
+                flightParameterBytes -= query.parameterBytes;
+            }
+        }
     }
 
     public void setRunningQuery(String runningQuery) {

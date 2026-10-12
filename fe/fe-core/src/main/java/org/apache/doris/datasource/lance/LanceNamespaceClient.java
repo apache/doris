@@ -463,6 +463,9 @@ final class LanceNamespaceClient {
                 throw new RuntimeException("Lance namespace returned an s3+ddb URI for managed table " + tableId
                         + ", whose versions the namespace manages");
             }
+            if (datasetUri.indexOf('#') >= 0) {
+                throw new RuntimeException("Lance managed table URI must not contain a fragment: " + tableId);
+            }
             if (StringUtils.isNotBlank(table.getTableUri())
                     && !LanceManifestPaths.normalizedLocation(table.getTableUri())
                             .equals(LanceManifestPaths.normalizedLocation(table.getLocation()))) {

@@ -20,8 +20,10 @@
 
 #include <stddef.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -114,7 +116,8 @@ private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
 
-    DorisCallOnce<Status> _load_segment_rows_once;
+    std::mutex _segment_rows_mutex;
+    std::atomic<bool> _segment_rows_loaded {false};
     std::vector<uint32_t> _segments_rows;
 };
 

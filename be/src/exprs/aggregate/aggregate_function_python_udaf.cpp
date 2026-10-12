@@ -245,10 +245,10 @@ void AggregatePythonUDAF::create(AggregateDataPtr __restrict place) const {
     std::call_once(_schema_init_flag, [this]() {
         std::vector<std::shared_ptr<arrow::Field>> fields;
 
-        std::string timezone = TimezoneUtils::default_time_zone;
+        const DorisArrowSchemaConvertor schema_convertor(TimezoneUtils::default_time_zone);
         for (size_t i = 0; i < argument_types.size(); ++i) {
             std::shared_ptr<arrow::DataType> arrow_type;
-            Status st = convert_to_arrow_type(argument_types[i], &arrow_type, timezone);
+            Status st = schema_convertor.convert_to_arrow_type(argument_types[i], &arrow_type);
             if (!st.ok()) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                        "Failed to convert argument type {} to Arrow type: {}", i,

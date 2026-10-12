@@ -391,6 +391,75 @@ public class LanceManagedVersioningTest {
         }
     }
 
+    /** The search entry points take the same selectors, under the same namespace rules. */
+    @Test
+    public void testSearchMetadataOfManagedTableFollowsTheSelector() throws Exception {
+        LanceExternalCatalog catalog = newCatalog(329, "lance_managed_search");
+        try {
+            for (boolean withIndexes : new boolean[] {true, false}) {
+                java.util.function.Function<LanceRefSelector, LanceTableMetadata> load = selector -> withIndexes
+                        ? catalog.loadTableMetadataForSearch("default", FULL_TABLE, selector)
+                        : catalog.loadBasicTableMetadata("default", FULL_TABLE, selector);
+                LanceTableMetadata latest = load.apply(LanceRefSelector.latest());
+                Assertions.assertTrue(latest.isManagedVersioning());
+                Assertions.assertEquals(3, latest.getVersion());
+                Assertions.assertEquals(2, load.apply(LanceRefSelector.snapshot(
+                        Optional.of(TableSnapshot.versionOf("2")))).getVersion());
+                Assertions.assertEquals(2, load.apply(LanceRefSelector.tag("v2")).getVersion());
+                String betweenSecondAndThird = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+                        .withZone(TimeUtils.getTimeZone().toZoneId())
+                        .format(datasetVersions.get(1).getDataTime().toInstant().plusMillis(1));
+                Assertions.assertEquals(2, load.apply(LanceRefSelector.snapshot(
+                        Optional.of(TableSnapshot.timeOf(betweenSecondAndThird)))).getVersion());
+
+                LanceTableMetadata branch = load.apply(LanceRefSelector.branch(BRANCH, Optional.empty()));
+                Assertions.assertEquals(Optional.of(BRANCH), branch.getBranch());
+                Assertions.assertEquals(branchVersions, branch.getVersion());
+                Assertions.assertTrue(branch.isManagedVersioning());
+                LanceTableMetadata branchTag = load.apply(LanceRefSelector.tag(BRANCH_TAG));
+                Assertions.assertEquals(Optional.of(BRANCH), branchTag.getBranch());
+                Assertions.assertEquals(3, branchTag.getVersion());
+                // main is the table root, not a branch named main.
+                LanceTableMetadata main = load.apply(LanceRefSelector.branch(LanceRefSelector.MAIN_BRANCH,
+                        Optional.of(TableSnapshot.versionOf("2"))));
+                Assertions.assertFalse(main.getBranch().isPresent());
+                Assertions.assertEquals(2, main.getVersion());
+            }
+            // A version the namespace does not record fails; it never falls back to the latest one.
+            RuntimeException unrecorded = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadTableMetadataForSearch("default", PARTIAL_TABLE,
+                            LanceRefSelector.snapshot(Optional.of(TableSnapshot.versionOf("2")))));
+            Assertions.assertEquals(
+                    "Lance version 2 of default." + PARTIAL_TABLE + " was not found in the namespace",
+                    unrecorded.getMessage());
+            // A head whose commit was never finalized cannot be searched, on main or on a branch,
+            // and nothing falls back to an older version.
+            RuntimeException pending = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadTableMetadataForSearch("default", PENDING_HEAD_TABLE, LanceRefSelector.latest()));
+            Assertions.assertEquals("Lance version 4 of default." + PENDING_HEAD_TABLE + STAGED_ONLY,
+                    pending.getMessage());
+            RuntimeException pendingBranch = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadBasicTableMetadata("default", PENDING_HEAD_TABLE,
+                            LanceRefSelector.branch(BRANCH, Optional.empty())));
+            Assertions.assertEquals("Lance version 4 of default." + PENDING_HEAD_TABLE + "@" + BRANCH + STAGED_ONLY,
+                    pendingBranch.getMessage());
+            Assertions.assertEquals(3, catalog.loadTableMetadataForSearch("default", PENDING_HEAD_TABLE,
+                    LanceRefSelector.snapshot(Optional.of(TableSnapshot.versionOf("3")))).getVersion());
+            // A managed branch is opened by a URI Doris joins, so a name that would climb out of the
+            // table's tree/ directory is rejected before the branch's versions are requested.
+            requestPaths.clear();
+            RuntimeException climbing = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadTableMetadataForSearch("default", FULL_TABLE,
+                            LanceRefSelector.branch("../../" + PLAIN_TABLE, Optional.empty())));
+            Assertions.assertTrue(climbing.getMessage().startsWith("Invalid Lance branch name '../../"),
+                    climbing.getMessage());
+            Assertions.assertTrue(requestPaths.stream().noneMatch(path -> path.contains("/version/")),
+                    requestPaths.toString());
+        } finally {
+            catalog.onClose();
+        }
+    }
+
     @Test
     public void testVersionMissingFromNamespaceIsReported() {
         LanceExternalCatalog catalog = newCatalog(301, "lance_managed_partial");
@@ -421,7 +490,8 @@ public class LanceManagedVersioningTest {
             RuntimeException dropped = Assertions.assertThrows(RuntimeException.class,
                     () -> catalog.loadTableMetadata("default", PARTIAL_TABLE,
                             Optional.of(new TableSnapshot(betweenSecondAndThird, TableSnapshot.VersionType.TIME))));
-            Assertions.assertEquals("Lance cannot resolve FOR TIME AS OF '" + betweenSecondAndThird + "' on default."
+            Assertions.assertEquals("Lance cannot select the version at or before '"
+                    + betweenSecondAndThird + "' on default."
                     + PARTIAL_TABLE + ": version 2, which may hold the state at that time, no longer exists",
                     dropped.getMessage());
             Assertions.assertTrue(requestPaths.stream().anyMatch(
@@ -537,7 +607,7 @@ public class LanceManagedVersioningTest {
             RuntimeException byTime = Assertions.assertThrows(RuntimeException.class,
                     () -> catalog.loadTableMetadata("default", PENDING_HEAD_TABLE,
                             Optional.of(new TableSnapshot("2100-01-01 00:00:00", TableSnapshot.VersionType.TIME))));
-            Assertions.assertEquals("Lance cannot resolve FOR TIME AS OF '2100-01-01 00:00:00' on default."
+            Assertions.assertEquals("Lance cannot select the version at or before '2100-01-01 00:00:00' on default."
                     + PENDING_HEAD_TABLE + ": version 4, which may hold the state at that time," + STAGED_ONLY,
                     byTime.getMessage());
             Assertions.assertEquals(3, catalog.loadTableMetadata("default", PENDING_HEAD_TABLE,
@@ -564,7 +634,7 @@ public class LanceManagedVersioningTest {
                     () -> catalog.loadTableMetadata("default", PENDING_HEAD_TABLE,
                             LanceRefSelector.branch(BRANCH, Optional.of(new TableSnapshot("2100-01-01 00:00:00",
                                     TableSnapshot.VersionType.TIME)))));
-            Assertions.assertEquals("Lance cannot resolve FOR TIME AS OF '2100-01-01 00:00:00' on default."
+            Assertions.assertEquals("Lance cannot select the version at or before '2100-01-01 00:00:00' on default."
                     + PENDING_HEAD_TABLE + "@" + BRANCH + ": version 4, which may hold the state at that time,"
                     + STAGED_ONLY, devByTime.getMessage());
         } finally {
@@ -952,7 +1022,8 @@ public class LanceManagedVersioningTest {
             RuntimeException removed = Assertions.assertThrows(RuntimeException.class,
                     () -> catalog.loadTableMetadata("default", STAGED_UNTIMED_TABLE,
                             Optional.of(new TableSnapshot(betweenFirstAndSecond, TableSnapshot.VersionType.TIME))));
-            Assertions.assertEquals("Lance cannot resolve FOR TIME AS OF '" + betweenFirstAndSecond + "' on default."
+            Assertions.assertEquals("Lance cannot select the version at or before '"
+                    + betweenFirstAndSecond + "' on default."
                     + STAGED_UNTIMED_TABLE + ": version 1, which may hold the state at that time," + STAGED_ONLY,
                     removed.getMessage());
             RuntimeException byVersion = Assertions.assertThrows(RuntimeException.class,
@@ -995,7 +1066,8 @@ public class LanceManagedVersioningTest {
                 RuntimeException gap = Assertions.assertThrows(RuntimeException.class,
                         () -> catalog.loadTableMetadata("default", table,
                                 Optional.of(new TableSnapshot(betweenFirstAndThird, TableSnapshot.VersionType.TIME))));
-                Assertions.assertEquals("Lance cannot resolve FOR TIME AS OF '" + betweenFirstAndThird + "' on default."
+                Assertions.assertEquals("Lance cannot select the version at or before '"
+                        + betweenFirstAndThird + "' on default."
                         + table + ": version 2, which may hold the state at that time, no longer exists",
                         gap.getMessage());
                 Assertions.assertEquals(3, catalog.loadTableMetadata("default", table,

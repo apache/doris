@@ -443,7 +443,8 @@ Status ArrowBlockConvertor::write_plain_arrow_column(const std::shared_ptr<const
                                                      int64_t start, int64_t end,
                                                      const cctz::time_zone& ctz) const {
     std::shared_ptr<arrow::DataType> plain_arrow_type;
-    RETURN_IF_ERROR(convert_to_arrow_type(type, &plain_arrow_type, ctz.name()));
+    RETURN_IF_ERROR(
+            DorisArrowSchemaConvertor(ctz.name()).convert_to_arrow_type(type, &plain_arrow_type));
     const auto storage_type = extension_storage_type(field->type());
     // This is an exact binding check selected by the target converter, not a recovery path. A
     // mismatch returns without invoking SerDe, and a SerDe error is never retried elsewhere.
@@ -470,6 +471,28 @@ Status ArrowBlockConvertor::init() {
         return Status::InvalidArgument("Arrow converter schema is not initialized");
     }
     return Status::OK();
+}
+
+Status ArrowFlightArrowBlockConvertor::write_column(const std::shared_ptr<const IDataType>& type,
+                                                    const DataTypeSerDe& serde,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    const std::shared_ptr<arrow::Field>& field,
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
+    if (contains_extension_type(field->type())) {
+        std::shared_ptr<arrow::DataType> native_type;
+        RETURN_IF_ERROR(
+                ArrowFlightSchemaConvertor(ctz.name()).convert_to_arrow_type(type, &native_type));
+        // Check the extension identity and its complete nested shape before allowing the
+        // Variant SerDe to write binary storage. An arbitrary STRUCT is not a Variant binding.
+        // Timestamp labels may differ for equivalent fixed offsets, including inside containers.
+        if (is_declared_plain_arrow_binding(type, native_type, field->type())) {
+            return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+        }
+    }
+    return DorisArrowBlockConvertor::write_column(type, serde, column, null_map, field,
+                                                  array_builder, start, end, ctz);
 }
 
 Status ArrowFlightArrowBlockConvertor::convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
@@ -501,8 +524,16 @@ Status DorisArrowBlockConvertor::init() {
     if (_arrow_schema == nullptr) {
         // cctz names fixed offsets as "Fixed/UTC+HH:MM:SS", which is not the Arrow
         // protocol label. Keep the declared name so Python metadata and batches agree.
-        RETURN_IF_ERROR(get_arrow_schema_from_block(_header, &_arrow_schema, _timezone_name,
-                                                    _datetime_naive));
+        RETURN_IF_ERROR(DorisArrowSchemaConvertor(_header, _timezone_name)
+                                .get_arrow_schema(&_arrow_schema));
+    }
+    return ArrowBlockConvertor::init();
+}
+
+Status ArrowFlightArrowBlockConvertor::init() {
+    if (_arrow_schema == nullptr) {
+        RETURN_IF_ERROR(ArrowFlightSchemaConvertor(_header, _timezone_name)
+                                .get_arrow_schema(&_arrow_schema));
     }
     return ArrowBlockConvertor::init();
 }
