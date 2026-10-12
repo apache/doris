@@ -19,7 +19,6 @@ package org.apache.doris.sqlparser.benchmark;
 
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.parser.ParseErrorListener;
-import org.apache.doris.nereids.parser.PostProcessor;
 import org.apache.doris.sqlparser.DorisSqlParser;
 
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -58,7 +57,6 @@ public class LocalRulePrefixBenchmark {
     public String workload;
 
     private final DorisSqlParser facade = new DorisSqlParser();
-    private final PostProcessor postProcessor = new PostProcessor();
     private final ParseErrorListener errorListener = new ParseErrorListener();
 
     private String sql;
@@ -113,7 +111,6 @@ public class LocalRulePrefixBenchmark {
     private DorisParser newParser(List<Token> input) {
         CommonTokenStream stream = new CommonTokenStream(new ListTokenSource(input));
         DorisParser parser = new DorisParser(stream);
-        parser.addParseListener(postProcessor);
         parser.removeErrorListeners();
         parser.addErrorListener(errorListener);
         parser.getInterpreter().setPredictionMode(PredictionMode.SLL);

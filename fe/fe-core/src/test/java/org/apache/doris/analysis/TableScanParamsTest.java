@@ -17,10 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
@@ -40,31 +42,31 @@ public class TableScanParamsTest {
 
     @Test
     public void testConstructRejectsInvalidParamType() {
-        IllegalArgumentException e = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new TableScanParams("unknown", EMPTY_MAP, EMPTY_LIST));
-        Assert.assertTrue(e.getMessage().contains("Invalid param type"));
+        Assertions.assertTrue(e.getMessage().contains("Invalid param type"));
     }
 
     @Test
     public void testParamTypeLowerCased() {
         TableScanParams params = new TableScanParams("BRANCH", EMPTY_MAP, EMPTY_LIST);
-        Assert.assertEquals(TableScanParams.BRANCH, params.getParamType());
-        Assert.assertTrue(params.isBranch());
+        Assertions.assertEquals(TableScanParams.BRANCH, params.getParamType());
+        Assertions.assertTrue(params.isBranch());
     }
 
     @Test
     public void testNullMapParamsBecomesEmpty() {
         TableScanParams params = new TableScanParams(TableScanParams.TAG, null, EMPTY_LIST);
-        Assert.assertTrue(params.getMapParams().isEmpty());
+        Assertions.assertTrue(params.getMapParams().isEmpty());
     }
 
     @Test
     public void testTypePredicates() {
-        Assert.assertTrue(new TableScanParams(TableScanParams.INCREMENTAL_READ, EMPTY_MAP, EMPTY_LIST)
+        Assertions.assertTrue(new TableScanParams(TableScanParams.INCREMENTAL_READ, EMPTY_MAP, EMPTY_LIST)
                 .incrementalRead());
-        Assert.assertTrue(new TableScanParams(TableScanParams.SNAPSHOT, EMPTY_MAP, EMPTY_LIST).isSnapshot());
-        Assert.assertTrue(new TableScanParams(TableScanParams.RESET, EMPTY_MAP, EMPTY_LIST).isReset());
-        Assert.assertTrue(new TableScanParams(TableScanParams.TAG, EMPTY_MAP, EMPTY_LIST).isTag());
+        Assertions.assertTrue(new TableScanParams(TableScanParams.SNAPSHOT, EMPTY_MAP, EMPTY_LIST).isSnapshot());
+        Assertions.assertTrue(new TableScanParams(TableScanParams.RESET, EMPTY_MAP, EMPTY_LIST).isReset());
+        Assertions.assertTrue(new TableScanParams(TableScanParams.TAG, EMPTY_MAP, EMPTY_LIST).isTag());
     }
 
     @Test
@@ -74,9 +76,9 @@ public class TableScanParamsTest {
 
     @Test
     public void testValidateOlapTableRejectsOthers() {
-        IllegalArgumentException e = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new TableScanParams(TableScanParams.BRANCH, EMPTY_MAP, EMPTY_LIST).validateOlapTable());
-        Assert.assertTrue(e.getMessage().contains("Invalid param type for olap table"));
+        Assertions.assertTrue(e.getMessage().contains("Invalid param type for olap table"));
     }
 
     @Test
@@ -86,10 +88,24 @@ public class TableScanParamsTest {
     }
 
     @Test
+    public void testValidateOlapTableStreamRejectsArguments() {
+        for (String mode : ImmutableList.of(TableScanParams.SNAPSHOT, TableScanParams.RESET)) {
+            AnalysisException mapError = Assertions.assertThrows(AnalysisException.class,
+                    () -> new TableScanParams(mode, ImmutableMap.of("unknown", "x"), EMPTY_LIST)
+                            .validateOlapTableStream());
+            Assertions.assertEquals(mode + " does not accept parameters", mapError.getMessage());
+            AnalysisException listError = Assertions.assertThrows(AnalysisException.class,
+                    () -> new TableScanParams(mode, EMPTY_MAP, ImmutableList.of("x"))
+                            .validateOlapTableStream());
+            Assertions.assertEquals(mode + " does not accept parameters", listError.getMessage());
+        }
+    }
+
+    @Test
     public void testValidateOlapTableStreamRejectsOthers() {
-        IllegalArgumentException e = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new TableScanParams(TableScanParams.INCREMENTAL_READ, EMPTY_MAP, EMPTY_LIST)
                         .validateOlapTableStream());
-        Assert.assertTrue(e.getMessage().contains("Invalid param type for olap table stream"));
+        Assertions.assertTrue(e.getMessage().contains("Invalid param type for olap table stream"));
     }
 }

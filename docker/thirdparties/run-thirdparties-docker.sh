@@ -76,12 +76,12 @@ Usage: $0 <options>
      --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio,fluss
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris,fluss"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -257,6 +257,7 @@ RUN_KERBEROS=0
 RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
+RUN_FLUSS=0
 
 RESERVED_PORTS="65535"
 
@@ -303,6 +304,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_RANGER=1
     elif [[ "${element}"x == "polaris"x ]]; then
         RUN_POLARIS=1
+    elif [[ "${element}"x == "fluss"x ]]; then
+        RUN_FLUSS=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -368,11 +371,23 @@ find_juicefs_hadoop_jar() {
     local -a jar_globs=(
         "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
+        # Where this build deploys it: BE reads plugins/jni_fs both from bin/start_be.sh (system
+        # class path, native libhdfs) and from PluginRuntime (every Java plugin's classpath).
+        "${DORIS_ROOT}/output/be/plugins/jni_fs/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        # BE used to deploy juicefs under lib/juicefs/ and, before that, under
+        # lib/java_extensions/. Clusters already deployed on CI machines still have those layouts
+        # and are not rebuilt by this repo, so the old globs stay alongside the new one - first
+        # match wins and a miss costs nothing.
+        "${DORIS_ROOT}/output/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/plugins/jni_fs/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/plugins/jni_fs/juicefs/juicefs-hadoop-[0-9]*.jar"
         "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
     )
     juicefs_find_hadoop_jar_by_globs "${jar_globs[@]}"
@@ -637,8 +652,8 @@ reset_data_dirs() {
     local data_dir
 
     for data_dir in "$@"; do
-        sudo mkdir -p "${data_dir}"
-        sudo rm -rf "${data_dir:?}"/*
+        host_admin_cmd mkdir -p "${data_dir}"
+        host_admin_cmd rm -rf "${data_dir:?}"/*
     done
 }
 
@@ -1476,6 +1491,43 @@ start_mariadb() {
         "${ROOT}/docker-compose/mariadb/data"
 }
 
+start_fluss() {
+    local fluss_dir="${ROOT}/docker-compose/fluss"
+
+    # The compose file bind mounts remote.data.dir and the paimon warehouse at
+    # the same absolute paths it uses inside the containers, so Doris (running on
+    # the host) can read the kv snapshots and remote log segments the servers
+    # write, and the lake files the tiering service writes.
+    export FLUSS_COMPOSE_DIR="${fluss_dir}"
+    envsubst <"${fluss_dir}/fluss.env.tpl" >"${fluss_dir}/fluss.env"
+    set -a
+    # shellcheck source=/dev/null
+    . "${fluss_dir}/fluss.env"
+    set +a
+
+    render_uid_template "${fluss_dir}/fluss.yaml.tpl" "${fluss_dir}/fluss.yaml"
+    register_stack_metadata "fluss" "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env"
+    compose_down_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" --remove-orphans
+
+    if [[ "${STOP}" -eq 1 ]]; then
+        return 0
+    fi
+
+    # The official fluss server image carries no paimon-s3, and the servers need
+    # it to reach the object-store warehouse: fetched once into cache/ and bind
+    # mounted into both server containers (fluss.env.tpl says why; the images
+    # themselves are pulled by compose).
+    bash "${fluss_dir}/fetch-paimon-s3.sh"
+
+    reset_data_dirs "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    # The fluss and flink images run as uid 9999, the host directories are
+    # created by root.
+    host_admin_cmd chmod 777 "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    host_admin_cmd chmod +x "${fluss_dir}/scripts/run-init-sql.sh"
+
+    compose_up_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" -d --wait
+}
+
 start_lakesoul() {
     echo "RUN_LAKESOUL"
     cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
@@ -1736,16 +1788,71 @@ start_polaris() {
     fi
 }
 
+# The Doris plugin jars and service definition used to be curl'ed from inside
+# ranger-admin, with the bucket patched into the tracked scripts by `sed -i`.
+# That both broke on BSD sed and left the working tree dirty, and one flaky
+# download killed the container's `set -e` entrypoint. Fetch them here instead,
+# into the gitignored cache/ dir that the container bind mounts read-only.
+download_ranger_artifacts() {
+    local dest="${ROOT}/docker-compose/ranger/cache"
+    local url_prefix="https://${s3BucketName}.${s3Endpoint}/regression/docker/ranger-plugins"
+    local name
+
+    # --retry-all-errors needs curl >= 7.71; under `set -eo pipefail` an older curl rejects the flag and
+    # aborts start_ranger outright, so it is only passed when this curl knows it.
+    local retry_all_errors=()
+    if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+        retry_all_errors=(--retry-all-errors)
+    fi
+
+    # Downloaded on every start rather than cached like the other two. It is a few KB, and it is the one
+    # artifact that changes in place - a new access type, a corrected data mask transformer - under a name that
+    # never does. Cached, an updated definition would silently never reach a machine that has run this once,
+    # while everything looked fine: install_doris_service_def.sh registers whatever it is given, and the suites
+    # would keep testing the old one.
+    local always_fetch="ranger-servicedef-doris.json"
+
+    mkdir -p "${dest}"
+    for name in "${always_fetch}" \
+        mysql-connector-java-8.0.25.jar \
+        ranger-doris-plugin-3.0.0-SNAPSHOT.jar; do
+        # The jars are cached: tens of megabytes each, and versioned in their names.
+        if [[ "${name}" != "${always_fetch}" && -s "${dest}/${name}" ]]; then
+            echo "ranger artifact cached: ${name}"
+            continue
+        fi
+        echo "downloading ${url_prefix}/${name}"
+        if ! curl -fsSL --retry 10 "${retry_all_errors[@]}" --retry-delay 5 \
+            --connect-timeout 30 --speed-limit 1024 --speed-time 120 \
+            -o "${dest}/${name}.part" "${url_prefix}/${name}"; then
+            rm -f "${dest}/${name}.part"
+            # A refresh that fails is not a reason to refuse to start on a machine that already has the
+            # artifact: making the definition unconditional turned every `-c ranger` into one that needs the
+            # network, including on a laptop that has run this a hundred times. Warn loudly, because the copy
+            # being used may be older than the bucket's.
+            if [[ -s "${dest}/${name}" ]]; then
+                echo "WARNING: could not refresh ${name}; using the cached copy, which may be out of date" >&2
+                continue
+            fi
+            echo "failed to download ${url_prefix}/${name} and there is no cached copy" >&2
+            return 1
+        fi
+        mv "${dest}/${name}.part" "${dest}/${name}"
+    done
+}
+
 start_ranger() {
     echo "RUN_RANGER"
     export CONTAINER_UID=${CONTAINER_UID}
-    find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3Endpoint/${s3Endpoint}/g" {} \;
-    find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3BucketName/${s3BucketName}/g" {} \;
     . "${ROOT}/docker-compose/ranger/ranger_settings.env"
     envsubst <"${ROOT}"/docker-compose/ranger/ranger.yaml.tpl >"${ROOT}"/docker-compose/ranger/ranger.yaml
     register_stack_metadata "ranger" "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env"
     compose_down_stack "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
+        # Inside the start branch: this function also handles `--stop`, and under `set -e` an
+        # unreachable bucket turns stopping the stack into minutes of curl retries followed by an
+        # exit, with the containers left running.
+        download_ranger_artifacts
         compose_up_stack "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env" -d --wait --remove-orphans
     fi
 }
@@ -1863,6 +1970,10 @@ fi
 
 if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
     launch_component "lakesoul" "${LOG_ROOT}/start_lakesoul.log" start_lakesoul
+fi
+
+if [[ "${RUN_FLUSS}" -eq 1 ]]; then
+    launch_component "fluss" "${LOG_ROOT}/start_fluss.log" start_fluss
 fi
 
 if [[ "${RUN_MINIO}" -eq 1 ]]; then

@@ -51,7 +51,7 @@ Status SniiCompoundWriter::poison(Status status) {
         // SOLE owner of a staging file holding a whole faiss index or a BKD leaf
         // region, because the producer hands it over at registration. Waiting for
         // finish() to release them is not enough: after a poison, production
-        // usually never calls it. SegmentWriter::_write_inverted_index() returns
+        // usually never calls it. VerticalSegmentWriter::_write_inverted_index() returns
         // before close_inverted_index(), and SegmentCreator::flush() keeps the
         // failed writer, so the files and their descriptors would stay pinned
         // until this writer is destroyed.
@@ -142,6 +142,7 @@ Status SniiCompoundWriter::inherit(const reader::SniiRewriteSnapshot& snapshot,
         DORIS_CHECK_EQ(group.metadata_group.size(), group.core_length +
                                                             group.sampled_term_index_length +
                                                             group.dict_block_directory_length);
+        group.dropped_postings = index.dropped_postings;
         inherited_.push_back(std::move(group));
     }
     return Status::OK();
@@ -335,34 +336,14 @@ void SniiCompoundWriter::release_all_blob_sources() {
     }
 }
 
-SniiIndexInput SniiStreamedIndexSession::attach_encoded_norms(SniiIndexInput in,
-                                                              TrackedEncodedNorms* encoded_norms,
-                                                              uint64_t reserved_bytes) {
-    DORIS_CHECK(encoded_norms != nullptr);
-    DORIS_CHECK(in.encoded_norms.empty());
-    if (in.mem_reporter != nullptr) {
-        DORIS_CHECK_EQ(reserved_bytes, encoded_norms->norms_.capacity());
-    } else {
-        DORIS_CHECK_EQ(reserved_bytes, 0);
-    }
-    in.encoded_norms = std::move(encoded_norms->norms_);
-    return in;
-}
-
 SniiStreamedIndexSession::SniiStreamedIndexSession(SniiCompoundWriter* owner, SniiIndexInput in,
-                                                   TrackedNullDocids null_docids,
-                                                   TrackedEncodedNorms encoded_norms)
+                                                   TrackedNullDocids null_docids)
         : owner_(owner),
-          encoded_norms_reservation_(std::move(encoded_norms.reservation_)),
-          input_(attach_encoded_norms(std::move(in), &encoded_norms,
-                                      encoded_norms_reservation_.bytes())),
+          input_(std::move(in)),
           // input_ (a member, initialized above) owns the vectors the writer
           // keeps references into -- NOT the caller's already-moved-from `in`.
           writer_(new LogicalIndexWriter(input_, std::move(null_docids))),
-          semantic_token_count_required_(
-                  input_.common_grams_metadata.has_value() &&
-                  input_.common_grams_metadata->scoring_coverage ==
-                          segment_v2::inverted_index::ScoringCoverage::kComplete) {}
+          norms_required_(input_.write_norms) {}
 
 Status SniiStreamedIndexSession::push_term(StreamedTermPostings&& tp) {
     if (!owner_->failed_.ok()) return owner_->failed_;
@@ -375,25 +356,29 @@ Status SniiStreamedIndexSession::push_term(StreamedTermPostings&& tp) {
     return Status::OK();
 }
 
-Status SniiStreamedIndexSession::set_semantic_token_count(uint64_t token_count) {
+Status SniiStreamedIndexSession::set_encoded_norms(TrackedEncodedNorms encoded_norms) {
     if (!owner_->failed_.ok()) return owner_->failed_;
     if (finished_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: semantic token count on a finished streamed index session");
+                "compound: norms on a finished streamed index session");
     }
-    if (!semantic_token_count_required_) {
+    if (!norms_required_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: streamed index session has no complete semantic scoring metadata");
+                "compound: streamed index session did not declare norms");
     }
-    if (semantic_token_count_set_) {
+    if (norms_set_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: semantic token count was already set");
+                "compound: norms were already set");
     }
-    DORIS_CHECK(input_.common_grams_metadata.has_value());
-    DORIS_CHECK(writer_->common_grams_metadata_.has_value());
-    input_.common_grams_metadata->scoring_token_count = token_count;
-    writer_->common_grams_metadata_->scoring_token_count = token_count;
-    semantic_token_count_set_ = true;
+    if (encoded_norms.size() != input_.doc_count) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "compound: norms length {} differs from doc_count {}", encoded_norms.size(),
+                input_.doc_count);
+    }
+    // writer_ references input_.encoded_norms; move into it here for finalize to read by reference.
+    encoded_norms_reservation_ = std::move(encoded_norms.reservation_);
+    input_.encoded_norms = std::move(encoded_norms.norms_);
+    norms_set_ = true;
     return Status::OK();
 }
 
@@ -403,9 +388,9 @@ Status SniiStreamedIndexSession::finish() {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: finish on an already-finished streamed index session");
     }
-    if (semantic_token_count_required_ && !semantic_token_count_set_) {
+    if (norms_required_ && !norms_set_) {
         return owner_->poison(Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: semantic token count must be set before streamed index finish"));
+                "compound: norms must be set before streamed index finish"));
     }
     return owner_->finish_streamed_index(this);
 }
@@ -433,23 +418,6 @@ Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in,
 
 Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDocids null_docids,
                                                 SniiStreamedIndexSession** session) {
-    std::vector<uint8_t> encoded_norms;
-    encoded_norms.swap(in.encoded_norms);
-    MemoryReporter::Reservation encoded_norms_reservation =
-            in.mem_reporter == nullptr ? MemoryReporter::Reservation()
-                                       : in.mem_reporter->make_reservation();
-    if (in.mem_reporter != nullptr) {
-        RETURN_IF_ERROR(encoded_norms_reservation.set_bytes(encoded_norms.capacity()));
-    }
-    return begin_streamed_index(
-            std::move(in), std::move(null_docids),
-            TrackedEncodedNorms(std::move(encoded_norms_reservation), std::move(encoded_norms)),
-            session);
-}
-
-Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDocids null_docids,
-                                                TrackedEncodedNorms encoded_norms,
-                                                SniiStreamedIndexSession** session) {
     if (session == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: null session out parameter");
@@ -476,8 +444,8 @@ Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDo
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: tracked streamed norms must not also be present in input");
     RETURN_IF_ERROR(ensure_bootstrap());
-    auto s = std::unique_ptr<SniiStreamedIndexSession>(new SniiStreamedIndexSession(
-            this, std::move(in), std::move(null_docids), std::move(encoded_norms)));
+    auto s = std::unique_ptr<SniiStreamedIndexSession>(
+            new SniiStreamedIndexSession(this, std::move(in), std::move(null_docids)));
     s->post_off_ = out_->bytes_written();
     RETURN_IF_ERROR(s->writer_->begin_streamed(out_));
     sessions_.push_back(std::move(s));
@@ -588,6 +556,10 @@ Status SniiCompoundWriter::write_tail() {
         entry.dict_block_directory = {
                 .offset = core_offset + group.core_length + group.sampled_term_index_length,
                 .length = group.dict_block_directory_length};
+        // The dictionary is copied byte for byte, locator-less stop-gram entries included, so
+        // this entry re-declares what the source index declared. Without it a reader that
+        // predates the feature would parse those entries instead of refusing the container.
+        entry.dropped_postings = group.dropped_postings;
         RETURN_IF_ERROR(append(group.metadata_group));
         DORIS_CHECK_EQ(out_->bytes_written(), core_offset + group.metadata_group.size());
         directory_entries.push_back(std::move(entry));
@@ -609,6 +581,9 @@ Status SniiCompoundWriter::write_tail() {
         LogicalIndexMetadataRef entry;
         entry.index_id = w.index_id();
         entry.index_suffix = w.index_suffix();
+        // Inherited groups are handled above: they carry the source container's declaration,
+        // because their dictionaries are copied rather than written here.
+        entry.dropped_postings = w.dropped_posting_terms() > 0;
         entry.core_metadata = {.offset = out_->bytes_written(), .length = group.core.size()};
         RETURN_IF_ERROR(append(group.core));
         DORIS_CHECK_EQ(out_->bytes_written(),

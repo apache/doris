@@ -168,7 +168,7 @@ public class ScopedMetaCacheHierarchyTest {
     }
 
     @Test
-    public void disabledCacheNeverPublishesOrAllocatesIndexes() {
+    public void disabledCacheNeverPublishesOrRetainsIndexes() {
         List<CacheSpec> disabledSpecs = Arrays.asList(
                 CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 100L),
                 CacheSpec.of(true, CacheSpec.CACHE_TTL_DISABLE_CACHE, 100L),
@@ -182,6 +182,9 @@ public class ScopedMetaCacheHierarchyTest {
                 Assertions.assertEquals(2, cache.get("key", PARTITION, key -> loads.incrementAndGet()));
                 cache.put("key", PARTITION, 3);
                 try (BulkLoadHandle handle = cache.beginBulkLoad(TABLE)) {
+                    Assertions.assertTrue(cache.isBulkLoadCurrent(handle, "bulk"));
+                    registry.invalidate(TABLE);
+                    Assertions.assertFalse(cache.isBulkLoadCurrent(handle, "bulk"));
                     Assertions.assertFalse(cache.publish(handle, "bulk", PARTITION, 4));
                 }
 

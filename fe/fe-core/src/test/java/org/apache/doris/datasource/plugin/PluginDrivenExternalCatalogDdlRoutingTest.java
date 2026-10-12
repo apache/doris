@@ -429,6 +429,42 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
+    public void testDropTemporaryTableNeverDropsPermanentExternalTable() {
+        // An external catalog hosts no temporary tables, so the name resolves to the permanent table.
+        // DROP TEMPORARY TABLE must report the missing temporary table and leave the permanent one alone.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> catalog.dropTable("db1", "t1", false, false, false, false, true, false));
+        Assertions.assertTrue(ex.getMessage().contains("Unknown table"), ex.getMessage());
+        Mockito.verifyNoInteractions(metadata);
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testDropTemporaryTableIfExistsIsNoopAndKeepsPermanentExternalTable() throws Exception {
+        // With IF EXISTS the missing temporary table is a no-op; the permanent table must survive.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
+        catalog.dropTable("db1", "t1", false, false, false, true, true, false);
+
+        Mockito.verifyNoInteractions(metadata);
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void testDropTableHandleAbsentAfterLocalResolveCleansLocalStateWithIfExists() throws Exception {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         ExternalTable table = Mockito.mock(ExternalTable.class);
@@ -868,10 +904,43 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         boolean res = catalog.createTable(info);
 
         Assertions.assertTrue(res, "existing local table + IF NOT EXISTS must return true");
+        Assertions.assertEquals(0, catalog.createTableValidationCount,
+                "an existing IF NOT EXISTS target must remain a no-op even if new validation rules exist");
         Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
         Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
         Mockito.verify(mockMetaCacheMgr).invalidateTable(
                 1L, DATABASE_ID, "db1", Util.genIdByName("test-catalog", "db1", "t1"), "t1");
+    }
+
+    @Test
+    public void testCreateTablePreflightRunsBeforeRemoteLookupWithoutIfNotExists() {
+        catalog.createTableValidationFailure = new DdlException("unsupported catalog configuration");
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.isIfNotExists()).thenReturn(false);
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+
+        Assertions.assertTrue(ex.getMessage().contains("unsupported catalog configuration"));
+        Assertions.assertEquals(1, catalog.createTableValidationCount);
+        Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testCreateTableIfNotExistsValidatesOnlyWhenTargetIsAbsent() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        catalog.dbNullableResult = db;
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1")).thenReturn(Optional.empty());
+        catalog.createTableValidationFailure = new DdlException("unsupported catalog configuration");
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("db1");
+        Mockito.when(info.getTableName()).thenReturn("t1");
+        Mockito.when(info.isIfNotExists()).thenReturn(true);
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+
+        Assertions.assertTrue(ex.getMessage().contains("unsupported catalog configuration"));
+        Assertions.assertEquals(1, catalog.createTableValidationCount);
+        Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -1508,6 +1577,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         int resetMetaCacheNamesCount;
         String unregisteredDb;
         String lastGetDbForReplayArg;
+        int createTableValidationCount;
+        DdlException createTableValidationFailure;
 
         TestablePluginCatalog(Connector initial) {
             super(1L, "test-catalog", null, testProps(), "", initial);
@@ -1527,6 +1598,14 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         @Override
         public ConnectorSession buildCrossStatementSession() {
             return buildConnectorSession();
+        }
+
+        @Override
+        public void validateCreateTableProperties(CreateTableInfo createTableInfo) throws DdlException {
+            createTableValidationCount++;
+            if (createTableValidationFailure != null) {
+                throw createTableValidationFailure;
+            }
         }
 
         @Override

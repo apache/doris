@@ -32,7 +32,7 @@ namespace doris {
 class ReadSchema;
 
 namespace segment_v2 {
-class SegmentWriter;
+class VerticalSegmentWriter;
 } // namespace segment_v2
 class RowSourcesBuffer;
 class VerticalBlockReader;
@@ -77,15 +77,16 @@ public:
 
 private:
     Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end);
+            std::unique_ptr<segment_v2::VerticalSegmentWriter>* writer, uint32_t begin,
+            uint32_t end);
     Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                      TabletSharedPtr tablet, ReadSchemaSPtr read_schema,
                                      OlapReaderStatistics* stat, RowSourcesBuffer& row_sources_buf,
                                      bool is_key,
                                      std::vector<uint32_t>& key_group_cluster_key_idxes,
                                      std::unique_ptr<VerticalBlockReader>* reader);
-    std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint32_t begin,
-                                                                            uint32_t end);
+    std::unique_ptr<segment_v2::VerticalSegmentWriter> _create_segcompaction_writer(uint32_t begin,
+                                                                                    uint32_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
                               uint32_t begin, uint32_t end, bool is_mow_with_cluster_keys);

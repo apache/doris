@@ -19,6 +19,8 @@
 #include <gtest/gtest.h>
 
 #include "common/consts.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "exec/common/variant_util.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
@@ -142,9 +144,13 @@ static void fill_varaint_column(auto& variant_column, int size, int uid) {
     auto column = type_string->create_column();
     auto column_string = assert_cast<ColumnString*>(column.get());
     fill_string_column_with_test_data(column_string, size, uid);
-    ParseConfig config;
-    config.deprecated_enable_flatten_nested = false;
-    variant_util::parse_json_to_variant(*variant_column, *column_string, config);
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions options;
+    for (size_t row = 0; row < column_string->size(); ++row) {
+        auto value = column_string->get_data_at(row);
+        Slice slice(value.data, value.size);
+        EXPECT_TRUE(serde.deserialize_one_cell_from_json(*variant_column, slice, options).ok());
+    }
 }
 
 static void fill_block_with_test_data(Block* block, int size) {
@@ -526,7 +532,6 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
 
     // key3 is in the sparse column, return variant type
     StorageReadOptions type_opts;
-    type_opts.tablet_schema = out_rowset->tablet_schema();
     type_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     TabletColumn non_variant_column;
     non_variant_column.set_name("non_variant_column");
@@ -661,8 +666,9 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
+    VariantCompactionPathsMap compaction_paths;
     auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets, compaction_schema);
+            rowsets, compaction_schema, compaction_paths);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // 5. check compaction schema
@@ -728,9 +734,8 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     auto size = variant_subcolumn_writer->estimate_buffer_size();
     std::cout << "size: " << size << std::endl;
     // append data
-    auto insert_object = ColumnVariant::create(0, false);
+    auto insert_object = ColumnVariantV2::create();
     fill_varaint_column(insert_object, 1, 1);
-    std::cout << insert_object->debug_string() << std::endl;
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();
     _variant_column_data->column_data = insert_object.get();
     _variant_column_data->row_pos = 0;
@@ -780,8 +785,9 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
+    VariantCompactionPathsMap compaction_paths;
     auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets, compaction_schema);
+            rowsets, compaction_schema, compaction_paths);
     EXPECT_TRUE(st.ok()) << st.msg();
     for (const auto& column : compaction_schema->columns()) {
         if (column->is_extracted_column()) {

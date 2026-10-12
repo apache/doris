@@ -24,27 +24,46 @@
 #include "CLucene/analysis/AnalysisHeader.h"
 #include "storage/index/inverted/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analyzer/ik/core/IKSegmenter.h"
+#include "storage/index/inverted/tokenizer/tokenizer.h"
 
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
+namespace inverted_index {
+class DorisCharFilter;
+}
 
-class IKTokenizer : public Tokenizer {
+class IKTokenizer : public inverted_index::DorisTokenizer {
 public:
     IKTokenizer();
     IKTokenizer(std::shared_ptr<Configuration> config, bool lowercase, bool ownReader);
     ~IKTokenizer() override = default;
 
     Token* next(Token* token) override;
+    void reset() override;
     void reset(lucene::util::Reader* reader) override;
+    void set_source_byte_offsets_enabled(bool enabled) override {
+        source_byte_offsets_enabled_ = enabled;
+        inverted_index::DorisTokenizer::set_source_byte_offsets_enabled(enabled);
+    }
 
 private:
+    struct TokenData {
+        std::string text;
+        int32_t start_offset;
+        int32_t end_offset;
+    };
+
     int32_t buffer_index_ {0};
     int32_t data_length_ {0};
     std::string buffer_;
-    std::vector<std::string> tokens_text_;
+    std::vector<TokenData> tokens_;
     std::shared_ptr<Configuration> config_;
     std::unique_ptr<IKSegmenter> ik_segmenter_;
+    TokenData* current_token_ {nullptr};
+    std::vector<int32_t> current_source_byte_offsets_;
+    const inverted_index::DorisCharFilter* source_char_filter_ {nullptr};
+    bool source_byte_offsets_enabled_ {false};
 };
 
 } // namespace doris::segment_v2

@@ -132,7 +132,7 @@ import java.util.UUID;
  * thus we could wrap common logic in this base class. It's easier to use.
  * Note:
  * Unit-test method in derived classes must use the JUnit5 {@link org.junit.jupiter.api.Test}
- * annotation, rather than the old JUnit4 {@link org.junit.Test} or others.
+ * annotation. JUnit 4 is banned by checkstyle and is not on this classpath.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class TestWithFeService {
@@ -669,6 +669,17 @@ public abstract class TestWithFeService {
 
     public void useDatabase(String dbName) {
         connectContext.setDatabase(dbName);
+    }
+
+    // Explicit opt-in for ROW fixtures; keep the feature switch unchanged outside this DDL.
+    protected void createTableWithRowBinlog(String sql) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            createTable(sql);
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
     }
 
     public void createTable(String sql) throws Exception {

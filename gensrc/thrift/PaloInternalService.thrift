@@ -421,9 +421,8 @@ struct TQueryOptions {
   180: optional i32 max_file_scanners_concurrency = 0;
   181: optional i32 min_file_scanners_concurrency = 0;
   182: optional i32 ivf_nprobe = 32;
-  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
-  // runtime profiling to choose the most efficient algorithm for the data pattern
-  183: optional bool enable_use_hybrid_sort = false;
+  183: optional bool enable_aggregate_function_null_v2 = false;
+
   184: optional i32 cte_max_recursion_depth;
 
   185: optional bool enable_parquet_file_page_cache = true;
@@ -434,11 +433,10 @@ struct TQueryOptions {
 
   188: optional bool enable_broadcast_join_force_passthrough;
 
-  189: optional bool enable_aggregate_function_null_v2 = false;
-
   195: optional bool enable_left_semi_direct_return_opt;
 
   200: optional bool enable_adjust_conjunct_order_by_cost;
+
   // Deprecated: the paimon-cpp reader has been removed. Retained for wire compatibility.
   201: optional bool enable_paimon_cpp_reader = false;
 
@@ -459,7 +457,9 @@ struct TQueryOptions {
   // memory exceeds the corresponding threshold, it proactively spills to disk.
   // Default is 64MB for all three.
   205: optional i64 spill_join_build_sink_mem_limit_bytes = 67108864
+
   206: optional i64 spill_aggregation_sink_mem_limit_bytes = 67108864
+
   207: optional i64 spill_sort_sink_mem_limit_bytes = 67108864
 
   // Total memory budget for the sort merge phase after spill. Divided by
@@ -473,32 +473,35 @@ struct TQueryOptions {
   // session variable `spill_repartition_max_depth` in FE. Default is 8.
   209: optional i32 spill_repartition_max_depth = 8
 
-  210: optional double max_scan_mem_ratio = 0.3;
+  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
+  // runtime profiling to choose the most efficient algorithm for the data pattern
+  210: optional bool enable_use_hybrid_sort = false;
+
   211: optional bool enable_adaptive_scan = false;
 
   212: optional bool enable_local_exchange_before_agg = true;
 
-  213: optional i64 file_presigned_url_ttl_seconds = 3600;
+  213: optional double max_scan_mem_ratio = 0.3;
+
   214: optional i32 embed_max_batch_size = 5;
+
   215: optional i64 ai_context_window_size = 131072;
 
   // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
   216: optional bool enable_rust_lance_reader = false; // deprecated
+
   217: optional bool new_version_percentile = false
 
   // Adaptive batch size: target output block size in bytes. Valid range [1MB, 512MB].
   // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
   218: optional i64 preferred_block_size_bytes = 8388608
 
-  // Push LIMIT into SegmentIterator when safe.
-  219: optional bool enable_segment_limit_pushdown = true
-
-  220: optional bool enable_ann_index_result_cache = true
   // ANN search falls back to exact vector distance evaluation when candidate rows
   // before ANN search are less than this value. 0 disables the absolute threshold.
-  221: optional i64 ann_index_candidate_rows_threshold = 0
+  219: optional i64 ann_index_candidate_rows_threshold = 0
+
   // Candidate row ratio threshold against segment rows. Existing default is 0.3.
-  222: optional double ann_index_candidate_rows_percent_threshold = 0.3
+  220: optional double ann_index_candidate_rows_percent_threshold = 0.3
 
   // enable plan local exchange node in fe
   223: optional bool enable_local_shuffle_planner;
@@ -509,16 +512,30 @@ struct TQueryOptions {
 
   225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
 
-  226: optional bool enable_prune_nested_column = false;
-  227: optional bool new_version_bitmap_op_count = false;
-  228: optional bool enable_local_exchange_before_streaming_agg = false;
-  // FE is the receiver of fragment reports, so BE must also honor its message limit.
-  229: optional i32 coordinator_thrift_max_message_size;
-  // FE can explicitly and idempotently acknowledge external-file commit reports.
-  230: optional bool supports_external_file_report_ack = false;
+  226: optional bool enable_local_exchange_before_streaming_agg = false;
+
+  227: optional i64 file_presigned_url_ttl_seconds = 3600;
+
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
-  231: optional bool enable_hyperscan_fallback = true;
+  228: optional bool enable_hyperscan_fallback = true;
+  229: optional bool enable_paimon_rust_reader = false;
+
+  230: optional bool enable_prune_nested_column = false;
+
+  // Push LIMIT into SegmentIterator when safe.
+  231: optional bool enable_segment_limit_pushdown = true
+
   232: optional bool enable_runtime_filter_bucket_prune = true;
+
+  233: optional bool enable_ann_index_result_cache = true
+
+  234: optional bool new_version_bitmap_op_count = false;
+
+  // FE is the receiver of fragment reports, so BE must also honor its message limit.
+  235: optional i32 coordinator_thrift_max_message_size;
+
+  // FE can explicitly and idempotently acknowledge external-file commit reports.
+  236: optional bool supports_external_file_report_ack = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -534,6 +551,12 @@ struct TQueryOptions {
   // index reads -- the two formats amplify write-back differently, so each
   // needs its own switch.
   1005: optional bool inverted_index_snii_read_no_write_file_cache = false
+  // Whether to force a pushed-down MIN/MAX onto the zone map even when its bound is not a value
+  // the data holds right now: a string bound cut at 512 bytes is a prefix, and any bound still
+  // covers rows a delete predicate removed. Statistics collection sets it; every other query
+  // reads the data instead.
+  // Defaults to false because an old FE never sends this field, and BE checked both cases before.
+  1006: optional bool force_pushdown_zonemap_minmax = false
 }
 
 
@@ -678,9 +701,9 @@ enum TCompoundType {
 }
 
 struct TAIResource {
-  1: required string endpoint
-  2: required string provider_type
-  3: required string model_name
+  1: optional string endpoint
+  2: optional string provider_type
+  3: optional string model_name
   4: optional string api_key
   5: optional double temperature
   6: optional i64 max_tokens
@@ -688,6 +711,15 @@ struct TAIResource {
   8: optional i32 retry_delay_second
   9: optional string anthropic_version
   10: optional i32 dimensions
+  11: optional string embed_endpoint
+  12: optional string embed_provider_type
+  13: optional string embed_model_name
+  14: optional string embed_api_key
+  15: optional string effort
+  16: optional string embed_mm_endpoint
+  17: optional string embed_mm_provider_type
+  18: optional string embed_mm_model_name
+  19: optional string embed_mm_api_key
 }
 
 struct TCondition {

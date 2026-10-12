@@ -20,20 +20,31 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
+import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 /** Tests for user variable handling in expression analysis. */
 public class UserVariableAnalysisTest {
@@ -69,5 +80,36 @@ public class UserVariableAnalysisTest {
         Assertions.assertInstanceOf(TimestampTzLiteral.class, literal);
         Assertions.assertEquals(TimeStampTzType.of(6), literal.getDataType());
         Assertions.assertEquals("2024-11-03 05:05:00.123456+00:00", literal.getStringValue());
+    }
+
+    @Test
+    public void testUserVarTimeStampNsTypeAndPrecision() {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.setUserVar("ts", new TimeStampNsLiteral(
+                2024, 2, 29, 12, 34, 56, 123456789));
+
+        org.apache.doris.nereids.trees.expressions.literal.Literal literal
+                = ctx.getLiteralForUserVar("ts");
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, literal.getDataType());
+        Assertions.assertEquals("2024-02-29 12:34:56.123456789", literal.getStringValue());
+    }
+
+    @Test
+    public void testBindUserVariableToRealExpressionAndRecordSqlCacheDependency() {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.setUserVar("v", new IntLiteral(42));
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(ctx, "select @v");
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                cascadesContext, false, false);
+
+        Expression analyzed = analyzer.analyze(new UnboundVariable("v", VariableType.USER));
+
+        Assertions.assertInstanceOf(Literal.class, analyzed);
+        List<Variable> usedVariables = cascadesContext.getStatementContext().getSqlCacheContext()
+                .orElseThrow().getUsedVariables();
+        Assertions.assertEquals(1, usedVariables.size());
+        Assertions.assertEquals("v", usedVariables.get(0).getName());
+        Assertions.assertEquals(VariableType.USER, usedVariables.get(0).getType());
+        Assertions.assertEquals(analyzed, usedVariables.get(0).getRealExpression());
     }
 }

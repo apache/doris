@@ -103,6 +103,8 @@ public class ColumnDef {
         public static Pattern CURRENT_TIMESTAMP_PATTERN
                 = Pattern.compile("^CURRENT_TIMESTAMP(?:\\(\\d?\\))?$");
         public static String NOW = "now";
+        public static String UUID_V4 = "uuid_v4";
+        public static String UUID_V7 = "uuid_v7";
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
@@ -149,6 +151,8 @@ public class ColumnDef {
                     format = "yyyy-MM-dd HH:mm:ss.SSSSS";
                 } else if (precision == 6) {
                     format = "yyyy-MM-dd HH:mm:ss.SSSSSS";
+                } else {
+                    format = "yyyy-MM-dd HH:mm:ss." + "S".repeat((int) precision);
                 }
                 return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
                         .format(DateTimeFormatter.ofPattern(format));
@@ -323,10 +327,11 @@ public class ColumnDef {
             switch (primitiveType) {
                 case DATETIME:
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case TIMESTAMPTZ:
                     break;
                 default:
-                    throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
+                    throw new AnalysisException("Types other than DATETIME, DATETIMEV2, TIMESTAMP_NS and TIMESTAMPTZ "
                             + "cannot use current_timestamp as the default value");
             }
         } else if (null != defaultValueExprDef
@@ -355,6 +360,14 @@ public class ColumnDef {
                 default:
                     throw new AnalysisException("Types other than DOUBLE cannot use e as the default value");
             }
+        } else if (null != defaultValueExprDef
+                && (defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.UUID_V4)
+                || defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.UUID_V7))) {
+            if (primitiveType != PrimitiveType.UUID) {
+                throw new AnalysisException("Types other than UUID cannot use UUID generation functions "
+                        + "as the default value");
+            }
+            return;
         }
         switch (primitiveType) {
             case TINYINT:
@@ -400,16 +413,19 @@ public class ColumnDef {
                 break;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
                 if (defaultValueExprDef == null) {
-                    DateLiteralUtils.createDateLiteral(defaultValue, scalarType);
+                    DateLiteralUtils.createLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         if (defaultValueExprDef.getPrecision() != null) {
                             Long defaultValuePrecision = defaultValueExprDef.getPrecision();
                             String typeStr = scalarType.toString();
-                            int typePrecision =
-                                    Integer.parseInt(typeStr.substring(typeStr.indexOf("(") + 1, typeStr.indexOf(")")));
+                            int typePrecision = scalarType.isTimeStampNs()
+                                    ? ScalarType.TIMESTAMP_NS_SCALE
+                                    : Integer.parseInt(typeStr.substring(
+                                            typeStr.indexOf("(") + 1, typeStr.indexOf(")")));
                             if (defaultValuePrecision > typePrecision) {
                                 typeStr = typeStr.replace("V2", "");
                                 throw new AnalysisException("default value precision: " + defaultValue
@@ -444,6 +460,9 @@ public class ColumnDef {
                 break;
             case IPV6:
                 new IPv6Literal(defaultValue);
+                break;
+            case UUID:
+                new UuidLiteral(defaultValue);
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);

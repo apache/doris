@@ -22,6 +22,9 @@ suite("test_gen_iceberg_by_api", "p0,external") {
         return
     }
 
+    // Iceberg instant columns use TIMESTAMPTZ; pin the display zone for typed snapshots.
+    sql """set time_zone = 'Asia/Shanghai'"""
+
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -45,10 +48,11 @@ suite("test_gen_iceberg_by_api", "p0,external") {
     def q01 = {
         qt_q01 """ select * from multi_partition2 order by val """
 
-        try {
-            qt_q02 """ select count(*) from table_with_append_file where MAN_ID is not null """
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("name_mapping must be set when read missing field id data file."), e.getMessage());
+        test {
+            sql """ select count(*) from table_with_append_file where MAN_ID is not null """
+            // This fixture has no field IDs or authoritative name mapping, so its required
+            // columns must be treated as missing instead of being matched by their current names.
+            exception "Missing required field: MAN_ID"
         }
     }
 

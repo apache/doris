@@ -32,10 +32,10 @@ import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.FixMethodOrder;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
-import org.junit.runners.MethodSorters;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -44,7 +44,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentMap;
 
-@FixMethodOrder(value = MethodSorters.NAME_ASCENDING)
+@TestMethodOrder(MethodOrderer.MethodName.class)
 public class HistogramTaskTest extends TestWithFeService {
 
     @Override

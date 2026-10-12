@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -30,6 +31,13 @@
 #include "storage/index/inverted/query/query_info.h"
 
 namespace doris {
+
+struct InvertedIndexAnalyzerCtx;
+
+// Build the analyzer context of an index, converting a failure to build the analyzer provider
+// into a Status instead of letting the exception escape a Status-returning caller.
+Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
+        const std::map<std::string, std::string>& properties);
 
 class VSlotRef;
 class TabletIndex;
@@ -49,7 +57,6 @@ struct CollectInfo {
     std::vector<std::string> unique_terms;
     std::unordered_map<std::string, uint32_t> unique_term_slots;
     std::vector<LogicalScoringLeaf> logical_scoring_leaves;
-    std::string expected_base_analyzer_fingerprint;
     std::shared_ptr<const TabletIndex> owned_index_meta;
     const TabletIndex* index_meta = nullptr;
 };

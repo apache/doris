@@ -480,12 +480,31 @@ abstract class IvmDeltaTestBase {
             return;
         }
         long partitionId = table.getId() * 100 + 1;
-        Partition partition = new Partition(partitionId, "p1",
+        addTestPartition(table, "p1", partitionId);
+    }
+
+    private void addTestPartition(OlapTable table, String name, long partitionId) {
+        Partition partition = new Partition(partitionId, name,
                 new MaterializedIndex(table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL),
                 new RandomDistributionInfo(1));
         partition.setVisibleVersionAndTime(Partition.PARTITION_INIT_VERSION + 1,
                 partitionId * 10, partitionId * 10);
         partition.setNextVersion(Partition.PARTITION_INIT_VERSION + 2);
         table.addPartition(partition);
+    }
+
+    /**
+     * Builds a scan for a table with two partitions, p1 and p2, so that a partition subset is
+     * available to restrict a scan to.
+     */
+    protected LogicalOlapScan buildScanForTableWithTwoPartitions(long tableId, String tableName) {
+        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
+        addTestPartition(table);
+        addTestPartition(table, "p2", tableId * 100 + 2);
+        enableRowBinlog(table);
+        table.setQualifiedDbName("test_db");
+        registerTestStreams(table);
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"));
     }
 }

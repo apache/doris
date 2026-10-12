@@ -150,6 +150,12 @@ public:
         if (rhs.first_init) {
             return;
         }
+        if (!AggOrthBitmapBaseData<T>::first_init) {
+            if (UNLIKELY(!AggOrthBitmapBaseData<T>::bitmap.has_same_keys(rhs.bitmap))) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "intersect_count aggregate states have incompatible filter values");
+            }
+        }
         AggOrthBitmapBaseData<T>::bitmap.merge(rhs.bitmap);
         AggOrthBitmapBaseData<T>::first_init = false;
     }

@@ -18,6 +18,8 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
@@ -37,6 +39,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -47,11 +50,11 @@ import java.util.stream.Collectors;
  * {@link ConnectorMetadataCache}) wired into {@link IcebergConnectorMetadata#getMvccPartitionView} /
  * {@link IcebergConnectorMetadata#listPartitions}. Uses the real {@link InMemoryCatalog} +
  * {@link RecordingIcebergCatalogOps} harness (no Mockito, no docker): the cache sits ABOVE the per-query build,
- * whose first step is {@code resolveTableForRead -> catalogOps.loadTable} (logged as {@code loadTable:db1.t1}), so
- * a cache HIT skips the whole loader and the {@code loadTable} count is the enumeration counter — the SAME proxy
- * the sibling cache tests use ({@code IcebergConnectorMetadataMvccTest.beginQuerySnapshot*Cache*}). The raw
- * partition cache (PERF-02) is passed null throughout, so the {@code loadTable} count isolates cache A's effect.
- * The partition math/merge parity itself is covered by {@link IcebergPartitionUtilsTest}.
+ * whose first step is {@code resolveTableForRead -> catalogOps.loadTable} (logged as {@code loadTable:db1.t1}).
+ * The spec generation must be read before each lookup because an external spec-only commit changes neither the
+ * snapshot nor schema id; object identity therefore proves a derived-cache hit while load counts prove generation
+ * checks still happen. The raw partition cache (PERF-02) is passed null throughout, so object identity comes
+ * directly from cache A. The partition math/merge parity itself is covered by {@link IcebergPartitionUtilsTest}.
  */
 public class IcebergConnectorMetadataPartitionViewCacheTest {
 
@@ -125,15 +128,72 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
                 .map(ConnectorMvccPartition::getName).collect(Collectors.toList());
     }
 
+    @Test
+    public void derivedViewWeightsIncludeTailAtEveryPosition() {
+        ConnectorTableKey key = new ConnectorTableKey("db", "table", 1L, 1L);
+        String large = "x".repeat(1024 * 1024);
+        long listBaseline = 0L;
+        long mvccBaseline = 0L;
+        for (int position : new int[] {-1, 0, 333, 998, 999}) {
+            List<ConnectorPartitionInfo> listView = new ArrayList<>();
+            List<ConnectorMvccPartition> mvccPartitions = new ArrayList<>();
+            for (int index = 0; index < 1000; index++) {
+                String value = index == position ? large : "x";
+                listView.add(new ConnectorPartitionInfo("p=" + value,
+                        Collections.singletonMap("p", value), Collections.emptyMap(),
+                        Collections.singletonList(value), Collections.emptyList()));
+                mvccPartitions.add(new ConnectorMvccPartition("p=" + value,
+                        Collections.singletonList(value), Collections.singletonList(value), 1L));
+            }
+            long listBytes = IcebergCacheSizeEstimator.estimatePartitionInfoViewEntry(key, listView).getBytes();
+            long mvccBytes = IcebergCacheSizeEstimator.estimateMvccPartitionViewEntry(key,
+                    new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
+                            ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, mvccPartitions, 1L)).getBytes();
+            if (position == -1) {
+                listBaseline = listBytes;
+                mvccBaseline = mvccBytes;
+            } else {
+                long nameGrowth = JvmSizeUtils.stringSize("p=" + large) - JvmSizeUtils.stringSize("p=x");
+                long valueGrowth = JvmSizeUtils.stringSize(large) - JvmSizeUtils.stringSize("x");
+                Assertions.assertEquals(listBaseline + nameGrowth + valueGrowth, listBytes);
+                Assertions.assertEquals(mvccBaseline + nameGrowth + 2 * valueGrowth, mvccBytes);
+            }
+        }
+    }
+
+    @Test
+    public void largePartitionViewsCanBeEstimatedWithoutTheReflectiveVisitLimit() {
+        List<ConnectorPartitionInfo> listView = new ArrayList<>();
+        List<ConnectorMvccPartition> mvccPartitions = new ArrayList<>();
+        for (int index = 0; index < 20_000; index++) {
+            String value = Integer.toString(index);
+            listView.add(new ConnectorPartitionInfo("p=" + value,
+                    Collections.singletonMap("p", value), Collections.emptyMap(),
+                    Collections.singletonList(value), Collections.emptyList()));
+            mvccPartitions.add(new ConnectorMvccPartition(
+                    "p=" + value, Collections.singletonList(value),
+                    Collections.singletonList(value), index));
+        }
+        ConnectorTableKey key = new ConnectorTableKey("db", "table", 1L, 1L);
+        ConnectorMvccPartitionView mvccView = new ConnectorMvccPartitionView(
+                ConnectorMvccPartitionView.Style.RANGE,
+                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, mvccPartitions, 1L);
+
+        Assertions.assertTrue(IcebergCacheSizeEstimator.estimatePartitionInfoViewEntry(
+                key, listView).isComplete());
+        Assertions.assertTrue(IcebergCacheSizeEstimator.estimateMvccPartitionViewEntry(
+                key, mvccView).isComplete());
+    }
+
     // ---------------------------------------------------------------------
     // getMvccPartitionView
     // ---------------------------------------------------------------------
 
     @Test
     public void getMvccPartitionViewCachesDerivedViewAcrossQueries() {
-        // WHY: cache A must memoize the BUILT MVCC view keyed by (db, table, snapshotId, schemaId), so a repeated
-        // query on the same pin skips the derived rebuild AND the underlying loadTable/scan. MUTATION: not
-        // consulting the cache (compute directly every call) -> loadTable runs twice -> red.
+        // WHY: cache A must memoize the BUILT MVCC view keyed by snapshot/schema/spec generation, so a repeated
+        // query on the same generation skips the derived rebuild. Resolving the live table is still required to
+        // detect spec-only commits that do not change snapshot/schema ids.
         TwoSnap f = twoSnapshotTable();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = f.table;
@@ -145,7 +205,9 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
 
         Assertions.assertEquals(java.util.Arrays.asList("ts_day=100", "ts_day=101"), mvccNames(first));
         Assertions.assertEquals(mvccNames(first), mvccNames(second), "the cached view is returned verbatim");
-        Assertions.assertEquals(1, loadCount(ops), "a cache hit must not re-enumerate (loadTable once)");
+        Assertions.assertSame(first.orElseThrow(), second.orElseThrow(),
+                "a cache hit must return the same derived view instance");
+        Assertions.assertEquals(2, loadCount(ops), "each lookup must resolve the live spec generation");
     }
 
     @Test
@@ -197,6 +259,28 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         md.getMvccPartitionView(null, handle());
         md.getMvccPartitionView(null, handle());
         Assertions.assertEquals(2, loadCount(ops), "a null (disabled) cache must re-enumerate every call");
+    }
+
+    @Test
+    public void getMvccPartitionViewSpecOnlyCommitDoesNotReuseDerivedView() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        PartitionSpec daySpec = PartitionSpec.builderFor(PARTITIONED_SCHEMA).day("ts").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), PARTITIONED_SCHEMA, daySpec,
+                Collections.singletonMap("format-version", "2"));
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergConnectorMetadata md = metadataWithMvccCache(ops, mvccCache());
+
+        ConnectorMvccPartitionView before = md.getMvccPartitionView(null, handle()).orElseThrow();
+        table.updateSpec().removeField("ts_day").addField("id").commit();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t1"));
+        ConnectorMvccPartitionView after = md.getMvccPartitionView(null, handle()).orElseThrow();
+
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, before.getStyle());
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.UNPARTITIONED, after.getStyle(),
+                "a spec-only commit must not reuse the preceding derived partition view");
     }
 
     @Test
@@ -287,8 +371,8 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
 
     @Test
     public void listPartitionsCachesDerivedListAcrossQueries() {
-        // WHY: the empty-filter pruning path must memoize the built partition-info list. MUTATION: not consulting
-        // the cache -> loadTable twice -> red.
+        // WHY: the empty-filter pruning path must memoize the built partition-info list while resolving the live
+        // table on every lookup to detect spec-only commits.
         TwoSnap f = twoSnapshotTable();
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = f.table;
@@ -302,7 +386,8 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         Assertions.assertEquals(java.util.Arrays.asList("ts_day=100", "ts_day=101"), names);
         Assertions.assertEquals(names,
                 second.stream().map(ConnectorPartitionInfo::getPartitionName).collect(Collectors.toList()));
-        Assertions.assertEquals(1, loadCount(ops), "a cache hit must not re-enumerate (loadTable once)");
+        Assertions.assertSame(first, second, "a cache hit must return the same derived list instance");
+        Assertions.assertEquals(2, loadCount(ops), "each lookup must resolve the live spec generation");
     }
 
     @Test
@@ -340,5 +425,18 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         cache.invalidateAll();
         md.listPartitions(null, handle(), Optional.empty());
         Assertions.assertEquals(2, loadCount(ops), "invalidateAll must force a re-enumeration");
+    }
+
+    @Test
+    public void listPartitionsSpecOnlyCommitDoesNotReuseDerivedList() {
+        TwoSnap f = twoSnapshotTable();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = f.table;
+        IcebergConnectorMetadata md = metadataWithListCache(ops, listCache());
+
+        Assertions.assertEquals(2, md.listPartitions(null, handle(), Optional.empty()).size());
+        f.table.updateSpec().removeField("ts_day").commit();
+        Assertions.assertTrue(md.listPartitions(null, handle(), Optional.empty()).isEmpty(),
+                "a spec-only commit must not reuse a list built for the preceding partition spec");
     }
 }

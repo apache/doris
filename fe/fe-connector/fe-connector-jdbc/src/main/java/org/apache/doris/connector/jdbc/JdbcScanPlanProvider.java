@@ -18,6 +18,7 @@
 package org.apache.doris.connector.jdbc;
 
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
@@ -48,14 +49,29 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static final Logger LOG = LogManager.getLogger(JdbcScanPlanProvider.class);
 
+    static final String SQL_MODE_NAMESPACE = "jdbc.sql-mode";
+
     private final JdbcDbType dbType;
     private final JdbcCatalogProperties props;
     private final long catalogId;
+    private final java.util.function.BooleanSupplier noBackslashEscapes;
 
     public JdbcScanPlanProvider(JdbcDbType dbType, JdbcCatalogProperties props, long catalogId) {
+        this(dbType, props, catalogId, () -> false);
+    }
+
+    public JdbcScanPlanProvider(JdbcDbType dbType, JdbcCatalogProperties props, long catalogId,
+            java.util.function.BooleanSupplier noBackslashEscapes) {
+        this.noBackslashEscapes = noBackslashEscapes;
         this.dbType = dbType;
         this.props = props;
         this.catalogId = catalogId;
+    }
+
+    private boolean statementNoBackslashEscapes(ConnectorSession session) {
+        // The provider outlives a query; cache only in its statement scope, shared by scan and EXPLAIN.
+        return ConnectorStatementScopes.resolveInStatement(session, SQL_MODE_NAMESPACE,
+                "", "", noBackslashEscapes::getAsBoolean);
     }
 
     @Override
@@ -67,7 +83,9 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         String querySql;
         if (handle instanceof PassthroughQueryTableHandle) {
             // Query passthrough from TVF — use the raw SQL directly
-            querySql = ((PassthroughQueryTableHandle) handle).getQuery();
+            querySql = new JdbcQueryBuilder(dbType).wrapPassthroughQuery(
+                    ((PassthroughQueryTableHandle) handle).getQuery(), columns,
+                    () -> statementNoBackslashEscapes(session));
         } else {
             JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
             String remoteDbName = jdbcHandle.getRemoteDbName();
@@ -132,7 +150,9 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         // Build the same query SQL that planScan() would produce, for EXPLAIN output
         String querySql;
         if (handle instanceof PassthroughQueryTableHandle) {
-            querySql = ((PassthroughQueryTableHandle) handle).getQuery();
+            querySql = new JdbcQueryBuilder(dbType).wrapPassthroughQuery(
+                    ((PassthroughQueryTableHandle) handle).getQuery(), columns,
+                    () -> statementNoBackslashEscapes(session));
         } else {
             JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
             Map<String, String> sessionProps = session.getSessionProperties();

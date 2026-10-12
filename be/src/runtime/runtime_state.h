@@ -84,7 +84,7 @@ class ExternalFileReportState {
 
 private:
     std::mutex mutex;
-    size_t iceberg_serialized_bytes = 0;
+    size_t serialized_commit_bytes = 0;
     bool ownership_may_have_transferred = false;
     std::vector<std::function<void()>> rejected_report_cleanups;
 };
@@ -546,6 +546,13 @@ public:
     }
 
     Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
+
+    Status add_connector_commit_data(std::string commit_data);
+
+    void append_connector_commit_data(std::vector<std::string>* output) const {
+        std::lock_guard<std::mutex> lock(_connector_commit_data_mutex);
+        output->insert(output->end(), _connector_commit_data.begin(), _connector_commit_data.end());
+    }
 
     size_t coordinator_thrift_message_limit() const;
 
@@ -1011,6 +1018,9 @@ private:
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
+
+    mutable std::mutex _connector_commit_data_mutex;
+    std::vector<std::string> _connector_commit_data;
 
     std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 

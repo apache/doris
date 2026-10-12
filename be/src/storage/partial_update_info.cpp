@@ -28,6 +28,8 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/value/bitmap_value.h"
+#include "core/value/timestamp_ns_value.h"
+#include "exec/common/int_exp.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
@@ -59,12 +61,17 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
                                bool is_strict_mode_, int64_t timestamp_ms_, int32_t nano_seconds_,
                                const std::string& timezone_,
                                const std::string& auto_increment_column,
-                               int32_t sequence_map_col_uid, int64_t cur_max_version) {
+                               int32_t sequence_map_col_uid, int64_t cur_max_version,
+                               const PUniqueId* load_id) {
     partial_update_mode = unique_key_update_mode;
     partial_update_new_key_policy = policy;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     sequence_map_col_unqiue_id = sequence_map_col_uid;
+    // Callers with only deterministic defaults need no load seed.
+    has_load_id = load_id != nullptr;
+    load_id_hi = has_load_id ? load_id->hi() : 0;
+    load_id_lo = has_load_id ? load_id->lo() : 0;
     timestamp_ms = timestamp_ms_;
     nano_seconds = nano_seconds_;
     timezone = timezone_;
@@ -133,6 +140,10 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
     partial_update_info_pb->set_can_insert_new_rows_in_partial_update(
             can_insert_new_rows_in_partial_update);
     partial_update_info_pb->set_is_strict_mode(is_strict_mode);
+    if (has_load_id) {
+        partial_update_info_pb->mutable_load_id()->set_hi(load_id_hi);
+        partial_update_info_pb->mutable_load_id()->set_lo(load_id_lo);
+    }
     partial_update_info_pb->set_timestamp_ms(timestamp_ms);
     partial_update_info_pb->set_nano_seconds(nano_seconds);
     partial_update_info_pb->set_timezone(timezone);
@@ -177,6 +188,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
     can_insert_new_rows_in_partial_update =
             partial_update_info_pb->can_insert_new_rows_in_partial_update();
     is_strict_mode = partial_update_info_pb->is_strict_mode();
+    has_load_id = partial_update_info_pb->has_load_id();
+    load_id_hi = partial_update_info_pb->load_id().hi();
+    load_id_lo = partial_update_info_pb->load_id().lo();
     timestamp_ms = partial_update_info_pb->timestamp_ms();
     timezone = partial_update_info_pb->timezone();
     is_input_columns_contains_auto_inc_column =
@@ -292,6 +306,32 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                         default_value += timezone;
                     }
                 }
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS &&
+                                to_lower(column.has_default_value_expr()
+                                                 ? column.default_value_expr()
+                                                 : column.default_value())
+                                                .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                        std::string::npos)) {
+                const auto& default_value_expr = column.has_default_value_expr()
+                                                         ? column.default_value_expr()
+                                                         : column.default_value();
+                auto pos = to_lower(default_value_expr).find('(');
+                DateV2Value<DateTimeV2ValueType> dtv;
+                uint16_t nanosecond_remainder = 0;
+                if (pos == std::string::npos) {
+                    dtv.from_unixtime(timestamp_ms / 1000, timezone);
+                } else {
+                    int precision = std::stoi(default_value_expr.substr(pos + 1));
+                    dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
+                    if (precision > 6) {
+                        const int64_t factor = static_cast<int64_t>(int_exp10(9 - precision));
+                        const int64_t truncated_nanos = nano_seconds / factor * factor;
+                        nanosecond_remainder = static_cast<uint16_t>(truncated_nanos % 1000);
+                    }
+                }
+                TimeStampNsValue timestamp_ns;
+                DORIS_CHECK(timestamp_ns.from_datetime(dtv, nanosecond_remainder));
+                default_value = timestamp_ns.to_string();
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
                                 to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
                                         std::string::npos)) {
@@ -328,8 +368,8 @@ void FixedReadPlan::prepare_to_read(const RowLocation& row_location, size_t pos)
 Status FixedReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema, std::vector<uint32_t> cids_to_read,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block& block,
-        std::map<uint32_t, uint32_t>* read_index, bool force_read_old_delete_signs,
-        const signed char* __restrict cur_delete_signs) const {
+        std::map<uint32_t, uint32_t>* read_index, ReadStrategy read_strategy,
+        bool force_read_old_delete_signs, const signed char* __restrict cur_delete_signs) const {
     if (force_read_old_delete_signs) {
         // always read delete sign column from historical data
         if (block.get_position_by_name(DELETE_SIGN) == -1) {
@@ -338,10 +378,11 @@ Status FixedReadPlan::read_columns_by_plan(
             block.swap(tablet_schema.create_storage_block(cids_to_read));
         }
     }
-    bool has_row_column = tablet_schema.has_row_store_for_all_columns();
+    const bool use_row_store = read_strategy == ReadStrategy::PREFER_ROW_STORE &&
+                               tablet_schema.has_row_store_for_all_columns();
     std::optional<Block::ScopedMutableColumns> mutable_columns_guard;
     MutableColumns* mutable_columns = nullptr;
-    if (!has_row_column) {
+    if (!use_row_store) {
         mutable_columns_guard.emplace(block);
         mutable_columns = &mutable_columns_guard->mutable_columns();
     }
@@ -358,7 +399,7 @@ Status FixedReadPlan::read_columns_by_plan(
                 rids.emplace_back(rid);
                 (*read_index)[static_cast<uint32_t>(pos)] = read_idx++;
             }
-            if (has_row_column) {
+            if (use_row_store) {
                 auto st = BaseTablet::fetch_value_through_row_column(
                         rowset_iter->second, tablet_schema, segment_id, rids, cids_to_read, block);
                 if (!st.ok()) {
@@ -367,16 +408,12 @@ Status FixedReadPlan::read_columns_by_plan(
                 }
                 continue;
             }
-            for (size_t cid = 0; cid < mutable_columns->size(); ++cid) {
-                TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
-                auto st = doris::BaseTablet::fetch_value_by_rowids(rowset_iter->second, segment_id,
-                                                                   rids, tablet_column,
-                                                                   (*mutable_columns)[cid]);
-                // set read value to output block
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value";
-                    return st;
-                }
+            auto st = BaseTablet::fetch_values_by_rowids(rowset_iter->second, tablet_schema,
+                                                         segment_id, rids, cids_to_read,
+                                                         *mutable_columns);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to fetch values by rowids";
+                return st;
             }
         }
     }
@@ -413,8 +450,6 @@ Status FixedReadPlan::fill_missing_columns(
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         uint32_t segment_start_pos, const Block* block,
         std::vector<signed char>* old_delete_signs) const {
-    auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
-    auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     // create old value columns
     DCHECK(historical_context.partial_update_info != nullptr);
     DCHECK(historical_context.tablet_schema != nullptr);
@@ -434,7 +469,8 @@ Status FixedReadPlan::fill_missing_columns(
     // segment pos to write -> rowid to read in old_value_block
     std::map<uint32_t, uint32_t> read_index;
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, missing_cids, rsid_to_rowset,
-                                         old_value_block, &read_index, true, nullptr));
+                                         old_value_block, &read_index,
+                                         ReadStrategy::PREFER_ROW_STORE, true, nullptr));
 
     const auto* old_delete_sign_column_data =
             BaseTablet::get_delete_sign_column_data(old_value_block);
@@ -446,9 +482,12 @@ Status FixedReadPlan::fill_missing_columns(
                                           use_default_or_null_flag.size(), old_delete_signs));
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
-    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(tablet_schema, missing_cids,
-                                                             partial_update_info.default_values,
-                                                             old_value_block, default_value_block));
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+            tablet_schema, missing_cids, partial_update_info, *block, default_value_block));
+    // The V2 writer passes the same block as input and output. Read its key columns before
+    // acquiring mutable ownership, which temporarily removes columns from the Block.
+    auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
+    auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
     auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
 
@@ -480,7 +519,8 @@ Status FixedReadPlan::fill_missing_columns(
 
             if (should_use_default) {
                 if (tablet_column.has_default_value()) {
-                    missing_col->insert_from(*mutable_default_value_columns[i], 0);
+                    const auto& defaults = *mutable_default_value_columns[i];
+                    missing_col->insert_from(defaults, defaults.size() == 1 ? 0 : idx);
                 } else if (tablet_column.is_nullable()) {
                     auto* nullable_column = assert_cast<ColumnNullable*>(missing_col.get());
                     nullable_column->insert_many_defaults(1);
@@ -659,7 +699,8 @@ static void fill_non_primary_key_cell_for_column_store(
         }
         if (use_default) {
             if (tablet_column.has_default_value()) {
-                new_col->insert_from(default_value_col, 0);
+                new_col->insert_from(default_value_col,
+                                     default_value_col.size() == 1 ? 0 : block_pos);
             } else if (tablet_column.is_nullable()) {
                 assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
                         ->insert_many_defaults(1);
@@ -705,8 +746,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
     auto default_value_block = old_value_block.clone_empty();
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                tablet_schema, non_sort_key_cids, info->default_values, old_value_block,
-                default_value_block));
+                tablet_schema, non_sort_key_cids, *info, *block, default_value_block));
     }
 
     // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
@@ -766,7 +806,8 @@ static void fill_non_primary_key_cell_for_row_store(
         }
         if (use_default) {
             if (tablet_column.has_default_value()) {
-                new_col->insert_from(default_value_col, 0);
+                new_col->insert_from(default_value_col,
+                                     default_value_col.size() == 1 ? 0 : block_pos);
             } else if (tablet_column.is_nullable()) {
                 assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
                         ->insert_many_defaults(1);
@@ -810,8 +851,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
     auto default_value_block = old_value_block.clone_empty();
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                tablet_schema, non_sort_key_cids, info->default_values, old_value_block,
-                default_value_block));
+                tablet_schema, non_sort_key_cids, *info, *block, default_value_block));
     }
 
     // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
@@ -1130,8 +1170,9 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
     auto seq_col_block = _tablet_schema.create_storage_block(cids);
     auto tmp_block = _tablet_schema.create_storage_block(cids);
     std::map<uint32_t, uint32_t> read_index;
-    RETURN_IF_ERROR(read_plan.read_columns_by_plan(_tablet_schema, cids, _fetcher.pinned_rowsets(),
-                                                   seq_col_block, &read_index, false));
+    RETURN_IF_ERROR(read_plan.read_columns_by_plan(
+            _tablet_schema, cids, _fetcher.pinned_rowsets(), seq_col_block, &read_index,
+            FixedReadPlan::ReadStrategy::PREFER_ROW_STORE, false));
 
     auto new_seq_col_ptr = tmp_block.get_by_position(0).column->assert_mutable();
     const auto& old_seq_col_ptr = *seq_col_block.get_by_position(0).column;

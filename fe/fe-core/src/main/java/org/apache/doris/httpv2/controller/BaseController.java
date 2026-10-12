@@ -105,9 +105,22 @@ public class BaseController {
             // carried back out. Leaving it null makes every such check throw NPE.
             authInfo.userIdentity = currentUser;
 
-            if (Config.isCloudMode() && checkAuth) {
-                checkInstanceOverdue(currentUser);
-                checkGlobalAuth(currentUser, PrivPredicate.ADMIN_OR_NODE);
+            // Built before the check, not after it, for the same reason checkCookie below builds it early: the
+            // check reaches the authorization source, and a source that looks at the circumstances of a
+            // request would otherwise be handed whatever the previous request on this pooled Jetty thread left
+            // behind - another client's address rather than none. Handed to the check explicitly, so nothing
+            // is put on the thread until this request is through.
+            ConnectContext ctx = new ConnectContext();
+            ctx.setRemoteIP(authInfo.remoteIp);
+            ctx.setCurrentUserIdentity(currentUser);
+            ctx.setEnv(Env.getCurrentEnv());
+
+            // The cookie branch below requires ADMIN_OR_NODE whenever checkAuth is set, in every deployment
+            // mode, so this branch must as well: which of the two ways a caller authenticates must not change
+            // what it is allowed to reach. Only the overdue fence is specific to cloud mode.
+            if (checkAuth) {
+                checkInstanceOverdueIfCloud(currentUser);
+                checkGlobalAuth(ctx, PrivPredicate.ADMIN_OR_NODE);
             }
 
             SessionValue value = new SessionValue();
@@ -115,10 +128,6 @@ public class BaseController {
             value.password = authInfo.password;
             addSession(request, response, value);
 
-            ConnectContext ctx = new ConnectContext();
-            ctx.setRemoteIP(authInfo.remoteIp);
-            ctx.setCurrentUserIdentity(currentUser);
-            ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("check auth without cookie success for user: {}, thread: {}",
@@ -167,7 +176,12 @@ public class BaseController {
             return null;
         }
 
-        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
+        // Built before the check, not after it: the check reaches the authorization source, and a source that
+        // looks at the circumstances of a request would otherwise be handed whatever the previous request on
+        // this pooled thread left behind - another client's address rather than none.
+        ConnectContext ctx = buildConnectContext(request, sessionValue);
+
+        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx,
                 PrivPredicate.ADMIN_OR_NODE)) {
             // need to check auth and check auth failed
             return null;
@@ -182,20 +196,33 @@ public class BaseController {
 
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
-        setConnectContext(request, sessionValue);
+        setConnectContext(ctx, sessionValue);
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
-        authInfo.remoteIp = request.getRemoteHost();
+        authInfo.remoteIp = request.getRemoteAddr();
         authInfo.password = sessionValue.password;
         authInfo.userIdentity = sessionValue.currentUser;
         return authInfo;
     }
 
-    private void setConnectContext(HttpServletRequest request, SessionValue sessionValue) {
+    private ConnectContext buildConnectContext(HttpServletRequest request, SessionValue sessionValue) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setRemoteIP(request.getRemoteHost());
+        // getRemoteAddr, not getRemoteHost: this value reaches a plugin as the client address a policy
+        // may be written against, and getRemoteHost may answer with a resolved host name instead - so a
+        // policy matching on an address would behave differently depending on which of the two
+        // authentication branches the client came through. The Authorization header branch above has
+        // always used getRemoteAddr.
+        ctx.setRemoteIP(request.getRemoteAddr());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
         ctx.setEnv(Env.getCurrentEnv());
+        return ctx;
+    }
+
+    private void setConnectContext(HttpServletRequest request, SessionValue sessionValue) {
+        setConnectContext(buildConnectContext(request, sessionValue), sessionValue);
+    }
+
+    private void setConnectContext(ConnectContext ctx, SessionValue sessionValue) {
         ctx.setThreadLocalInfo();
         if (LOG.isDebugEnabled()) {
             LOG.debug("check cookie success for user: {}, thread: {}",
@@ -283,6 +310,20 @@ public class BaseController {
 
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    /**
+     * The same check against the context of this request rather than the one left on the thread.
+     *
+     * <p>The identity-only overload falls back to whatever {@code ConnectContext} the thread carries, which on
+     * a pooled Jetty thread is the previous request's. An authorization source reading the circumstances of a
+     * request - the client address above all - is then answering about another client's.
+     */
+    protected void checkGlobalAuth(ConnectContext ctx, PrivPredicate predicate) throws UnauthorizedException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }

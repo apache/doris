@@ -32,10 +32,10 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -60,28 +60,28 @@ public class ProcServiceTest {
     //   | - conf
     //   | - build.sh
     // | - common
-    @Before
+    @BeforeEach
     public void beforeTest() {
         ProcService procService = ProcService.getInstance();
 
         BaseProcDir paloDir = new BaseProcDir();
-        Assert.assertTrue(procService.register("palo", paloDir));
+        Assertions.assertTrue(procService.register("palo", paloDir));
 
         BaseProcDir beDir = new BaseProcDir();
-        Assert.assertTrue(paloDir.register("be", beDir));
-        Assert.assertTrue(beDir.register("src", new BaseProcDir()));
-        Assert.assertTrue(beDir.register("deps", new BaseProcDir()));
+        Assertions.assertTrue(paloDir.register("be", beDir));
+        Assertions.assertTrue(beDir.register("src", new BaseProcDir()));
+        Assertions.assertTrue(beDir.register("deps", new BaseProcDir()));
 
         BaseProcDir feDir = new BaseProcDir();
-        Assert.assertTrue(paloDir.register("fe", feDir));
-        Assert.assertTrue(feDir.register("src", new BaseProcDir()));
-        Assert.assertTrue(feDir.register("conf", new BaseProcDir()));
-        Assert.assertTrue(feDir.register("build.sh", new EmptyProcNode()));
+        Assertions.assertTrue(paloDir.register("fe", feDir));
+        Assertions.assertTrue(feDir.register("src", new BaseProcDir()));
+        Assertions.assertTrue(feDir.register("conf", new BaseProcDir()));
+        Assertions.assertTrue(feDir.register("build.sh", new EmptyProcNode()));
 
-        Assert.assertTrue(paloDir.register("common", new BaseProcDir()));
+        Assertions.assertTrue(paloDir.register("common", new BaseProcDir()));
     }
 
-    @After
+    @AfterEach
     public void afterTest() {
         ProcService.destroy();
     }
@@ -92,7 +92,7 @@ public class ProcServiceTest {
         String name = "test";
         BaseProcDir dir = new BaseProcDir();
 
-        Assert.assertTrue(procService.register(name, dir));
+        Assertions.assertTrue(procService.register(name, dir));
     }
 
     // register second time
@@ -102,8 +102,8 @@ public class ProcServiceTest {
         String name = "test";
         BaseProcDir dir = new BaseProcDir();
 
-        Assert.assertTrue(procService.register(name, dir));
-        Assert.assertFalse(procService.register(name, dir));
+        Assertions.assertTrue(procService.register(name, dir));
+        Assertions.assertFalse(procService.register(name, dir));
     }
 
     // register invalid
@@ -113,9 +113,9 @@ public class ProcServiceTest {
         String name = "test";
         BaseProcDir dir = new BaseProcDir();
 
-        Assert.assertFalse(procService.register(null, dir));
-        Assert.assertFalse(procService.register("", dir));
-        Assert.assertFalse(procService.register(name, null));
+        Assertions.assertFalse(procService.register(null, dir));
+        Assertions.assertFalse(procService.register("", dir));
+        Assertions.assertFalse(procService.register(name, null));
     }
 
     @Test
@@ -123,16 +123,16 @@ public class ProcServiceTest {
         ProcService procService = ProcService.getInstance();
 
         // assert root
-        Assert.assertNotNull(procService.open("/"));
-        Assert.assertNotNull(procService.open("/palo"));
-        Assert.assertNotNull(procService.open("/palo/be"));
-        Assert.assertNotNull(procService.open("/palo/be/src"));
-        Assert.assertNotNull(procService.open("/palo/be/deps"));
-        Assert.assertNotNull(procService.open("/palo/fe"));
-        Assert.assertNotNull(procService.open("/palo/fe/src"));
-        Assert.assertNotNull(procService.open("/palo/fe/conf"));
-        Assert.assertNotNull(procService.open("/palo/fe/build.sh"));
-        Assert.assertNotNull(procService.open("/palo/common"));
+        Assertions.assertNotNull(procService.open("/"));
+        Assertions.assertNotNull(procService.open("/palo"));
+        Assertions.assertNotNull(procService.open("/palo/be"));
+        Assertions.assertNotNull(procService.open("/palo/be/src"));
+        Assertions.assertNotNull(procService.open("/palo/be/deps"));
+        Assertions.assertNotNull(procService.open("/palo/fe"));
+        Assertions.assertNotNull(procService.open("/palo/fe/src"));
+        Assertions.assertNotNull(procService.open("/palo/fe/conf"));
+        Assertions.assertNotNull(procService.open("/palo/fe/build.sh"));
+        Assertions.assertNotNull(procService.open("/palo/common"));
     }
 
     @Test
@@ -140,18 +140,18 @@ public class ProcServiceTest {
         ProcService procService = ProcService.getInstance();
 
         // assert space
-        Assert.assertNotNull(procService.open(" \r/"));
-        Assert.assertNotNull(procService.open(" \r/ "));
-        Assert.assertNotNull(procService.open("  /palo \r\n"));
-        Assert.assertNotNull(procService.open("\n\r\t /palo/be \n\r"));
+        Assertions.assertNotNull(procService.open(" \r/"));
+        Assertions.assertNotNull(procService.open(" \r/ "));
+        Assertions.assertNotNull(procService.open("  /palo \r\n"));
+        Assertions.assertNotNull(procService.open("\n\r\t /palo/be \n\r"));
 
         // assert last '/'
-        Assert.assertNotNull(procService.open(" /palo/be/"));
-        Assert.assertNotNull(procService.open(" /palo/fe/  "));
+        Assertions.assertNotNull(procService.open(" /palo/be/"));
+        Assertions.assertNotNull(procService.open(" /palo/fe/  "));
 
         ProcNodeInterface node = procService.open("/dbs");
-        Assert.assertNotNull(node);
-        Assert.assertTrue(node instanceof DbsProcDir);
+        Assertions.assertNotNull(node);
+        Assertions.assertTrue(node instanceof DbsProcDir);
     }
 
     @Test
@@ -166,29 +166,29 @@ public class ProcServiceTest {
             ++errCount;
         }
         try {
-            Assert.assertNull(procService.open("/palo/b e"));
+            Assertions.assertNull(procService.open("/palo/b e"));
         } catch (AnalysisException e) {
             ++errCount;
         }
         try {
-            Assert.assertNull(procService.open("/palo/fe/build.sh/"));
+            Assertions.assertNull(procService.open("/palo/fe/build.sh/"));
         } catch (AnalysisException e) {
             ++errCount;
         }
 
         // assert no root
         try {
-            Assert.assertNull(procService.open("palo"));
+            Assertions.assertNull(procService.open("palo"));
         } catch (AnalysisException e) {
             ++errCount;
         }
         try {
-            Assert.assertNull(procService.open(" palo"));
+            Assertions.assertNull(procService.open(" palo"));
         } catch (AnalysisException e) {
             ++errCount;
         }
 
-        Assert.assertEquals(5, errCount);
+        Assertions.assertEquals(5, errCount);
     }
 
     @Test
@@ -235,14 +235,14 @@ public class ProcServiceTest {
 
             ProcResult result = new ReplicasProcNode(tabletId, Collections.singletonList(replica)).fetchResult();
             List<List<String>> rows = result.getRows();
-            Assert.assertEquals(1, rows.size());
+            Assertions.assertEquals(1, rows.size());
 
             List<String> row = rows.get(0);
-            Assert.assertEquals(replicasTitles.size(), row.size());
-            Assert.assertEquals("6006", row.get(replicaIdIdx));
-            Assert.assertEquals("10002", row.get(backendIdIdx));
-            Assert.assertEquals("101", row.get(versionIdx));
-            Assert.assertEquals("100", row.get(lastSuccessVersionIdx));
+            Assertions.assertEquals(replicasTitles.size(), row.size());
+            Assertions.assertEquals("6006", row.get(replicaIdIdx));
+            Assertions.assertEquals("10002", row.get(backendIdIdx));
+            Assertions.assertEquals("101", row.get(versionIdx));
+            Assertions.assertEquals("100", row.get(lastSuccessVersionIdx));
         }
     }
 

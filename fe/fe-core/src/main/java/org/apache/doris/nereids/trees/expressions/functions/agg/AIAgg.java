@@ -40,7 +40,7 @@ import java.util.List;
  * AggregateFunction 'AI_AGG'.
  */
 public class AIAgg extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature, NotSupportAggState {
+        implements ExplicitlyCastableSignature, NotSupportAggState, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
@@ -89,6 +89,10 @@ public class AIAgg extends NullableAggregateFunction
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
             if (!(resource instanceof AIResource)) {
                 throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
+            }
+            if (!((AIResource) resource).hasCompleteGeneralProperties()) {
+                throw new AnalysisException("AI resource '" + resourceName
+                        + "' does not contain complete general AI properties");
             }
             Resource.registerUsedAIResourceName(resourceName);
         }

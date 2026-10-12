@@ -38,14 +38,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * A tiny in-process stand-in for the Doris BE stream-load endpoint and the FE commit-offset
- * endpoint, so the from-to {@code writeRecords} path can be exercised without a real Doris cluster.
+ * A tiny in-process stand-in for the Doris BE stream-load endpoint and FE streaming endpoints, so
+ * the from-to {@code writeRecords} path can be exercised without a real Doris cluster.
  *
  * <ul>
  *   <li>{@code PUT /api/{db}/{table}/_stream_load} — captures the newline-delimited JSON rows and
  *       replies with a Success stream-load result.
- *   <li>{@code POST /api/streaming/commit_offset} — captures the committed offset payload and
+ *   <li>{@code PUT /api/streaming/commit_offset} — captures the committed offset payload and
  *       replies {@code {"code":0}}.
+ *   <li>{@code POST /api/streaming/schema_change} — executes schema changes against mock metadata.
+ *   <li>{@code GET /api/streaming/schema/{db}/{table}} — returns mock table metadata.
  * </ul>
  */
 final class MockDorisServer implements AutoCloseable {
@@ -98,7 +100,7 @@ final class MockDorisServer implements AutoCloseable {
                 this.committedOffset = new String(body, StandardCharsets.UTF_8);
                 response = "{\"code\":0,\"msg\":\"ok\"}";
             }
-        } else if (path.endsWith("/_schema")) {
+        } else if (path.startsWith("/api/streaming/schema/")) {
             schemaRequestCount.incrementAndGet();
             List<String> properties = new ArrayList<>();
             synchronized (schemaColumns) {
@@ -110,7 +112,7 @@ final class MockDorisServer implements AutoCloseable {
                     "{\"code\":0,\"data\":{\"status\":200,\"properties\":["
                             + String.join(",", properties)
                             + "]}}";
-        } else if (path.contains("/api/query/")) {
+        } else if (path.equals("/api/streaming/schema_change")) {
             // FE schema-change endpoint: body is {"stmt":"<DDL>"}
             JsonNode node = MAPPER.readTree(body);
             executedDdls.add(node.path("stmt").asText(""));
@@ -141,6 +143,8 @@ final class MockDorisServer implements AutoCloseable {
                 response = applyDdlToMockSchema(node.path("stmt").asText(""));
             }
             ddlResponses.add(response);
+        } else if (path.equals("/api/streaming/report_task_failure")) {
+            response = "{\"code\":0,\"msg\":\"ok\"}";
         } else {
             response = "{\"code\":-1,\"msg\":\"unknown path " + path + "\"}";
         }
@@ -170,7 +174,7 @@ final class MockDorisServer implements AutoCloseable {
         return committedOffset;
     }
 
-    /** All DDL statements executed via the FE query endpoint, in arrival order. */
+    /** All DDL statements executed via the FE streaming endpoint, in arrival order. */
     List<String> executedDdls() {
         return new ArrayList<>(executedDdls);
     }

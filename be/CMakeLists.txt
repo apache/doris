@@ -468,6 +468,18 @@ if (COMPILER_CLANG)
                         # -Werror failure. The diagnostic carries no correctness
                         # signal, so drop it.
                         -Wno-pass-failed)
+    # clang 22 reports __COUNTER__ under -Wpedantic as a C2y extension
+    # (-Wc2y-extensions). runtime_profile.h expands it to give two SCOPED_TIMER /
+    # SCOPED_RAW_TIMER uses on the same line distinct names -- a long-standing
+    # clang/gcc/MSVC extension that only reached the standard in C2y, and the
+    # diagnostic carries no correctness signal. The c2y-extensions group only exists
+    # from clang 19 on, and clang rejects an unknown -Wno- option like any other
+    # unknown warning option (-Wunknown-warning-option, fatal under -Werror), so
+    # clang 16-18 must not see the flag. It must also stay after -Wpedantic above:
+    # a -Wpedantic later on the command line turns the group back on.
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "19")
+        add_compile_options(-Wno-c2y-extensions)
+    endif()
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -636,7 +648,6 @@ else()
     else()
         include_directories(${DORIS_JAVA_HOME}/include/darwin)
     endif()
-    add_definitions("-DLIBJVM")
 endif()
 
 if (NOT OS_MACOSX)
@@ -686,29 +697,21 @@ set(COMMON_THIRDPARTY
     ${COMMON_THIRDPARTY}
 )
 
-if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
-    add_library(hadoop_hdfs STATIC IMPORTED)
-    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
+add_library(hadoop_hdfs STATIC IMPORTED)
+set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
 
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hadoop_hdfs
-    )
-    add_definitions(-DUSE_HADOOP_HDFS)
-    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
-    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
-    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
-else()
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
-
-    # TODO: use arm hadoop hdfs to replace this
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hdfs3
-    )
-    add_definitions(-DUSE_LIBHDFS3)
-endif()
+set(COMMON_THIRDPARTY
+    ${COMMON_THIRDPARTY}
+    hadoop_hdfs
+)
+# USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+# the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface.
+# Unconditional since the libhdfs3 alternative was removed: there is only one libhdfs left, and
+# every #ifdef on it went with the alternative - nothing in be/ tests it any more. Kept as a
+# definition rather than deleted because it is part of how this build identifies itself: a
+# doris-thirdparty libhdfs, whose hdfsSetLogger extension io/hdfs_builder.cpp uses unconditionally
+# for that reason.
+add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
@@ -855,11 +858,22 @@ if (GLIBC_COMPATIBILITY)
     # Keep lance_c here instead of COMMON_THIRDPARTY: placing its required libm there
     # would resolve -lm symbol before Doris compatibility is scanned, preventing
     # the linker from selecting Doris' optimized implementations.
+    # lance_c can also introduce single-precision math references after the
+    # compatibility archive has already been scanned. As ClickHouse does for its
+    # compatibility archive, force the GLIBC_2.27 math symbols to be undefined up
+    # front so the linker extracts Doris' musl implementations instead of binding
+    # late references to the toolchain's libm.
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -Wl,-u,logf
+        -Wl,-u,powf
+        -Wl,-u,expf
+        -Wl,-u,exp2f
+        -Wl,-u,log2f
         glibc-compatibility-explicit
         glibc-compatibility
         -lm
-        lance_c)
+        lance_c
+        paimon_c)
 endif()
 
 if (NOT OS_MACOSX)
@@ -1154,6 +1168,10 @@ if(NOT BUILD_BENCHMARK)
         ${BASE_DIR}/../conf/asan_suppr.conf
         ${BASE_DIR}/../conf/lsan_suppr.conf
         ${BASE_DIR}/../conf/ubsan_suppr.conf
+        # Configures the hadoop on BE's system class path, which is what C++ libhdfs uses; the
+        # Java plugins log through JniLogging instead. bin/start_be.sh names it with
+        # -Dlog4j2.configurationFile, and only when it is present.
+        ${BASE_DIR}/../conf/hadoop_log4j2.properties
         DESTINATION ${OUTPUT_DIR}/conf)
 endif()
 

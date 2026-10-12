@@ -546,35 +546,6 @@ TEST(AggFnEvaluatorTest, datasketches_hll_union_agg_check_string_input_physical_
     agg_fn->destroy(place);
 }
 
-TEST(AggFnEvaluatorTest, map_agg_check_string_key_input_physical_column_type) {
-    for (bool nullable_key : {false, true}) {
-        SCOPED_TRACE(nullable_key);
-        ObjectPool pool;
-        DataTypePtr key_type = std::make_shared<DataTypeString>();
-        if (nullable_key) {
-            key_type = make_nullable(key_type);
-        }
-        auto* agg_fn = create_agg_fn(pool, "map_agg_v1",
-                                     {key_type, std::make_shared<DataTypeInt64>()}, nullptr, false);
-        Arena arena;
-
-        MutableColumnPtr key_column =
-                nullable_key ? create_nullable_string64_column() : create_string64_column();
-        Block block({ColumnWithTypeAndName(std::move(key_column), key_type, "bad_key"),
-                     ColumnWithTypeAndName(ColumnHelper::create_column<DataTypeInt64>({1, 2, 3}),
-                                           std::make_shared<DataTypeInt64>(), "value")});
-
-        auto* place = reinterpret_cast<AggregateDataPtr>(arena.alloc(agg_fn->size_of_data()));
-        agg_fn->create(place);
-
-        expect_exception_message_contains(
-                [&]() { static_cast<void>(agg_fn->execute_single_add(&block, place, arena)); },
-                "argument type check failed");
-
-        agg_fn->destroy(place);
-    }
-}
-
 TEST(AggFnEvaluatorTest, map_combinator_check_string_key_physical_column_type) {
     ObjectPool pool;
     auto map_type = std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),

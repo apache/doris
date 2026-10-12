@@ -74,7 +74,6 @@ TEST_F(IndexStorageVariantIoContextTest,
     OlapReaderStatistics stats;
     StorageReadOptions read_options;
     read_options.stats = &stats;
-    read_options.tablet_schema = reader_schema;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.io_ctx.query_id = &query_id;
     read_options.io_ctx.file_cache_stats = &stats.file_cache_stats;

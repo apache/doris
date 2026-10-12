@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <vector>
 
 namespace doris::snii::writer {
@@ -163,6 +164,10 @@ public:
         // Decodes one unsigned LEB128 value directly from the current slice, following
         // a slice pointer only when the encoded value straddles a boundary.
         uint64_t read_varint();
+        // Borrow the next written payload span, excluding slice pointers and
+        // unused tail capacity. end is the actual SliceWriter::cur, not a byte
+        // count: chains can interleave their slices in the shared arena.
+        std::span<const uint8_t> next_payload_span(uint32_t end);
 
     private:
         const CompactPostingPool* pool_;
@@ -308,6 +313,22 @@ inline uint8_t CompactPostingPool::Cursor::next() {
     ++cur_;
     --budget_;
     return v;
+}
+
+inline std::span<const uint8_t> CompactPostingPool::Cursor::next_payload_span(uint32_t end) {
+    if (cur_ == end) {
+        return {};
+    }
+    if (cur_ == slice_end_) {
+        const uint32_t head = pool_->read_ptr(slice_end_);
+        level_ = CompactPostingPool::kNextLevel[level_];
+        cur_ = head;
+        slice_end_ = head + CompactPostingPool::kSliceSizes[level_];
+    }
+    const uint32_t stop = end >= cur_ && end <= slice_end_ ? end : slice_end_;
+    std::span<const uint8_t> payload(pool_->at(cur_), stop - cur_);
+    cur_ = stop;
+    return payload;
 }
 
 inline uint64_t CompactPostingPool::Cursor::read_varint() {

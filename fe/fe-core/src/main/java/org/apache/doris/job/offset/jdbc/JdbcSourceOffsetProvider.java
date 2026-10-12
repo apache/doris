@@ -59,6 +59,7 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -960,9 +961,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     /**
      * Decode a remote response envelope. A failure is returned as {@code {code:1, data:"<message>"}}
      * over HTTP 200, while success carries the typed payload in {@code data}. Decode the envelope
-     * with a lenient {@link JsonNode} data field first so a failure throws the raw response (which
-     * carries the real error in {@code data}) instead of a misleading type-mismatch from forcing the
-     * success type onto an error string. Package-private for unit testing.
+     * with a lenient {@link JsonNode} data field first so a failure surfaces the error in
+     * {@code data} instead of a misleading type-mismatch from forcing the success type onto an
+     * error string. Package-private for unit testing.
      */
     <T> T parseCdcResponseData(String response, TypeReference<T> dataType) throws JobException {
         ResponseBody<JsonNode> body;
@@ -972,6 +973,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             throw new JobException(response);
         }
         if (body.getCode() != RestApiStatusCode.OK.code) {
+            JsonNode data = body.getData();
+            if (data != null && data.isTextual() && StringUtils.isNotBlank(data.asText())) {
+                throw new JobException(data.asText());
+            }
+            if (StringUtils.isNotBlank(body.getMsg())) {
+                throw new JobException(body.getMsg());
+            }
             throw new JobException(response);
         }
         try {
@@ -1102,12 +1110,12 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 if (responseObj.getCode() == RestApiStatusCode.OK.code) {
                     log.info("Init {} source reader successfully, response: {}", getJobId(), responseObj.getData());
                     return;
-                } else {
-                    throw new JobException("Failed to init source reader, error: " + responseObj.getData());
                 }
+                String errorMessage = StringUtils.defaultIfBlank(responseObj.getData(), responseObj.getMsg());
+                throw new JobException("Failed to init source reader, error: " + errorMessage);
             } catch (JobException jobex) {
                 log.warn("Failed to init {} source reader, {}", getJobId(), response);
-                throw new JobException(jobex.getMessage());
+                throw jobex;
             } catch (Exception e) {
                 log.warn("Failed to init {} source reader, {}", getJobId(), response);
                 throw new JobException("Failed to init source reader, cause " + e.getMessage());

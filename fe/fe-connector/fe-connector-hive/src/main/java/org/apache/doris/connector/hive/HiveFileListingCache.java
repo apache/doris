@@ -21,6 +21,8 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
 import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.FileEntry;
@@ -107,11 +109,11 @@ public class HiveFileListingCache {
     }
 
     private final CatalogMetaCache owner;
-    private final MetaCache<FileListingKey, List<HiveFileStatus>> cache;
+    private final MetaCache<FileListingKey, FileListingValue> cache;
     private final DirectoryLister lister;
 
     public HiveFileListingCache(HiveCatalogProperties properties) {
-        this(new CatalogMetaCache(), properties, defaultLister(properties));
+        this(CatalogMetaCache.unmanaged(), properties, defaultLister(properties));
     }
 
     public HiveFileListingCache(CatalogMetaCache owner, HiveCatalogProperties properties) {
@@ -130,7 +132,7 @@ public class HiveFileListingCache {
     }
 
     HiveFileListingCache(HiveCatalogProperties properties, DirectoryLister lister) {
-        this(new CatalogMetaCache(), properties, lister);
+        this(CatalogMetaCache.unmanaged(), properties, lister);
     }
 
     HiveFileListingCache(CatalogMetaCache owner, HiveCatalogProperties properties, DirectoryLister lister) {
@@ -149,10 +151,11 @@ public class HiveFileListingCache {
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, ENTRY_FILE,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_FILE_CAPACITY));
         this.cache = owner.create(MetaCacheDefinition
-                .<FileListingKey, List<HiveFileStatus>>builder("hive-file", spec,
+                .<FileListingKey, FileListingValue>builder("hive-file", spec,
                         key -> key.partitionValues.isEmpty()
                                 ? ScopePath.table(key.dbName, key.tableName)
                                 : ScopePath.partition(key.dbName, key.tableName, key.partitionValues))
+                .sizeEstimator(HiveFileListingSizeEstimator::estimateEntry)
                 .build());
         this.lister = Objects.requireNonNull(lister, "lister can not be null");
     }
@@ -180,7 +183,8 @@ public class HiveFileListingCache {
     public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
             List<String> partitionValues, FileSystem fs) {
         return cache.get(new FileListingKey(dbName, tableName, location, partitionValues),
-                key -> lister.list(key.location, fs));
+                key -> new FileListingValue(lister.list(key.location, fs),
+                        cache.isEnabled() && cache.isWeightBounded())).files;
     }
 
     /** Drops every cached listing for one table. Backs {@code REFRESH TABLE}. */
@@ -345,10 +349,10 @@ public class HiveFileListingCache {
      * size-estimate paths sharing the same entry while making per-partition invalidation possible.
      */
     static final class FileListingKey {
-        private final String dbName;
-        private final String tableName;
-        private final String location;
-        private final List<String> partitionValues;
+        final String dbName;
+        final String tableName;
+        final String location;
+        final List<String> partitionValues;
 
         FileListingKey(String dbName, String tableName, String location, List<String> partitionValues) {
             this.dbName = dbName;
@@ -377,6 +381,22 @@ public class HiveFileListingCache {
         @Override
         public int hashCode() {
             return Objects.hash(dbName, tableName, location, partitionValues);
+        }
+    }
+
+    static final class FileListingValue {
+        final List<HiveFileStatus> files;
+        final MetaCacheSizeEstimate sizeEstimate;
+
+        FileListingValue(List<HiveFileStatus> files, boolean estimateWeight) {
+            this.files = estimateWeight
+                    ? Collections.unmodifiableList(new ArrayList<>(files))
+                    : files;
+            this.sizeEstimate = estimateWeight
+                    ? MetaCacheSizeEstimator.estimateSafely("hive_file_listing_estimator_failure",
+                            () -> MetaCacheSizeEstimate.complete(
+                                    HiveFileListingSizeEstimator.estimateValue(this)))
+                    : MetaCacheSizeEstimate.complete(0L);
         }
     }
 }

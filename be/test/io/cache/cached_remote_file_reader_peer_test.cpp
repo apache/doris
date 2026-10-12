@@ -64,6 +64,8 @@ bool test_try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point en
 
 namespace doris::io {
 
+extern bvar::Adder<uint64_t> peer_cache_reader_read_counter;
+
 namespace {
 
 constexpr size_t kPeerTestBlockSize = 4;
@@ -3489,6 +3491,27 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_wins_race_records_timer_metrics) {
     EXPECT_GT(cache_stats.peer_io_timer, 0) << "peer_io_timer should be non-zero after peer win";
     EXPECT_GT(cache_stats.cross_cg_peer_io_timer, 0)
             << "cross_cg_peer_io_timer should be non-zero after cross-CG peer win";
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_connection_failures_open_address_circuit) {
+    MockPeerCacheService service("abcd");
+    brpc::Server server;
+    const auto addr = start_peer_test_server(&server, &service);
+    stop_peer_test_server(&server);
+
+    const std::vector<FileBlockSPtr> blocks {
+            create_manual_peer_test_block("peer_connection_failure", 0, kPeerTestBlockSize)};
+    const uint64_t rpc_count_before = peer_cache_reader_read_counter.get_value();
+
+    for (int i = 0; i < 4; ++i) {
+        PeerFileCacheReader peer_reader(Path("peer_connection_failure"), true, "127.0.0.1",
+                                        addr.port);
+        PeerFetchResult result;
+        const auto st = peer_reader.fetch_blocks(blocks, &result, kPeerTestBlockSize, nullptr);
+        EXPECT_TRUE(st.is<ErrorCode::THRIFT_RPC_ERROR>()) << st;
+    }
+
+    EXPECT_EQ(peer_cache_reader_read_counter.get_value() - rpc_count_before, 3);
 }
 
 } // namespace doris::io

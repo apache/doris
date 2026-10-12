@@ -615,6 +615,15 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_date_literal(date_literal);
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2, precision, scale));
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        const auto* origin_value = reinterpret_cast<const TimeStampNsValue*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMESTAMP_NS));
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         const auto* origin_value = reinterpret_cast<const TimestampTzValue*>(data);
         TDateLiteral date_literal;
@@ -704,6 +713,14 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         literal.__set_value(CastToString::from_ip(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
+    } else if constexpr (T == TYPE_UUID) {
+        const auto* value = reinterpret_cast<const UUIDValueType*>(data);
+        (*node).__set_node_type(TExprNodeType::UUID_LITERAL);
+        TUUIDLiteral literal;
+        literal.__set_hi(static_cast<int64_t>(static_cast<uint64_t>(*value >> 64)));
+        literal.__set_lo(static_cast<int64_t>(static_cast<uint64_t>(*value)));
+        (*node).__set_uuid_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_UUID));
     } else if constexpr (T == TYPE_TIMEV2) {
         // Runtime filters preserve TIMEV2's microsecond carrier and scale in the literal node.
         const auto* origin_value = reinterpret_cast<const double*>(data);

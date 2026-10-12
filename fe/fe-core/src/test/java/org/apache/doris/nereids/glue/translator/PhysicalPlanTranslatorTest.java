@@ -77,6 +77,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.tso.MasterTsoProvider;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -84,6 +85,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -144,11 +146,20 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write' = 'false',"
                 + "'sequence_mapping.s1' = 'v1',"
                 + "'sequence_mapping.s2' = 'v2');");
+        // Bump the base table with a real (positive) tso before creating the stream so that the
+        // stream records a positive consumption offset at creation time; hasConsumedData() only
+        // treats a positive offset as a real baseline, otherwise every partition would be pruned out
+        // of the snapshot scan.
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
+        OlapTable binlogScanSchemaTable =
+                (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t");
+        bumpPartitionsAndReplicas(binlogScanSchemaTable, 2L, 100L);
         createTable("create stream test_db.binlog_scan_schema_stream "
                 + "on table test_db.binlog_scan_schema_t properties('type' = 'append_only')");
-        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
-        bumpPartitionsAndReplicas(
-                (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t"), 2L);
+        // Advance the base table tso again after the stream is created so the partition has new data
+        // beyond the recorded consumption offset, driving the snapshot scan down the rebuild path
+        // (base scan wrapped in OlapTableWrapper unioned with the binlog before-image).
+        bumpPartitionsAndReplicas(binlogScanSchemaTable, 3L, 200L);
         createTable("create table test_db.t_topn_lazy(c1 int, c2 int, c3 int) "
                 + "duplicate key(c1) distributed by hash(c1) buckets 1 "
                 + "properties('replication_num' = '1', 'light_schema_change' = 'true');");
@@ -295,12 +306,17 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
     @Test
     public void testSnapshotPhysicalScanSchemaIncludesCommitTso() throws Exception {
-        OlapScanNode snapshotMowScan = getOlapScanNodes(
-                "select v1 + 1 as projected_v1 from test_db.binlog_scan_schema_stream@snapshot()").stream()
-                .filter(scan -> scan.getOlapTable() instanceof OlapTableWrapper
-                        && !(scan.getOlapTable() instanceof RowBinlogTableWrapper))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("snapshot base scan not found"));
+        OlapScanNode snapshotMowScan;
+        try (MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+            // Match the fixture's consumed TSO 100 and latest TSO 200 when checking binlog retention.
+            mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(200L);
+            snapshotMowScan = getOlapScanNodes(
+                    "select v1 + 1 as projected_v1 from test_db.binlog_scan_schema_stream@snapshot()").stream()
+                    .filter(scan -> scan.getOlapTable() instanceof OlapTableWrapper
+                            && !(scan.getOlapTable() instanceof RowBinlogTableWrapper))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("snapshot base scan not found"));
+        }
         Set<SlotId> physicalSlotIds = snapshotMowScan.getTupleDesc().getSlots().stream()
                 .map(SlotDescriptor::getId)
                 .collect(Collectors.toSet());
@@ -544,10 +560,10 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         return scanNodes;
     }
 
-    private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion) {
+    private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion, long tso) {
         for (Partition partition : table.getPartitions()) {
             long timestamp = System.currentTimeMillis();
-            partition.setVisibleVersionAndTime(newVersion, timestamp, timestamp);
+            partition.setVisibleVersionAndTime(newVersion, timestamp, tso);
             partition.setNextVersion(newVersion + 1);
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 for (Tablet tablet : index.getTablets()) {

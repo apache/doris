@@ -19,9 +19,13 @@ package org.apache.doris.cloud.datasource;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -29,11 +33,15 @@ import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletType;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 public class CloudInternalCatalogTest {
     @Test
@@ -48,24 +56,61 @@ public class CloudInternalCatalogTest {
         try {
             Config.enable_partition_inverted_index_storage_format_rollout = false;
             OlapFile.TabletMetaCloudPB disabledTabletMeta = createTabletMeta(tablet);
-            Assert.assertEquals(17, disabledTabletMeta.getSchemaVersion());
-            Assert.assertEquals(17, disabledTabletMeta.getSchema().getSchemaVersion());
-            Assert.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+            Assertions.assertEquals(17, disabledTabletMeta.getSchemaVersion());
+            Assertions.assertEquals(17, disabledTabletMeta.getSchema().getSchemaVersion());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
                     disabledTabletMeta.getSchema().getInvertedIndexStorageFormat());
-            Assert.assertFalse(disabledTabletMeta.hasInvertedIndexStorageFormat());
-            Assert.assertEquals(1, disabledTabletMeta.getRsMetasCount());
-            Assert.assertFalse(disabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
+            Assertions.assertFalse(disabledTabletMeta.hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(1, disabledTabletMeta.getRsMetasCount());
+            Assertions.assertFalse(disabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
 
             Config.enable_partition_inverted_index_storage_format_rollout = true;
             OlapFile.TabletMetaCloudPB enabledTabletMeta = createTabletMeta(tablet);
-            Assert.assertTrue(enabledTabletMeta.hasInvertedIndexStorageFormat());
-            Assert.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+            Assertions.assertTrue(enabledTabletMeta.hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
                     enabledTabletMeta.getInvertedIndexStorageFormat());
-            Assert.assertTrue(enabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
-            Assert.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
+            Assertions.assertTrue(enabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
+            Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
                     enabledTabletMeta.getRsMetas(0).getInvertedIndexStorageFormat());
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = original;
+        }
+    }
+
+    @Test
+    public void testCreateTableConflictDropsOnlyLosingIndexes() throws Exception {
+        testCreateTableConflictCleanup(Cloud.MetaServiceCode.OK);
+    }
+
+    @Test
+    public void testCreateTableConflictReportsCleanupFailure() throws Exception {
+        testCreateTableConflictCleanup(Cloud.MetaServiceCode.INVALID_ARGUMENT);
+    }
+
+    private void testCreateTableConflictCleanup(Cloud.MetaServiceCode code) throws Exception {
+        OlapTable loser = Mockito.mock(OlapTable.class);
+        List<Long> indexIds = Arrays.asList(31L, 32L);
+        Mockito.when(loser.getId()).thenReturn(21L);
+        Mockito.when(loser.getIndexIdList(true)).thenReturn(indexIds);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(proxy.dropIndex(Mockito.any())).thenReturn(Cloud.IndexResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(code).setMsg("cleanup failed"))
+                .build());
+        try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            CloudInternalCatalog catalog = new CloudInternalCatalog();
+            if (code == Cloud.MetaServiceCode.OK) {
+                catalog.onCreateTableConflict(11L, loser);
+            } else {
+                DdlException error = Assertions.assertThrows(DdlException.class,
+                        () -> catalog.onCreateTableConflict(11L, loser));
+                Assertions.assertTrue(error.getMessage().contains("cleanup failed"));
+            }
+            ArgumentCaptor<Cloud.IndexRequest> request = ArgumentCaptor.forClass(Cloud.IndexRequest.class);
+            Mockito.verify(proxy).dropIndex(request.capture());
+            Assertions.assertEquals(11L, request.getValue().getDbId());
+            Assertions.assertEquals(21L, request.getValue().getTableId());
+            Assertions.assertEquals(indexIds, request.getValue().getIndexIdsList());
         }
     }
 

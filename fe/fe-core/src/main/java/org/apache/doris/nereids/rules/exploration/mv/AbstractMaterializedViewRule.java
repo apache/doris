@@ -641,7 +641,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 if (!(foldedExpressionWithLiteral instanceof DateLiteral)) {
                     return ImmutableList.of();
                 }
-                if (((DateLiteral) foldedExpressionWithLiteral).getDouble() == queryUsedLiteral.getDouble()) {
+                if (foldedExpressionWithLiteral.equals(queryUsedLiteral)) {
                     // after date_trunc simplify if equals to original expression, expr could be rewritten by mv
                     replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
                             targetToTargetReplacementMappingQueryBased,

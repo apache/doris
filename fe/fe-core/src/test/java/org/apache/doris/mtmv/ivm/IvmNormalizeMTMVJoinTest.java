@@ -19,6 +19,7 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.hint.DistributeHint;
@@ -59,6 +60,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1023,5 +1025,69 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
                 "middle outer compose key is the inner composed row-id slot");
         Assertions.assertEquals(JOIN_RIGHT_MATCH_COL, slotOfIsNullEncoding(hashChildren.get(5)).getName(),
                 "last outer compose key is the outer right match flag");
+    }
+
+    @Test
+    void testFullKeysSinkMaterializesSameNamedUnprojectedKey() {
+        // SELECT l.id FROM l JOIN r ON l.id = r.id with ivm_use_full_keys: the right id is
+        // an identity key that is not projected by the user output. It shares its name with
+        // the projected left id, so a name-keyed "already projected" test at the sink would
+        // drop it; the sink must materialize it under its own hidden key column instead.
+        LogicalOlapScan left = buildMowScan(1, "l");
+        LogicalOlapScan right = buildMowScan(2, "r");
+        Slot leftId = left.getOutput().get(0);
+        Slot rightId = right.getOutput().get(0);
+        Assertions.assertEquals(leftId.getName(), rightId.getName(),
+                "test setup expects same-named key columns on both base tables");
+
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
+                JoinType.INNER_JOIN, ImmutableList.of(new EqualTo(leftId, rightId)),
+                left, right, JoinReorderContext.EMPTY);
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(leftId), join);
+        LogicalResultSink<Plan> sink = new LogicalResultSink<>(ImmutableList.of(leftId), project);
+
+        MTMV mtmv = buildMtmvFromPlan(ImmutableList.of(leftId));
+        mtmv.getIvmInfo().setUseFullKeys(true);
+        ConnectContext ctx = newConnectContext();
+        ctx.getStatementContext().setIvmRewriteContext(Optional.of(IvmRewriteContext.normalize(mtmv)));
+        JobContext jobContext = newJobContextForRoot(sink, ctx);
+        Plan normalized = new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+
+        List<Slot> identityKeys = rewriteResult.getIdentityKeySlots();
+        Assertions.assertNotNull(identityKeys);
+        Assertions.assertTrue(identityKeys.stream()
+                        .anyMatch(key -> key.getExprId().equals(leftId.getExprId())),
+                "the projected left id must stay an identity key, but got: " + identityKeys);
+
+        String embeddedId = IvmUtil.sanitizeIvmKeyName(rightId.getName());
+        Slot rightHiddenKey = identityKeys.stream()
+                .filter(key -> IvmUtil.isIvmHiddenColumn(key.getName())
+                        && key.getName().endsWith("_" + embeddedId + "_COL__"))
+                .findFirst().orElse(null);
+        Assertions.assertNotNull(rightHiddenKey,
+                "same-named right id key must be materialized as a hidden key column, got: "
+                        + identityKeys);
+
+        // The hidden key column is materialized at the first project that does not project
+        // the key: find that alias in the normalized tree and verify it wraps the right id
+        // slot rather than the same-named left id.
+        List<Alias> hiddenAliases = new ArrayList<>();
+        normalized.foreach(node -> {
+            if (node instanceof LogicalProject) {
+                for (NamedExpression projection : ((LogicalProject<?>) node).getProjects()) {
+                    if (projection instanceof Alias && projection.getName().equals(rightHiddenKey.getName())) {
+                        hiddenAliases.add((Alias) projection);
+                    }
+                }
+            }
+        });
+        Assertions.assertFalse(hiddenAliases.isEmpty(),
+                "expected a hidden key projection named " + rightHiddenKey.getName());
+        for (Alias hiddenAlias : hiddenAliases) {
+            Assertions.assertInstanceOf(Slot.class, hiddenAlias.child());
+            Assertions.assertEquals(rightId.getExprId(), ((Slot) hiddenAlias.child()).getExprId(),
+                    "the hidden key column must wrap the right id slot, not the same-named left id");
+        }
     }
 }

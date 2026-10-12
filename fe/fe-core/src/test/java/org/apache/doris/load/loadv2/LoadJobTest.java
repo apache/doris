@@ -29,9 +29,11 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -39,9 +41,23 @@ import java.util.Map;
 
 public class LoadJobTest {
 
-    @BeforeClass
+    @BeforeAll
     public static void start() {
         MetricRepo.init();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"LOADING,false,LOADING", "CANCELLED,false,CANCELLED", "LOADING,true,COMMITTED"})
+    public void testCommitCallbackPreservesFailureState(JobState initialState, boolean txnOperated,
+            JobState expectedState) throws Exception {
+        LoadJob job = new BrokerLoadJob();
+        job.state = JobState.LOADING;
+        job.beforeCommitted(null);
+        // An abort callback can cancel the job before the paired completion callback.
+        job.state = initialState;
+        job.afterCommitted(null, txnOperated);
+        Assertions.assertFalse(job.isCommitting);
+        Assertions.assertEquals(expectedState, job.getState());
     }
 
     @Test
@@ -51,7 +67,7 @@ public class LoadJobTest {
         LoadJob loadJob = new BrokerLoadJob();
         try {
             loadJob.setJobProperties(jobProperties);
-            Assert.fail();
+            Assertions.fail();
         } catch (DdlException e) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -68,12 +84,12 @@ public class LoadJobTest {
         LoadJob loadJob = new BrokerLoadJob();
         try {
             loadJob.setJobProperties(jobProperties);
-            Assert.assertEquals(1000, loadJob.getTimeout());
-            Assert.assertEquals(0.1, loadJob.getMaxFilterRatio(), 0);
-            Assert.assertEquals(1024, loadJob.getExecMemLimit());
-            Assert.assertTrue(loadJob.isStrictMode());
+            Assertions.assertEquals(1000, loadJob.getTimeout());
+            Assertions.assertEquals(0.1, loadJob.getMaxFilterRatio(), 0);
+            Assertions.assertEquals(1024, loadJob.getExecMemLimit());
+            Assertions.assertTrue(loadJob.isStrictMode());
         } catch (DdlException e) {
-            Assert.fail(e.getMessage());
+            Assertions.fail(e.getMessage());
         }
     }
 
@@ -92,9 +108,9 @@ public class LoadJobTest {
             try {
                 loadJob.execute();
             } catch (LoadException e) {
-                Assert.fail(e.getMessage());
+                Assertions.fail(e.getMessage());
             }
-            Assert.assertEquals(JobState.PENDING, loadJob.getState());
+            Assertions.assertEquals(JobState.PENDING, loadJob.getState());
         }
     }
 
@@ -104,7 +120,7 @@ public class LoadJobTest {
         Deencapsulation.setField(loadJob, "state", JobState.FINISHED);
 
         loadJob.processTimeout();
-        Assert.assertEquals(JobState.FINISHED, loadJob.getState());
+        Assertions.assertEquals(JobState.FINISHED, loadJob.getState());
     }
 
     @Test
@@ -114,7 +130,7 @@ public class LoadJobTest {
         Deencapsulation.setField(loadJob, "state", JobState.LOADING);
 
         loadJob.processTimeout();
-        Assert.assertEquals(JobState.LOADING, loadJob.getState());
+        Assertions.assertEquals(JobState.LOADING, loadJob.getState());
     }
 
     @Test
@@ -122,7 +138,7 @@ public class LoadJobTest {
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.setTimeout(1000L);
         loadJob.processTimeout();
-        Assert.assertEquals(JobState.PENDING, loadJob.getState());
+        Assertions.assertEquals(JobState.PENDING, loadJob.getState());
     }
 
     @Test
@@ -143,7 +159,7 @@ public class LoadJobTest {
             Deencapsulation.setField(loadJob, "createTimestamp", 0L);
 
             loadJob.processTimeout();
-            Assert.assertEquals(JobState.CANCELLED, loadJob.getState());
+            Assertions.assertEquals(JobState.CANCELLED, loadJob.getState());
         }
     }
 
@@ -151,8 +167,8 @@ public class LoadJobTest {
     public void testUpdateStateToLoading() {
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.updateState(JobState.LOADING);
-        Assert.assertEquals(JobState.LOADING, loadJob.getState());
-        Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "loadStartTimestamp"));
+        Assertions.assertEquals(JobState.LOADING, loadJob.getState());
+        Assertions.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "loadStartTimestamp"));
     }
 
     @Test
@@ -160,8 +176,8 @@ public class LoadJobTest {
         LoadJob loadJob = new BrokerLoadJob();
         Deencapsulation.setField(loadJob, "state", JobState.RETRY);
 
-        Assert.assertFalse(loadJob.updateState(JobState.LOADING));
-        Assert.assertEquals(JobState.RETRY, loadJob.getState());
+        Assertions.assertFalse(loadJob.updateState(JobState.LOADING));
+        Assertions.assertEquals(JobState.RETRY, loadJob.getState());
     }
 
     @Test
@@ -179,12 +195,12 @@ public class LoadJobTest {
             LoadJob loadJob = new BrokerLoadJob();
             loadJob.idToTasks.put(1L, loadTask1);
 
-            Assert.assertEquals(1, loadJob.idToTasks.size());
+            Assertions.assertEquals(1, loadJob.idToTasks.size());
             loadJob.updateState(JobState.FINISHED);
-            Assert.assertEquals(JobState.FINISHED, loadJob.getState());
-            Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));
-            Assert.assertEquals(100, (int) Deencapsulation.getField(loadJob, "progress"));
-            Assert.assertEquals(0, loadJob.idToTasks.size());
+            Assertions.assertEquals(JobState.FINISHED, loadJob.getState());
+            Assertions.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));
+            Assertions.assertEquals(100, (int) Deencapsulation.getField(loadJob, "progress"));
+            Assertions.assertEquals(0, loadJob.idToTasks.size());
         }
     }
 }

@@ -142,8 +142,9 @@ using FieldTypeTags = ::testing::Types<
         FieldTag<FieldType::OLAP_FIELD_TYPE_DECIMAL256>, FieldTag<FieldType::OLAP_FIELD_TYPE_DATE>,
         FieldTag<FieldType::OLAP_FIELD_TYPE_DATETIME>, FieldTag<FieldType::OLAP_FIELD_TYPE_DATEV2>,
         FieldTag<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>,
-        FieldTag<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>, FieldTag<FieldType::OLAP_FIELD_TYPE_IPV4>,
-        FieldTag<FieldType::OLAP_FIELD_TYPE_IPV6>>;
+        FieldTag<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>,
+        FieldTag<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS>,
+        FieldTag<FieldType::OLAP_FIELD_TYPE_IPV4>, FieldTag<FieldType::OLAP_FIELD_TYPE_IPV6>>;
 
 TYPED_TEST_SUITE(SniiBkdAdapterTypesTest, FieldTypeTags);
 

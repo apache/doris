@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ivm_partition_baseline_rebuild", "nonConcurrent") {
+suite("test_ivm_partition_baseline_rebuild") {
     def tableName = "ivm_part_rebuild_t"
     def mvName = "ivm_part_rebuild_mv"
 

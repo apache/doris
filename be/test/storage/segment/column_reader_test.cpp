@@ -16,12 +16,14 @@
 // under the License.
 #include "storage/segment/column_reader.h"
 
+#include <gen_cpp/Descriptors_constants.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <iterator>
@@ -33,6 +35,13 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
+#include "core/column/column_map.h"
+#include "core/column/column_struct.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -73,14 +82,17 @@ public:
         _read_requirement = requirement;
     }
 
-    Result<TColumnAccessPaths> get_sub_access_paths(const TColumnAccessPaths& access_paths,
-                                                    bool is_predicate = false) {
-        return _get_sub_access_paths(access_paths, is_predicate);
+    using ColumnIterator::AccessPathSplit;
+
+    Result<AccessPathSplit> split_access_paths(const TColumnAccessPaths& access_paths,
+                                               bool owns_offset_meta = true) const {
+        return _split_access_paths(access_paths, owns_offset_meta);
     }
 
-    void check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
-                                      const TColumnAccessPaths& access_paths) {
-        _check_and_set_meta_read_mode(requirement_before_access_path, access_paths);
+    Status check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
+                                        const TColumnAccessPaths& access_paths) {
+        auto split = DORIS_TRY(_split_access_paths(access_paths, /*owns_offset_meta=*/true));
+        return _check_and_set_meta_read_mode(requirement_before_access_path, split);
     }
 
     void convert_to_place_holder_column(MutableColumnPtr& dst, size_t count) {
@@ -88,11 +100,32 @@ public:
     }
 };
 
-TColumnAccessPath create_access_path(std::vector<std::string> path) {
+TColumnAccessPath create_data_access_path(std::vector<std::string> path) {
     TColumnAccessPath access_path;
+    access_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    access_path.__set_type(TAccessPathType::DATA);
     TDataAccessPath data_access_path;
     data_access_path.__set_path(std::move(path));
     access_path.__set_data_access_path(std::move(data_access_path));
+    return access_path;
+}
+
+TColumnAccessPath create_legacy_data_access_path(std::vector<std::string> path) {
+    TColumnAccessPath access_path;
+    access_path.__set_type(TAccessPathType::DATA);
+    TDataAccessPath data_access_path;
+    data_access_path.__set_path(std::move(path));
+    access_path.__set_data_access_path(std::move(data_access_path));
+    return access_path;
+}
+
+TColumnAccessPath create_meta_access_path(std::vector<std::string> path) {
+    TColumnAccessPath access_path;
+    access_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    access_path.__set_type(TAccessPathType::META);
+    TMetaAccessPath meta_access_path;
+    meta_access_path.__set_path(std::move(path));
+    access_path.__set_meta_access_path(std::move(meta_access_path));
     return access_path;
 }
 
@@ -148,6 +181,13 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override {
+        routed_all_access_paths = all_access_paths;
+        routed_predicate_access_paths = predicate_access_paths;
+        return ColumnIterator::set_access_paths(all_access_paths, predicate_access_paths);
+    }
+
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override {
@@ -164,12 +204,20 @@ public:
         next_batch_sizes.clear();
         read_by_rowids_batches.clear();
         collect_methods.clear();
+        routed_all_access_paths.clear();
+        routed_predicate_access_paths.clear();
+    }
+
+    void convert_to_place_holder_column(MutableColumnPtr& dst, size_t count) {
+        _convert_to_place_holder_column(dst, count);
     }
 
     std::vector<ordinal_t> seek_ordinals;
     std::vector<size_t> next_batch_sizes;
     std::vector<std::vector<rowid_t>> read_by_rowids_batches;
     std::vector<PrefetcherInitMethod> collect_methods;
+    TColumnAccessPaths routed_all_access_paths;
+    TColumnAccessPaths routed_predicate_access_paths;
 
 private:
     void record_collect_method(PrefetcherInitMethod init_method) {
@@ -235,17 +283,27 @@ private:
 
 class RowidOffsetFileColumnIterator final : public FileColumnIterator {
 public:
-    RowidOffsetFileColumnIterator() : FileColumnIterator(create_test_reader(false, 10)) {}
+    RowidOffsetFileColumnIterator()
+            : RowidOffsetFileColumnIterator(
+                      std::vector<ordinal_t> {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {}
+
+    explicit RowidOffsetFileColumnIterator(std::vector<ordinal_t> offsets)
+            : FileColumnIterator(create_test_reader(false, offsets.size() - 1)),
+              _offsets(std::move(offsets)) {
+        get_current_page()->next_array_item_ordinal = _offsets.back();
+    }
 
     Status seek_to_ordinal(ordinal_t ord) override {
+        seek_ordinals.emplace_back(ord);
         _current_ordinal = ord;
         return Status::OK();
     }
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        next_batch_sizes.emplace_back(*n);
         auto& offsets = assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*dst);
         for (size_t i = 0; i < *n; ++i) {
-            offsets.insert_value(_current_ordinal + i);
+            offsets.insert_value(_offsets[_current_ordinal + i]);
         }
         _current_ordinal += *n;
         if (has_null != nullptr) {
@@ -256,16 +314,22 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override {
+        read_by_rowids_batches.emplace_back(rowids, rowids + count);
         auto& offsets = assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*dst);
         for (size_t i = 0; i < count; ++i) {
-            offsets.insert_value(rowids[i]);
+            offsets.insert_value(_offsets[rowids[i]]);
         }
         return Status::OK();
     }
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
+    std::vector<ordinal_t> seek_ordinals;
+    std::vector<size_t> next_batch_sizes;
+    std::vector<std::vector<rowid_t>> read_by_rowids_batches;
+
 private:
+    std::vector<ordinal_t> _offsets;
     ordinal_t _current_ordinal = 0;
 };
 
@@ -305,6 +369,129 @@ struct TrackingOffsetIterator {
     OffsetFileColumnIteratorUPtr iterator;
     TrackingFileColumnIterator* tracker = nullptr;
 };
+
+// item_data is the nested writer's raw input and differs by element type. It is not the
+// outer array's own data layout; write_array_column only adds the outer array metadata.
+void write_array_column(const std::string& file_name, ColumnMetaPB* meta,
+                        const TabletColumn& tablet_column, size_t num_rows,
+                        const std::vector<uint64_t>& item_data,
+                        const std::vector<uint64_t>& outer_offsets,
+                        const std::vector<uint8_t>& item_null_map,
+                        const std::vector<uint8_t>* outer_null_map) {
+    auto fs = io::global_local_filesystem();
+    io::FileWriterPtr file_writer;
+    auto st = fs->create_file(file_name, &file_writer);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ColumnWriterOptions writer_options;
+    writer_options.meta = meta;
+    std::unique_ptr<ColumnWriter> writer;
+    st = ColumnWriter::create(writer_options, &tablet_column, file_writer.get(), &writer);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_TRUE(writer->init().ok());
+
+    std::vector<uint64_t> outer_data {static_cast<uint64_t>(item_null_map.size()),
+                                      reinterpret_cast<uint64_t>(outer_offsets.data()),
+                                      reinterpret_cast<uint64_t>(item_data.data()),
+                                      reinterpret_cast<uint64_t>(item_null_map.data())};
+    ASSERT_TRUE(writer->append(outer_null_map ? outer_null_map->data() : nullptr, outer_data.data(),
+                               num_rows)
+                        .ok());
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_data().ok());
+    ASSERT_TRUE(writer->write_ordinal_index().ok());
+    ASSERT_TRUE(file_writer->close().ok());
+}
+
+void read_array_baseline(const std::shared_ptr<ColumnReader>& reader,
+                         const TabletColumn& tablet_column, const DataTypePtr& column_type,
+                         io::FileReader* file_reader, MutableColumnPtr* baseline) {
+    ColumnIteratorUPtr iterator;
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(reader->new_iterator(&iterator, &tablet_column).ok());
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    options.file_reader = file_reader;
+    ASSERT_TRUE(iterator->init(options).ok());
+    ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+
+    *baseline = column_type->create_column();
+    size_t rows_to_read = reader->num_rows();
+    bool has_null = false;
+    ASSERT_TRUE(iterator->next_batch(&rows_to_read, *baseline, &has_null).ok());
+    ASSERT_EQ(reader->num_rows(), rows_to_read);
+}
+
+void check_lazy_array_read_matches_baseline(const std::shared_ptr<ColumnReader>& reader,
+                                            const TabletColumn& tablet_column,
+                                            const DataTypePtr& column_type,
+                                            const std::vector<rowid_t>& rowids,
+                                            const IColumn& baseline, io::FileReader* file_reader) {
+    ColumnIteratorUPtr iterator;
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(reader->new_iterator(&iterator, &tablet_column).ok());
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    options.file_reader = file_reader;
+    ASSERT_TRUE(iterator->init(options).ok());
+
+    iterator->set_column_name(tablet_column.name());
+    TColumnAccessPaths all_paths {create_data_access_path({tablet_column.name()})};
+    TColumnAccessPaths predicate_paths {
+            create_meta_access_path({tablet_column.name(), ColumnIterator::ACCESS_OFFSET})};
+    ASSERT_TRUE(iterator->set_access_paths(all_paths, predicate_paths).ok());
+
+    iterator->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    auto lazy = column_type->create_column();
+    ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+    size_t rows_to_read = baseline.size();
+    bool has_null = false;
+    ASSERT_TRUE(iterator->next_batch(&rows_to_read, lazy, &has_null).ok());
+    ASSERT_EQ(baseline.size(), rows_to_read);
+
+    IColumn::Filter filter;
+    filter.resize_fill(baseline.size(), 0);
+    for (rowid_t rowid : rowids) {
+        filter[rowid] = 1;
+    }
+    lazy = IColumn::mutate(lazy->filter(filter, rowids.size()));
+
+    iterator->set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    ASSERT_TRUE(iterator->need_to_read());
+    ASSERT_FALSE(iterator->need_to_read_meta_columns());
+    ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), lazy).ok());
+    iterator->finalize_lazy_phase(lazy);
+
+    ASSERT_EQ(rowids.size(), lazy->size());
+    for (size_t i = 0; i < rowids.size(); ++i) {
+        EXPECT_EQ(0, lazy->compare_at(i, rowids[i], baseline, 1));
+    }
+}
+
+void check_array_read_by_rowids_matches_baseline(const std::shared_ptr<ColumnReader>& reader,
+                                                 const TabletColumn& tablet_column,
+                                                 const DataTypePtr& column_type,
+                                                 const std::vector<rowid_t>& rowids,
+                                                 const IColumn& baseline,
+                                                 io::FileReader* file_reader) {
+    ColumnIteratorUPtr iterator;
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(reader->new_iterator(&iterator, &tablet_column).ok());
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    options.file_reader = file_reader;
+    ASSERT_TRUE(iterator->init(options).ok());
+
+    auto actual = column_type->create_column();
+    ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), actual).ok());
+    ASSERT_EQ(rowids.size(), actual->size());
+    for (size_t i = 0; i < rowids.size(); ++i) {
+        EXPECT_EQ(0, actual->compare_at(i, rowids[i], baseline, 1));
+    }
+
+    check_lazy_array_read_matches_baseline(reader, tablet_column, column_type, rowids, baseline,
+                                           file_reader);
+}
 
 TrackingOffsetIterator create_tracking_offset_iterator() {
     auto file_iterator = std::make_unique<TrackingFileColumnIterator>(create_test_reader());
@@ -413,6 +600,751 @@ TEST_F(ColumnReaderTest, NullMapOnlyReadBySparseRowidsAcrossPages) {
     EXPECT_EQ(2, nullable_col.get_nested_column().size());
 }
 
+TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
+    // The generated offsets and non-null INT items both exceed the default 64 KiB data-page
+    // size, so the selected rowids exercise page transitions in both child streams.
+    constexpr size_t num_rows = 12000;
+    constexpr size_t max_items_per_row = 3;
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_INT, true);
+    array_column.add_sub_column(item_column);
+
+    std::vector<int32_t> item_values;
+    std::vector<uint8_t> item_null_map;
+    std::vector<uint64_t> array_offsets(num_rows + 1, 0);
+    std::vector<uint8_t> array_null_map(num_rows, 0);
+    item_values.reserve(num_rows * max_items_per_row);
+    item_null_map.reserve(num_rows * max_items_per_row);
+    for (size_t row = 0; row < num_rows; ++row) {
+        const bool is_null = row % 7 == 1;
+        array_null_map[row] = is_null;
+        const size_t item_count = row % 11 == 0 ? 0 : (is_null ? 3 : row % 3 + 1);
+        for (size_t item = 0; item < item_count; ++item) {
+            item_values.push_back(static_cast<int32_t>(row * 10 + item));
+            item_null_map.push_back((row + item) % 5 == 0);
+        }
+        array_offsets[row + 1] = item_values.size();
+    }
+
+    const std::string file_name = COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids";
+    auto fs = io::global_local_filesystem();
+    {
+        io::FileWriterPtr file_writer;
+        auto st = fs->create_file(file_name, &file_writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        ColumnWriterOptions writer_options;
+        writer_options.meta = &meta;
+        writer_options.meta->set_column_id(0);
+        writer_options.meta->set_unique_id(0);
+        writer_options.meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+        writer_options.meta->set_length(0);
+        writer_options.meta->set_encoding(DEFAULT_ENCODING);
+        writer_options.meta->set_compression(CompressionTypePB::LZ4F);
+        writer_options.meta->set_is_nullable(true);
+
+        auto* child_meta = meta.add_children_columns();
+        child_meta->set_column_id(1);
+        child_meta->set_unique_id(1);
+        child_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+        child_meta->set_length(0);
+        child_meta->set_encoding(BIT_SHUFFLE);
+        child_meta->set_compression(CompressionTypePB::LZ4F);
+        child_meta->set_is_nullable(true);
+
+        std::unique_ptr<ColumnWriter> writer;
+        st = ColumnWriter::create(writer_options, &array_column, file_writer.get(), &writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_TRUE(writer->init().ok());
+        // Use the vectorized append path so even null parent rows keep their physical item span.
+        const std::array<uint64_t, 4> array_data {static_cast<uint64_t>(item_values.size()),
+                                                  reinterpret_cast<uint64_t>(array_offsets.data()),
+                                                  reinterpret_cast<uint64_t>(item_values.data()),
+                                                  reinterpret_cast<uint64_t>(item_null_map.data())};
+        ASSERT_TRUE(writer->append(array_null_map.data(), array_data.data(), num_rows).ok());
+        ASSERT_TRUE(writer->finish().ok());
+        ASSERT_TRUE(writer->write_data().ok());
+        ASSERT_TRUE(writer->write_ordinal_index().ok());
+        ASSERT_TRUE(file_writer->close().ok());
+    }
+
+    io::FileReaderSPtr file_reader;
+    auto st = fs->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()));
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(array_type);
+    auto create_iterator = [&](OlapReaderStatistics* stats,
+                               ColumnIteratorUPtr* iterator) -> Status {
+        RETURN_IF_ERROR(reader->new_iterator(iterator, &array_column));
+        ColumnIteratorOptions options;
+        options.stats = stats;
+        options.file_reader = file_reader.get();
+        return (*iterator)->init(options);
+    };
+
+    MutableColumnPtr baseline = column_type->create_column();
+    {
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        st = create_iterator(&stats, &iterator);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+        size_t rows_to_read = num_rows;
+        bool has_null = false;
+        st = iterator->next_batch(&rows_to_read, baseline, &has_null);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(num_rows, rows_to_read);
+    }
+
+    std::vector<rowid_t> rowids {0, 1, 2, 7, 8, 11, 4095, 4096, 8191, 8192};
+    for (rowid_t rowid = 10000; rowid <= 11000; ++rowid) {
+        rowids.push_back(rowid);
+    }
+    rowids.push_back(11998);
+    rowids.push_back(11999);
+    MutableColumnPtr actual = column_type->create_column();
+    {
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        st = create_iterator(&stats, &iterator);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        st = iterator->read_by_rowids(rowids.data(), rowids.size(), actual);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+    }
+
+    ASSERT_EQ(1, array_null_map[1]);
+    ASSERT_GT(array_offsets[2] - array_offsets[1], 0);
+    const auto& baseline_nullable = assert_cast<const ColumnNullable&>(*baseline);
+    const auto& baseline_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+            baseline_nullable.get_nested_column());
+    ASSERT_EQ(1, baseline_nullable.get_null_map_data()[1]);
+    ASSERT_GT(baseline_array.size_at(1), 0);
+
+    // Compare physical item spans as well as logical rows, including payload under NULL parents.
+    auto check_selected_rows = [&](const std::vector<rowid_t>& selected_rowids,
+                                   const IColumn& result) {
+        ASSERT_EQ(selected_rowids.size(), result.size());
+        const auto& actual_nullable = assert_cast<const ColumnNullable&>(result);
+        const auto& actual_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                actual_nullable.get_nested_column());
+        size_t expected_item_count = 0;
+        size_t actual_item_index = 0;
+        for (size_t i = 0; i < selected_rowids.size(); ++i) {
+            const auto rowid = selected_rowids[i];
+            EXPECT_EQ(baseline_nullable.get_null_map_data()[rowid],
+                      actual_nullable.get_null_map_data()[i]);
+
+            const size_t row_item_count = baseline_array.size_at(rowid);
+            expected_item_count += row_item_count;
+            EXPECT_EQ(expected_item_count, actual_array.get_offsets()[i]);
+            for (size_t item = 0; item < row_item_count; ++item) {
+                EXPECT_EQ(0, actual_array.get_data().compare_at(
+                                     actual_item_index, baseline_array.offset_at(rowid) + item,
+                                     baseline_array.get_data(), 1));
+                ++actual_item_index;
+            }
+        }
+        EXPECT_EQ(expected_item_count, actual_array.get_data().size());
+    };
+    check_selected_rows(rowids, *actual);
+
+    {
+        SCOPED_TRACE("predicate metadata -> filter -> lazy items");
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
+        iterator->set_column_name("a");
+        // The predicate needs the parent lengths, while the output needs complete arrays.
+        // Let the same access-path API as production assign parent/child read requirements.
+        TColumnAccessPaths all_paths {create_data_access_path({"a"})};
+        TColumnAccessPaths predicate_paths {
+                create_meta_access_path({"a", ColumnIterator::ACCESS_OFFSET})};
+        ASSERT_TRUE(iterator->set_access_paths(all_paths, predicate_paths).ok());
+        iterator->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+        auto lazy = column_type->create_column();
+        ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+        size_t rows_to_read = num_rows;
+        bool has_null = false;
+        ASSERT_TRUE(iterator->next_batch(&rows_to_read, lazy, &has_null).ok());
+        ASSERT_EQ(num_rows, rows_to_read);
+        {
+            const auto& array = assert_cast<const ColumnArray&>(
+                    assert_cast<const ColumnNullable&>(*lazy).get_nested_column());
+            ASSERT_EQ(item_values.size(), array.get_data().size());
+            // Nullable item defaults are NULL: the predicate phase must not read real items.
+            EXPECT_TRUE(array.get_data().only_null());
+        }
+
+        IColumn::Filter filter;
+        filter.resize_fill(num_rows, 0);
+        for (rowid_t rowid : rowids) {
+            filter[rowid] = 1;
+        }
+        lazy = IColumn::mutate(lazy->filter(filter, rowids.size()));
+        iterator->set_read_phase(ColumnIterator::ReadPhase::LAZY);
+        ASSERT_TRUE(iterator->need_to_read());
+        ASSERT_FALSE(iterator->need_to_read_meta_columns());
+        ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), lazy).ok());
+        iterator->finalize_lazy_phase(lazy);
+        check_selected_rows(rowids, *lazy);
+    }
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedArrayMatchesSequentialRead) {
+    constexpr size_t num_rows = 12000;
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn nested_array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                     FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn int_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT, true);
+    nested_array_column.add_sub_column(int_column);
+    array_column.add_sub_column(nested_array_column);
+    array_column.set_is_nullable(true);
+    nested_array_column.set_is_nullable(true);
+    array_column.set_name("a");
+    nested_array_column.set_name("item");
+    int_column.set_name("item");
+
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(true);
+    auto* nested_meta = meta.add_children_columns();
+    nested_meta->set_column_id(1);
+    nested_meta->set_unique_id(1);
+    nested_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    nested_meta->set_length(0);
+    nested_meta->set_encoding(DEFAULT_ENCODING);
+    nested_meta->set_compression(CompressionTypePB::LZ4F);
+    nested_meta->set_is_nullable(true);
+    auto* int_meta = nested_meta->add_children_columns();
+    int_meta->set_column_id(2);
+    int_meta->set_unique_id(2);
+    int_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    int_meta->set_length(0);
+    int_meta->set_encoding(BIT_SHUFFLE);
+    int_meta->set_compression(CompressionTypePB::LZ4F);
+    int_meta->set_is_nullable(true);
+
+    std::vector<int32_t> int_values;
+    std::vector<uint8_t> int_null_map;
+    std::vector<uint64_t> nested_offsets {0};
+    std::vector<uint8_t> nested_item_null_map;
+    std::vector<uint64_t> outer_offsets(num_rows + 1, 0);
+    std::vector<uint8_t> outer_null_map(num_rows, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        const bool outer_is_null = row % 7 == 1;
+        outer_null_map[row] = outer_is_null;
+        const size_t item_count = row % 11 == 0 ? 0 : (outer_is_null ? 3 : row % 3 + 1);
+        for (size_t item = 0; item < item_count; ++item) {
+            const bool item_is_null = (row + item) % 5 == 0;
+            nested_item_null_map.push_back(item_is_null);
+            const size_t inner_count = item_is_null ? 2 : (row + item) % 3;
+            for (size_t inner = 0; inner < inner_count; ++inner) {
+                int_values.push_back(static_cast<int32_t>(row * 10 + item * 3 + inner));
+                int_null_map.push_back((row + item + inner) % 4 == 0);
+            }
+            nested_offsets.push_back(int_values.size());
+        }
+        outer_offsets[row + 1] = nested_item_null_map.size();
+    }
+
+    std::vector<uint64_t> item_data {static_cast<uint64_t>(int_values.size()),
+                                     reinterpret_cast<uint64_t>(nested_offsets.data()),
+                                     reinterpret_cast<uint64_t>(int_values.data()),
+                                     reinterpret_cast<uint64_t>(int_null_map.data())};
+    const std::string file_name =
+            COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_array";
+    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
+                       nested_item_null_map, &outer_null_map);
+
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr int_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr nested_array_type = std::make_shared<DataTypeArray>(int_type);
+    DataTypePtr outer_item_type = std::make_shared<DataTypeNullable>(nested_array_type);
+    DataTypePtr outer_array_type = std::make_shared<DataTypeArray>(outer_item_type);
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(outer_array_type);
+    MutableColumnPtr baseline;
+    read_array_baseline(reader, array_column, column_type, file_reader.get(), &baseline);
+    const std::vector<rowid_t> rowids {0, 1, 2, 7, 11, 4095, 4096, 8191, 11998, 11999};
+    check_array_read_by_rowids_matches_baseline(reader, array_column, column_type, rowids,
+                                                *baseline, file_reader.get());
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedStructMatchesSequentialRead) {
+    constexpr size_t num_rows = 12000;
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn struct_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                               FieldType::OLAP_FIELD_TYPE_STRUCT);
+    TabletColumn int_a_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_INT, true);
+    TabletColumn int_b_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_INT, true);
+    struct_column.add_sub_column(int_a_column);
+    struct_column.add_sub_column(int_b_column);
+    array_column.add_sub_column(struct_column);
+    array_column.set_is_nullable(true);
+    struct_column.set_is_nullable(true);
+    array_column.set_name("a");
+    struct_column.set_name("item");
+    int_a_column.set_name("a");
+    int_b_column.set_name("b");
+
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(true);
+    auto* struct_meta = meta.add_children_columns();
+    struct_meta->set_column_id(1);
+    struct_meta->set_unique_id(1);
+    struct_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_STRUCT));
+    struct_meta->set_length(0);
+    struct_meta->set_encoding(DEFAULT_ENCODING);
+    struct_meta->set_compression(CompressionTypePB::LZ4F);
+    struct_meta->set_is_nullable(true);
+    auto* a_meta = struct_meta->add_children_columns();
+    a_meta->set_column_id(2);
+    a_meta->set_unique_id(2);
+    a_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    a_meta->set_length(0);
+    a_meta->set_encoding(BIT_SHUFFLE);
+    a_meta->set_compression(CompressionTypePB::LZ4F);
+    a_meta->set_is_nullable(true);
+    auto* b_meta = struct_meta->add_children_columns();
+    b_meta->set_column_id(3);
+    b_meta->set_unique_id(3);
+    b_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    b_meta->set_length(0);
+    b_meta->set_encoding(BIT_SHUFFLE);
+    b_meta->set_compression(CompressionTypePB::LZ4F);
+    b_meta->set_is_nullable(true);
+
+    std::vector<int32_t> a_values;
+    std::vector<int32_t> b_values;
+    std::vector<uint8_t> a_null_map;
+    std::vector<uint8_t> b_null_map;
+    std::vector<uint8_t> struct_item_null_map;
+    std::vector<uint64_t> outer_offsets(num_rows + 1, 0);
+    std::vector<uint8_t> outer_null_map(num_rows, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        const bool outer_is_null = row % 7 == 1;
+        outer_null_map[row] = outer_is_null;
+        const size_t item_count = row % 11 == 0 ? 0 : (outer_is_null ? 3 : row % 3 + 1);
+        for (size_t item = 0; item < item_count; ++item) {
+            struct_item_null_map.push_back((row + item) % 5 == 0);
+            a_values.push_back(static_cast<int32_t>(row * 10 + item));
+            b_values.push_back(static_cast<int32_t>(row * 100 + item));
+            a_null_map.push_back((row + item) % 4 == 0);
+            b_null_map.push_back((row + item * 2) % 5 == 0);
+        }
+        outer_offsets[row + 1] = struct_item_null_map.size();
+    }
+
+    std::vector<uint64_t> item_data {reinterpret_cast<uint64_t>(a_values.data()),
+                                     reinterpret_cast<uint64_t>(b_values.data()),
+                                     reinterpret_cast<uint64_t>(a_null_map.data()),
+                                     reinterpret_cast<uint64_t>(b_null_map.data())};
+    const std::string file_name =
+            COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_struct";
+    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
+                       struct_item_null_map, &outer_null_map);
+
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr a_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr b_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr struct_type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {a_type, b_type}, std::vector<std::string> {"a", "b"});
+    DataTypePtr outer_item_type = std::make_shared<DataTypeNullable>(struct_type);
+    DataTypePtr outer_array_type = std::make_shared<DataTypeArray>(outer_item_type);
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(outer_array_type);
+    MutableColumnPtr baseline;
+    read_array_baseline(reader, array_column, column_type, file_reader.get(), &baseline);
+    const std::vector<rowid_t> rowids {0, 1, 2, 7, 11, 4095, 4096, 8191, 11998, 11999};
+    check_array_read_by_rowids_matches_baseline(reader, array_column, column_type, rowids,
+                                                *baseline, file_reader.get());
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedMapMatchesSequentialRead) {
+    constexpr size_t num_rows = 12000;
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn map_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_MAP);
+    TabletColumn key_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT);
+    TabletColumn value_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_INT, true);
+    map_column.add_sub_column(key_column);
+    map_column.add_sub_column(value_column);
+    array_column.add_sub_column(map_column);
+    array_column.set_is_nullable(true);
+    map_column.set_is_nullable(true);
+    array_column.set_name("a");
+    map_column.set_name("item");
+    key_column.set_name("key");
+    value_column.set_name("value");
+
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(true);
+    auto* map_meta = meta.add_children_columns();
+    map_meta->set_column_id(1);
+    map_meta->set_unique_id(1);
+    map_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_MAP));
+    map_meta->set_length(0);
+    map_meta->set_encoding(DEFAULT_ENCODING);
+    map_meta->set_compression(CompressionTypePB::LZ4F);
+    map_meta->set_is_nullable(true);
+    auto* key_meta = map_meta->add_children_columns();
+    key_meta->set_column_id(2);
+    key_meta->set_unique_id(2);
+    key_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    key_meta->set_length(0);
+    key_meta->set_encoding(BIT_SHUFFLE);
+    key_meta->set_compression(CompressionTypePB::LZ4F);
+    key_meta->set_is_nullable(false);
+    auto* value_meta = map_meta->add_children_columns();
+    value_meta->set_column_id(3);
+    value_meta->set_unique_id(3);
+    value_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    value_meta->set_length(0);
+    value_meta->set_encoding(BIT_SHUFFLE);
+    value_meta->set_compression(CompressionTypePB::LZ4F);
+    value_meta->set_is_nullable(true);
+
+    std::vector<int32_t> key_values;
+    std::vector<int32_t> value_values;
+    std::vector<uint8_t> key_null_map;
+    std::vector<uint8_t> value_null_map;
+    std::vector<uint64_t> map_offsets {0};
+    std::vector<uint8_t> map_item_null_map;
+    std::vector<uint64_t> outer_offsets(num_rows + 1, 0);
+    std::vector<uint8_t> outer_null_map(num_rows, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        const bool outer_is_null = row % 7 == 1;
+        outer_null_map[row] = outer_is_null;
+        const size_t item_count = row % 11 == 0 ? 0 : (outer_is_null ? 3 : row % 3 + 1);
+        for (size_t item = 0; item < item_count; ++item) {
+            map_item_null_map.push_back((row + item) % 5 == 0);
+            const size_t kv_count = (row + item) % 3;
+            for (size_t kv = 0; kv < kv_count; ++kv) {
+                key_values.push_back(static_cast<int32_t>(row * 10 + item * 3 + kv));
+                value_values.push_back(static_cast<int32_t>(row * 100 + item * 7 + kv));
+                key_null_map.push_back(0);
+                value_null_map.push_back((row + item + kv) % 4 == 0);
+            }
+            map_offsets.push_back(key_values.size());
+        }
+        outer_offsets[row + 1] = map_item_null_map.size();
+    }
+
+    std::vector<uint64_t> item_data {static_cast<uint64_t>(key_values.size()),
+                                     reinterpret_cast<uint64_t>(map_offsets.data()),
+                                     reinterpret_cast<uint64_t>(key_values.data()),
+                                     reinterpret_cast<uint64_t>(value_values.data()),
+                                     reinterpret_cast<uint64_t>(key_null_map.data()),
+                                     reinterpret_cast<uint64_t>(value_null_map.data())};
+    const std::string file_name = COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_map";
+    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
+                       map_item_null_map, &outer_null_map);
+
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr key_type = std::make_shared<DataTypeInt32>();
+    DataTypePtr value_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr map_type = std::make_shared<DataTypeMap>(key_type, value_type);
+    DataTypePtr outer_item_type = std::make_shared<DataTypeNullable>(map_type);
+    DataTypePtr outer_array_type = std::make_shared<DataTypeArray>(outer_item_type);
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(outer_array_type);
+    MutableColumnPtr baseline;
+    read_array_baseline(reader, array_column, column_type, file_reader.get(), &baseline);
+    const std::vector<rowid_t> rowids {0, 1, 2, 7, 11, 4095, 4096, 8191, 11998, 11999};
+    check_array_read_by_rowids_matches_baseline(reader, array_column, column_type, rowids,
+                                                *baseline, file_reader.get());
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedArraySchemaEvolutionFromNonNullSource) {
+    constexpr size_t num_rows = 8;
+    const std::array<size_t, num_rows> item_counts {2, 0, 3, 1, 4, 0, 2, 3};
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn nested_array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                     FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn int_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT, true);
+    nested_array_column.add_sub_column(int_column);
+    array_column.add_sub_column(nested_array_column);
+    array_column.set_name("a");
+    nested_array_column.set_name("item");
+    int_column.set_name("item");
+
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(false);
+    auto* nested_meta = meta.add_children_columns();
+    nested_meta->set_column_id(1);
+    nested_meta->set_unique_id(1);
+    nested_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    nested_meta->set_length(0);
+    nested_meta->set_encoding(DEFAULT_ENCODING);
+    nested_meta->set_compression(CompressionTypePB::LZ4F);
+    nested_meta->set_is_nullable(true);
+    auto* int_meta = nested_meta->add_children_columns();
+    int_meta->set_column_id(2);
+    int_meta->set_unique_id(2);
+    int_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    int_meta->set_length(0);
+    int_meta->set_encoding(BIT_SHUFFLE);
+    int_meta->set_compression(CompressionTypePB::LZ4F);
+    int_meta->set_is_nullable(true);
+
+    std::vector<int32_t> int_values;
+    std::vector<uint8_t> int_null_map;
+    std::vector<uint64_t> nested_offsets {0};
+    std::vector<uint8_t> nested_item_null_map;
+    std::vector<uint64_t> outer_offsets(num_rows + 1, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        for (size_t item = 0; item < item_counts[row]; ++item) {
+            nested_item_null_map.push_back((row + item) % 5 == 0);
+            const size_t inner_count = (row + item) % 3;
+            for (size_t inner = 0; inner < inner_count; ++inner) {
+                int_values.push_back(static_cast<int32_t>(row * 10 + item * 3 + inner));
+                int_null_map.push_back((row + item + inner) % 4 == 0);
+            }
+            nested_offsets.push_back(int_values.size());
+        }
+        outer_offsets[row + 1] = nested_item_null_map.size();
+    }
+
+    std::vector<uint64_t> item_data {static_cast<uint64_t>(int_values.size()),
+                                     reinterpret_cast<uint64_t>(nested_offsets.data()),
+                                     reinterpret_cast<uint64_t>(int_values.data()),
+                                     reinterpret_cast<uint64_t>(int_null_map.data())};
+    const std::string file_name =
+            COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_array_schema_evolution";
+    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
+                       nested_item_null_map, nullptr);
+
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr int_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr nested_array_type = std::make_shared<DataTypeArray>(int_type);
+    DataTypePtr outer_item_type = std::make_shared<DataTypeNullable>(nested_array_type);
+    DataTypePtr outer_array_type = std::make_shared<DataTypeArray>(outer_item_type);
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(outer_array_type);
+    MutableColumnPtr baseline;
+    read_array_baseline(reader, array_column, column_type, file_reader.get(), &baseline);
+    const std::vector<rowid_t> rowids {0, 2, 3, 6, 7};
+    check_array_read_by_rowids_matches_baseline(reader, array_column, column_type, rowids,
+                                                *baseline, file_reader.get());
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsSchemaEvolutionFromNonNullSource) {
+    constexpr size_t num_rows = 8;
+    const std::array<size_t, num_rows> item_counts {2, 0, 3, 1, 4, 0, 2, 3};
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_INT, false);
+    array_column.add_sub_column(item_column);
+    array_column.set_name("a");
+
+    std::vector<int32_t> item_values;
+    std::vector<uint64_t> array_offsets(num_rows + 1, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        for (size_t item = 0; item < item_counts[row]; ++item) {
+            item_values.push_back(static_cast<int32_t>(row * 100 + item));
+        }
+        array_offsets[row + 1] = item_values.size();
+    }
+
+    const std::string file_name =
+            COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_schema_evolution";
+    auto fs = io::global_local_filesystem();
+    {
+        io::FileWriterPtr file_writer;
+        auto st = fs->create_file(file_name, &file_writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        ColumnWriterOptions writer_options;
+        writer_options.meta = &meta;
+        writer_options.meta->set_column_id(0);
+        writer_options.meta->set_unique_id(0);
+        writer_options.meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+        writer_options.meta->set_length(0);
+        writer_options.meta->set_encoding(DEFAULT_ENCODING);
+        writer_options.meta->set_compression(CompressionTypePB::LZ4F);
+        writer_options.meta->set_is_nullable(false);
+
+        auto* child_meta = meta.add_children_columns();
+        child_meta->set_column_id(1);
+        child_meta->set_unique_id(1);
+        child_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+        child_meta->set_length(0);
+        child_meta->set_encoding(BIT_SHUFFLE);
+        child_meta->set_compression(CompressionTypePB::LZ4F);
+        child_meta->set_is_nullable(false);
+
+        std::unique_ptr<ColumnWriter> writer;
+        st = ColumnWriter::create(writer_options, &array_column, file_writer.get(), &writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_TRUE(writer->init().ok());
+        const std::array<uint64_t, 4> array_data {static_cast<uint64_t>(item_values.size()),
+                                                  reinterpret_cast<uint64_t>(array_offsets.data()),
+                                                  reinterpret_cast<uint64_t>(item_values.data()),
+                                                  0};
+        ASSERT_TRUE(writer->append(nullptr, array_data.data(), num_rows).ok());
+        ASSERT_TRUE(writer->finish().ok());
+        ASSERT_TRUE(writer->write_data().ok());
+        ASSERT_TRUE(writer->write_ordinal_index().ok());
+        ASSERT_TRUE(file_writer->close().ok());
+    }
+
+    io::FileReaderSPtr file_reader;
+    auto st = fs->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(array_type);
+    auto create_iterator = [&](OlapReaderStatistics* stats,
+                               ColumnIteratorUPtr* iterator) -> Status {
+        RETURN_IF_ERROR(reader->new_iterator(iterator, &array_column));
+        ColumnIteratorOptions options;
+        options.stats = stats;
+        options.file_reader = file_reader.get();
+        return (*iterator)->init(options);
+    };
+
+    MutableColumnPtr baseline = column_type->create_column();
+    {
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
+        ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+        size_t rows_to_read = num_rows;
+        bool has_null = false;
+        ASSERT_TRUE(iterator->next_batch(&rows_to_read, baseline, &has_null).ok());
+        ASSERT_EQ(num_rows, rows_to_read);
+        EXPECT_FALSE(has_null);
+    }
+
+    const std::vector<rowid_t> rowids {0, 2, 3, 6, 7};
+    MutableColumnPtr actual = column_type->create_column();
+    {
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
+        ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), actual).ok());
+    }
+
+    const auto& baseline_nullable = assert_cast<const ColumnNullable&>(*baseline);
+    const auto& baseline_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+            baseline_nullable.get_nested_column());
+    const auto& actual_nullable = assert_cast<const ColumnNullable&>(*actual);
+    const auto& actual_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+            actual_nullable.get_nested_column());
+    ASSERT_EQ(rowids.size(), actual->size());
+    EXPECT_THAT(actual_nullable.get_null_map_data(), ::testing::Each(0));
+
+    size_t expected_item_count = 0;
+    size_t item_cursor = 0;
+    for (size_t i = 0; i < rowids.size(); ++i) {
+        const auto rowid = rowids[i];
+        EXPECT_EQ(baseline_nullable.get_null_map_data()[rowid],
+                  actual_nullable.get_null_map_data()[i]);
+        const size_t item_count = baseline_array.size_at(rowid);
+        expected_item_count += item_count;
+        EXPECT_EQ(expected_item_count, actual_array.get_offsets()[i]);
+        for (size_t item = 0; item < item_count; ++item) {
+            EXPECT_EQ(0, actual_array.get_data().compare_at(item_cursor,
+                                                            baseline_array.offset_at(rowid) + item,
+                                                            baseline_array.get_data(), 1));
+            ++item_cursor;
+        }
+    }
+    EXPECT_EQ(item_cursor, actual_array.get_data().size());
+
+    {
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
+        iterator->set_column_name("a");
+        TColumnAccessPaths null_path {create_meta_access_path({"a", ColumnIterator::ACCESS_NULL})};
+        ASSERT_TRUE(iterator->set_access_paths(null_path, null_path).ok());
+        EXPECT_TRUE(iterator->read_null_map_only());
+
+        MutableColumnPtr null_only = column_type->create_column();
+        ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), null_only).ok());
+        const auto& null_only_nullable = assert_cast<const ColumnNullable&>(*null_only);
+        const auto& null_only_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                null_only_nullable.get_nested_column());
+        ASSERT_EQ(rowids.size(), null_only->size());
+        EXPECT_THAT(null_only_nullable.get_null_map_data(), ::testing::Each(0));
+        EXPECT_THAT(null_only_array.get_offsets(), ::testing::Each(0));
+        EXPECT_TRUE(null_only_array.get_data().empty());
+    }
+}
+
 TEST_F(ColumnReaderTest, StructAccessPaths) {
     auto create_struct_iterator = []() {
         auto null_reader = std::make_shared<ColumnReader>();
@@ -452,9 +1384,9 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
 
     // Only reading sub_col_1
     // sub_col_2 should be set to SKIP
-    all_access_paths[0].data_access_path.path = {"self", "sub_col_1"};
+    all_access_paths[0] = create_data_access_path({"self", "sub_col_1"});
 
-    predicate_access_paths[0].data_access_path.path = {"self", "sub_col_1"};
+    predicate_access_paths[0] = create_data_access_path({"self", "sub_col_1"});
 
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
     // invalid name leads to error
@@ -472,7 +1404,7 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
               ColumnIterator::ReadRequirement::SKIP);
 
     // Reading all sub columns
-    all_access_paths[0].data_access_path.path = {"self"};
+    all_access_paths[0] = create_data_access_path({"self"});
     iterator = create_struct_iterator();
     iterator->set_column_name("self");
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
@@ -548,33 +1480,447 @@ TEST_F(ColumnReaderTest, MetaReadModePrefersOffsetOverNull) {
     auto assert_meta_read_mode = [](TColumnAccessPaths access_paths, bool offset_only,
                                     bool null_map_only) {
         TestColumnIterator iterator;
-        iterator.check_and_set_meta_read_mode(ColumnIterator::ReadRequirement::NORMAL,
-                                              access_paths);
+        iterator.set_column_name("self");
+        auto st = iterator.check_and_set_meta_read_mode(ColumnIterator::ReadRequirement::NORMAL,
+                                                        access_paths);
+        ASSERT_TRUE(st.ok()) << st.to_string();
         EXPECT_EQ(iterator.read_offset_only(), offset_only);
         EXPECT_EQ(iterator.read_null_map_only(), null_map_only);
     };
 
     assert_meta_read_mode(TColumnAccessPaths {}, false, false);
-    assert_meta_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET})},
-                          true, false);
-    assert_meta_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_NULL})},
-                          false, true);
-    assert_meta_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET}),
-                                              create_access_path({ColumnIterator::ACCESS_NULL})},
-                          true, false);
-    assert_meta_read_mode(TColumnAccessPaths {create_access_path({"child"})}, false, false);
-    assert_meta_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET}),
-                                              create_access_path({"child"})},
-                          false, false);
+    assert_meta_read_mode(
+            TColumnAccessPaths {create_meta_access_path({"self", ColumnIterator::ACCESS_OFFSET})},
+            true, false);
+    assert_meta_read_mode(
+            TColumnAccessPaths {create_meta_access_path({"self", ColumnIterator::ACCESS_NULL})},
+            false, true);
+    assert_meta_read_mode(
+            TColumnAccessPaths {create_meta_access_path({"self", ColumnIterator::ACCESS_OFFSET}),
+                                create_meta_access_path({"self", ColumnIterator::ACCESS_NULL})},
+            true, false);
+    assert_meta_read_mode(TColumnAccessPaths {create_data_access_path({"self", "child"})}, false,
+                          false);
+    assert_meta_read_mode(
+            TColumnAccessPaths {create_data_access_path({"self", ColumnIterator::ACCESS_OFFSET})},
+            false, false);
+    assert_meta_read_mode(
+            TColumnAccessPaths {create_data_access_path({"self", ColumnIterator::ACCESS_NULL})},
+            false, false);
+    assert_meta_read_mode(
+            TColumnAccessPaths {create_meta_access_path({"self", ColumnIterator::ACCESS_OFFSET}),
+                                create_data_access_path({"self", "child"})},
+            false, false);
 
     {
         TestColumnIterator iterator;
-        iterator.check_and_set_meta_read_mode(
+        iterator.set_column_name("self");
+        auto st = iterator.check_and_set_meta_read_mode(
                 ColumnIterator::ReadRequirement::LAZY_OUTPUT,
-                TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_NULL})});
+                TColumnAccessPaths {
+                        create_meta_access_path({"self", ColumnIterator::ACCESS_NULL})});
+        ASSERT_TRUE(st.ok()) << st.to_string();
         EXPECT_FALSE(iterator.read_null_map_only());
         EXPECT_FALSE(iterator.read_offset_only());
     }
+}
+
+TEST_F(ColumnReaderTest, TypedAccessPathRequiresMatchingPayload) {
+    FileColumnIterator iterator(create_test_reader(true));
+    iterator.set_column_name("c");
+
+    TColumnAccessPath unknown_type_path;
+    unknown_type_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    TDataAccessPath data_access_path;
+    data_access_path.__set_path({"c"});
+    unknown_type_path.__set_data_access_path(data_access_path);
+    auto st = iterator.set_access_paths({unknown_type_path}, {});
+    EXPECT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("Invalid access path type"));
+
+    TColumnAccessPath missing_meta_payload;
+    missing_meta_payload.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    missing_meta_payload.__set_type(TAccessPathType::META);
+    missing_meta_payload.__set_data_access_path(data_access_path);
+    st = iterator.set_access_paths({missing_meta_payload}, {});
+    EXPECT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("meta_access_path payload is not set"));
+
+    TColumnAccessPath missing_data_payload;
+    missing_data_payload.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    missing_data_payload.__set_type(TAccessPathType::DATA);
+    TMetaAccessPath meta_access_path;
+    meta_access_path.__set_path({"c", ColumnIterator::ACCESS_NULL});
+    missing_data_payload.__set_meta_access_path(meta_access_path);
+    st = iterator.set_access_paths({missing_data_payload}, {});
+    EXPECT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("data_access_path payload is not set"));
+
+    TColumnAccessPath missing_legacy_payload;
+    missing_legacy_payload.__set_type(TAccessPathType::DATA);
+    st = iterator.set_access_paths({missing_legacy_payload}, {});
+    EXPECT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(),
+                ::testing::HasSubstr(
+                        "Invalid legacy access path: data_access_path payload is not set"));
+
+    for (const bool explicit_legacy_version : {false, true}) {
+        TColumnAccessPath invalid_legacy_type;
+        invalid_legacy_type.__set_type(TAccessPathType::META);
+        invalid_legacy_type.__set_data_access_path(data_access_path);
+        invalid_legacy_type.__set_meta_access_path(meta_access_path);
+        if (explicit_legacy_version) {
+            invalid_legacy_type.__set_version(
+                    g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+        }
+        st = iterator.set_access_paths({invalid_legacy_type}, {});
+        EXPECT_FALSE(st.ok());
+        EXPECT_THAT(st.to_string(), ::testing::HasSubstr("Invalid legacy access path type"));
+    }
+
+    FileColumnIterator data_precedence_iterator(create_test_reader(true));
+    data_precedence_iterator.set_column_name("c");
+    auto compatible_data_path = create_data_access_path({"c"});
+    compatible_data_path.__set_meta_access_path(meta_access_path);
+    st = data_precedence_iterator.set_access_paths({compatible_data_path}, {});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_FALSE(data_precedence_iterator.read_null_map_only());
+    EXPECT_FALSE(data_precedence_iterator.read_offset_only());
+
+    auto compatible_meta_path = create_meta_access_path({"c", ColumnIterator::ACCESS_NULL});
+    compatible_meta_path.__set_data_access_path(data_access_path);
+    st = iterator.set_access_paths({compatible_meta_path}, {compatible_meta_path});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(iterator.read_null_map_only());
+
+    FileColumnIterator wrong_root_iterator(create_test_reader(true));
+    wrong_root_iterator.set_column_name("c");
+    auto wrong_root_path = create_meta_access_path({"other", ColumnIterator::ACCESS_NULL});
+    st = wrong_root_iterator.set_access_paths({}, {wrong_root_path});
+    EXPECT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("expected name \"c\", got \"other\""));
+
+    auto unsupported_version_path = create_data_access_path({"c"});
+    unsupported_version_path.__set_version(
+            g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED + 1);
+    st = iterator.set_access_paths({unsupported_version_path}, {});
+    EXPECT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), ::testing::HasSubstr("Unsupported access path version"));
+}
+
+TEST_F(ColumnReaderTest, AccessPathVersionControlsLegacyMetaEncoding) {
+    for (const bool explicit_legacy_version : {false, true}) {
+        SCOPED_TRACE(explicit_legacy_version ? "explicit-version-0" : "missing-version");
+        FileColumnIterator iterator(create_test_reader(true));
+        iterator.set_column_name("c");
+        auto legacy_null_path = create_legacy_data_access_path({"c", ColumnIterator::ACCESS_NULL});
+        if (explicit_legacy_version) {
+            legacy_null_path.__set_version(
+                    g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+        }
+        auto st = iterator.set_access_paths({legacy_null_path}, {legacy_null_path});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(iterator.read_null_map_only());
+    }
+
+    {
+        FileColumnIterator iterator(create_test_reader(true));
+        iterator.set_column_name("c");
+        auto typed_data_path = create_data_access_path({"c", ColumnIterator::ACCESS_NULL});
+        auto st = iterator.set_access_paths({typed_data_path}, {typed_data_path});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_FALSE(iterator.read_null_map_only());
+        EXPECT_FALSE(iterator.read_offset_only());
+    }
+}
+
+TEST_F(ColumnReaderTest, LegacyDataSpecialComponentsRemainDataSelectors) {
+    auto make_map_iterator = []() {
+        auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(create_test_reader()));
+        auto key_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        auto value_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        auto map_iterator = std::make_unique<MapFileColumnIterator>(
+                create_test_reader(), nullptr, std::move(offsets_iterator), std::move(key_iterator),
+                std::move(value_iterator));
+        map_iterator->set_column_name("m");
+        return map_iterator;
+    };
+
+    struct SelectorCase {
+        const char* component;
+        bool explicit_legacy_version;
+        ColumnIterator::ReadRequirement key_requirement;
+        ColumnIterator::ReadRequirement value_requirement;
+    };
+    for (const auto& test_case : {SelectorCase {ColumnIterator::ACCESS_MAP_KEYS, false,
+                                                ColumnIterator::ReadRequirement::LAZY_OUTPUT,
+                                                ColumnIterator::ReadRequirement::SKIP},
+                                  SelectorCase {ColumnIterator::ACCESS_MAP_VALUES, true,
+                                                ColumnIterator::ReadRequirement::SKIP,
+                                                ColumnIterator::ReadRequirement::LAZY_OUTPUT}}) {
+        SCOPED_TRACE(test_case.component);
+        auto map_iterator = make_map_iterator();
+        auto path = create_legacy_data_access_path({"m", test_case.component});
+        if (test_case.explicit_legacy_version) {
+            path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+        }
+
+        auto st = map_iterator->set_access_paths({path}, {});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_FALSE(map_iterator->read_null_map_only());
+        EXPECT_FALSE(map_iterator->read_offset_only());
+        EXPECT_EQ(map_iterator->_key_iterator->read_requirement(), test_case.key_requirement);
+        EXPECT_EQ(map_iterator->_val_iterator->read_requirement(), test_case.value_requirement);
+    }
+
+    // `*` is also a legacy DATA selector. It keeps keys readable while OFFSET is promoted only
+    // after the remaining path reaches the value iterator.
+    auto map_iterator = make_map_iterator();
+    auto offset_path = create_legacy_data_access_path(
+            {"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET});
+    offset_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+    auto st = map_iterator->set_access_paths({offset_path}, {});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(map_iterator->_key_iterator->read_requirement(),
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    EXPECT_TRUE(map_iterator->_val_iterator->read_offset_only());
+}
+
+TEST_F(ColumnReaderTest, TypedMetaPathsRouteThroughScalarAndComplexIterators) {
+    {
+        FileColumnIterator scalar_iterator(create_test_reader(true));
+        scalar_iterator.set_column_name("i");
+        TColumnAccessPaths null_path {create_meta_access_path({"i", ColumnIterator::ACCESS_NULL})};
+        auto st = scalar_iterator.set_access_paths(null_path, null_path);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(scalar_iterator.read_null_map_only());
+    }
+
+    {
+        auto item_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        item_iterator->set_column_name("item");
+        auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(create_test_reader()));
+        ArrayFileColumnIterator array_iterator(create_test_reader(), std::move(offsets_iterator),
+                                               std::move(item_iterator), nullptr);
+        array_iterator.set_column_name("a");
+
+        TColumnAccessPaths offset_path {
+                create_meta_access_path({"a", ColumnIterator::ACCESS_OFFSET})};
+        auto st = array_iterator.set_access_paths(offset_path, {});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(array_iterator.read_offset_only());
+        EXPECT_EQ(array_iterator._item_iterator->read_requirement(),
+                  ColumnIterator::ReadRequirement::SKIP);
+    }
+
+    {
+        auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(create_test_reader()));
+        auto key_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        auto value_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        MapFileColumnIterator map_iterator(create_test_reader(), nullptr,
+                                           std::move(offsets_iterator), std::move(key_iterator),
+                                           std::move(value_iterator));
+        map_iterator.set_column_name("m");
+
+        TColumnAccessPaths offset_path {
+                create_meta_access_path({"m", ColumnIterator::ACCESS_OFFSET})};
+        auto st = map_iterator.set_access_paths(offset_path, {});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(map_iterator.read_offset_only());
+        EXPECT_EQ(map_iterator._key_iterator->read_requirement(),
+                  ColumnIterator::ReadRequirement::SKIP);
+        EXPECT_EQ(map_iterator._val_iterator->read_requirement(),
+                  ColumnIterator::ReadRequirement::SKIP);
+    }
+
+    {
+        std::vector<ColumnIteratorUPtr> sub_iterators;
+        auto string_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        string_iterator->set_column_name("text");
+        sub_iterators.emplace_back(std::move(string_iterator));
+        StructFileColumnIterator struct_iterator(create_test_reader(), nullptr,
+                                                 std::move(sub_iterators));
+        struct_iterator.set_column_name("s");
+
+        TColumnAccessPaths offset_path {
+                create_meta_access_path({"s", "text", ColumnIterator::ACCESS_OFFSET})};
+        auto st = struct_iterator.set_access_paths(offset_path, {});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        auto* text_iterator = static_cast<StringFileColumnIterator*>(
+                struct_iterator._sub_column_iterators[0].get());
+        EXPECT_TRUE(text_iterator->read_offset_only());
+    }
+
+    {
+        auto item_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        item_iterator->set_column_name("item");
+        auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(create_test_reader()));
+        ArrayFileColumnIterator array_iterator(create_test_reader(), std::move(offsets_iterator),
+                                               std::move(item_iterator), nullptr);
+        array_iterator.set_column_name("a");
+
+        TColumnAccessPaths offset_path {create_meta_access_path(
+                {"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET})};
+        auto st = array_iterator.set_access_paths(offset_path, {});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        auto* typed_item_iterator =
+                static_cast<StringFileColumnIterator*>(array_iterator._item_iterator.get());
+        EXPECT_TRUE(typed_item_iterator->read_offset_only());
+    }
+
+    {
+        auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(create_test_reader()));
+        auto key_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        auto value_iterator = std::make_unique<StringFileColumnIterator>(create_test_reader());
+        MapFileColumnIterator map_iterator(create_test_reader(), nullptr,
+                                           std::move(offsets_iterator), std::move(key_iterator),
+                                           std::move(value_iterator));
+        map_iterator.set_column_name("m");
+
+        TColumnAccessPaths offset_path {create_meta_access_path(
+                {"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET})};
+        auto st = map_iterator.set_access_paths(offset_path, {});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        auto* typed_key_iterator =
+                static_cast<StringFileColumnIterator*>(map_iterator._key_iterator.get());
+        auto* typed_value_iterator =
+                static_cast<StringFileColumnIterator*>(map_iterator._val_iterator.get());
+        EXPECT_FALSE(typed_key_iterator->read_offset_only());
+        EXPECT_EQ(typed_key_iterator->read_requirement(),
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_TRUE(typed_value_iterator->read_offset_only());
+    }
+}
+
+TEST_F(ColumnReaderTest, TypedDataFieldsNamedMetaComponentsAreNotTreatedAsMetaPaths) {
+    auto make_struct_iterator = [](const std::string& field_name) {
+        std::vector<ColumnIteratorUPtr> sub_iterators;
+        auto field_iterator = std::make_unique<FileColumnIterator>(create_test_reader());
+        field_iterator->set_column_name(field_name);
+        sub_iterators.emplace_back(std::move(field_iterator));
+        auto struct_iterator = std::make_unique<StructFileColumnIterator>(
+                create_test_reader(), nullptr, std::move(sub_iterators));
+        struct_iterator->set_column_name("s");
+        return struct_iterator;
+    };
+
+    for (const std::string field_name :
+         {ColumnIterator::ACCESS_NULL, ColumnIterator::ACCESS_OFFSET}) {
+        SCOPED_TRACE(field_name);
+        auto struct_iterator = make_struct_iterator(field_name);
+        TColumnAccessPaths data_path {create_data_access_path({"s", field_name})};
+        auto st = struct_iterator->set_access_paths(data_path, data_path);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_FALSE(struct_iterator->read_null_map_only());
+        EXPECT_FALSE(struct_iterator->read_offset_only());
+        ASSERT_EQ(struct_iterator->_sub_column_iterators.size(), 1);
+        EXPECT_EQ(struct_iterator->_sub_column_iterators[0]->read_requirement(),
+                  ColumnIterator::ReadRequirement::PREDICATE);
+    }
+
+    auto struct_iterator = make_struct_iterator(ColumnIterator::ACCESS_NULL);
+    TColumnAccessPaths meta_path {create_meta_access_path({"s", ColumnIterator::ACCESS_NULL})};
+    auto st = struct_iterator->set_access_paths(meta_path, meta_path);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(struct_iterator->read_null_map_only());
+    EXPECT_EQ(struct_iterator->_sub_column_iterators[0]->read_requirement(),
+              ColumnIterator::ReadRequirement::SKIP);
+}
+
+TEST_F(ColumnReaderTest, LegacyStructMetaComponentsRemainSentinels) {
+    auto null_iterator = std::make_unique<FileColumnIterator>(create_test_reader());
+    std::vector<ColumnIteratorUPtr> sub_iterators;
+    auto field_iterator = std::make_unique<FileColumnIterator>(create_test_reader());
+    field_iterator->set_column_name(ColumnIterator::ACCESS_NULL);
+    sub_iterators.emplace_back(std::move(field_iterator));
+    StructFileColumnIterator struct_iterator(create_test_reader(), std::move(null_iterator),
+                                             std::move(sub_iterators));
+    struct_iterator.set_column_name("s");
+
+    auto legacy_path = create_legacy_data_access_path({"s", ColumnIterator::ACCESS_NULL});
+    legacy_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+    auto st = struct_iterator.set_access_paths({legacy_path}, {legacy_path});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(struct_iterator.read_null_map_only());
+    EXPECT_EQ(struct_iterator._sub_column_iterators[0]->read_requirement(),
+              ColumnIterator::ReadRequirement::SKIP);
+}
+
+TEST_F(ColumnReaderTest, LegacyStructOffsetComponentRoutesToDataField) {
+    // An old FE emits `element_at(s, 'OFFSET')` as the legacy DATA path [s, offset] (struct field
+    // names are lowercased). Struct has no offsets, so the component must keep naming the field
+    // instead of being consumed as OFFSET_ONLY metadata that skips every field.
+    auto make_struct_iterator = [](TrackingColumnIterator** offset_field,
+                                   TrackingColumnIterator** other_field) {
+        std::vector<ColumnIteratorUPtr> sub_iterators;
+        auto offset_field_iterator = std::make_unique<TrackingColumnIterator>();
+        offset_field_iterator->set_column_name("offset");
+        *offset_field = offset_field_iterator.get();
+        sub_iterators.emplace_back(std::move(offset_field_iterator));
+        auto other_field_iterator = std::make_unique<TrackingColumnIterator>();
+        other_field_iterator->set_column_name("other");
+        *other_field = other_field_iterator.get();
+        sub_iterators.emplace_back(std::move(other_field_iterator));
+        auto struct_iterator = std::make_unique<StructFileColumnIterator>(
+                create_test_reader(), nullptr, std::move(sub_iterators));
+        struct_iterator->set_column_name("s");
+        return struct_iterator;
+    };
+
+    for (const bool explicit_legacy_version : {false, true}) {
+        SCOPED_TRACE(explicit_legacy_version ? "explicit-version-0" : "missing-version");
+        TrackingColumnIterator* offset_field = nullptr;
+        TrackingColumnIterator* other_field = nullptr;
+        auto struct_iterator = make_struct_iterator(&offset_field, &other_field);
+        auto legacy_path = create_legacy_data_access_path({"s", "offset"});
+        if (explicit_legacy_version) {
+            legacy_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+        }
+
+        auto st = struct_iterator->set_access_paths({legacy_path}, {});
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_FALSE(struct_iterator->read_offset_only());
+        EXPECT_FALSE(struct_iterator->read_null_map_only());
+        ASSERT_EQ(offset_field->routed_all_access_paths.size(), 1);
+        EXPECT_TRUE(offset_field->routed_predicate_access_paths.empty());
+        EXPECT_EQ(offset_field->read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(other_field->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+    }
+
+    // The same legacy path used as a predicate keeps the field readable in the predicate phase.
+    TrackingColumnIterator* offset_field = nullptr;
+    TrackingColumnIterator* other_field = nullptr;
+    auto struct_iterator = make_struct_iterator(&offset_field, &other_field);
+    auto legacy_path = create_legacy_data_access_path({"s", ColumnIterator::ACCESS_OFFSET});
+    auto st = struct_iterator->set_access_paths({legacy_path}, {legacy_path});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_FALSE(struct_iterator->read_offset_only());
+    ASSERT_EQ(offset_field->routed_all_access_paths.size(), 1);
+    ASSERT_EQ(offset_field->routed_predicate_access_paths.size(), 1);
+    EXPECT_EQ(offset_field->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(other_field->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+}
+
+TEST_F(ColumnReaderTest, TypedMetaOffsetPathOnStructIsRejected) {
+    std::vector<ColumnIteratorUPtr> sub_iterators;
+    auto field_iterator = std::make_unique<FileColumnIterator>(create_test_reader());
+    field_iterator->set_column_name("offset");
+    sub_iterators.emplace_back(std::move(field_iterator));
+    StructFileColumnIterator struct_iterator(create_test_reader(), nullptr,
+                                             std::move(sub_iterators));
+    struct_iterator.set_column_name("s");
+
+    TColumnAccessPaths meta_path {create_meta_access_path({"s", ColumnIterator::ACCESS_OFFSET})};
+    auto st = struct_iterator.set_access_paths(meta_path, {});
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st.to_string();
+    EXPECT_NE(st.to_string().find("OFFSET metadata is not supported"), std::string::npos)
+            << st.to_string();
 }
 
 TEST_F(ColumnReaderTest, PlaceHolderLifecycleInLazyMode) {
@@ -890,23 +2236,270 @@ TEST_F(ColumnReaderTest, FinalizeLazyModeOnNestedStruct) {
     EXPECT_EQ(0, nested_after->size());
 }
 
-TEST_F(ColumnReaderTest, GetSubAccessPathsSetsPredicateFlag) {
+TEST_F(ColumnReaderTest, SplitAccessPathsClassifiesCurrentAndDescendantPaths) {
     TestColumnIterator iterator;
     iterator.set_column_name("self");
-
-    TColumnAccessPaths access_paths;
-    access_paths.emplace_back();
-    access_paths[0].data_access_path.path = {"self"};
-
     iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::NORMAL);
-    auto sub_paths = TEST_TRY(iterator.get_sub_access_paths(access_paths));
-    EXPECT_TRUE(sub_paths.empty());
-    EXPECT_EQ(iterator._read_requirement, ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
-    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::NORMAL);
-    sub_paths = TEST_TRY(iterator.get_sub_access_paths(access_paths, true));
-    EXPECT_TRUE(sub_paths.empty());
-    EXPECT_EQ(iterator._read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+    {
+        auto split = TEST_TRY(iterator.split_access_paths(
+                TColumnAccessPaths {create_data_access_path({"self"})}));
+        EXPECT_TRUE(split.reads_current_data);
+        EXPECT_EQ(split.current_meta_mode, ColumnIterator::MetaReadMode::DEFAULT);
+        EXPECT_TRUE(split.descendant_paths.empty());
+    }
+
+    {
+        auto split = TEST_TRY(iterator.split_access_paths(TColumnAccessPaths {
+                create_meta_access_path({"self", ColumnIterator::ACCESS_NULL}),
+                create_meta_access_path({"self", ColumnIterator::ACCESS_OFFSET})}));
+        EXPECT_FALSE(split.reads_current_data);
+        EXPECT_EQ(split.current_meta_mode, ColumnIterator::MetaReadMode::OFFSET_ONLY);
+        EXPECT_TRUE(split.descendant_paths.empty());
+    }
+
+    {
+        auto split = TEST_TRY(iterator.split_access_paths(TColumnAccessPaths {
+                create_data_access_path({"self", "child"}),
+                create_meta_access_path({"self", "child", ColumnIterator::ACCESS_NULL})}));
+        EXPECT_FALSE(split.reads_current_data);
+        EXPECT_EQ(split.current_meta_mode, ColumnIterator::MetaReadMode::DEFAULT);
+        ASSERT_EQ(split.descendant_paths.size(), 2);
+        EXPECT_EQ(split.descendant_paths[0].type, TAccessPathType::DATA);
+        EXPECT_EQ(split.descendant_paths[0].data_access_path.path,
+                  (std::vector<std::string> {"child"}));
+        EXPECT_EQ(split.descendant_paths[1].type, TAccessPathType::META);
+        EXPECT_EQ(split.descendant_paths[1].meta_access_path.path,
+                  (std::vector<std::string> {"child", ColumnIterator::ACCESS_NULL}));
+    }
+
+    {
+        auto legacy_null = create_legacy_data_access_path({"self", ColumnIterator::ACCESS_NULL});
+        auto legacy_offset =
+                create_legacy_data_access_path({"self", ColumnIterator::ACCESS_OFFSET});
+        legacy_offset.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+        auto split = TEST_TRY(iterator.split_access_paths(
+                TColumnAccessPaths {std::move(legacy_null), std::move(legacy_offset)}));
+        EXPECT_FALSE(split.reads_current_data);
+        EXPECT_EQ(split.current_meta_mode, ColumnIterator::MetaReadMode::OFFSET_ONLY);
+        EXPECT_TRUE(split.descendant_paths.empty());
+    }
+
+    {
+        auto legacy_keys =
+                create_legacy_data_access_path({"self", ColumnIterator::ACCESS_MAP_KEYS});
+        auto split = TEST_TRY(iterator.split_access_paths(
+                TColumnAccessPaths {create_data_access_path({"self", ColumnIterator::ACCESS_NULL}),
+                                    std::move(legacy_keys)}));
+        EXPECT_FALSE(split.reads_current_data);
+        EXPECT_EQ(split.current_meta_mode, ColumnIterator::MetaReadMode::DEFAULT);
+        ASSERT_EQ(split.descendant_paths.size(), 2);
+        EXPECT_EQ(split.descendant_paths[0].data_access_path.path,
+                  (std::vector<std::string> {ColumnIterator::ACCESS_NULL}));
+        EXPECT_EQ(split.descendant_paths[1].data_access_path.path,
+                  (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
+    }
+
+    // Splitting is a pure classification step. Callers explicitly apply lazy/predicate state.
+    EXPECT_EQ(iterator._read_requirement, ColumnIterator::ReadRequirement::NORMAL);
+}
+
+TEST_F(ColumnReaderTest, MapRejectsUnrecognizedDescendantSelectors) {
+    auto make_map_iterator = []() {
+        auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(create_test_reader()));
+        auto map_iterator = std::make_unique<MapFileColumnIterator>(
+                create_test_reader(), nullptr, std::move(offsets_iterator),
+                std::make_unique<TrackingColumnIterator>(),
+                std::make_unique<TrackingColumnIterator>());
+        map_iterator->set_column_name("m");
+        return map_iterator;
+    };
+
+    std::vector<TColumnAccessPath> invalid_paths;
+    invalid_paths.emplace_back(create_data_access_path({"m", "UNKNOWN"}));
+    invalid_paths.emplace_back(
+            create_meta_access_path({"m", "UNKNOWN", ColumnIterator::ACCESS_NULL}));
+    invalid_paths.emplace_back(create_legacy_data_access_path({"m", "UNKNOWN"}));
+
+    for (const auto& path : invalid_paths) {
+        auto map_iterator = make_map_iterator();
+        auto st = map_iterator->set_access_paths({path}, {});
+        EXPECT_FALSE(st.ok());
+        EXPECT_THAT(st.to_string(), ::testing::HasSubstr("Invalid map access path selector"));
+        EXPECT_THAT(st.to_string(), ::testing::HasSubstr("UNKNOWN"));
+    }
+
+    auto path = create_meta_access_path(
+            {"m", ColumnIterator::ACCESS_MAP_VALUES, ColumnIterator::ACCESS_OFFSET});
+    TDataAccessPath unselected_data_payload;
+    unselected_data_payload.__set_path({"m", "UNKNOWN"});
+    path.__set_data_access_path(std::move(unselected_data_payload));
+    auto map_iterator = make_map_iterator();
+    auto st = map_iterator->set_access_paths({path}, {});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+}
+
+TEST_F(ColumnReaderTest, MapChildPathRoutingUsesLogicalSelectorsAndPreservesVersion) {
+    auto key_iterator = std::make_unique<TrackingColumnIterator>();
+    key_iterator->set_column_name("physical_key");
+    auto* key = key_iterator.get();
+    auto value_iterator = std::make_unique<TrackingColumnIterator>();
+    value_iterator->set_column_name("physical_value");
+    auto* value = value_iterator.get();
+    auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(create_test_reader()));
+    MapFileColumnIterator map_iterator(create_test_reader(), nullptr, std::move(offsets_iterator),
+                                       std::move(key_iterator), std::move(value_iterator));
+    map_iterator.set_column_name("m");
+    EXPECT_EQ(key->column_name(), ColumnIterator::ACCESS_MAP_KEYS);
+    EXPECT_EQ(value->column_name(), ColumnIterator::ACCESS_MAP_VALUES);
+
+    auto path = create_meta_access_path(
+            {"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET});
+    TDataAccessPath unselected_data_payload;
+    unselected_data_payload.__set_path(path.meta_access_path.path);
+    path.__set_data_access_path(std::move(unselected_data_payload));
+    auto legacy_path = create_data_access_path(
+            {"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET});
+    legacy_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+
+    auto st = map_iterator.set_access_paths({path}, {legacy_path});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ASSERT_EQ(key->routed_all_access_paths.size(), 1);
+    const auto& key_path = key->routed_all_access_paths[0];
+    EXPECT_EQ(key_path.type, TAccessPathType::DATA);
+    ASSERT_TRUE(key_path.__isset.version);
+    EXPECT_EQ(key_path.version, g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    EXPECT_EQ(key_path.data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
+    ASSERT_EQ(key->routed_predicate_access_paths.size(), 1);
+    const auto& legacy_key_path = key->routed_predicate_access_paths[0];
+    EXPECT_EQ(legacy_key_path.type, TAccessPathType::DATA);
+    ASSERT_TRUE(legacy_key_path.__isset.version);
+    EXPECT_EQ(legacy_key_path.version, g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+    EXPECT_EQ(legacy_key_path.data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
+
+    ASSERT_EQ(value->routed_all_access_paths.size(), 1);
+    const auto& value_path = value->routed_all_access_paths[0];
+    EXPECT_EQ(value_path.type, TAccessPathType::META);
+    ASSERT_TRUE(value_path.__isset.version);
+    EXPECT_EQ(value_path.version, g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    EXPECT_EQ(value_path.meta_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_VALUES,
+                                         ColumnIterator::ACCESS_OFFSET}));
+    EXPECT_EQ(value_path.data_access_path.path,
+              (std::vector<std::string> {"m", ColumnIterator::ACCESS_ALL,
+                                         ColumnIterator::ACCESS_OFFSET}));
+    ASSERT_EQ(value->routed_predicate_access_paths.size(), 1);
+    const auto& legacy_value_path = value->routed_predicate_access_paths[0];
+    EXPECT_EQ(legacy_value_path.type, TAccessPathType::DATA);
+    ASSERT_TRUE(legacy_value_path.__isset.version);
+    EXPECT_EQ(legacy_value_path.version,
+              g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+    EXPECT_EQ(legacy_value_path.data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_VALUES,
+                                         ColumnIterator::ACCESS_OFFSET}));
+}
+
+TEST_F(ColumnReaderTest, NestedMapWildcardRoutingUsesLogicalSelectorsWithoutPhysicalNames) {
+    auto inner_key_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* inner_key = inner_key_iterator.get();
+    auto inner_value_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* inner_value = inner_value_iterator.get();
+    auto inner_offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(create_test_reader()));
+    auto inner_map_iterator = std::make_unique<MapFileColumnIterator>(
+            create_test_reader(), nullptr, std::move(inner_offsets_iterator),
+            std::move(inner_key_iterator), std::move(inner_value_iterator));
+
+    auto outer_key_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* outer_key = outer_key_iterator.get();
+    auto outer_offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(create_test_reader()));
+    MapFileColumnIterator outer_map_iterator(
+            create_test_reader(), nullptr, std::move(outer_offsets_iterator),
+            std::move(outer_key_iterator), std::move(inner_map_iterator));
+    outer_map_iterator.set_column_name("m");
+
+    auto path =
+            create_meta_access_path({"m", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_ALL,
+                                     ColumnIterator::ACCESS_OFFSET});
+    auto st = outer_map_iterator.set_access_paths({path}, {});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ASSERT_EQ(outer_key->routed_all_access_paths.size(), 1);
+    EXPECT_EQ(outer_key->routed_all_access_paths[0].data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
+    ASSERT_EQ(inner_key->routed_all_access_paths.size(), 1);
+    EXPECT_EQ(inner_key->routed_all_access_paths[0].data_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_KEYS}));
+    ASSERT_EQ(inner_value->routed_all_access_paths.size(), 1);
+    EXPECT_EQ(inner_value->routed_all_access_paths[0].meta_access_path.path,
+              (std::vector<std::string> {ColumnIterator::ACCESS_MAP_VALUES,
+                                         ColumnIterator::ACCESS_OFFSET}));
+}
+
+TEST_F(ColumnReaderTest, ArrayItemPathRoutingRewritesOnlySelectedPayload) {
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    item_iterator->set_column_name("item");
+    auto* item = item_iterator.get();
+    auto offsets_iterator = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(create_test_reader()));
+    ArrayFileColumnIterator array_iterator(create_test_reader(), std::move(offsets_iterator),
+                                           std::move(item_iterator), nullptr);
+    array_iterator.set_column_name("a");
+
+    auto path = create_meta_access_path(
+            {"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET});
+    TDataAccessPath unselected_data_payload;
+    unselected_data_payload.__set_path(path.meta_access_path.path);
+    path.__set_data_access_path(std::move(unselected_data_payload));
+
+    auto st = array_iterator.set_access_paths({path}, {});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ASSERT_EQ(item->routed_all_access_paths.size(), 1);
+    const auto& item_path = item->routed_all_access_paths[0];
+    EXPECT_EQ(item_path.type, TAccessPathType::META);
+    ASSERT_TRUE(item_path.__isset.version);
+    EXPECT_EQ(item_path.version, g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    EXPECT_EQ(item_path.meta_access_path.path,
+              (std::vector<std::string> {"item", ColumnIterator::ACCESS_OFFSET}));
+    EXPECT_EQ(item_path.data_access_path.path,
+              (std::vector<std::string> {"a", ColumnIterator::ACCESS_ALL,
+                                         ColumnIterator::ACCESS_OFFSET}));
+}
+
+TEST_F(ColumnReaderTest, StructCurrentMetaDoesNotRouteToDataFieldWithSameName) {
+    std::vector<ColumnIteratorUPtr> sub_iterators;
+    auto null_field_iterator = std::make_unique<TrackingColumnIterator>();
+    null_field_iterator->set_column_name(ColumnIterator::ACCESS_NULL);
+    auto* null_field = null_field_iterator.get();
+    sub_iterators.emplace_back(std::move(null_field_iterator));
+    auto data_field_iterator = std::make_unique<TrackingColumnIterator>();
+    data_field_iterator->set_column_name("data");
+    auto* data_field = data_field_iterator.get();
+    sub_iterators.emplace_back(std::move(data_field_iterator));
+
+    StructFileColumnIterator struct_iterator(create_test_reader(), nullptr,
+                                             std::move(sub_iterators));
+    struct_iterator.set_column_name("s");
+    TColumnAccessPaths all_access_paths {
+            create_meta_access_path({"s", ColumnIterator::ACCESS_NULL}),
+            create_data_access_path({"s", "data"})};
+    TColumnAccessPaths predicate_access_paths {create_data_access_path({"s", "data"})};
+
+    auto st = struct_iterator.set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(null_field->routed_all_access_paths.empty());
+    EXPECT_TRUE(null_field->routed_predicate_access_paths.empty());
+    EXPECT_EQ(null_field->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+    ASSERT_EQ(data_field->routed_all_access_paths.size(), 1);
+    ASSERT_EQ(data_field->routed_predicate_access_paths.size(), 1);
+    EXPECT_EQ(data_field->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
 }
 
 TEST_F(ColumnReaderTest, NestedIteratorsPropagateReadPhase) {
@@ -966,7 +2559,7 @@ TEST_F(ColumnReaderTest, AccessPathsPropagatePredicateToChildren) {
 
     TColumnAccessPaths all_access_paths;
     all_access_paths.emplace_back();
-    all_access_paths[0].data_access_path.path = {"s"};
+    all_access_paths[0] = create_data_access_path({"s"});
     TColumnAccessPaths predicate_access_paths = all_access_paths;
 
     auto st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
@@ -988,7 +2581,7 @@ TEST_F(ColumnReaderTest, AccessPathsPropagatePredicateToChildren) {
     array_iterator.set_column_name("a");
     TColumnAccessPaths array_access_paths;
     array_access_paths.emplace_back();
-    array_access_paths[0].data_access_path.path = {"a"};
+    array_access_paths[0] = create_data_access_path({"a"});
     TColumnAccessPaths array_predicate_paths = array_access_paths;
     st = array_iterator.set_access_paths(array_access_paths, array_predicate_paths);
     ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
@@ -1007,7 +2600,7 @@ TEST_F(ColumnReaderTest, AccessPathsPropagatePredicateToChildren) {
     map_iterator.set_column_name("m");
     TColumnAccessPaths map_access_paths;
     map_access_paths.emplace_back();
-    map_access_paths[0].data_access_path.path = {"m"};
+    map_access_paths[0] = create_data_access_path({"m"});
     TColumnAccessPaths map_predicate_paths = map_access_paths;
     st = map_iterator.set_access_paths(map_access_paths, map_predicate_paths);
     ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
@@ -1032,8 +2625,8 @@ TEST_F(ColumnReaderTest, StructPredicateOnlyChildPathStillRoutesToChild) {
                                              std::move(sub_iters));
     struct_iterator.set_column_name("s");
 
-    TColumnAccessPaths all_access_paths {create_access_path({"s", "a"})};
-    TColumnAccessPaths predicate_access_paths {create_access_path({"s", "b"})};
+    TColumnAccessPaths all_access_paths {create_data_access_path({"s", "a"})};
+    TColumnAccessPaths predicate_access_paths {create_data_access_path({"s", "b"})};
 
     auto st = struct_iterator.set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
@@ -1050,7 +2643,7 @@ TEST_F(ColumnReaderTest, StructPredicateOnlyChildPathStillRoutesToChild) {
     EXPECT_EQ(struct_iterator._sub_column_iterators[1]->column_name(), "b");
 }
 
-TEST_F(ColumnReaderTest, CurrentLevelPredicateNullPathUsesMetaOnlyMode) {
+TEST_F(ColumnReaderTest, LegacyCurrentLevelPredicateNullPathUsesMetaOnlyMode) {
     auto make_struct_iterator = []() {
         auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
         std::vector<ColumnIteratorUPtr> sub_iters;
@@ -1070,9 +2663,9 @@ TEST_F(ColumnReaderTest, CurrentLevelPredicateNullPathUsesMetaOnlyMode) {
     {
         auto struct_iterator = make_struct_iterator();
         TColumnAccessPaths all_access_paths {
-                create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+                create_legacy_data_access_path({"s", ColumnIterator::ACCESS_NULL})};
         TColumnAccessPaths predicate_access_paths {
-                create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+                create_legacy_data_access_path({"s", ColumnIterator::ACCESS_NULL})};
 
         auto st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
@@ -1090,9 +2683,10 @@ TEST_F(ColumnReaderTest, CurrentLevelPredicateNullPathUsesMetaOnlyMode) {
     {
         auto struct_iterator = make_struct_iterator();
         TColumnAccessPaths all_access_paths {
-                create_access_path({"s"}), create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+                create_legacy_data_access_path({"s"}),
+                create_legacy_data_access_path({"s", ColumnIterator::ACCESS_NULL})};
         TColumnAccessPaths predicate_access_paths {
-                create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+                create_legacy_data_access_path({"s", ColumnIterator::ACCESS_NULL})};
 
         auto st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
@@ -1117,9 +2711,9 @@ TEST_F(ColumnReaderTest, CurrentLevelPredicateNullPathUsesMetaOnlyMode) {
         array_iterator.set_column_name("a");
 
         TColumnAccessPaths all_access_paths {
-                create_access_path({"a", ColumnIterator::ACCESS_NULL})};
+                create_legacy_data_access_path({"a", ColumnIterator::ACCESS_NULL})};
         TColumnAccessPaths predicate_access_paths {
-                create_access_path({"a", ColumnIterator::ACCESS_NULL})};
+                create_legacy_data_access_path({"a", ColumnIterator::ACCESS_NULL})};
 
         auto st = array_iterator.set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
@@ -1140,9 +2734,9 @@ TEST_F(ColumnReaderTest, CurrentLevelPredicateNullPathUsesMetaOnlyMode) {
         map_iterator.set_column_name("m");
 
         TColumnAccessPaths all_access_paths {
-                create_access_path({"m", ColumnIterator::ACCESS_NULL})};
+                create_legacy_data_access_path({"m", ColumnIterator::ACCESS_NULL})};
         TColumnAccessPaths predicate_access_paths {
-                create_access_path({"m", ColumnIterator::ACCESS_NULL})};
+                create_legacy_data_access_path({"m", ColumnIterator::ACCESS_NULL})};
 
         auto st = map_iterator.set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
@@ -1173,10 +2767,10 @@ TEST_F(ColumnReaderTest, StructPredicateMetaPathDoesNotOverrideExistingDataNeed)
 
     auto struct_iterator = make_struct_iterator();
     TColumnAccessPaths all_access_paths {
-            create_access_path({"s"}),
-            create_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
+            create_data_access_path({"s"}),
+            create_meta_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
     TColumnAccessPaths predicate_access_paths {
-            create_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
+            create_meta_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
 
     auto st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
@@ -1189,7 +2783,7 @@ TEST_F(ColumnReaderTest, StructPredicateMetaPathDoesNotOverrideExistingDataNeed)
               ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
     struct_iterator = make_struct_iterator();
-    all_access_paths = {create_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
+    all_access_paths = {create_meta_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
     predicate_access_paths = all_access_paths;
     st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set predicate-only struct access paths: " << st.to_string();
@@ -1198,6 +2792,39 @@ TEST_F(ColumnReaderTest, StructPredicateMetaPathDoesNotOverrideExistingDataNeed)
     EXPECT_TRUE(city_iter->read_null_map_only());
     EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->read_requirement(),
               ColumnIterator::ReadRequirement::SKIP);
+}
+
+TEST_F(ColumnReaderTest, StructSiblingDataPathDoesNotDisablePredicateMetaOnlyRead) {
+    auto city_iterator = std::make_unique<StringFileColumnIterator>(
+            create_test_reader(true, 0, FieldType::OLAP_FIELD_TYPE_STRING));
+    city_iterator->set_column_name("city");
+    auto* city_iterator_ptr = city_iterator.get();
+
+    auto data_iterator = std::make_unique<FileColumnIterator>(create_test_reader());
+    data_iterator->set_column_name("data");
+    auto* data_iterator_ptr = data_iterator.get();
+
+    std::vector<ColumnIteratorUPtr> sub_iterators;
+    sub_iterators.emplace_back(std::move(city_iterator));
+    sub_iterators.emplace_back(std::move(data_iterator));
+    StructFileColumnIterator struct_iterator(
+            create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_STRUCT), nullptr,
+            std::move(sub_iterators));
+    struct_iterator.set_column_name("s");
+
+    TColumnAccessPaths all_access_paths {
+            create_data_access_path({"s", "data"}),
+            create_meta_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths predicate_access_paths {
+            create_meta_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
+
+    auto st = struct_iterator.set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    EXPECT_EQ(struct_iterator.read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(data_iterator_ptr->read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    EXPECT_TRUE(city_iterator_ptr->read_null_map_only());
+    EXPECT_EQ(city_iterator_ptr->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
 }
 
 TEST_F(ColumnReaderTest, ArrayPredicateMetaPathDoesNotOverrideExistingDataNeed) {
@@ -1216,11 +2843,11 @@ TEST_F(ColumnReaderTest, ArrayPredicateMetaPathDoesNotOverrideExistingDataNeed) 
     };
 
     auto array_iterator = make_array_iterator();
-    TColumnAccessPaths all_access_paths {
-            create_access_path({"a"}),
-            create_access_path({"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_NULL})};
-    TColumnAccessPaths predicate_access_paths {
-            create_access_path({"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths all_access_paths {create_data_access_path({"a"}),
+                                         create_meta_access_path({"a", ColumnIterator::ACCESS_ALL,
+                                                                  ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths predicate_access_paths {create_meta_access_path(
+            {"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_NULL})};
 
     auto st = array_iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
@@ -1229,8 +2856,8 @@ TEST_F(ColumnReaderTest, ArrayPredicateMetaPathDoesNotOverrideExistingDataNeed) 
     EXPECT_EQ(item_iter->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
 
     array_iterator = make_array_iterator();
-    all_access_paths = {
-            create_access_path({"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_NULL})};
+    all_access_paths = {create_meta_access_path(
+            {"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_NULL})};
     predicate_access_paths = all_access_paths;
     st = array_iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set predicate-only array access paths: " << st.to_string();
@@ -1244,10 +2871,8 @@ TEST_F(ColumnReaderTest, MapPredicateMetaPathDoesNotOverrideExistingDataNeed) {
         auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
         auto key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-        key_iter->set_column_name("key");
         auto value_iter =
                 std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
-        value_iter->set_column_name("value");
         auto map_iterator = std::make_unique<MapFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(null_iter), std::move(offsets_iter),
                 std::move(key_iter), std::move(value_iter));
@@ -1256,10 +2881,11 @@ TEST_F(ColumnReaderTest, MapPredicateMetaPathDoesNotOverrideExistingDataNeed) {
     };
 
     auto map_iterator = make_map_iterator();
-    TColumnAccessPaths all_access_paths {create_access_path({"m"}),
-                                         create_access_path({"m", ColumnIterator::ACCESS_MAP_VALUES,
-                                                             ColumnIterator::ACCESS_NULL})};
-    TColumnAccessPaths predicate_access_paths {create_access_path(
+    TColumnAccessPaths all_access_paths {
+            create_data_access_path({"m"}),
+            create_meta_access_path(
+                    {"m", ColumnIterator::ACCESS_MAP_VALUES, ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths predicate_access_paths {create_meta_access_path(
             {"m", ColumnIterator::ACCESS_MAP_VALUES, ColumnIterator::ACCESS_NULL})};
 
     auto st = map_iterator->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1271,7 +2897,7 @@ TEST_F(ColumnReaderTest, MapPredicateMetaPathDoesNotOverrideExistingDataNeed) {
     EXPECT_EQ(value_iter->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
 
     map_iterator = make_map_iterator();
-    all_access_paths = {create_access_path(
+    all_access_paths = {create_meta_access_path(
             {"m", ColumnIterator::ACCESS_MAP_VALUES, ColumnIterator::ACCESS_NULL})};
     predicate_access_paths = all_access_paths;
     st = map_iterator->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1295,7 +2921,6 @@ TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
 
         auto value_struct = std::make_unique<StructFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-        value_struct->set_column_name("value");
         return value_struct;
     };
 
@@ -1303,7 +2928,6 @@ TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
     auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-    map_key_iter->set_column_name("key");
     auto map_iterator = std::make_unique<MapFileColumnIterator>(
             std::make_shared<ColumnReader>(), std::move(map_null_iter), std::move(map_offsets_iter),
             std::move(map_key_iter), make_value_struct());
@@ -1311,13 +2935,13 @@ TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
 
     TColumnAccessPaths all_access_paths;
     all_access_paths.emplace_back();
-    all_access_paths[0].data_access_path.path = {"m"};
+    all_access_paths[0] = create_data_access_path({"m"});
 
     TColumnAccessPaths predicate_access_paths;
     predicate_access_paths.emplace_back();
-    predicate_access_paths[0].data_access_path.path = {"m", "KEYS"};
+    predicate_access_paths[0] = create_data_access_path({"m", "KEYS"});
     predicate_access_paths.emplace_back();
-    predicate_access_paths[1].data_access_path.path = {"m", "VALUES", "a"};
+    predicate_access_paths[1] = create_data_access_path({"m", "VALUES", "a"});
 
     auto st = map_iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
@@ -1337,6 +2961,33 @@ TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
 
 TEST_F(ColumnReaderTest, MetaOnlyAllPathsStillRoutePredicateSubPaths) {
     {
+        auto struct_null_iter =
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        std::vector<ColumnIteratorUPtr> sub_iters;
+        auto selected_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        selected_iter->set_column_name("selected");
+        auto skipped_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        skipped_iter->set_column_name("skipped");
+        sub_iters.emplace_back(std::move(selected_iter));
+        sub_iters.emplace_back(std::move(skipped_iter));
+        StructFileColumnIterator struct_iterator(std::make_shared<ColumnReader>(),
+                                                 std::move(struct_null_iter), std::move(sub_iters));
+        struct_iterator.set_column_name("s");
+
+        TColumnAccessPaths all_access_paths {
+                create_meta_access_path({"s", ColumnIterator::ACCESS_NULL})};
+        TColumnAccessPaths predicate_access_paths {create_data_access_path({"s", "selected"})};
+
+        auto st = struct_iterator.set_access_paths(all_access_paths, predicate_access_paths);
+        ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
+        EXPECT_FALSE(struct_iterator.read_null_map_only());
+        EXPECT_EQ(struct_iterator._sub_column_iterators[0]->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
+        EXPECT_EQ(struct_iterator._sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
+    }
+
+    {
         auto array_item_iterator =
                 std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
         auto array_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
@@ -1349,10 +3000,10 @@ TEST_F(ColumnReaderTest, MetaOnlyAllPathsStillRoutePredicateSubPaths) {
         array_iterator.set_column_name("a");
 
         TColumnAccessPaths all_access_paths {
-                create_access_path({"a", ColumnIterator::ACCESS_OFFSET}),
-                create_access_path({"a", ColumnIterator::ACCESS_NULL})};
+                create_meta_access_path({"a", ColumnIterator::ACCESS_OFFSET}),
+                create_meta_access_path({"a", ColumnIterator::ACCESS_NULL})};
         TColumnAccessPaths predicate_access_paths {
-                create_access_path({"a", ColumnIterator::ACCESS_ALL})};
+                create_data_access_path({"a", ColumnIterator::ACCESS_ALL})};
 
         auto st = array_iterator.set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
@@ -1373,10 +3024,10 @@ TEST_F(ColumnReaderTest, MetaOnlyAllPathsStillRoutePredicateSubPaths) {
         map_iterator.set_column_name("m");
 
         TColumnAccessPaths all_access_paths {
-                create_access_path({"m", ColumnIterator::ACCESS_OFFSET}),
-                create_access_path({"m", ColumnIterator::ACCESS_NULL})};
+                create_meta_access_path({"m", ColumnIterator::ACCESS_OFFSET}),
+                create_meta_access_path({"m", ColumnIterator::ACCESS_NULL})};
         TColumnAccessPaths predicate_access_paths {
-                create_access_path({"m", ColumnIterator::ACCESS_MAP_KEYS})};
+                create_data_access_path({"m", ColumnIterator::ACCESS_MAP_KEYS})};
 
         auto st = map_iterator.set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
@@ -1401,7 +3052,6 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPaths) {
 
         auto value_struct = std::make_unique<StructFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-        value_struct->set_column_name("value");
         return value_struct;
     };
 
@@ -1409,7 +3059,6 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPaths) {
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
     auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-    map_key_iter->set_column_name("key");
     auto map_val_iter = make_value_struct();
     auto map_iterator = std::make_unique<MapFileColumnIterator>(
             std::make_shared<ColumnReader>(), std::move(map_null_iter), std::move(map_offsets_iter),
@@ -1437,7 +3086,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPaths) {
 
     TColumnAccessPaths access_paths;
     access_paths.emplace_back();
-    access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES", "a"};
+    access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES", "a"});
     TColumnAccessPaths predicate_access_paths = access_paths;
 
     auto st = top_struct->set_access_paths(access_paths, predicate_access_paths);
@@ -1477,7 +3126,6 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
 
             auto value_struct = std::make_unique<StructFileColumnIterator>(
                     std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-            value_struct->set_column_name("value");
             return value_struct;
         };
 
@@ -1485,7 +3133,6 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
         auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-        map_key_iter->set_column_name("key");
         auto map_val_iter = make_value_struct();
         auto map_iterator = std::make_unique<MapFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(map_null_iter),
@@ -1519,7 +3166,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col1"};
+        all_access_paths[0] = create_data_access_path({"root", "col1"});
         TColumnAccessPaths predicate_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1536,10 +3183,10 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*", "KEYS"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*", "KEYS"});
         TColumnAccessPaths predicate_access_paths;
         predicate_access_paths.emplace_back();
-        predicate_access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES", "b"};
+        predicate_access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES", "b"});
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
         EXPECT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
@@ -1549,7 +3196,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2"};
+        all_access_paths[0] = create_data_access_path({"root", "col2"});
         TColumnAccessPaths predicate_access_paths = all_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1579,7 +3226,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         TColumnAccessPaths all_access_paths;
         TColumnAccessPaths predicate_access_paths;
         predicate_access_paths.emplace_back();
-        predicate_access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES", "a"};
+        predicate_access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES", "a"});
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
         EXPECT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
@@ -1588,7 +3235,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*", "KEYS"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*", "KEYS"});
         TColumnAccessPaths predicate_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1607,7 +3254,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES"});
         TColumnAccessPaths predicate_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1632,7 +3279,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*"});
         TColumnAccessPaths predicate_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1657,7 +3304,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES", "a"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES", "a"});
         TColumnAccessPaths predicate_access_paths = all_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1686,10 +3333,10 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*"});
         TColumnAccessPaths predicate_access_paths;
         predicate_access_paths.emplace_back();
-        predicate_access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES"};
+        predicate_access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES"});
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
@@ -1707,7 +3354,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {};
+        all_access_paths[0] = create_data_access_path({});
         TColumnAccessPaths predicate_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1718,7 +3365,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"wrong_root", "col2"};
+        all_access_paths[0] = create_data_access_path({"wrong_root", "col2"});
         TColumnAccessPaths predicate_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1729,7 +3376,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "wrong_item"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "wrong_item"});
         TColumnAccessPaths predicate_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -1772,7 +3419,6 @@ TEST_F(ColumnReaderTest, DeepNestedAccessPathsFiveLevels) {
 
         auto value_struct = std::make_unique<StructFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-        value_struct->set_column_name("value");
         return value_struct;
     };
 
@@ -1780,7 +3426,6 @@ TEST_F(ColumnReaderTest, DeepNestedAccessPathsFiveLevels) {
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
     auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-    map_key_iter->set_column_name("key");
     auto map_val_iter = make_value_struct();
     auto map_iter = std::make_unique<MapFileColumnIterator>(
             std::make_shared<ColumnReader>(), std::move(map_null_iter), std::move(map_offsets_iter),
@@ -1800,10 +3445,10 @@ TEST_F(ColumnReaderTest, DeepNestedAccessPathsFiveLevels) {
 
     TColumnAccessPaths all_access_paths;
     all_access_paths.emplace_back();
-    all_access_paths[0].data_access_path.path = {"root", "m", "VALUES", "arr", "*"};
+    all_access_paths[0] = create_data_access_path({"root", "m", "VALUES", "arr", "*"});
     TColumnAccessPaths predicate_access_paths;
     predicate_access_paths.emplace_back();
-    predicate_access_paths[0].data_access_path.path = {"root", "m", "VALUES", "arr", "*", "q"};
+    predicate_access_paths[0] = create_data_access_path({"root", "m", "VALUES", "arr", "*", "q"});
 
     auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set deep access paths: " << st.to_string();
@@ -1889,7 +3534,6 @@ TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
 
             auto value_struct = std::make_unique<StructFileColumnIterator>(
                     std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
-            value_struct->set_column_name("value");
             return value_struct;
         };
 
@@ -1897,7 +3541,6 @@ TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
         auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
                 std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
         auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
-        map_key_iter->set_column_name("key");
         auto map_val_iter = make_value_struct();
         auto map_iterator = std::make_unique<MapFileColumnIterator>(
                 std::make_shared<ColumnReader>(), std::move(map_null_iter),
@@ -2009,7 +3652,7 @@ TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES", "a"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES", "a"});
         TColumnAccessPaths predicate_access_paths = all_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -2021,7 +3664,7 @@ TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*", "KEYS"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*", "KEYS"});
         TColumnAccessPaths predicate_access_paths;
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
@@ -2033,10 +3676,10 @@ TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*"});
         TColumnAccessPaths predicate_access_paths;
         predicate_access_paths.emplace_back();
-        predicate_access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES"};
+        predicate_access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES"});
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
@@ -2047,10 +3690,10 @@ TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
         auto top_struct = build_nested_iterator();
         TColumnAccessPaths all_access_paths;
         all_access_paths.emplace_back();
-        all_access_paths[0].data_access_path.path = {"root", "col2", "*", "VALUES"};
+        all_access_paths[0] = create_data_access_path({"root", "col2", "*", "VALUES"});
         TColumnAccessPaths predicate_access_paths;
         predicate_access_paths.emplace_back();
-        predicate_access_paths[0].data_access_path.path = {"root", "col2", "*", "KEYS"};
+        predicate_access_paths[0] = create_data_access_path({"root", "col2", "*", "KEYS"});
 
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
         EXPECT_TRUE(st.ok());
@@ -2134,7 +3777,7 @@ TEST_F(ColumnReaderTest, MultiAccessPaths) {
     // all access paths:
     // self.sub_col_2.*.KEYS
     // predicates paths empty
-    all_access_paths[0].data_access_path.path = {"self", "sub_col_2", "*", "KEYS"};
+    all_access_paths[0] = create_data_access_path({"self", "sub_col_2", "*", "KEYS"});
 
     TColumnAccessPaths predicate_access_paths;
 
@@ -2210,7 +3853,7 @@ TEST_F(ColumnReaderTest, StructNullMapOnlyNextBatchSkipsSubColumns) {
                                              std::move(sub_column_iterators));
     struct_iterator.set_column_name("s");
 
-    TColumnAccessPaths null_path {create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths null_path {create_meta_access_path({"s", ColumnIterator::ACCESS_NULL})};
     auto st = struct_iterator.set_access_paths(null_path, null_path);
     ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
     EXPECT_TRUE(struct_iterator.read_null_map_only());
@@ -2233,6 +3876,162 @@ TEST_F(ColumnReaderTest, StructNullMapOnlyNextBatchSkipsSubColumns) {
     EXPECT_EQ(2, nested_struct.get_column(0).size());
 }
 
+TEST_F(ColumnReaderTest, ArrayReadByRowidsBatchesOffsetsAndMergesItemRanges) {
+    auto offset_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>(
+            std::vector<ordinal_t> {0, 2, 5, 5, 7, 10, 12, 12, 15, 18, 20});
+    auto* offset_tracker = offset_file_iterator.get();
+    auto offset_iterator =
+            std::make_unique<OffsetFileColumnIterator>(std::move(offset_file_iterator));
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* item_tracker = item_iterator.get();
+
+    ArrayFileColumnIterator array_iterator(
+            create_test_reader(false, 10, FieldType::OLAP_FIELD_TYPE_ARRAY),
+            std::move(offset_iterator), std::move(item_iterator), nullptr);
+    MutableColumnPtr dst =
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+
+    // Row 2 is a selected empty array. Unselected row 6 is also empty, so rows 5 and 7
+    // must share an item read even though their parent rowids are not adjacent. Unselected
+    // rows 3 and 8 contain items and must still separate the three physical item ranges.
+    const rowid_t rowids[] = {0, 1, 2, 4, 5, 7, 9};
+    auto st = array_iterator.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << "array read_by_rowids failed: " << st.to_string();
+
+    ASSERT_EQ(1, offset_tracker->read_by_rowids_batches.size());
+    EXPECT_THAT(offset_tracker->read_by_rowids_batches[0],
+                ::testing::ElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(offset_tracker->seek_ordinals, ::testing::ElementsAre(9));
+    EXPECT_THAT(offset_tracker->next_batch_sizes, ::testing::ElementsAre(1));
+    EXPECT_THAT(item_tracker->seek_ordinals, ::testing::ElementsAre(0, 7, 18));
+    EXPECT_THAT(item_tracker->next_batch_sizes, ::testing::ElementsAre(5, 8, 2));
+
+    const auto& array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*dst);
+    EXPECT_EQ(7, array.size());
+    EXPECT_EQ(15, array.get_data().size());
+    EXPECT_EQ(2, array.get_offsets()[0]);
+    EXPECT_EQ(5, array.get_offsets()[1]);
+    EXPECT_EQ(5, array.get_offsets()[2]);
+    EXPECT_EQ(8, array.get_offsets()[3]);
+    EXPECT_EQ(10, array.get_offsets()[4]);
+    EXPECT_EQ(13, array.get_offsets()[5]);
+    EXPECT_EQ(15, array.get_offsets()[6]);
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsSingleLastRowAppendsToExistingData) {
+    auto offset_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>(
+            std::vector<ordinal_t> {0, 2, 5, 5, 7, 10, 12, 12, 15, 18, 20});
+    auto* offset_tracker = offset_file_iterator.get();
+    auto offset_iterator =
+            std::make_unique<OffsetFileColumnIterator>(std::move(offset_file_iterator));
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* item_tracker = item_iterator.get();
+    ArrayFileColumnIterator array_iterator(
+            create_test_reader(false, 10, FieldType::OLAP_FIELD_TYPE_ARRAY),
+            std::move(offset_iterator), std::move(item_iterator), nullptr);
+
+    auto values = ColumnInt32::create();
+    values->insert_value(42);
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(1);
+    MutableColumnPtr dst = ColumnArray::create(std::move(values), std::move(offsets));
+    const rowid_t rowid = 9;
+    ASSERT_TRUE(array_iterator.read_by_rowids(&rowid, 1, dst).ok());
+
+    ASSERT_EQ(1, offset_tracker->read_by_rowids_batches.size());
+    EXPECT_THAT(offset_tracker->read_by_rowids_batches[0], ::testing::ElementsAre(9));
+    EXPECT_THAT(offset_tracker->seek_ordinals, ::testing::ElementsAre(9));
+    EXPECT_THAT(offset_tracker->next_batch_sizes, ::testing::ElementsAre(1));
+    EXPECT_THAT(item_tracker->seek_ordinals, ::testing::ElementsAre(18));
+    EXPECT_THAT(item_tracker->next_batch_sizes, ::testing::ElementsAre(2));
+    const auto& array = assert_cast<const ColumnArray&>(*dst);
+    EXPECT_EQ(2, array.size());
+    EXPECT_THAT(array.get_offsets(), ::testing::ElementsAre(1, 3));
+    EXPECT_THAT(assert_cast<const ColumnInt32&>(array.get_data()).get_data(),
+                ::testing::ElementsAre(42, 0, 0));
+
+    ASSERT_TRUE(array_iterator.read_by_rowids(nullptr, 0, dst).ok());
+    EXPECT_EQ(2, dst->size());
+    EXPECT_EQ(1, offset_tracker->read_by_rowids_batches.size());
+    EXPECT_EQ(1, item_tracker->seek_ordinals.size());
+}
+
+TEST_F(ColumnReaderTest, ArrayOffsetOnlyReadByRowidsFillsItemsWithoutReadingThem) {
+    auto offset_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>(
+            std::vector<ordinal_t> {0, 2, 5, 5, 7, 10, 12, 12, 15, 18, 20});
+    auto* offset_tracker = offset_file_iterator.get();
+    auto offset_iterator =
+            std::make_unique<OffsetFileColumnIterator>(std::move(offset_file_iterator));
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* item_tracker = item_iterator.get();
+
+    ArrayFileColumnIterator array_iterator(
+            create_test_reader(false, 10, FieldType::OLAP_FIELD_TYPE_ARRAY),
+            std::move(offset_iterator), std::move(item_iterator), nullptr);
+    array_iterator.set_column_name("a");
+    TColumnAccessPaths offset_path {create_meta_access_path({"a", ColumnIterator::ACCESS_OFFSET})};
+    auto st = array_iterator.set_access_paths(offset_path, {});
+    ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
+    ASSERT_TRUE(array_iterator.read_offset_only());
+
+    MutableColumnPtr dst =
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    const rowid_t rowids[] = {0, 1, 4};
+    st = array_iterator.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << "array offset-only read_by_rowids failed: " << st.to_string();
+
+    const auto& array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*dst);
+    EXPECT_EQ(3, array.size());
+    EXPECT_EQ(8, array.get_data().size());
+    EXPECT_EQ(2, array.get_offsets()[0]);
+    EXPECT_EQ(5, array.get_offsets()[1]);
+    EXPECT_EQ(8, array.get_offsets()[2]);
+    EXPECT_TRUE(item_tracker->seek_ordinals.empty());
+    EXPECT_TRUE(item_tracker->next_batch_sizes.empty());
+    ASSERT_EQ(1, offset_tracker->read_by_rowids_batches.size());
+    EXPECT_THAT(offset_tracker->read_by_rowids_batches[0], ::testing::ElementsAre(0, 1, 2, 4, 5));
+}
+
+TEST_F(ColumnReaderTest, ArrayLazyReadByRowidsPreservesMaterializedOffsets) {
+    auto offset_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>(
+            std::vector<ordinal_t> {0, 2, 5, 5, 7, 10, 12, 12, 15, 18, 20});
+    auto offset_iterator =
+            std::make_unique<OffsetFileColumnIterator>(std::move(offset_file_iterator));
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* item_tracker = item_iterator.get();
+
+    ArrayFileColumnIterator array_iterator(
+            create_test_reader(false, 10, FieldType::OLAP_FIELD_TYPE_ARRAY),
+            std::move(offset_iterator), std::move(item_iterator), nullptr);
+    array_iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
+    item_tracker->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    array_iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    MutableColumnPtr dst =
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    auto& array = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(*dst);
+    array.get_offsets().push_back(2);
+    array.get_offsets().push_back(5);
+    auto items = IColumn::mutate(std::move(array.get_data_ptr()));
+    item_tracker->convert_to_place_holder_column(items, 5);
+    array.get_data_ptr() = std::move(items);
+
+    array_iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    ASSERT_TRUE(array_iterator.need_to_read());
+    ASSERT_FALSE(array_iterator.need_to_read_meta_columns());
+
+    const rowid_t rowids[] = {0, 4};
+    auto st = array_iterator.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << "lazy array read_by_rowids failed: " << st.to_string();
+
+    EXPECT_EQ(2, array.size());
+    EXPECT_EQ(5, array.get_data().size());
+    EXPECT_EQ(2, array.get_offsets()[0]);
+    EXPECT_EQ(5, array.get_offsets()[1]);
+    EXPECT_THAT(item_tracker->seek_ordinals, ::testing::ElementsAre(0, 7));
+    EXPECT_THAT(item_tracker->next_batch_sizes, ::testing::ElementsAre(2, 3));
+}
+
 TEST_F(ColumnReaderTest, ArrayNullMapOnlyNextBatchAndReadByRowidsSkipItems) {
     auto null_iterator = std::make_unique<TrackingColumnIterator>();
     auto* null_iterator_ptr = null_iterator.get();
@@ -2245,7 +4044,7 @@ TEST_F(ColumnReaderTest, ArrayNullMapOnlyNextBatchAndReadByRowidsSkipItems) {
                                            std::move(item_iterator), std::move(null_iterator));
     array_iterator.set_column_name("a");
 
-    TColumnAccessPaths null_path {create_access_path({"a", ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths null_path {create_meta_access_path({"a", ColumnIterator::ACCESS_NULL})};
     auto st = array_iterator.set_access_paths(null_path, null_path);
     ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
     EXPECT_TRUE(array_iterator.read_null_map_only());
@@ -2269,8 +4068,10 @@ TEST_F(ColumnReaderTest, ArrayNullMapOnlyNextBatchAndReadByRowidsSkipItems) {
     st = array_iterator.read_by_rowids(rowids, std::size(rowids), dst);
     ASSERT_TRUE(st.ok()) << "array null-map-only read_by_rowids failed: " << st.to_string();
     EXPECT_EQ(5, dst->size());
-    EXPECT_THAT(null_iterator_ptr->seek_ordinals, ::testing::ElementsAre(1, 3));
-    EXPECT_THAT(null_iterator_ptr->next_batch_sizes, ::testing::ElementsAre(1, 1));
+    EXPECT_TRUE(null_iterator_ptr->seek_ordinals.empty());
+    EXPECT_TRUE(null_iterator_ptr->next_batch_sizes.empty());
+    ASSERT_EQ(1, null_iterator_ptr->read_by_rowids_batches.size());
+    EXPECT_THAT(null_iterator_ptr->read_by_rowids_batches[0], ::testing::ElementsAre(1, 3));
     EXPECT_TRUE(item_iterator_ptr->next_batch_sizes.empty());
     EXPECT_TRUE(offset_iterator.tracker->next_batch_sizes.empty());
 }
@@ -2289,7 +4090,7 @@ TEST_F(ColumnReaderTest, MapNullMapOnlyNextBatchAndReadByRowidsSkipKeysAndValues
                                        std::move(value_iterator));
     map_iterator.set_column_name("m");
 
-    TColumnAccessPaths null_path {create_access_path({"m", ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths null_path {create_meta_access_path({"m", ColumnIterator::ACCESS_NULL})};
     auto st = map_iterator.set_access_paths(null_path, null_path);
     ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
     EXPECT_TRUE(map_iterator.read_null_map_only());
@@ -2433,11 +4234,9 @@ TEST_F(ColumnReaderTest, MapPredicateAccessAllWithOffsetKeepsKeysReadable) {
     auto map_reader = create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_MAP);
     auto key_iter = std::make_unique<StringFileColumnIterator>(
             create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_STRING));
-    key_iter->set_column_name("key");
     auto* key_ptr = key_iter.get();
     auto val_iter = std::make_unique<StringFileColumnIterator>(
             create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_STRING));
-    val_iter->set_column_name("value");
     auto* val_ptr = val_iter.get();
     auto offset_iterator = create_tracking_offset_iterator();
 
@@ -2445,7 +4244,7 @@ TEST_F(ColumnReaderTest, MapPredicateAccessAllWithOffsetKeepsKeysReadable) {
                                    std::move(key_iter), std::move(val_iter));
     map_iter.set_column_name("map_col");
 
-    TColumnAccessPaths access_paths {create_access_path(
+    TColumnAccessPaths access_paths {create_meta_access_path(
             {"map_col", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET})};
     auto st = map_iter.set_access_paths(access_paths, access_paths);
     ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
@@ -2545,10 +4344,8 @@ TEST_F(ColumnReaderTest, MapLazyReadByRowidsFillsSkippedKeysForValuesOnlyPath) {
     auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<RowidOffsetFileColumnIterator>());
     auto key_iter = std::make_unique<TrackingColumnIterator>();
-    key_iter->set_column_name("key");
     auto* key_ptr = key_iter.get();
     auto val_iter = std::make_unique<TrackingColumnIterator>();
-    val_iter->set_column_name("value");
     auto* val_ptr = val_iter.get();
 
     MapFileColumnIterator map_iter(map_reader, nullptr, std::move(offsets_iter),
@@ -2556,7 +4353,7 @@ TEST_F(ColumnReaderTest, MapLazyReadByRowidsFillsSkippedKeysForValuesOnlyPath) {
     map_iter.set_column_name("map_col");
 
     TColumnAccessPaths all_access_paths {
-            create_access_path({"map_col", ColumnIterator::ACCESS_MAP_VALUES})};
+            create_data_access_path({"map_col", ColumnIterator::ACCESS_MAP_VALUES})};
     auto st = map_iter.set_access_paths(all_access_paths, {});
     ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
     ASSERT_EQ(key_ptr->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
@@ -2586,10 +4383,8 @@ TEST_F(ColumnReaderTest, MapLazyReadByRowidsPreservesPredicateKeysForValuesOnlyP
     auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<RowidOffsetFileColumnIterator>());
     auto key_iter = std::make_unique<TrackingColumnIterator>();
-    key_iter->set_column_name("key");
     auto* key_ptr = key_iter.get();
     auto val_iter = std::make_unique<TrackingColumnIterator>();
-    val_iter->set_column_name("value");
     auto* val_ptr = val_iter.get();
 
     MapFileColumnIterator map_iter(map_reader, nullptr, std::move(offsets_iter),
@@ -2597,9 +4392,9 @@ TEST_F(ColumnReaderTest, MapLazyReadByRowidsPreservesPredicateKeysForValuesOnlyP
     map_iter.set_column_name("map_col");
 
     TColumnAccessPaths all_access_paths {
-            create_access_path({"map_col", ColumnIterator::ACCESS_MAP_VALUES})};
+            create_data_access_path({"map_col", ColumnIterator::ACCESS_MAP_VALUES})};
     TColumnAccessPaths predicate_access_paths {
-            create_access_path({"map_col", ColumnIterator::ACCESS_MAP_KEYS})};
+            create_data_access_path({"map_col", ColumnIterator::ACCESS_MAP_KEYS})};
     auto st = map_iter.set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
     ASSERT_EQ(key_ptr->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
@@ -2639,9 +4434,7 @@ TEST_F(ColumnReaderTest, MapAccessAllWithOffsetDoesNotPropagateOffsetToKey) {
     auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
     auto key_iter = std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
-    key_iter->set_column_name("key");
     auto val_iter = std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
-    val_iter->set_column_name("value");
 
     MapFileColumnIterator map_iter(map_reader, std::move(null_iter), std::move(offsets_iter),
                                    std::move(key_iter), std::move(val_iter));
@@ -2650,7 +4443,7 @@ TEST_F(ColumnReaderTest, MapAccessAllWithOffsetDoesNotPropagateOffsetToKey) {
     // path: [map_col, *, OFFSET]  — simulates length(map_col['c_phone'])
     TColumnAccessPaths all_access_paths;
     all_access_paths.emplace_back();
-    all_access_paths[0].data_access_path.path = {"map_col", "*", "OFFSET"};
+    all_access_paths[0] = create_meta_access_path({"map_col", "*", "OFFSET"});
     TColumnAccessPaths predicate_access_paths;
 
     auto st = map_iter.set_access_paths(all_access_paths, predicate_access_paths);

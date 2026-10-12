@@ -68,7 +68,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -313,10 +313,7 @@ public class CoordinatorContext {
         queryOptions.setNewVersionBitmapOpCount(true);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
-        queryGlobals.setTimeZone(timezone);
-        queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+        setQueryGlobalsForLoad(queryGlobals, timezone, loadZeroTolerance);
 
         ExecutionProfile executionProfile = new ExecutionProfile(
                 queryId,
@@ -347,17 +344,47 @@ public class CoordinatorContext {
 
     public static TQueryGlobals createQueryGlobals(ConnectContext context) {
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        queryGlobals.setTimestampMs(System.currentTimeMillis());
-        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        refreshQueryGlobals(queryGlobals, context);
         queryGlobals.setLoadZeroTolerance(false);
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
-        queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         return queryGlobals;
+    }
+
+    /**
+     * The query globals of work a frontend daemon starts with no session behind it (the internal
+     * schema upgrade of the audit table, for one): the current time, in the frontend's default time
+     * zone. A backend refuses a TQueryGlobals without now_string when it decodes the request, so a
+     * job of a daemon must not carry an empty one.
+     */
+    public static TQueryGlobals createQueryGlobalsWithoutSession() {
+        TQueryGlobals queryGlobals = new TQueryGlobals();
+        setQueryGlobalsCurrentTime(queryGlobals);
+        queryGlobals.setTimeZone(
+                TimeUtils.getCanonicalTimeZone(VariableMgr.getDefaultSessionVariable().getTimeZone()));
+        queryGlobals.setLoadZeroTolerance(false);
+        return queryGlobals;
+    }
+
+    public static void setQueryGlobalsCurrentTime(TQueryGlobals queryGlobals) {
+        setQueryGlobalsCurrentTime(queryGlobals, Instant.now());
+    }
+
+    public static void setQueryGlobalsForLoad(
+            TQueryGlobals queryGlobals, String timezone, boolean loadZeroTolerance) {
+        setQueryGlobalsCurrentTime(queryGlobals);
+        queryGlobals.setTimeZone(TimeUtils.getCanonicalTimeZone(timezone));
+        queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+    }
+
+    static void setQueryGlobalsCurrentTime(TQueryGlobals queryGlobals, Instant currentTime) {
+        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(currentTime));
+        queryGlobals.setTimestampMs(currentTime.toEpochMilli());
+        queryGlobals.setNanoSeconds(currentTime.getNano());
+    }
+
+    public static void refreshQueryGlobals(TQueryGlobals queryGlobals, ConnectContext context) {
+        setQueryGlobalsCurrentTime(queryGlobals, context.getStartTimeInstant());
+        queryGlobals.setTimeZone(TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
+        queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
     }
 
     private static void setOptionsFromUserProperty(ConnectContext connectContext, TQueryOptions queryOptions) {

@@ -16,7 +16,7 @@
 // under the License.
 
 // T18 (FP-01..FP-09): FrqPrelude window-row trim. The trimmed on-disk row drops
-// the three running-sum offsets (dd_off/freq_off/prx_off) and the two raw-region
+// the two running-sum offsets (dd_off/prx_off) and the two raw-region
 // uncomp_len fields; the reader DERIVES them. These tests pin round-trip
 // equivalence of the derived WindowMeta, the exact/shrunken byte size, the
 // cross-super-block accumulation, the conditional zstd uncomp_len, corruption on
@@ -76,8 +76,7 @@ constexpr uint32_t kPreludeGroupSize = 64;
 // ---------------------------------------------------------------------------
 enum class Layout { kNew, kOld };
 
-size_t row_bytes(const WindowMeta& m, uint64_t last_docid_delta, bool has_freq, bool has_prx,
-                 Layout layout) {
+size_t row_bytes(const WindowMeta& m, uint64_t last_docid_delta, bool has_prx, Layout layout) {
     const bool old_layout = layout == Layout::kOld;
     size_t n = 0;
     n += varint_len(last_docid_delta);
@@ -91,24 +90,12 @@ size_t row_bytes(const WindowMeta& m, uint64_t last_docid_delta, bool has_freq, 
         n += varint_len(m.dd_uncomp_len);
     }
     n += sizeof(uint32_t); // crc_dd
-    if (has_freq) {
-        if (old_layout) {
-            n += varint_len(m.freq_off);
-        }
-        n += varint_len(m.freq_disk_len);
-        if (old_layout || m.freq_zstd) {
-            n += varint_len(m.freq_uncomp_len);
-        }
-        n += sizeof(uint32_t); // crc_freq
-    }
     if (has_prx) {
         if (old_layout) {
             n += varint_len(m.prx_off);
         }
         n += varint_len(m.prx_len);
     }
-    n += varint_len(m.max_freq);
-    n += 1; // max_norm (u8)
     return n;
 }
 
@@ -127,7 +114,7 @@ size_t prelude_size(const FrqPreludeColumns& cols, Layout layout) {
         size_t bl = 0;
         for (size_t w = start; w < end; ++w) {
             const uint64_t delta = cols.windows[w].last_docid - prev_last;
-            bl += row_bytes(cols.windows[w], delta, cols.has_freq, cols.has_prx, layout);
+            bl += row_bytes(cols.windows[w], delta, cols.has_prx, layout);
             prev_last = cols.windows[w].last_docid;
         }
         block_len[s] = bl;
@@ -158,17 +145,15 @@ size_t prelude_size(const FrqPreludeColumns& cols, Layout layout) {
 }
 
 // Builds n contiguous stride-100 windows with deterministic, all-raw metadata.
-// dd/freq/prx offsets are the CONTIGUOUS running prefix sums the reader derives;
-// raw uncomp_len == disk_len. Region disk lengths are constant so the NEW row is a
-// fixed 16 B (docs+positions) / 10 B (docs-only), while the OLD row's extra offset
-// varints grow past one byte for most windows (~24 B / ~13 B).
-FrqPreludeColumns make_windows(uint32_t n, uint32_t group_size, bool has_freq, bool has_prx) {
+// dd/prx offsets are the CONTIGUOUS running prefix sums the reader derives; raw
+// uncomp_len == disk_len. Region disk lengths are constant so the NEW row is a
+// fixed 10 B (docs+positions) / 9 B (docs-only), while the OLD row's extra offset
+// varints grow past one byte for most windows.
+FrqPreludeColumns make_windows(uint32_t n, uint32_t group_size, bool has_prx) {
     FrqPreludeColumns cols;
-    cols.has_freq = has_freq;
     cols.has_prx = has_prx;
     cols.group_size = group_size;
     uint64_t dd_run = 0;
-    uint64_t freq_run = 0;
     uint64_t prx_run = 0;
     for (uint32_t w = 0; w < n; ++w) {
         WindowMeta m;
@@ -180,28 +165,18 @@ FrqPreludeColumns make_windows(uint32_t n, uint32_t group_size, bool has_freq, b
         m.dd_uncomp_len = 64; // raw => == disk_len
         m.crc_dd = 0xDD000000U + w;
         dd_run += m.dd_disk_len;
-        if (has_freq) {
-            m.freq_zstd = false;
-            m.freq_off = freq_run;
-            m.freq_disk_len = 48;
-            m.freq_uncomp_len = 48;
-            m.crc_freq = 0xEE000000U + w;
-            freq_run += m.freq_disk_len;
-        }
         if (has_prx) {
             m.prx_off = prx_run;
             m.prx_len = 96;
             prx_run += m.prx_len;
         }
-        m.max_freq = 5;
-        m.max_norm = 42;
         cols.windows.push_back(m);
     }
     return cols;
 }
 
 // Round-trips columns through build + open, asserting every decoded WindowMeta
-// field (incl. the DERIVED dd_off/freq_off/prx_off/uncomp_len) matches the input,
+// field (incl. the DERIVED dd_off/prx_off/uncomp_len) matches the input,
 // and that the real build size equals the exact NEW model.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 void expect_round_trip(const FrqPreludeColumns& cols) {
@@ -211,12 +186,10 @@ void expect_round_trip(const FrqPreludeColumns& cols) {
     FrqPreludeReader reader;
     ASSERT_TRUE(FrqPreludeReader::open(sink.view(), &reader).ok());
     ASSERT_EQ(reader.n_windows(), cols.windows.size());
-    EXPECT_EQ(reader.has_freq(), cols.has_freq);
     EXPECT_EQ(reader.has_prx(), cols.has_prx);
 
     uint64_t expect_win_base = 0;
     uint64_t dd_run = 0;
-    uint64_t freq_run = 0;
     uint64_t prx_run = 0;
     for (uint32_t w = 0; w < reader.n_windows(); ++w) {
         WindowMeta got;
@@ -232,60 +205,42 @@ void expect_round_trip(const FrqPreludeColumns& cols) {
         EXPECT_EQ(got.dd_uncomp_len, exp.dd_uncomp_len) << "w=" << w;
         EXPECT_EQ(got.crc_dd, exp.crc_dd) << "w=" << w;
         dd_run += got.dd_disk_len;
-        if (cols.has_freq) {
-            EXPECT_EQ(got.freq_zstd, exp.freq_zstd) << "w=" << w;
-            EXPECT_EQ(got.freq_off, exp.freq_off) << "w=" << w;
-            EXPECT_EQ(got.freq_off, freq_run) << "w=" << w;
-            EXPECT_EQ(got.freq_disk_len, exp.freq_disk_len) << "w=" << w;
-            EXPECT_EQ(got.freq_uncomp_len, exp.freq_uncomp_len) << "w=" << w;
-            EXPECT_EQ(got.crc_freq, exp.crc_freq) << "w=" << w;
-            freq_run += got.freq_disk_len;
-        }
         if (cols.has_prx) {
             EXPECT_EQ(got.prx_off, exp.prx_off) << "w=" << w;
             EXPECT_EQ(got.prx_off, prx_run) << "w=" << w;
             EXPECT_EQ(got.prx_len, exp.prx_len) << "w=" << w;
             prx_run += got.prx_len;
         }
-        EXPECT_EQ(got.max_freq, exp.max_freq) << "w=" << w;
-        EXPECT_EQ(got.max_norm, exp.max_norm) << "w=" << w;
         expect_win_base = exp.last_docid;
     }
     EXPECT_EQ(reader.dd_block_len(), dd_run);
-    if (cols.has_freq) {
-        EXPECT_EQ(reader.freq_block_len(), freq_run);
-    }
     EXPECT_EQ(sink.size(), prelude_size(cols, Layout::kNew)); // model tracks the real encoder
 }
 
 } // namespace
 
-// FP-01: N=200 windows (has_freq+has_prx, all raw) round-trip; the derived
+// FP-01: N=200 windows (has_prx, all raw) round-trip; the derived
 // offsets/uncomp_lens equal the explicit running sums the columns carried.
 TEST(SniiFrqPreludeTest, FP01DerivedOffsetsMatchExplicit) {
-    expect_round_trip(make_windows(/*n=*/200, kPreludeGroupSize, /*has_freq=*/true,
-                                   /*has_prx=*/true));
+    expect_round_trip(make_windows(/*n=*/200, kPreludeGroupSize, /*has_prx=*/true));
 }
 
 // FP-02: the trimmed prelude hits an EXACT byte size and is strictly smaller than
 // the pre-T18 layout, for both docs+positions and docs-only rows.
 TEST(SniiFrqPreludeTest, FP02RowTrimShrinksPreludeBytes) {
-    // docs+positions: drops 5 varints/row (dd_off, dd_uncomp_len, freq_off,
-    // freq_uncomp_len, prx_off).
-    const FrqPreludeColumns dp = make_windows(200, kPreludeGroupSize, /*has_freq=*/true,
-                                              /*has_prx=*/true);
+    // docs+positions: drops 3 varints/row (dd_off, dd_uncomp_len, prx_off).
+    const FrqPreludeColumns dp = make_windows(200, kPreludeGroupSize, /*has_prx=*/true);
     ByteSink dp_sink;
     ASSERT_TRUE(build_frq_prelude(dp, &dp_sink).ok());
     const size_t dp_new = prelude_size(dp, Layout::kNew);
     const size_t dp_old = prelude_size(dp, Layout::kOld);
     EXPECT_EQ(dp_sink.size(), dp_new);                  // exact new size
     EXPECT_LT(dp_new, dp_old);                          // strictly < pre-T18
-    EXPECT_GE(dp_old - dp_new, 5U * dp.windows.size()); // >= 5 bytes/row removed
+    EXPECT_GE(dp_old - dp_new, 3U * dp.windows.size()); // >= 3 bytes/row removed
     EXPECT_GT((dp_old - dp_new) * 100, dp_old * 25);    // ~1/3 saved (30-40% band)
 
-    // docs-only: no freq / no positions -> drops only dd_off + dd_uncomp_len.
-    const FrqPreludeColumns doc = make_windows(200, kPreludeGroupSize, /*has_freq=*/false,
-                                               /*has_prx=*/false);
+    // docs-only: no positions -> drops only dd_off + dd_uncomp_len.
+    const FrqPreludeColumns doc = make_windows(200, kPreludeGroupSize, /*has_prx=*/false);
     ByteSink doc_sink;
     ASSERT_TRUE(build_frq_prelude(doc, &doc_sink).ok());
     const size_t doc_new = prelude_size(doc, Layout::kNew);
@@ -298,7 +253,6 @@ TEST(SniiFrqPreludeTest, FP02RowTrimShrinksPreludeBytes) {
 // FP-03: degenerate empty prelude (N=0) builds + opens with zero windows.
 TEST(SniiFrqPreludeTest, FP03EmptyWindows) {
     FrqPreludeColumns cols;
-    cols.has_freq = true;
     cols.has_prx = true;
     cols.group_size = kPreludeGroupSize;
     ByteSink sink;
@@ -308,23 +262,21 @@ TEST(SniiFrqPreludeTest, FP03EmptyWindows) {
     EXPECT_EQ(reader.n_windows(), 0U);
     EXPECT_EQ(reader.n_super_blocks(), 0U);
     EXPECT_EQ(reader.dd_block_len(), 0U);
-    EXPECT_EQ(reader.freq_block_len(), 0U);
     EXPECT_EQ(sink.size(), prelude_size(cols, Layout::kNew));
 }
 
 // FP-04: single-window round-trip (win_base=0, one super-block).
 TEST(SniiFrqPreludeTest, FP04SingleWindow) {
-    expect_round_trip(
-            make_windows(/*n=*/1, kPreludeGroupSize, /*has_freq=*/true, /*has_prx=*/true));
+    expect_round_trip(make_windows(/*n=*/1, kPreludeGroupSize, /*has_prx=*/true));
 }
 
 // FP-05: a df~20000 term (adaptive unit=1024 -> ~20 windows) split into multiple
-// super-blocks; the derived dd/freq/prx offsets must accumulate ACROSS block
+// super-blocks; the derived dd/prx offsets must accumulate ACROSS block
 // boundaries (not reset per block).
 TEST(SniiFrqPreludeTest, FP05CrossSuperBlockAccumulation) {
     constexpr uint32_t kN = 20; // ceil(20000 / kAdaptiveWindowDocs=1024)
     constexpr uint32_t kG = 8;  // force 3 super-blocks (8, 8, 4)
-    const FrqPreludeColumns cols = make_windows(kN, kG, /*has_freq=*/true, /*has_prx=*/true);
+    const FrqPreludeColumns cols = make_windows(kN, kG, /*has_prx=*/true);
     ByteSink sink;
     ASSERT_TRUE(build_frq_prelude(cols, &sink).ok());
     FrqPreludeReader reader;
@@ -333,31 +285,26 @@ TEST(SniiFrqPreludeTest, FP05CrossSuperBlockAccumulation) {
     ASSERT_GT(reader.n_super_blocks(), 1U); // genuinely multi-block
 
     uint64_t dd_run = 0;
-    uint64_t freq_run = 0;
     uint64_t prx_run = 0;
     for (uint32_t w = 0; w < kN; ++w) {
         WindowMeta got;
         ASSERT_TRUE(reader.window(w, &got).ok()) << "w=" << w;
         EXPECT_EQ(got.dd_off, dd_run) << "w=" << w; // continuous over all blocks
-        EXPECT_EQ(got.freq_off, freq_run) << "w=" << w;
         EXPECT_EQ(got.prx_off, prx_run) << "w=" << w;
         dd_run += got.dd_disk_len;
-        freq_run += got.freq_disk_len;
         prx_run += got.prx_len;
     }
     EXPECT_EQ(reader.dd_block_len(), dd_run);
-    EXPECT_EQ(reader.freq_block_len(), freq_run);
 }
 
 // FP-06: a zstd window stores its uncomp_len (!= disk_len) and reads it back, while
 // a raw window in the same prelude derives uncomp_len == disk_len (no stored field).
 TEST(SniiFrqPreludeTest, FP06ZstdWindowStoresConditionalUncompLen) {
     FrqPreludeColumns cols;
-    cols.has_freq = true;
     cols.has_prx = false;
     cols.group_size = kPreludeGroupSize;
 
-    WindowMeta z; // window 0: zstd dd + zstd freq, uncomp != disk
+    WindowMeta z; // window 0: zstd dd, uncomp != disk
     z.last_docid = 99;
     z.doc_count = 10;
     z.dd_zstd = true;
@@ -365,15 +312,8 @@ TEST(SniiFrqPreludeTest, FP06ZstdWindowStoresConditionalUncompLen) {
     z.dd_disk_len = 40;
     z.dd_uncomp_len = 137; // meaningful only because dd_zstd
     z.crc_dd = 0x0000ABCDU;
-    z.freq_zstd = true;
-    z.freq_off = 0;
-    z.freq_disk_len = 20;
-    z.freq_uncomp_len = 71;
-    z.crc_freq = 0x00001234U;
-    z.max_freq = 3;
-    z.max_norm = 7;
 
-    WindowMeta r; // window 1: raw dd + raw freq, uncomp == disk
+    WindowMeta r; // window 1: raw dd, uncomp == disk
     r.last_docid = 199;
     r.doc_count = 10;
     r.dd_zstd = false;
@@ -381,13 +321,6 @@ TEST(SniiFrqPreludeTest, FP06ZstdWindowStoresConditionalUncompLen) {
     r.dd_disk_len = 55;
     r.dd_uncomp_len = 55;
     r.crc_dd = 0x0000BEEFU;
-    r.freq_zstd = false;
-    r.freq_off = z.freq_disk_len;
-    r.freq_disk_len = 25;
-    r.freq_uncomp_len = 25;
-    r.crc_freq = 0x00005678U;
-    r.max_freq = 4;
-    r.max_norm = 9;
     cols.windows = {z, r};
 
     ByteSink sink;
@@ -403,18 +336,14 @@ TEST(SniiFrqPreludeTest, FP06ZstdWindowStoresConditionalUncompLen) {
     EXPECT_EQ(g0.dd_disk_len, 40U);
     EXPECT_EQ(g0.dd_uncomp_len, 137U); // stored + read back
     EXPECT_NE(g0.dd_uncomp_len, g0.dd_disk_len);
-    EXPECT_TRUE(g0.freq_zstd);
-    EXPECT_EQ(g0.freq_uncomp_len, 71U);
-    EXPECT_NE(g0.freq_uncomp_len, g0.freq_disk_len);
     EXPECT_FALSE(g1.dd_zstd);
     EXPECT_EQ(g1.dd_uncomp_len, g1.dd_disk_len); // raw: derived, not stored
-    EXPECT_EQ(g1.freq_uncomp_len, g1.freq_disk_len);
     EXPECT_EQ(sink.size(), prelude_size(cols, Layout::kNew));
 }
 
 // FP-07: a prelude truncated into its window blocks fails to open.
 TEST(SniiFrqPreludeTest, FP07TruncatedPreludeIsCorruption) {
-    const FrqPreludeColumns cols = make_windows(8, 4, /*has_freq=*/true, /*has_prx=*/true);
+    const FrqPreludeColumns cols = make_windows(8, 4, /*has_prx=*/true);
     ByteSink sink;
     ASSERT_TRUE(build_frq_prelude(cols, &sink).ok());
     std::vector<uint8_t> bytes = sink.buffer();
@@ -429,7 +358,6 @@ TEST(SniiFrqPreludeTest, FP07TruncatedPreludeIsCorruption) {
 // offset accumulator (checked_add_u64) are rejected on open.
 TEST(SniiFrqPreludeTest, FP08DdDiskLenSumOverflowIsCorruption) {
     FrqPreludeColumns cols;
-    cols.has_freq = false;
     cols.has_prx = false;
     cols.group_size = kPreludeGroupSize;
 
@@ -439,8 +367,6 @@ TEST(SniiFrqPreludeTest, FP08DdDiskLenSumOverflowIsCorruption) {
     a.dd_disk_len = std::numeric_limits<uint64_t>::max() / 2 + 100;
     a.dd_uncomp_len = a.dd_disk_len; // raw
     a.crc_dd = 1;
-    a.max_freq = 1;
-    a.max_norm = 0;
     WindowMeta b = a;
     b.last_docid = 20; // second window's derivation overflows: sum > UINT64_MAX
     b.crc_dd = 2;
@@ -483,7 +409,6 @@ TEST(SniiFrqPreludeTest, FP09WindowedEntryPreludeShrinksAndQueryEquivalent) {
     ASSERT_GT(prelude.n_windows(), 1U); // genuinely windowed
 
     FrqPreludeColumns cols;
-    cols.has_freq = prelude.has_freq();
     cols.has_prx = prelude.has_prx();
     cols.group_size = kPreludeGroupSize;
     for (uint32_t w = 0; w < prelude.n_windows(); ++w) {
@@ -504,7 +429,7 @@ TEST(SniiFrqPreludeTest, FP09WindowedEntryPreludeShrinksAndQueryEquivalent) {
     EXPECT_EQ(docids, expected);
 
     // The docid path issues ONE coalesced read starting at the prelude and spanning the
-    // prelude + dd-block (docid-only: the freq-block is not fetched), i.e. a single
+    // prelude + dd-block (the prx region is not fetched), i.e. a single
     // round-trip whose length lies within [prelude_len, frq_len]. The prelude — now the
     // shrunk new-model size (prelude_len == new < old, asserted above) — is the head of
     // that read, so the end-to-end docid fetch is strictly smaller than pre-T18.

@@ -39,6 +39,11 @@ inline constexpr uint16_t kMinReaderVersion = 1;
 // reject unknown ones as Unsupported, so a pure-text directory stays
 // byte-identical to the pre-blob format.
 inline constexpr uint32_t kFeatureBlobLogicalIndex = 1;
+// At least one inverted entry holds dictionary entries whose posting list was dropped
+// (dict_flags::kPostingDropped, stop-gram). Such an entry ends right after its df, which a
+// reader that predates the flag would parse as a truncated locator; declaring the feature
+// makes that reader refuse the container as unsupported instead of reporting corruption.
+inline constexpr uint32_t kFeatureDroppedPostings = 2;
 
 // ---- SectionFramer type ids for standalone metadata blobs ----
 enum class SectionType : uint8_t {
@@ -64,34 +69,26 @@ enum class SectionType : uint8_t {
 };
 
 // ---- Logical index postings storage content configuration (fixed per logical
-// index, not per-term) ---- Determines whether to write freq / positions /
-// norms+stats.
+// index, not per-term) ---- Determines whether to write positions.
 enum class IndexConfig : uint8_t {
-    kDocsOnly = 0,             // docid only: term/match filtering
-    kDocsPositions = 1,        // docid+positions (+freq only when the caller keeps
-                               // it -- SniiIndexInput::write_freq, G16-c): MATCH_PHRASE
-    kDocsPositionsScoring = 2, // + norms + stats: phrase + BM25
-    kPositionsOffsets = 3,     // reserved (highlight/RAG), not implemented in this release
+    kDocsOnly = 0,      // docid only: term/match filtering
+    kDocsPositions = 1, // docid+positions: MATCH_PHRASE; BM25 tf = position count
+    // Value 2 was kDocsPositionsScoring, the removed CommonGrams scoring tier. Scoring now
+    // depends on the norms region (CoreMetadata::section_refs.norms); readers reject value 2.
+    kPositionsOffsets = 3, // reserved (highlight/RAG), not implemented in this release
 };
 
-// term stats / postings capability tiers: only tier>=kT2 writes
-// ttf_delta/max_freq and .prx.
+// Postings capability tiers: only tier>=kT2 writes .prx.
 enum class IndexTier : uint8_t {
     kT1 = 1, // docs-only
     kT2 = 2, // docs-positions
-    kT3 = 3, // docs-positions-scoring
 };
 
 inline constexpr IndexTier tier_of(IndexConfig cfg) {
-    return cfg == IndexConfig::kDocsOnly        ? IndexTier::kT1
-           : cfg == IndexConfig::kDocsPositions ? IndexTier::kT2
-                                                : IndexTier::kT3; // scoring / offsets
+    return cfg == IndexConfig::kDocsOnly ? IndexTier::kT1 : IndexTier::kT2;
 }
 inline constexpr bool has_positions(IndexConfig cfg) {
     return cfg != IndexConfig::kDocsOnly;
-}
-inline constexpr bool has_scoring(IndexConfig cfg) {
-    return cfg == IndexConfig::kDocsPositionsScoring;
 }
 
 // ---- DictEntry flags bit definitions ----
@@ -101,7 +98,14 @@ inline constexpr uint8_t kEnc = 1u << 1;         // 0=slim / 1=windowed
 inline constexpr uint8_t kHasSb = 1u << 2;       // posting prelude includes sub-block directory
 inline constexpr uint8_t kHasChampion = 1u << 3; // v1 always 0
 inline constexpr uint8_t kOffsetsRef = 1u << 4;  // v1 always 0
-// bit5-7 reserved
+// The entry keeps its term key and df but carries no posting locator and no payload: the
+// writer dropped a posting list too large for any reader to want. bit0/bit1/bit2 are
+// meaningless when this is set, and nothing follows the term stats. A reader that finds
+// this entry must treat the term as matching every document -- which is what the query
+// side's cost gate already does for a df this high -- and must never confuse it with a
+// term absent from the dictionary, which means the opposite: matching no document.
+inline constexpr uint8_t kPostingDropped = 1u << 5;
+// bit6-7 reserved
 } // namespace dict_flags
 
 enum class DictEntryKind : uint8_t { kPodRef = 0, kInline = 1 };
@@ -120,6 +124,33 @@ enum class PrxCodec : uint8_t {
     kZstd = 1,
     kPfor = 2 /* bit7 cont-reserved */
 };
+
+// ---- High-df term digest (SniiHighDfTermsPB) ----
+//
+// Which terms the writer records so a query can bound its candidate count without reading
+// the dictionary. Both numbers are properties of the format rather than of any dataset: the
+// first says how rare a term has to be before bounding it stops being useful, the second
+// caps what the digest costs to carry.
+//
+// A term enters the digest when its df exceeds doc_count / kHighDfDigestDivisor. The divisor
+// sits an order of magnitude below the candidate ratios a gate ever accepts, so the digest
+// covers every term a gate could reject and then some -- a term below the floor is one no
+// gate would have given up on anyway.
+inline constexpr uint64_t kHighDfDigestDivisor = 2000; // floor = doc_count / 2000 (5 bp)
+// Absolute cap on entries. At ~11 bytes each this bounds the digest at ~45 KB, one request
+// alongside the core metadata the reader already fetches. Real log text puts 88.6% of all
+// posting entries in the top 0.7% of terms, so this binds only on unusually flat
+// vocabularies -- and when it does, the digest still yields a valid (looser) bound.
+inline constexpr size_t kMaxHighDfDigestTerms = 4096;
+// Proportional cap: at most one entry per this many distinct terms. The absolute cap alone
+// is not enough on a small segment, where the df floor falls to a couple of documents, most
+// of the vocabulary clears it, and the digest would fill with terms that are "common" only
+// in the sense of occurring twice -- 45 KB of digest on a 96 KB index. On a large segment
+// the floor binds first and this never engages. Measured overhead with both caps in force:
+// 0.30%-0.36% of the index across the density x max_gram grid.
+inline constexpr uint64_t kHighDfDigestVocabularyShare = 64;
+// Floor on the proportional cap, so a tiny vocabulary still gets a usable digest.
+inline constexpr size_t kMinHighDfDigestTerms = 64;
 
 // ---- Build-time parameters (not format semantics; may be tuned against real
 // metrics) ----

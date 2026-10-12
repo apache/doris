@@ -56,7 +56,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_reader.h"
 #include "storage/tablet/tablet_schema.h"
@@ -92,7 +92,6 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     StorageReadOptions read_options;
     read_options.stats = stat;
     read_options.use_page_cache = false;
-    read_options.tablet_schema = ctx.tablet_schema;
     read_options.record_rowids = record_rowids;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
@@ -139,10 +138,10 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     return (*reader)->init(reader_params, nullptr);
 }
 
-std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompaction_writer(
-        uint32_t begin, uint32_t end) {
+std::unique_ptr<segment_v2::VerticalSegmentWriter>
+SegcompactionWorker::_create_segcompaction_writer(uint32_t begin, uint32_t end) {
     Status status;
-    std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
+    std::unique_ptr<segment_v2::VerticalSegmentWriter> writer = nullptr;
     status = _create_segment_writer_for_segcompaction(&writer, begin, end);
     if (!status.ok() || writer == nullptr) {
         LOG(ERROR) << "failed to create segment writer for begin:" << begin << " end:" << end
@@ -248,7 +247,7 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
 }
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end) {
+        std::unique_ptr<segment_v2::VerticalSegmentWriter>* writer, uint32_t begin, uint32_t end) {
     return _writer->create_segment_writer_for_segcompaction(writer, begin, end);
 }
 

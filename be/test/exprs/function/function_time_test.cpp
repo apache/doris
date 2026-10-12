@@ -17,8 +17,11 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <string>
 
+#include "cctz/time_zone.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
@@ -28,13 +31,99 @@
 #include "core/data_type/data_type_time.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
+#include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
 #include "exprs/function/function_test_util.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
 using namespace ut_type;
+
+TEST(VTimestampFunctionsTest, iso8601_preserves_negative_subhour_offset) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(-1800));
+    FunctionContext context;
+    context._state = &state;
+
+    DateV2Value<DateTimeV2ValueType> utc_datetime;
+    utc_datetime.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    TimestampTzValue value(utc_datetime);
+    ColumnString::Chars chars;
+    chars.resize(ToIso8601Impl<TYPE_TIMESTAMPTZ>::max_size);
+    size_t offset = 0;
+    ToIso8601Impl<TYPE_TIMESTAMPTZ>::execute(value, chars, offset, nullptr, &context);
+
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(chars.data()), offset),
+              "2023-12-31T23:30:00.000000-00:30");
+
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(8 * 3600 + 5 * 60 + 43));
+    offset = 0;
+    ToIso8601Impl<TYPE_TIMESTAMPTZ>::execute(value, chars, offset, nullptr, &context);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(chars.data()), offset),
+              "2024-01-01T08:05:43.000000+08:05:43");
+}
+
+template <typename Transform>
+void check_quarter_interval_overflow(const typename Transform::InputValueType& date) {
+    SCOPED_TRACE(Transform::name);
+    SCOPED_TRACE(Transform::ArgPType);
+    // Cover small wrapped month offsets and Int32 multiplication/negation boundaries.
+    for (Int32 quarters :
+         {1431655765, 1431655766, -1431655765, -1431655766, 715827882, 715827883, -715827882,
+          -715827883, std::numeric_limits<Int32>::min(), std::numeric_limits<Int32>::max()}) {
+        SCOPED_TRACE(quarters);
+        EXPECT_THROW(Transform::execute(date, quarters), Exception);
+    }
+}
+
+template <typename Transform>
+void check_quarter_sub_int_min(const typename Transform::InputValueType& date) {
+    SCOPED_TRACE(Transform::ArgPType);
+    try {
+        Transform::execute(date, std::numeric_limits<Int32>::min());
+        FAIL() << "Subtracting INT_MIN quarters must report a date-range error";
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::OUT_OF_BOUND);
+        // Include the delimiter: a negative delta contains the same digits.
+        EXPECT_NE(e.to_string().find(", 6442450944 out of range"), std::string::npos)
+                << e.to_string();
+    }
+}
+
+TEST(VTimestampFunctionsTest, quarter_interval_overflow) {
+    DateV2Value<DateV2ValueType> date;
+    date.unchecked_set_time(2023, 1, 1, 0, 0, 0, 0);
+    DateV2Value<DateTimeV2ValueType> datetime;
+    datetime.unchecked_set_time(2023, 1, 1, 12, 34, 56, 123456);
+    TimestampTzValue timestamptz(datetime);
+    TimeStampNsValue timestamp_ns;
+    ASSERT_TRUE(timestamp_ns.from_datetime(datetime, 789));
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+
+    // Both signs exceed the date range, so EXPECT_THROW alone cannot detect narrowing.
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+}
+
+TEST(VTimestampFunctionsTest, current_timestamp_ns_precision_test) {
+    TimezoneUtils::load_timezones_to_cache();
+    InputTypeSet input_types = {ConstedNotnull {PrimitiveType::TYPE_INT}};
+    DataSet data_set = {{{int32_t {9}}, std::string("2019-08-06 01:38:57.805000000")}};
+
+    static_cast<void>(check_function<DataTypeTimeStampNs>("now", input_types, data_set));
+}
 
 TEST(VTimestampFunctionsTest, day_of_week_test) {
     std::string func_name = "dayofweek";
@@ -87,6 +176,27 @@ TEST(VTimestampFunctionsTest, year_test) {
 
     static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
 }
+
+TEST(VTimestampFunctionsTest, nanosecond_v2_test) {
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
+        DataSet data_set = {{{std::string("0000-01-01")}, int32_t {0}},
+                            {{std::string("1970-01-01")}, int32_t {0}},
+                            {{std::string("9999-12-31")}, int32_t {0}}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>("nanosecond", input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
+        DataSet data_set = {{{std::string("0000-01-01 00:00:00.000001")}, int32_t {1000}},
+                            {{std::string("1970-01-01 00:00:00.000000")}, int32_t {0}},
+                            {{std::string("2026-08-27 17:50:00.123456")}, int32_t {123456000}},
+                            {{std::string("9999-12-31 23:59:59.999999")}, int32_t {999999000}}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>("nanosecond", input_types, data_set));
+    }
+}
+
 TEST(VTimestampFunctionsTest, century_test) {
     std::string func_name = "century";
 
@@ -231,6 +341,42 @@ TEST(VTimestampFunctionsTest, from_unix_test) {
                 {{DECIMAL64(253402271999, 999999, 6)}, std::string("9999-12-31 23:59:59.999999")},
         };
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(VTimestampFunctionsTest, from_unixtime_rejects_year_wrap) {
+    TimezoneUtils::load_timezones_to_cache();
+    // The first two values produce civil years 67506 and 133042 in UTC. Narrowing
+    // either year to uint16_t produces 1970, which used to pass date validation.
+    const int64_t timestamps[] = {2068116364800LL, 4136232816000LL, 1789000000000000000LL,
+                                  std::numeric_limits<int64_t>::max()};
+    for (const int64_t seconds : timestamps) {
+        SCOPED_TRACE(seconds);
+        const DataSet data_set = {{{seconds}, std::string("unused")}};
+        EXPECT_FALSE(
+                (check_function<DataTypeString, true>(
+                         "from_unixtime_new", {PrimitiveType::TYPE_BIGINT}, data_set, -1, -1, true)
+                         .ok()));
+        EXPECT_FALSE((check_function<DataTypeString>("from_unixtime_new",
+                                                     {ConstedNotnull {PrimitiveType::TYPE_BIGINT}},
+                                                     data_set, -1, -1, true)
+                              .ok()));
+    }
+}
+
+TEST(VTimestampFunctionsTest, timestamp_units_reject_year_wrap) {
+    TimezoneUtils::load_timezones_to_cache();
+    for (const int64_t seconds : {2068116364800LL, 4136232816000LL}) {
+        SCOPED_TRACE(seconds);
+        for (const auto& [name, ratio] : {std::pair {"from_second", int64_t {1}},
+                                          std::pair {"from_millisecond", int64_t {1000}},
+                                          std::pair {"from_microsecond", int64_t {1000000}}}) {
+            SCOPED_TRACE(name);
+            const DataSet data_set = {{{seconds * ratio}, std::string("unused")}};
+            EXPECT_FALSE((check_function<DataTypeDateTimeV2, true>(
+                                  name, {PrimitiveType::TYPE_BIGINT}, data_set, -1, -1, true)
+                                  .ok()));
+        }
     }
 }
 
@@ -422,6 +568,21 @@ TEST(VTimestampFunctionsTest, date_test) {
     };
 
     static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
+}
+
+TEST(VTimestampFunctionsTest, date_floor_null_period_validation_test) {
+    const InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_DATEV2},
+                                      Consted {PrimitiveType::TYPE_INT}};
+
+    // NULL input rows must be returned as NULL before validating a constant period.
+    const DataSet null_date_data_set = {{{Null(), int32_t {0}}, Null()}};
+    static_cast<void>(
+            check_function<DataTypeDateV2, true>("month_floor", input_types, null_date_data_set));
+
+    // A non-NULL input row must still reject an invalid constant period.
+    const DataSet non_null_date_data_set = {{{std::string("2023-01-01"), int32_t {0}}, Null()}};
+    static_cast<void>(check_function<DataTypeDateV2, true>("month_floor", input_types,
+                                                           non_null_date_data_set, -1, -1, true));
 }
 
 TEST(VTimestampFunctionsTest, week_test) {
@@ -1771,6 +1932,24 @@ TEST(VTimestampFunctionsTest, next_day_test) {
                 {{std::string("2020-05-31"), std::string("MON")}, std::string("2020-06-01")}};
         check_function_all_arg_comb<DataTypeDateV2, true>(func_name, input_types, data_set);
     }
+}
+
+TEST(VTimestampFunctionsTest, relative_day_nullable_test) {
+    const InputTypeSet nullable_input_types = {Nullable {PrimitiveType::TYPE_DATEV2},
+                                               Nullable {PrimitiveType::TYPE_VARCHAR}};
+    const DataSet nullable_data_set = {
+            {{std::string("2024-01-01"), std::string("MON")}, std::string("2024-01-08")},
+            {{Null(), Null()}, Null()},
+            {{std::string("2024-01-01"), Null()}, Null()},
+            {{Null(), std::string("MON")}, Null()}};
+    static_cast<void>(check_function<DataTypeDateV2, true>("next_day", nullable_input_types,
+                                                           nullable_data_set));
+    static_cast<void>(check_function<DataTypeDateV2, true>(
+            "previous_day", nullable_input_types,
+            {{{std::string("2024-01-01"), std::string("MON")}, std::string("2023-12-25")},
+             {{Null(), Null()}, Null()},
+             {{std::string("2024-01-01"), Null()}, Null()},
+             {{Null(), std::string("MON")}, Null()}}));
 }
 
 TEST(VTimestampFunctionsTest, from_iso8601_date) {

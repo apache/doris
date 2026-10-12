@@ -19,8 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     // Nested arrays are intentionally unsupported by Variant V2.
 
     def backendId_to_backendIP = [:]

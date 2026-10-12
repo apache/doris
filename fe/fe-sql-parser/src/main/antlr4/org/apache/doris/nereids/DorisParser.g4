@@ -101,6 +101,10 @@ expressionWithEof
     : expression EOF
     ;
 
+propertyItemListWithEof
+    : propertyItemList EOF
+    ;
+
 statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
@@ -355,7 +359,6 @@ nonExplainableDmlStatement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | replayCommand                                                    #replay
     | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
             (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
@@ -1418,12 +1421,6 @@ planType
     | ALL // default type
     ;
 
-replayCommand
-    : PLAN REPLAYER replayType;
-
-replayType
-    : DUMP query;
-
 mergeType
     : APPEND
     | DELETE
@@ -1785,7 +1782,8 @@ columnDef
         ((NOT)? nullable=NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
         (DEFAULT (nullValue=NULL | SUBTRACT? INTEGER_VALUE | SUBTRACT? DECIMAL_VALUE | PI | E | BITMAP_EMPTY | stringValue=STRING_LITERAL
-           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?
+           | defaultFunction=identifier LEFT_PAREN RIGHT_PAREN))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
@@ -2148,6 +2146,7 @@ primitiveColType
     | type=DATEV1
     | type=DATETIMEV1
     | type=TIMESTAMPTZ
+    | type=TIMESTAMP_NS
     | type=BITMAP
     | type=QUANTILE_STATE
     | type=HLL
@@ -2163,6 +2162,7 @@ primitiveColType
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=UUID
     | type=VARBINARY
     | type=VARIANT
     | type=ALL
@@ -2215,18 +2215,15 @@ tableSnapshot
 // replace identifier with errorCapturingIdentifier where the immediate follow symbol is not an expression, otherwise
 // valid expressions such as "a-b" can be recognized as an identifier
 errorCapturingIdentifier
-    : identifier errorCapturingIdentifierExtra
+    : identifier errorCapturingIdentifierExtra?
     ;
 
 // extra left-factoring grammar
 errorCapturingIdentifierExtra
     : (SUBTRACT identifier)+ #errorIdent
-    |                        #realIdent
     ;
 finally {
-    if ($ctx instanceof ErrorIdentContext) {
-        reportUnquotedIdentifier((ErrorIdentContext) $ctx);
-    }
+    reportUnquotedIdentifier((ErrorIdentContext) $ctx);
 }
 
 identifier
@@ -2552,7 +2549,6 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
-    | REPLAYER
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE
@@ -2622,6 +2618,7 @@ nonReserved
     | TIME
     | TIMESTAMP
     | TIMESTAMPTZ
+    | TIMESTAMP_NS
     | TRANSACTION
     | TREE
     | TRIGGERS
@@ -2634,6 +2631,7 @@ nonReserved
     | UNSET
     | UP
     | USER
+    | UUID
     | VALUE
     | VARBINARY
     | VARCHAR

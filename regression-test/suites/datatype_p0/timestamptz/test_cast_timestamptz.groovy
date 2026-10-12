@@ -58,6 +58,7 @@ suite("test_cast_timestamptz") {
         cast('2020-12-31 23:59:59' as TIMESTAMPTZ) as ts_no_tz_winter;
     """
 
+    // Wire offsets can exceed session-zone limits; an offset of 24 hours is invalid.
     qt_cast_str_to_timetz_invalid """
     SELECT 
         cast('2020-13-01 00:00:00 +03:00' as TIMESTAMPTZ) as ts_invalid_month,
@@ -65,11 +66,22 @@ suite("test_cast_timestamptz") {
         cast('2020-01-01 24:00:00 +03:00' as TIMESTAMPTZ) as ts_invalid_hour,
         cast('2020-01-01 00:60:00 +03:00' as TIMESTAMPTZ) as ts_invalid_minute,
         cast('2020-01-01 00:00:60 +03:00' as TIMESTAMPTZ) as ts_invalid_second,
-        cast('2020-01-01 00:00:00 +15:00' as TIMESTAMPTZ) as ts_invalid_tz_hour,
+        cast('2020-01-01 00:00:00 +24:00' as TIMESTAMPTZ) as ts_invalid_tz_hour,
         cast('2020-01-01 00:00:00 +03:60' as TIMESTAMPTZ) as ts_invalid_tz_minute,
         cast('invalid-string' as TIMESTAMPTZ) as ts_invalid_string;
     """
 
+
+    // Historical wire offsets must parse in both cast modes, independently of session-zone limits.
+    for (boolean strict : [false, true]) {
+        sql "set enable_strict_cast=${strict}"
+        qt_cast_str_to_timetz_historical_offsets """
+            select cast('2020-01-01 00:00:00+15:00' as timestamptz),
+                   cast('1800-01-01 00:00:00-15:56:08' as timestamptz),
+                   cast('1800-01-01 00:00:00-14:21' as timestamptz);
+        """
+    }
+    sql "set enable_strict_cast=false"
 
     qt_sql """
         select cast(cast("2020-01-01 00:00:00.1236" as datetime(4)) as timestamptz(3));

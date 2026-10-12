@@ -33,7 +33,6 @@
 #include <vector>
 
 #include "common/status.h" // for Status
-#include "core/column/column_variant.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -62,7 +61,6 @@ namespace segment_v2 {
 
 enum class VariantWriterInputFormat : uint8_t {
     UNSET,
-    V1,
     V2,
 };
 
@@ -233,7 +231,6 @@ private:
     TabletColumnPtr _column;
     bool _is_nullable;
     ColumnMetaPB* _column_meta;
-    std::vector<uint8_t> _null_bitmap;
 };
 
 class FlushPageCallback {
@@ -401,7 +398,9 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
-    Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("struct writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
@@ -543,7 +542,9 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status write_inverted_index() override;
-    Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("map writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
@@ -657,7 +658,6 @@ private:
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
     VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
-    ColumnVariant::MutablePtr _v1_column;
     std::unique_ptr<VariantPathBuilder> _v2_builder;
     size_t _num_rows = 0;
     ColumnWriterOptions _opts;

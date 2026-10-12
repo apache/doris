@@ -30,6 +30,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -58,7 +60,8 @@ struct AggregateFunctionTopNData {
     using DataType = typename PrimitiveTypeTraits<T>::CppType;
     void set_paramenters(int input_top_num, int space_expand_rate = 50) {
         top_num = input_top_num;
-        capacity = (uint64_t)top_num * space_expand_rate;
+        // Non-positive expansion rates retain all candidates during serialization and merging.
+        capacity = space_expand_rate <= 0 ? UINT64_MAX : (uint64_t)top_num * space_expand_rate;
     }
 
     void add(const StringRef& value, const UInt64& increment = 1) {
@@ -81,12 +84,20 @@ struct AggregateFunctionTopNData {
     }
 
     void merge(const AggregateFunctionTopNData& rhs) {
-        if (!rhs.top_num) {
+        if (!rhs.top_num || rhs.counter_map.empty()) {
             return;
         }
 
-        top_num = rhs.top_num;
-        capacity = rhs.capacity;
+        if (counter_map.empty()) {
+            *this = rhs;
+            return;
+        }
+        if (UNLIKELY(top_num != rhs.top_num || capacity != rhs.capacity)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "topn aggregate states have incompatible parameters: "
+                            "({}, {}) vs ({}, {}) (N, capacity)",
+                            top_num, capacity, rhs.top_num, rhs.capacity);
+        }
 
         bool lhs_full = (counter_map.size() >= capacity);
         bool rhs_full = (rhs.counter_map.size() >= capacity);
@@ -174,7 +185,7 @@ struct AggregateFunctionTopNData {
         writer.StartObject();
         for (int i = 0; i < std::min((int)counter_vector.size(), top_num); i++) {
             const auto& element = counter_vector[i];
-            writer.Key(element.second.c_str());
+            writer.Key(element.second.data(), cast_set<rapidjson::SizeType>(element.second.size()));
             writer.Uint64(element.first);
         }
         writer.EndObject();
@@ -194,7 +205,11 @@ struct AggregateFunctionTopNData {
         }
     }
 
-    void reset() { counter_map.clear(); }
+    void reset() {
+        counter_map.clear();
+        top_num = 0;
+        capacity = 0;
+    }
 
     int top_num = 0;
     uint64_t capacity = 0;

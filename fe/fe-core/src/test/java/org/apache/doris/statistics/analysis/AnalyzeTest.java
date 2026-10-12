@@ -91,6 +91,9 @@ public class AnalyzeTest extends TestWithFeService {
         Database database = Mockito.mock(Database.class);
         OlapTable olapTable = Mockito.mock(OlapTable.class);
 
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(database.getFullName()).thenReturn("analysis_job_test");
+        Mockito.when(olapTable.getName()).thenReturn("t1");
         Mockito.when(olapTable.getColumn(Mockito.anyString()))
                 .thenReturn(new Column("col1", PrimitiveType.INT));
 

@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/consts.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/packed_int128.h"
@@ -44,6 +45,11 @@ public:
 // Because crc32 hardware is not equal with zlib crc32
 inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveType& type,
                                      uint32_t seed) {
+    // Reject binary even for NULL instead of reaching the default-type assertion or hash path.
+    if (type == TYPE_VARBINARY) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "VARBINARY tablet routing hash is not supported");
+    }
     // Hash_combine with v = 0
     if (v == nullptr) {
         uint32_t value = 0x9e3779b9;
@@ -85,7 +91,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return HashUtil::zlib_crc_hash(v, 4, seed);
     }
 
-    case TYPE_DATETIMEV2: {
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS: {
         return HashUtil::zlib_crc_hash(v, 8, seed);
     }
 
@@ -111,6 +118,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
     case TYPE_IPV4:
         return HashUtil::zlib_crc_hash(v, 4, seed);
     case TYPE_IPV6:
+    case TYPE_UUID:
         return HashUtil::zlib_crc_hash(v, 16, seed);
     default:
         DCHECK(false) << "invalid type: " << type;

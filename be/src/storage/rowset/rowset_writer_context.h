@@ -40,6 +40,7 @@
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/historical_row_retriever.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
@@ -73,6 +74,8 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
+    // Set only by compaction, alongside its extended tablet_schema.
+    VariantCompactionPathsSPtr variant_compaction_paths;
     // Immutable inverted-index file format inherited from the owner tablet.
     std::optional<InvertedIndexStorageFormatPB> inverted_index_storage_format;
     // Whether the owner tablet persists the format in its top-level metadata.
@@ -127,7 +130,11 @@ struct RowsetWriterContext {
     /// begin file cache opts
     bool write_file_cache = false;
     bool is_hot_data = false;
-    uint64_t file_cache_ttl_sec = 0;
+    // Absolute timestamp (seconds since epoch) after which the cache blocks written by
+    // this rowset stop being TTL protected; 0 means no TTL. Always set it from
+    // BaseTablet::file_cache_ttl_expiration_time() so every writer agrees with the
+    // deadline BlockFileCacheTtlMgr sweeps by.
+    uint64_t file_cache_expiration_time = 0;
     uint64_t approximate_bytes_to_write = 0;
     // If true, compaction output only writes index files to file cache, not data files
     bool compaction_output_write_index_only = false;
@@ -277,9 +284,7 @@ struct RowsetWriterContext {
             append_info.rowset_id = rowset_id.to_string();
             append_info.first_segment_id = first_segment_id;
             append_info.txn_id = txn_id;
-            append_info.expiration_time = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
-                                                  ? newest_write_timestamp + file_cache_ttl_sec
-                                                  : 0;
+            append_info.expiration_time = file_cache_expiration_time;
             fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
         }
 
@@ -298,7 +303,7 @@ struct RowsetWriterContext {
     io::FileWriterOptions get_file_writer_options(FileType file_type = FileType::SEGMENT_FILE) {
         io::FileWriterOptions opts {.write_file_cache = write_file_cache,
                                     .is_cold_data = is_hot_data,
-                                    .file_cache_expiration_time = file_cache_ttl_sec,
+                                    .file_cache_expiration_time = file_cache_expiration_time,
                                     .approximate_bytes_to_write = approximate_bytes_to_write};
 
         if (config::enable_file_cache_write_index_file_only) {

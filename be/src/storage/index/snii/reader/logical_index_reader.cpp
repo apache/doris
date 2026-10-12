@@ -478,12 +478,6 @@ Status LogicalIndexReader::open(io::FileReader* file_reader, Slice core_frame, S
 
 size_t LogicalIndexReader::memory_usage() const {
     size_t bytes = sizeof(*this) + bsbf_resident_bitset_.capacity();
-    if (core_.common_grams_metadata) {
-        const auto& common_grams = *core_.common_grams_metadata;
-        bytes += format::std_string_heap_bytes(common_grams.common_grams_dictionary_identity);
-        bytes += format::std_string_heap_bytes(common_grams.base_analyzer_fingerprint);
-        bytes += format::std_string_heap_bytes(common_grams.common_grams_fingerprint);
-    }
     bytes += sti_.heap_bytes();
     bytes += dbd_.heap_bytes();
     for (const auto& block : resident_dict_blocks_) {
@@ -497,6 +491,15 @@ size_t LogicalIndexReader::memory_usage() const {
         return std::numeric_limits<size_t>::max();
     }
     bytes += norms_reserved_charge_;
+    // The high-df digest is decoded with the core metadata and stays resident for as long as
+    // this reader does. sizeof(*this) covers only the two vector headers, so add what they
+    // hold: at the writer's cap that is 4,096 hashes and frequencies, about 48 KiB.
+    const size_t digest = core_.high_df_terms.term_hash.capacity() * sizeof(uint64_t) +
+                          core_.high_df_terms.df.capacity() * sizeof(uint32_t);
+    if (digest > std::numeric_limits<size_t>::max() - bytes) {
+        return std::numeric_limits<size_t>::max();
+    }
+    bytes += digest;
     return bytes;
 }
 
@@ -1091,6 +1094,16 @@ Status resolve_window(const format::RegionRef& section, uint64_t base, uint64_t 
 
 Status LogicalIndexReader::resolve_frq_window(const format::DictEntry& entry, uint64_t frq_base,
                                               uint64_t* abs_off, uint64_t* len) const {
+    // Second guard on the stop-gram contract, for the readers that reach a posting without
+    // going through the query planner (the docid union, scoring, the compaction cursor).
+    // A dropped entry's locator fields are all zero, so without this the caller would be
+    // handed a zero-length window at the region base and read it as an empty posting --
+    // "matches nothing", the exact inversion of what a dropped term means. Refusing is
+    // what lets the caller fall back to reading rows.
+    if (entry.posting_dropped) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                "logical_index: term '{}' has a dropped posting list (stop-gram)", entry.term);
+    }
     return resolve_window(section_refs().posting_region, frq_base, entry.frq_off_delta,
                           entry.frq_len, entry.prelude_len, abs_off, len);
 }
