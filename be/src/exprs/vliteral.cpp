@@ -100,8 +100,17 @@ bool VLiteral::equals(const VExpr& other) {
 }
 
 uint64_t VLiteral::get_digest(uint64_t seed) const {
-    _column_ptr->update_xxHash_with_value(0, 1, seed, nullptr);
-    return seed;
+    // ColumnComplexType does not implement xxHash, including when wrapped by
+    // ColumnNullable/ColumnConst. A zero digest disables the condition cache.
+    switch (_data_type->get_primitive_type()) {
+    case TYPE_BITMAP:
+    case TYPE_HLL:
+    case TYPE_QUANTILE_STATE:
+        return 0;
+    default:
+        _column_ptr->update_xxHash_with_value(0, 1, seed, nullptr);
+        return seed;
+    }
 }
 
 } // namespace doris
