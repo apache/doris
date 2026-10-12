@@ -17,3 +17,6 @@ aaa	600	zzzz
 -- !str_on --
 512	zzz{
 
+-- !delete_other_column --
+2022-04-27T16:00:33	2022-04-27T16:00:59
+
