@@ -72,18 +72,19 @@ suite("hbo_delete_stale_statistics_test", "nonConcurrent") {
 
         // an entry whose table cannot be resolved is kept without OLDER_THAN, and it is the
         // OLDER_THAN form which removes it (from the internal table as well)
-        def unknownStruct = "S{internal.hbo_test.hbo_ds_gone,v1}"
+        // the root is a filter, not a scan: a pinned entry keyed by a scan token is never looked up
+        def unknownStruct = "F{EqualTo(col(internal.hbo_test.hbo_ds_gone.a),lit(1:INT))}(S{internal.hbo_test.hbo_ds_gone,v1})"
         def unknownFingerprint = java.security.MessageDigest.getInstance("SHA-256")
-                .digest("S{internal.hbo_test.hbo_ds_gone}".getBytes("UTF-8")).encodeHex().toString()
+                .digest("F{EqualTo(col(internal.hbo_test.hbo_ds_gone.a),lit(*))}(S{internal.hbo_test.hbo_ds_gone})".getBytes("UTF-8")).encodeHex().toString()
         sql """ HBO SET STATISTICS VALUE=5 FINGERPRINT='${unknownFingerprint}' STRUCT='${unknownStruct}'; """
         injected.add(unknownFingerprint)
         assertEquals("unknown",
-                (sql """ HBO SHOW PINNED STATISTICS LIKE 'S{hbo_test.hbo_ds_gone}%'; """)[0][7].toString())
+                (sql """ HBO SHOW PINNED STATISTICS LIKE '%hbo_ds_gone%'; """)[0][7].toString())
         sql """ HBO DELETE STALE STATISTICS; """
-        assertEquals(1, sql(""" HBO SHOW PINNED STATISTICS LIKE 'S{hbo_test.hbo_ds_gone}%'; """).size())
+        assertEquals(1, sql(""" HBO SHOW PINNED STATISTICS LIKE '%hbo_ds_gone%'; """).size())
         Thread.sleep(1500)
         sql """ HBO DELETE STALE STATISTICS OLDER_THAN 1; """
-        assertTrue(sql(""" HBO SHOW PINNED STATISTICS LIKE 'S{hbo_test.hbo_ds_gone}%'; """).isEmpty())
+        assertTrue(sql(""" HBO SHOW PINNED STATISTICS LIKE '%hbo_ds_gone%'; """).isEmpty())
         assertTrue(sql(""" SELECT 1 FROM __internal_schema.hbo_statistics
                 WHERE fingerprint = '${unknownFingerprint}'; """).isEmpty())
 
