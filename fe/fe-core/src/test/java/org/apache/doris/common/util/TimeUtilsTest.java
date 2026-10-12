@@ -182,6 +182,32 @@ public class TimeUtilsTest {
     }
 
     @Test
+    public void testCanonicalTimeZone() {
+        // A Java short ID is a valid time_zone, but a backend only knows tz database names and offsets, and the
+        // Java scanners and writers it runs resolve the name with a plain ZoneId.of. MUTATION: passing the name
+        // through unchanged -> the short IDs below stay as they are -> red.
+        Assertions.assertEquals("Asia/Shanghai", TimeUtils.getCanonicalTimeZone("CST"));
+        Assertions.assertEquals("-05:00", TimeUtils.getCanonicalTimeZone("EST"));
+        Assertions.assertEquals("Asia/Tokyo", TimeUtils.getCanonicalTimeZone("JST"));
+        Assertions.assertEquals("America/Los_Angeles", TimeUtils.getCanonicalTimeZone("PST"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("GMT"));
+        // Names a backend already understands pass through unchanged.
+        Assertions.assertEquals("Asia/Tokyo", TimeUtils.getCanonicalTimeZone("Asia/Tokyo"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("UTC"));
+        Assertions.assertEquals("+08:00", TimeUtils.getCanonicalTimeZone("+08:00"));
+        Assertions.assertEquals("GMT+08:00", TimeUtils.getCanonicalTimeZone("GMT+08:00"));
+        // Java names a zero offset Z or a bare GMT, which a backend resolves only from the optional Zulu or GMT
+        // zone file (Debian 13's tzdata ships no Zulu). MUTATION: returning ZoneId.getId() for these -> red.
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("+00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("-00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("GMT+00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("GMT-00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("UTC+00:00"));
+        Assertions.assertEquals("UTC", TimeUtils.getCanonicalTimeZone("Etc/UTC"));
+        Assertions.assertEquals("-00:30", TimeUtils.getCanonicalTimeZone("-00:30"));
+    }
+
+    @Test
     public void testGetHourAsDate() {
         Calendar calendar = Calendar.getInstance();
         Date date = TimeUtils.getHourAsDate("1");

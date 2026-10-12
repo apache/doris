@@ -314,6 +314,18 @@ public class ConnectorSessionImplTest {
     }
 
     @Test
+    public void sessionTimeZoneReachesConnectorsAsCanonicalId() {
+        // Connectors resolve the session time zone with ZoneId.of, which rejects Doris aliases such as CST or JST
+        // (MaxCompute then stops pushing down datetime predicates). MUTATION: copying the session value as is ->
+        // red.
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().setTimeZone("JST");
+        Assertions.assertEquals("Asia/Tokyo", ConnectorSessionBuilder.from(ctx).build().getTimeZone());
+        ctx.getSessionVariable().setTimeZone("CST");
+        Assertions.assertEquals("Asia/Shanghai", ConnectorSessionBuilder.from(ctx).build().getTimeZone());
+    }
+
+    @Test
     public void explicitNoneStatementScopeWinsOverLiveContext() {
         // Callers that deliberately request NONE must not accidentally inherit a live statement scope. Current
         // cross-statement metadata loaders use their own operation-local scope, but NONE remains part of the SPI

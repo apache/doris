@@ -19,6 +19,7 @@ package org.apache.doris.connector;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -74,7 +75,7 @@ public final class ConnectorSessionBuilder {
         ConnectorSessionBuilder b = new ConnectorSessionBuilder();
         b.queryId = ctx.queryId() != null ? DebugUtil.printId(ctx.queryId()) : "";
         b.user = ctx.getQualifiedUser();
-        b.timeZone = ctx.getSessionVariable().getTimeZone();
+        b.timeZone = TimeUtils.getCanonicalTimeZone(ctx.getSessionVariable().getTimeZone());
         b.locale = "en_US";  // Doris doesn't have per-session locale yet
         b.sessionProperties = extractSessionProperties(ctx);
         b.connectContext = ctx;  // read for the delegated credential at build() time, gated by capability

@@ -262,12 +262,12 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Source time zone = the session time zone, mirroring legacy
         // MaxComputeScanNode.convertDateTimezone's DateUtils.getTimeZone() (= the session var).
-        // ConnectorSession.getTimeZone() is populated from ctx.getSessionVariable().getTimeZone()
-        // by ConnectorSessionBuilder.from(ctx), so this is the same source as legacy. (The earlier
-        // project-region TZ from the endpoint was wrong: Doris interprets datetime literals in the
-        // session TZ, so converting from any other zone shifts the pushed-down UTC literal.) The id
-        // is passed raw and parsed lazily inside the converter, so a Doris-valid-but-ZoneId-invalid
-        // value (e.g. "CST") degrades the datetime predicate instead of failing the query.
+        // ConnectorSessionBuilder.from(ctx) fills ConnectorSession.getTimeZone() with the canonical
+        // id of ctx.getSessionVariable().getTimeZone() (CST becomes Asia/Shanghai, as legacy resolved
+        // it), so this is the same zone as legacy. (The earlier project-region TZ from the endpoint
+        // was wrong: Doris interprets datetime literals in the session TZ, so converting from any
+        // other zone shifts the pushed-down UTC literal.) The converter parses the id lazily, so an
+        // id ZoneId.of rejects degrades the datetime predicate instead of failing the query.
         MaxComputePredicateConverter converter = new MaxComputePredicateConverter(
                 columnTypeMap, dateTimePushDown, session.getTimeZone());
         return converter.convert(filter.get());

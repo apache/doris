@@ -70,6 +70,11 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             id INT, name STRING, dt STRING NOT NULL DEFAULT '2026-07-01'
         ) USING paimon
         PARTITIONED BY (dt);
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_append_time_zone;
+        CREATE TABLE paimon.${dbName}.t_append_time_zone (
+            id INT, name STRING
+        ) USING paimon;
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -212,6 +217,12 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             sql """INSERT INTO t_append (id, ID) VALUES (8, 9)"""
             exception "Column 'ID' specified twice"
         }
+
+        // A Java short time-zone ID such as JST reaches the JNI writer as its canonical zone ID.
+        sql """set time_zone = 'JST'"""
+        sql """INSERT INTO t_append_time_zone VALUES (1, 'alice')"""
+        sql """set time_zone = default"""
+        assertTableEquals("t_append_time_zone", "ORDER BY id")
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }
