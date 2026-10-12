@@ -17,7 +17,7 @@
 
 suite("cast_string_as_array") {
     sql "unset variable all;"
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
 
     // L2 table: dim=3
     sql "drop table if exists ann_cast_rhs_l2"

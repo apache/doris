@@ -92,7 +92,7 @@ suite("predefine_type_multi_index_doc_value", "p1"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 
     sql """set enable_match_without_inverted_index = false"""
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     qt_sql """select cast(v["repo"]["name"] as string) from github_events where v["repo"]["name"] match 'apache' order by k limit 10;"""
     qt_sql """select cast(v["repo"]["name"] as string) from github_events where cast(v["repo"]["name"] as string) match 'xpressengine/xe-core' order by 1 limit 10;"""

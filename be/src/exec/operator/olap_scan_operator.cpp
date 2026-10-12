@@ -436,12 +436,66 @@ Status OlapScanLocalState::_init_profile() {
     return Status::OK();
 }
 
+static bool contains_expr_node_type(const VExprSPtr& expr, TExprNodeType::type node_type) {
+    DORIS_CHECK(expr != nullptr);
+    if (expr->node_type() == node_type) {
+        return true;
+    }
+    if (expr->is_rf_wrapper() && contains_expr_node_type(expr->get_impl(), node_type)) {
+        return true;
+    }
+    return std::ranges::any_of(expr->children(), [node_type](const auto& child) {
+        return contains_expr_node_type(child, node_type);
+    });
+}
+
+static Status validate_residual_scan_conjuncts(RuntimeState* state,
+                                               TPushAggOp::type push_down_agg_type,
+                                               const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        const auto& root = conjunct->root();
+        if (contains_expr_node_type(root, TExprNodeType::SEARCH_EXPR)) {
+            return Status::InvalidArgument(
+                    "SEARCH expression remains as a residual scan predicate. A valid search() "
+                    "must bind at least one indexed field and be evaluated in SegmentIterator, "
+                    "which takes such expressions only when the table is not merged on read "
+                    "(DUPLICATE, or UNIQUE with merge-on-write). enable_segment_limit_pushdown "
+                    "only controls SegmentIterator LIMIT pushdown and cannot make residual "
+                    "SEARCH executable.");
+        }
+        if (!state->query_options().enable_match_without_inverted_index &&
+            contains_expr_node_type(root, TExprNodeType::MATCH_PRED)) {
+            return Status::InvalidArgument(
+                    "MATCH expression remains as a residual scan predicate and would fall back to "
+                    "a disabled slow path because enable_match_without_inverted_index is false. "
+                    "SegmentIterator evaluates MATCH only when the table is not merged on read "
+                    "(DUPLICATE, or UNIQUE with merge-on-write). enable_segment_limit_pushdown "
+                    "only controls SegmentIterator LIMIT pushdown and cannot make residual MATCH "
+                    "executable. Set enable_match_without_inverted_index=true to allow slow MATCH "
+                    "execution.");
+        }
+    }
+
+    if (push_down_agg_type == TPushAggOp::COUNT_ON_INDEX && !conjuncts.empty()) {
+        return Status::InvalidArgument(
+                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates. "
+                "Residual predicates must be evaluated before COUNT_ON_INDEX counts rows; "
+                "otherwise the query may return incorrect results. "
+                "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown and "
+                "does not make COUNT_ON_INDEX safe with residual predicates. Set "
+                "enable_count_on_index_pushdown=false to disable COUNT_ON_INDEX pushdown.");
+    }
+    return Status::OK();
+}
+
 Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts(state));
     if (ScanLocalState::_eos) {
         return Status::OK();
     }
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    RETURN_IF_ERROR(validate_residual_scan_conjuncts(state, p._push_down_agg_type, _conjuncts));
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
     return Status::OK();
 }
@@ -503,8 +557,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
 bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
     // Tables merged on read (AGG, UNIQUE without merge-on-write) keep their conjuncts in the
     // scanner, as before: SegmentIterator would filter rows before the merge.
-    return state()->enable_common_expr_pushdown() && _storage_no_merge() &&
-           VExpr::is_acting_on_a_slot(*expr);
+    return _storage_no_merge() && VExpr::is_acting_on_a_slot(*expr);
 }
 
 bool OlapScanLocalState::_storage_no_merge() {

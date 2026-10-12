@@ -76,7 +76,7 @@ suite("test_bm25_score", "p0") {
         load_httplogs_data.call('test_bm25_score', 'test_bm25_score', 'true', 'json', 'documents-1000.json')
         sql "sync"
 
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         def explain_result = sql """ explain verbose select *, score() as score from test_bm25_score where request match_any 'button.03.gif' order by score limit 10; """
         log.info("Explain verbose result: ${explain_result}")
@@ -218,7 +218,7 @@ suite("test_bm25_score", "p0") {
             sql """ insert into t1 values(2, 2, '{"key": "abc hhh"}'); """
 
             sql """ sync """
-            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
 
             sql """ alter table t1  add index idx_v(v) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
             wait_for_latest_op_on_table_finish("t1", timeout)
@@ -227,7 +227,7 @@ suite("test_bm25_score", "p0") {
         }
 
         try {
-            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
             sql """ set enable_match_without_inverted_index = false; """
             sql """ set default_variant_enable_typed_paths_to_sparse = false; """
             sql """ set default_variant_enable_doc_mode = false; """
@@ -280,7 +280,7 @@ suite("test_bm25_score", "p0") {
             sql """ insert into t2 values(4,4, "hello world"); """
 
             sql """ sync """
-            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
 
             sql """ alter table t2 add index idx_s(s) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
             wait_for_latest_op_on_table_finish("t2", timeout)

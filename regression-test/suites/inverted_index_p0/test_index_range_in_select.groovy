@@ -153,7 +153,7 @@ suite("test_index_range_in_select", "inverted_index_select"){
                 wait_for_build_index_on_partition_finish(indexTbName1, timeout)
             }
         }
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // case1: select in
         // case1.0: select in specific condition

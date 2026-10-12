@@ -100,7 +100,7 @@ suite("test_custom_normalizer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql_match_cafe """
             SELECT id, content

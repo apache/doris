@@ -16,7 +16,7 @@
 // under the License.
 
 suite ("ivf_on_disk_index_test") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
 
     // ========== IVF_ON_DISK with L2 distance ==========
     sql "drop table if exists tbl_ivf_on_disk_l2"

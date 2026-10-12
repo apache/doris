@@ -23,7 +23,7 @@ suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
 
     sql "DROP TABLE IF EXISTS ${tbl}"
 
-    sql "set enable_common_expr_pushdown = true"
+    sql "set enable_segment_limit_pushdown = true"
     sql "set enable_count_on_index_pushdown = true"
     sql "set enable_match_without_inverted_index = false"
     sql "set experimental_enable_nereids_planner = true"

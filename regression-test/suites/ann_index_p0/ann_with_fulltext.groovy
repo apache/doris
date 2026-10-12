@@ -18,7 +18,7 @@
 suite("ann_with_fulltext") {
     sql "drop table if exists ann_with_fulltext"
     sql "set profile_level=2;"
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     
     sql """
         create table ann_with_fulltext (

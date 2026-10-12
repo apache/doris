@@ -93,7 +93,7 @@ suite("test_builtin_analyzer_in_custom_analyzer", "p0") {
     
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         
         // Test MATCH queries with analyzer_with_standard
         qt_sql_basic_match_logo """ SELECT * FROM ${indexTblName} WHERE url MATCH 'logo' ORDER BY id; """
@@ -128,7 +128,7 @@ suite("test_builtin_analyzer_in_custom_analyzer", "p0") {
     
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         
         // Test basic analyzer on URL-like strings
         qt_sql_basic_match_logo """ SELECT * FROM ${indexTblName2} WHERE url MATCH 'logo' ORDER BY id; """

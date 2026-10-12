@@ -485,8 +485,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXT_FUNC_PRED_PUSHDOWN = "enable_ext_func_pred_pushdown";
 
-    public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
-
     public static final String ENABLE_SEGMENT_LIMIT_PUSHDOWN = "enable_segment_limit_pushdown";
 
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
@@ -550,9 +548,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
-
-    public static final String ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX
-            = "enable_common_expr_pushdown_for_inverted_index";
 
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
     public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
@@ -2275,9 +2270,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
-    public boolean enableCommonExprPushdown = true;
-
     @VariableMgr.VarAttr(name = ENABLE_SEGMENT_LIMIT_PUSHDOWN, fuzzy = true, needForward = true, description = {
             "是否启用 SegmentIterator 层 LIMIT 下推。", "Set whether to push down LIMIT into SegmentIterator."})
     public boolean enableSegmentLimitPushdown = true;
@@ -2444,11 +2436,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY, needForward = true, description = {
             "是否启用 inverted index query。", "Set whether to use inverted index query."})
     public boolean enableInvertedIndexQuery = true;
-
-    // Whether enable query expr with inverted index.
-    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, fuzzy = true, needForward = true,
-            description = {"是否启用表达式上使用 inverted index。", "Set whether to use inverted index query for expr."})
-    public boolean enableCommonExpPushDownForInvertedIndex = true;
 
     // Whether enable pushdown count agg to scan node when using inverted index match.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
@@ -3918,14 +3905,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableConditionCache = Config.pull_request_id % 2 == 0;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
-        this.enableCommonExprPushdown = random.nextBoolean();
-        // enable fuzzy after we clean all case of
-        // enable_common_expr_pushdown/enable_common_exp_pushdown_for_inverted_index
-        // this.enableSegmentLimitPushdown = random.nextBoolean();
+        this.enableSegmentLimitPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.enableExprZonemapFilter = Config.pull_request_id % 2 == 0;
         // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
         // compatibility cases can still select the legacy scanner explicitly after initialization.
@@ -5687,16 +5670,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enableInvertedIndexQuery = enableInvertedIndexQuery;
     }
 
-
-    public boolean isEnableCommonExprPushdownForInvertedIndex() {
-        return enableCommonExpPushDownForInvertedIndex;
-    }
-
-
-    public void setEnableCommonExprPushdownForInvertedIndex(boolean enableCommonExpPushDownForInvertedIndex) {
-        this.enableCommonExpPushDownForInvertedIndex = enableCommonExpPushDownForInvertedIndex;
-    }
-
     public boolean isEnablePushDownCountOnIndex() {
         return enablePushDownCountOnIndex;
     }
@@ -5856,7 +5829,6 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
-        tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setEnableSegmentLimitPushdown(enableSegmentLimitPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
@@ -5878,7 +5850,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
-        tResult.setEnableCommonExprPushdownForInvertedIndex(enableCommonExpPushDownForInvertedIndex);
         tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
         tResult.setForcePushdownZonemapMinmax(forcePushDownZonemapMinMax);
 

@@ -118,7 +118,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
     }
 
     def run_sql = { ->
-        def result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE name MATCH 'bason'"
+        def result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE name MATCH 'bason'"
         assertEquals(3, result.size())
         assertEquals(1, result[0]['id'])
         assertEquals("bason", result[0]['name'])
@@ -127,7 +127,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals(3, result[2]['id'])
         assertEquals("bason", result[2]['name'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE age = 11"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE age = 11"
         assertEquals(3, result.size())
         assertEquals(1, result[0]['id'])
         assertEquals("bason", result[0]['name'])
@@ -136,7 +136,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals(3, result[2]['id'])
         assertEquals("bason", result[2]['name'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE description MATCH 'singing'"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE description MATCH 'singing'"
         assertEquals(3, result.size())
         assertEquals("bason", result[0]['name'])
         assertEquals("bason is good at singing", result[0]['description'])
@@ -145,7 +145,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals("bason", result[2]['name'])
         assertEquals("bason is good at singing", result[2]['description'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
         assertEquals(3, result.size())
         assertEquals("bason", result[0]['name'])
         assertEquals("[79, 85, 97]", result[0]['scores'])
@@ -154,7 +154,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals("bason", result[2]['name'])
         assertEquals("[79, 85, 97]", result[2]['scores'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(hobbies, 'dancing')"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(hobbies, 'dancing')"
         assertEquals(3, result.size())
         assertEquals("bason", result[0]['name'])
         assertEquals('["singing", "dancing"]', result[0]['hobbies'])
@@ -163,7 +163,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals("bason", result[2]['name'])
         assertEquals('["singing", "dancing"]', result[2]['hobbies'])
 
-        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(evaluation, 'bason is very clever')"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_segment_limit_pushdown = true) */ * FROM ${tableName} WHERE array_contains(evaluation, 'bason is very clever')"
         assertEquals(3, result.size())
         assertEquals("bason", result[0]['name'])
         assertEquals('["bason is very clever", "bason is very healthy"]', result[0]['evaluation'])

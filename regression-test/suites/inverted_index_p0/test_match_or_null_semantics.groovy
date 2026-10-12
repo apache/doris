@@ -18,7 +18,7 @@
 suite("test_match_or_null_semantics") {
     // This test verifies the fix for the bug in InvertedIndexResultBitmap::operator|=()
     // in inverted_index_reader.h where NULL bitmaps were incorrectly combined using OR
-    // instead of AND for MATCH syntax queries with enable_common_expr_pushdown=true
+    // instead of AND for MATCH syntax queries with enable_segment_limit_pushdown=true
     //
     // Bug location: be/src/olap/rowset/segment_v2/inverted_index_reader.h:138
     // The bug caused rows with (TRUE OR NULL) to be incorrectly filtered out
@@ -70,7 +70,7 @@ suite("test_match_or_null_semantics") {
     """
 
     // Enable pushdown to trigger the bug in InvertedIndexResultBitmap::operator|=
-    sql "SET enable_common_expr_pushdown = true"
+    sql "SET enable_segment_limit_pushdown = true"
 
     // Test 1: Core bug scenario - cross-field OR with NULL
     // Before fix: returned 1 row (only row 16, lost 15 rows with NULL content)
@@ -147,7 +147,7 @@ suite("test_match_or_null_semantics") {
     logger.info("Test 7 PASSED: NOT OR with NULL correctly excludes all rows")
 
     // Test 8: Verify behavior without pushdown (should still work correctly)
-    sql "SET enable_common_expr_pushdown = false"
+    sql "SET enable_segment_limit_pushdown = false"
 
     def test8 = sql """
         SELECT COUNT(*) FROM ${tableName}

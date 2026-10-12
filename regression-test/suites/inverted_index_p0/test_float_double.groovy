@@ -21,7 +21,7 @@ suite("test_float_double", "p0, nonConcurrent"){
 
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set inverted_index_skip_threshold = 0 """
 
     def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1, boolean checkFilterUsed = true ->

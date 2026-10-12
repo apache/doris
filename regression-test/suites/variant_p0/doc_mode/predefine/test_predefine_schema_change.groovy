@@ -50,7 +50,7 @@ suite("predefine_schema_change_doc_value", "p0"){
         sql """ set enable_match_without_inverted_index = true """
     }
     
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     qt_sql """ select count() from ${tableName} where cast (var['d'] as string) match '123' """
     qt_sql """ select * from ${tableName} """
     // V1 reports a subpath-to-type map for the root, while V2 reports the root type as object.

@@ -86,6 +86,6 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
     } else {
         sql """ set enable_match_without_inverted_index = true """
     }
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     order_qt_sql """ select count() from toTable where cast (var['d'] as string) match '123' """
 }

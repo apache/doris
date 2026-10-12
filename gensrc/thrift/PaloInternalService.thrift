@@ -209,7 +209,7 @@ struct TQueryOptions {
 
   64: optional bool dry_run_query = false
 
-  65: optional bool enable_common_expr_pushdown = false;
+  65: optional bool enable_common_expr_pushdown = false; // deprecated
 
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled

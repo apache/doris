@@ -31,8 +31,7 @@ suite("test_variant_external_meta_integration", "nonConcurrent") {
     }
 
     sql "set enable_match_without_inverted_index = false"
-    sql "set enable_common_expr_pushdown_for_inverted_index = true"
-    sql "set enable_common_expr_pushdown = true"
+    sql "set enable_segment_limit_pushdown = true"
 
     // Test 1: External meta with inverted index on extracted columns
     sql "DROP TABLE IF EXISTS test_inverted_index_extracted"

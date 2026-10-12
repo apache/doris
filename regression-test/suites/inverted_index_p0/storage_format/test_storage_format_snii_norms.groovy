@@ -24,8 +24,7 @@
 // is refused.
 // It flips a BE config, so it must not share the cluster with other suites.
 suite("test_storage_format_snii_norms", "p0,nonConcurrent") {
-    sql "SET enable_common_expr_pushdown=true"
-    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
+    sql "SET enable_segment_limit_pushdown=true"
     sql """ set enable_match_without_inverted_index = false """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """

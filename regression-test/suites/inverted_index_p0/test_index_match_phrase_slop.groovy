@@ -82,7 +82,7 @@ suite("test_index_match_phrase_slop", "nonConcurrent"){
         sql """ INSERT INTO ${indexTbName1} VALUES (1, "127.0.0.1", "I'm glad I kept my fingers crossed ~4", 1, 1); """
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from ${indexTbName1} where request match_phrase 'get jpg'; """

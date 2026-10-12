@@ -98,7 +98,7 @@ suite("test_index_match_phrase_prefix", "nonConcurrent"){
         load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
         qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'ima'; """
         qt_sql """ select count() from ${indexTbName1} where request match_phrase_prefix 'images/h'; """

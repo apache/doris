@@ -174,8 +174,7 @@ suite("test_single_column_multi_index", "nonConcurrent") {
 
     // Function to run match queries with debug points
     def runMatchQueries = { ->
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         try {

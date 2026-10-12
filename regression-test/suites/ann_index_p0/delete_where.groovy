@@ -16,7 +16,7 @@
 // under the License.
 
 suite("delete_where_with_ann") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "drop table if exists delete_where_with_ann"
     test {
         sql """

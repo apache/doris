@@ -472,10 +472,7 @@ Status OlapScanner::_init_tablet_reader_params(
         const bool storage_topn_supported =
                 storage_no_merge && !olap_scan_local_state->_read_mor_as_dup();
 
-        // With enable_common_expr_pushdown off, slot-based conjuncts stay in the scanner on
-        // purpose, so the check below only holds when the switch is on.
-        if (_limit > 0 && no_runtime_filters && segment_limit_enabled && storage_no_merge &&
-            _state->enable_common_expr_pushdown()) {
+        if (_limit > 0 && no_runtime_filters && segment_limit_enabled && storage_no_merge) {
             for (const auto& conjunct : _conjuncts) {
                 DORIS_CHECK(!VExpr::is_acting_on_a_slot(*conjunct->root()));
             }

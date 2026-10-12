@@ -96,6 +96,6 @@ suite("test_predefine_insert_into_select", "p0"){
     qt_variant_type_values "select count(*) from toTable where variant_type(var) is null"
 
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     order_qt_sql """ select count() from toTable where cast (var['d'] as string) match '123' """
 }
