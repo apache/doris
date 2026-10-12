@@ -99,6 +99,9 @@ class OlapScanOperatorTsoPruningTest : public OlapScanOperatorBinlogPushDownTest
 protected:
     void SetUp() override {
         OlapScanOperatorBinlogPushDownTest::SetUp();
+        // Match prepare()'s tablet slots, but leave the tablets null so the empty-source
+        // tests still verify that TSO pruning finishes without accessing a tablet.
+        _local_state->_tablets.resize(_local_state->_scan_ranges.size());
         _parent->_olap_scan_node.__set_read_row_binlog(true);
         _profile = std::make_unique<RuntimeProfile>("TsoPruningTest");
         _local_state->_scanner_init_timer = ADD_TIMER(_profile, "ScannerInitTime");
