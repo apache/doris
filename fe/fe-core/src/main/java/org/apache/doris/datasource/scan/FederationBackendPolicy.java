@@ -62,10 +62,12 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.IntUnaryOperator;
@@ -84,6 +86,7 @@ public class FederationBackendPolicy {
     }
 
     private Map<Backend, Long> assignedWeightPerBackend = Maps.newHashMap();
+    private final NavigableMap<Long, Integer> assignedWeightCounts = new TreeMap<>();
 
     protected ConsistentHash<Split, Backend> consistentHash;
 
@@ -208,8 +211,10 @@ public class FederationBackendPolicy {
                 throw new UserException("No available backends for compute group: " + computeGroup.toString());
             }
         }
+        assignedWeightPerBackend.clear();
+        assignedWeightCounts.clear();
         for (Backend backend : backends) {
-            assignedWeightPerBackend.put(backend, 0L);
+            setAssignedWeight(backend, 0L);
         }
 
         backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
@@ -256,6 +261,7 @@ public class FederationBackendPolicy {
         for (List<Backend> backendList : backendMap.values()) {
             backends.addAll(backendList);
         }
+        rebuildAssignedWeightCounts();
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
@@ -273,15 +279,14 @@ public class FederationBackendPolicy {
                     // let a repeated hint monopolize one backend while other eligible backends are idle.
                     boolean localNodeIsWithinGlobalMinimum = chosenNode.isPresent();
                     if (localNodeIsWithinGlobalMinimum && isSpreadEnabled()) {
-                        long minimumAssignedWeight = Collections.min(assignedWeightPerBackend.values());
+                        long minimumAssignedWeight = assignedWeightCounts.firstKey();
                         localNodeIsWithinGlobalMinimum = assignedWeightPerBackend.get(chosenNode.get())
                                 <= minimumAssignedWeight;
                     }
                     if (localNodeIsWithinGlobalMinimum) {
                         Backend selectedBackend = chosenNode.get();
                         assignment.put(selectedBackend, split);
-                        assignedWeightPerBackend.put(selectedBackend,
-                                assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
+                        addAssignedWeight(selectedBackend, split.getSplitWeight().getRawValue());
                         continue;
                     }
                 }
@@ -313,11 +318,14 @@ public class FederationBackendPolicy {
                         if (consistentHashSpreadNum == 0) {
                             candidateNodes = backends;
                         } else {
-                            int candidateCount = isSpreadEnabled()
-                                    ? Math.min(consistentHashSpreadNum, backends.size())
-                                    : Config.split_assigner_min_consistent_hash_candidate_num;
-                            candidateNodes = candidateCount >= backends.size() ? backends
-                                    : consistentHash.getNode(split, candidateCount);
+                            if (isSpreadEnabled()) {
+                                int candidateCount = Math.min(consistentHashSpreadNum, backends.size());
+                                candidateNodes = candidateCount >= backends.size() ? backends
+                                        : consistentHash.getNode(split, candidateCount);
+                            } else {
+                                candidateNodes = consistentHash.getNode(
+                                        split, Config.split_assigner_min_consistent_hash_candidate_num);
+                            }
                         }
                         break;
                     }
@@ -344,8 +352,7 @@ public class FederationBackendPolicy {
                         alternativeBackends.stream().map(each -> each.getHost()).collect(Collectors.toList()));
             }
             assignment.put(selectedBackend, split);
-            assignedWeightPerBackend.put(selectedBackend,
-                    assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
+            addAssignedWeight(selectedBackend, split.getSplitWeight().getRawValue());
         }
 
         // Global redistribution can move a split outside its hash candidates or its locality constraints.
@@ -409,10 +416,8 @@ public class FederationBackendPolicy {
             // move split from max to min
             Split redistributedSplit = redistributeSplit(assignment, maxNode, minNode);
 
-            assignedWeightPerBackend.put(maxNode,
-                    assignedWeightPerBackend.get(maxNode) - redistributedSplit.getSplitWeight().getRawValue());
-            assignedWeightPerBackend.put(minNode, Math.addExact(
-                    assignedWeightPerBackend.get(minNode), redistributedSplit.getSplitWeight().getRawValue()));
+            addAssignedWeight(maxNode, -redistributedSplit.getSplitWeight().getRawValue());
+            addAssignedWeight(minNode, redistributedSplit.getSplitWeight().getRawValue());
 
             // add max back into maxNodes only if it still has assignments
             if (assignment.containsKey(maxNode)) {
@@ -526,6 +531,34 @@ public class FederationBackendPolicy {
     private boolean isSpreadEnabled() {
         return (nodeSelectionStrategy == NodeSelectionStrategy.CONSISTENT_HASHING && consistentHashSpreadNum != 1)
                 || (nodeSelectionStrategy == NodeSelectionStrategy.RANDOM && consistentHashSpreadNum == 0);
+    }
+
+    private void setAssignedWeight(Backend backend, long weight) {
+        Long previousWeight = assignedWeightPerBackend.put(backend, weight);
+        if (previousWeight != null) {
+            decrementWeightCount(previousWeight);
+        }
+        assignedWeightCounts.merge(weight, 1, Integer::sum);
+    }
+
+    private void addAssignedWeight(Backend backend, long delta) {
+        setAssignedWeight(backend, Math.addExact(assignedWeightPerBackend.get(backend), delta));
+    }
+
+    private void decrementWeightCount(long weight) {
+        int count = assignedWeightCounts.get(weight);
+        if (count == 1) {
+            assignedWeightCounts.remove(weight);
+        } else {
+            assignedWeightCounts.put(weight, count - 1);
+        }
+    }
+
+    private void rebuildAssignedWeightCounts() {
+        assignedWeightCounts.clear();
+        for (Long weight : assignedWeightPerBackend.values()) {
+            assignedWeightCounts.merge(weight, 1, Integer::sum);
+        }
     }
 
     private Backend chooseNodeForSpread(List<Backend> candidateNodes) {

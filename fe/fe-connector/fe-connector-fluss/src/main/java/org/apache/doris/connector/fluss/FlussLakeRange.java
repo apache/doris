@@ -180,8 +180,9 @@ public class FlussLakeRange implements ConnectorScanRange {
 
     @Override
     public String getSplitIdentity() {
-        return inner.getSplitIdentity() + "\u0001"
-                + (tail == null ? RANGE_TYPE_LAKE : tail.encode());
+        // The lake file is the cacheable unit. The suppressing log tail changes as the table grows,
+        // but must not remap the unchanged file to another backend.
+        return inner.getSplitIdentity();
     }
 
     @Override
