@@ -118,7 +118,7 @@ suite("test_paimon_write_variant", "p0,external,paimon,nonConcurrent") {
         """
         sql """SET enable_strict_cast = false"""
         order_qt_variant_uuid """
-            SELECT id, payload, secondary, variant_type(payload)
+            SELECT id, payload, secondary, variant_type(payload), variant_type(secondary[1])
             FROM t_variant_basic
             WHERE id IN (30, 31)
             ORDER BY id
