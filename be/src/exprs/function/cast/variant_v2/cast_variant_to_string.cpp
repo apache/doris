@@ -55,11 +55,11 @@ bool uses_concrete_string_cast(VariantRef value) {
     case VariantPrimitiveId::STRING:
     case VariantPrimitiveId::TIMESTAMP_NANOS:
     case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+    case VariantPrimitiveId::UUID:
         return true;
     case VariantPrimitiveId::NULL_VALUE:
     case VariantPrimitiveId::BINARY:
     case VariantPrimitiveId::TIME_NTZ_MICROS:
-    case VariantPrimitiveId::UUID:
         return false;
     }
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
