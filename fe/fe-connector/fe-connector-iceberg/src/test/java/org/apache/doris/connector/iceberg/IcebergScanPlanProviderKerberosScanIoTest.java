@@ -31,6 +31,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.metrics.MetricsReporter;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -171,6 +172,27 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         Assertions.assertEquals(before + 1, auth.doAsCount,
                 "io() factory calls must run inside the plugin doAs — that is what captures the secured "
                         + "FileSystem for later newStream() on any thread (incl. iceberg's worker pool)");
+    }
+
+    @Test
+    public void wrapTableForScanKeepsTheTableMetricsReporter() {
+        Table table = oneFileTable();
+        MetricsReporter catalogReporter = report -> { };
+        ((BaseTable) table).combineMetricsReporter(catalogReporter);
+        RecordingAuthenticator auth = new RecordingAuthenticator();
+        TcclPinningConnectorContext context = new TcclPinningConnectorContext(
+                new RecordingConnectorContext(), getClass().getClassLoader(), () -> auth);
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
+
+        Table wrapped = provider.wrapTableForScan(table);
+
+        // WHY: every scan of a Kerberos catalog runs on the wrapper, so it must carry the table's metrics reporter
+        // like wrapTableForProcedure and the snapshot tables do; the two-argument BaseTable constructor falls back
+        // to LoggingMetricsReporter and the catalog's reporter never sees a scan.
+        // MUTATION: building the wrapper without the table's reporter -> red.
+        Assertions.assertNotSame(table, wrapped);
+        Assertions.assertSame(((BaseTable) table).reporter(), ((BaseTable) wrapped).reporter());
     }
 
     @Test
