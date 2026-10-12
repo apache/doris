@@ -154,6 +154,25 @@ class NativePasswordResolverTest {
     }
 
     @Test
+    void testOversizedClientVersionStillUsesFullAuthentication() throws Exception {
+        Config.mysql_caching_sha2_password_clients = "auto";
+        Map<String, String> attributes = ImmutableMap.of(CachingSha2PasswordExchange.CLIENT_VERSION_ATTR,
+                "2147483648.0");
+        byte[] nonce = handshake.getAuthPluginData();
+        Mockito.when(channel.fetchOnePacket()).thenReturn(
+                ByteBuffer.wrap(new byte[32]),
+                ByteBuffer.wrap("secret\0".getBytes(StandardCharsets.UTF_8)));
+        Mockito.when(channel.isSslMode()).thenReturn(true);
+
+        Assertions.assertTrue(CachingSha2PasswordExchange.serves(CachingSha2PasswordExchange.PLUGIN_NAME,
+                attributes));
+        NativePassword password = resolve(authPacket(MysqlCapability.DEFAULT_CAPABILITY, attributes));
+
+        Assertions.assertArrayEquals(MysqlPassword.scramble(nonce, "secret"), password.getRemotePasswd());
+        Mockito.verify(channel, Mockito.times(2)).sendAndFlush(Mockito.any());
+    }
+
+    @Test
     void testModeNoneSwitchesEveryClientAndModeAllServesEveryClient() throws Exception {
         Config.mysql_caching_sha2_password_clients = "none";
         Assertions.assertFalse(CachingSha2PasswordExchange.serves(CachingSha2PasswordExchange.PLUGIN_NAME,
@@ -164,6 +183,10 @@ class NativePasswordResolverTest {
         Config.mysql_caching_sha2_password_clients = "auto";
         Assertions.assertFalse(CachingSha2PasswordExchange.serves(CachingSha2PasswordExchange.PLUGIN_NAME,
                 ImmutableMap.of()));
+        Assertions.assertFalse(CachingSha2PasswordExchange.serves(CachingSha2PasswordExchange.PLUGIN_NAME,
+                ImmutableMap.of(CachingSha2PasswordExchange.CLIENT_VERSION_ATTR, "00000000000000000008.0")));
+        Assertions.assertTrue(CachingSha2PasswordExchange.serves(CachingSha2PasswordExchange.PLUGIN_NAME,
+                ImmutableMap.of(CachingSha2PasswordExchange.CLIENT_VERSION_ATTR, "00000000000000000009.0")));
         Assertions.assertFalse(CachingSha2PasswordExchange.serves("mysql_native_password", MYSQL_9_CLIENT));
         Assertions.assertFalse(CachingSha2PasswordExchange.serves(CachingSha2PasswordExchange.PLUGIN_NAME,
                 ImmutableMap.of(CachingSha2PasswordExchange.CLIENT_VERSION_ATTR, "x")));

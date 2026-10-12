@@ -95,19 +95,26 @@ public class CachingSha2PasswordExchange {
         if ("none".equalsIgnoreCase(mode)) {
             return false;
         }
-        return clientMajorVersion(connectAttributes.get(CLIENT_VERSION_ATTR)) >= 9;
+        return isClientVersion9OrLater(connectAttributes.get(CLIENT_VERSION_ATTR));
     }
 
-    // "9.4.0" -> 9; anything unparsable -> 0
-    static int clientMajorVersion(String clientVersion) {
+    // Only the >= 9 decision matters. Stop once reached so a long numeric prefix cannot overflow.
+    static boolean isClientVersion9OrLater(String clientVersion) {
         if (Strings.isNullOrEmpty(clientVersion)) {
-            return 0;
+            return false;
         }
-        int end = 0;
-        while (end < clientVersion.length() && Character.isDigit(clientVersion.charAt(end))) {
-            end++;
+        int major = 0;
+        for (int i = 0; i < clientVersion.length(); i++) {
+            char digit = clientVersion.charAt(i);
+            if (!Character.isDigit(digit)) {
+                break;
+            }
+            major = major * 10 + Character.digit(digit, 10);
+            if (major >= 9) {
+                return true;
+            }
         }
-        return end == 0 ? 0 : Integer.parseInt(clientVersion.substring(0, end));
+        return false;
     }
 
     /** The client answered with something that is not part of the exchange. */
