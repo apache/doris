@@ -490,8 +490,8 @@ TEST_F(SegmentIteratorCandidatePushdownTest,
     cache.get()->insert(key, std::move(_iter->_condition_cache));
 
     OlapReaderStatistics second_stats;
-    auto second_reader = std::make_unique<SegmentIterator>(_segment, _read_schema);
-    second_reader->_opts.stats = &second_stats;
+    StorageReadOptions second_opts(second_stats);
+    auto second_reader = std::make_unique<SegmentIterator>(_segment, _read_schema, second_opts);
     second_reader->_opts.condition_cache_digest = digest;
     second_reader->_common_expr_ctxs_push_down = _iter->_common_expr_ctxs_push_down;
     second_reader->_row_bitmap.addRange(0, 100);
