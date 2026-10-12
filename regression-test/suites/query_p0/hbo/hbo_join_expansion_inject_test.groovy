@@ -107,18 +107,24 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     assertEquals(baselineOrder, joinOrder(physicalPlan()))
     assertTrue((sql """ HBO SHOW PINNED STATISTICS; """).findAll { it[1].toString() == condFingerprint }.isEmpty())
 
-    // semi join: the same equality conditions are printed with the same fingerprint, but a semi
-    // join can never expand, so the injected entry is deliberately not applied
+    // semi join: its condition key carries its own join type, so an entry has to be injected for
+    // the key of the semi join itself; a semi join can never expand, so that entry is deliberately
+    // not applied and the annotation reports the reason
+    def semiQuery = "select * from hbo_je_t1 where hbo_je_t1.a in (select a from hbo_je_t2)"
+    def semiMatcher = (annotation(semiQuery) =~ /\] join type=join_expansion literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='(JE\{[^']+\})'/)
+    assertTrue(semiMatcher.find(), "no condition fingerprint annotation for the semi join:\n" + annotation(semiQuery))
+    def semiFingerprint = semiMatcher.group(1)
+    def semiCanonical = semiMatcher.group(2)
+    assertTrue(semiCanonical.startsWith("JE{LEFT_SEMI_JOIN;"), semiCanonical)
     try {
-        sql """ HBO SET STATISTICS VALUE=5000 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
-                STRUCT='${condCanonical}'; """
-        def semiQuery = "select * from hbo_je_t1 where hbo_je_t1.a in (select a from hbo_je_t2)"
+        sql """ HBO SET STATISTICS VALUE=5000 TYPE=JOIN_EXPANSION FINGERPRINT='${semiFingerprint}'
+                STRUCT='${semiCanonical}'; """
         def semiText = annotation(semiQuery)
         assertTrue(semiText.contains("type=join_expansion literal_mode=no_literal fingerprint='"
-                + condFingerprint + "'"), semiText)
+                + semiFingerprint + "'"), semiText)
         assertTrue((semiText =~ /expansion=skipped=left_semi_join-join-never-expands/).find(), semiText)
     } finally {
-        sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${semiFingerprint}'; """
     }
 
     // a factor below 1 means the join filters: 0.1 keeps 10% of the larger input of the join node

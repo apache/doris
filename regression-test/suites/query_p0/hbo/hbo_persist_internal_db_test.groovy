@@ -26,10 +26,14 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
     // background loader (HboPinnedStatisticsLoader) instead of by a statement.
     def prevPersist = (sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'hbo_persist_pinned_to_internal_db'; """)[0][1].toString()
     // a pinned entry must carry the struct info its fingerprint was computed from, so the pair
-    // below is self consistent (sha256 of the canonical struct info without the data state of its
-    // scans: "S{internal.hbo_test.hbo_persist_t,v1}" hashes like "S{...hbo_persist_t}")
-    def structCanonical = "S{internal.hbo_test.hbo_persist_t,v1}"
-    def fingerprint = "a155545a0c68f667b898a83f15924b8343ab4d4753c92c78050e25ef63c2575a"
+    // below is self consistent: the fingerprint is the sha256 of the canonical without the data
+    // state of its scans, with the literals folded because the entry is stored constant agnostically
+    // (sha256 of "F{EqualTo(col(internal.hbo_test.hbo_persist_t.a),lit(*))}(S{internal.hbo_test.hbo_persist_t})").
+    // The root is a filter, not a scan: pinned row counts are looked up at filter, join and
+    // aggregation nodes, so an entry keyed by a scan token could never be applied.
+    def structCanonical = "F{EqualTo(col(internal.hbo_test.hbo_persist_t.a),lit(1:INT))}" +
+            "(S{internal.hbo_test.hbo_persist_t,v1})"
+    def fingerprint = "d6fbc16dff64c7607cb0c016e8471a390f1a124531ce29f146fa998889d5e028"
     def tableName = "__internal_schema.hbo_statistics"
     try {
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """

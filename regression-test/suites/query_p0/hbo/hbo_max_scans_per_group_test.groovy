@@ -40,8 +40,8 @@ suite("hbo_max_scans_per_group_test", "nonConcurrent") {
     sql "set enable_sql_cache=false;"
     sql "set enable_query_cache=false;"
 
-    def query = "select * from hbo_msg_t1 join hbo_msg_t2 on hbo_msg_t1.a = hbo_msg_t2.a"
-            + " join hbo_msg_t3 on hbo_msg_t1.b = hbo_msg_t3.b"
+    def query = "select * from hbo_msg_t1 join hbo_msg_t2 on hbo_msg_t1.a = hbo_msg_t2.a" +
+            " join hbo_msg_t3 on hbo_msg_t1.b = hbo_msg_t3.b"
     def annotation = { (sql """ explain ${query} """).flatten().join("\n") }
     // the two join nodes of the physical plan: the inner one reads 2 tables, the outer one all 3
     def exactJoinLines = { String text -> (text =~ /\] join type=exact literal_mode=no_literal /).count }
