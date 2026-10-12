@@ -477,7 +477,10 @@ Status DataTypeTimeStampNsSerDe::read_column_from_orc(IColumn& column,
     auto& data = assert_cast<ColumnTimeStampNs&>(column).get_data();
     const auto old_size = data.size();
     const auto rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
-    const auto timezone = view.timezone == nullptr ? cctz::utc_time_zone() : *view.timezone;
+    const auto* source_timezone = view.plain_timestamp_timezone == nullptr
+                                          ? view.timezone
+                                          : view.plain_timestamp_timezone;
+    const auto timezone = source_timezone == nullptr ? cctz::utc_time_zone() : *source_timezone;
     for (size_t row = 0; row < rows; ++row) {
         const auto source = orc_serde_utils::orc_source_row_at(row, view.selected_rows);
         if (orc_serde_utils::orc_row_is_null(batch, source)) {
@@ -490,8 +493,7 @@ Status DataTypeTimeStampNsSerDe::read_column_from_orc(IColumn& column,
             return Status::DataQualityError("Invalid ORC timestamp nanoseconds: {}", nanos);
         }
         DateV2Value<DateTimeV2ValueType> civil;
-        const int64_t seconds =
-                orc_serde_utils::corrected_orc_timestamp_seconds(view, batch.data[source], nanos);
+        const int64_t seconds = batch.data[source];
         auto status = orc_serde_utils::orc_timestamp_to_datetime(seconds, nanos / 1000, timezone,
                                                                  false, &civil);
         TimeStampNsValue value;

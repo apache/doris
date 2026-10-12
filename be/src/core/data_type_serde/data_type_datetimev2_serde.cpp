@@ -72,8 +72,7 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
-        const int64_t seconds = orc_serde_utils::corrected_orc_timestamp_seconds(
-                orc_view, orc_batch->data[source_row], orc_batch->nanoseconds[source_row]);
+        const int64_t seconds = orc_batch->data[source_row];
         orc_serde_utils::RoundedOrcTimestamp timestamp;
         auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
                 seconds, orc_batch->nanoseconds[source_row], &timestamp);
@@ -1051,7 +1050,11 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
     if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
         return Status::OK();
     }
-    return decode_timestamp_orc_values(column, view, *view.timezone);
+    const auto* timezone = view.file_type->getKind() == ::orc::TIMESTAMP &&
+                                           view.plain_timestamp_timezone != nullptr
+                                   ? view.plain_timestamp_timezone
+                                   : view.timezone;
+    return decode_timestamp_orc_values(column, view, *timezone);
 }
 
 } // namespace doris

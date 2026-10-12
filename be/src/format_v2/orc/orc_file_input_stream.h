@@ -53,7 +53,6 @@ public:
     uint64_t getNaturalReadSize() const override;
     void read(void* buf, uint64_t length, uint64_t offset) override;
     const std::string& getName() const override;
-    const std::string& writer_timezone() const { return _writer_timezone; }
 
     void beforeReadStripe(std::unique_ptr<::orc::StripeInformation> current_stripe_information,
                           const std::vector<bool>& selected_columns,
@@ -71,7 +70,6 @@ private:
             std::unordered_map<::orc::StreamId, std::shared_ptr<::orc::InputStream>>& streams);
 
     std::string _file_name;
-    std::string _writer_timezone;
     io::FileReaderSPtr _file_reader;
     io::FileReaderSPtr _default_reader;
     const io::IOContext* _io_ctx = nullptr;

@@ -32,9 +32,6 @@ namespace orc_serde_utils {
 
 bool has_nanosecond_timestamp(const ::orc::Type& type);
 
-int64_t corrected_orc_timestamp_seconds(const OrcDecodedColumnView& view, int64_t seconds,
-                                        int64_t nanoseconds);
-
 size_t orc_decode_row_count(size_t rows, const std::vector<size_t>* selected_rows);
 size_t orc_source_row_at(size_t row, const std::vector<size_t>* selected_rows);
 bool orc_row_is_null(const ::orc::ColumnVectorBatch& batch, size_t row);

@@ -130,7 +130,8 @@ private:
     // stripes. Skips the call for a whole-file window to keep ORC library defaults.
     void _apply_split_range();
     Status _select_stripe_ranges_by_statistics();
-    void _apply_current_stripe_range();
+    Status _prepare_timestamp_stripe_ranges();
+    Status _apply_current_stripe_range();
     Status _advance_to_next_stripe_range(bool* advanced);
     Status _create_row_reader();
 

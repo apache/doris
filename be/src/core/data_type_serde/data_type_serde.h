@@ -126,8 +126,8 @@ struct OrcDecodedColumnView {
     const std::vector<size_t>* selected_rows = nullptr;
     const cctz::time_zone* timezone = nullptr;
     bool enable_mapping_timestamp_tz = false;
-    // Writer's epoch-zero wall-clock offset, used only when ORC reads plain timestamps in GMT.
-    int32_t writer_epoch_offset = 0;
+    // Plain timestamps may retain the writer's carrier; instant timestamps still use the session zone.
+    const cctz::time_zone* plain_timestamp_timezone = nullptr;
 };
 
 // Deserialize means read from different file format or memory format,

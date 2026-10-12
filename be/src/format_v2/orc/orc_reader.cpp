@@ -195,6 +195,19 @@ Status set_orc_reader_timezone(const std::string& timezone,
     return Status::OK();
 }
 
+bool has_timestamp(const ::orc::Type& type, bool include_instant) {
+    if (type.getKind() == ::orc::TIMESTAMP ||
+        (include_instant && type.getKind() == ::orc::TIMESTAMP_INSTANT)) {
+        return true;
+    }
+    for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
+        if (has_timestamp(*type.getSubtype(child), include_instant)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // selected_rows is a source-row remap produced by ORC lazy callback:
 // predicate columns are decoded first, then surviving row ids drive follower decodes.
 size_t decode_row_count(size_t rows, const std::vector<size_t>* selected_rows) {
@@ -755,6 +768,8 @@ struct OrcReaderScanState {
         uint64_t last_stripe = 0;
         uint64_t offset = 0;
         uint64_t length = 0;
+        uint64_t first_row = 0;
+        uint64_t end_row = 0;
     };
 
     std::unique_ptr<::orc::Reader> reader;
@@ -763,10 +778,8 @@ struct OrcReaderScanState {
     ::orc::RowReaderOptions row_reader_options; // projection + filter + SARG + stripe range
     std::string timezone = TimezoneUtils::default_time_zone;
     cctz::time_zone timezone_obj;
-    bool utc_wall_clock = false;
-    OrcFileInputStream* input_stream = nullptr;
-    std::string stripe_writer_timezone;
-    int32_t writer_epoch_offset = 0;
+    bool match_writer_timezone = false;
+    cctz::time_zone writer_timezone_obj;
     std::unique_ptr<::orc::RowReader> row_reader;
     const ::orc::Type* selected_type = nullptr;
     std::unique_ptr<::orc::ColumnVectorBatch> batch;
@@ -791,7 +804,7 @@ struct OrcReaderScanState {
 
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
-    bool stripe_pruning_applied = false;
+    bool stripe_ranges_applied = false;
     size_t next_row_id = 0;
 
     bool row_reader_created = false;
@@ -891,7 +904,7 @@ void OrcReader::_collect_profile() const {
                        orc_metric_value(reader_metrics.IOBlockingLatencyUs));
         int64_t selected_row_group_count = orc_metric_value(reader_metrics.SelectedRowGroupCount);
         int64_t evaluated_row_group_count = orc_metric_value(reader_metrics.EvaluatedRowGroupCount);
-        if (_state->stripe_pruning_applied) {
+        if (_reader_statistics.filtered_row_groups > 0) {
             selected_row_group_count = _reader_statistics.read_row_groups;
             evaluated_row_group_count =
                     _reader_statistics.filtered_row_groups + _reader_statistics.read_row_groups;
@@ -955,16 +968,8 @@ Status OrcReader::init(RuntimeState* state) {
     auto input_stream = std::make_unique<OrcFileInputStream>(
             _file_description->path, _file_reader, _io_ctx.get(), _profile, input_stream_options);
     try {
-        _state->input_stream = input_stream.get();
         _state->reader = ::orc::createReader(std::move(input_stream), options);
         _state->root_type = &_state->reader->getType();
-        if (orc_serde_utils::has_nanosecond_timestamp(*_state->root_type)) {
-            // Use the same UTC wall-clock carrier as the writer; historical local offsets
-            // differ between ORC and cctz and can push boundary values out of range.
-            _state->utc_wall_clock = true;
-            _state->timezone = "GMT";
-            _state->timezone_obj = cctz::utc_time_zone();
-        }
     } catch (const std::exception& e) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
@@ -1016,8 +1021,15 @@ void OrcReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContex
 
 int64_t OrcReader::get_total_rows() const {
     DORIS_CHECK(_state != nullptr);
-    if (_state->stripe_pruning_applied && _state->selected_stripe_ranges.empty()) {
+    if (_state->stripe_ranges_applied && _state->selected_stripe_ranges.empty()) {
         return 0;
+    }
+    if (_state->match_writer_timezone && _state->stripe_ranges_applied) {
+        uint64_t rows = 0;
+        for (const auto& range : _state->selected_stripe_ranges) {
+            rows += range.end_row - range.first_row;
+        }
+        return cast_set<int64_t>(rows);
     }
     if (_state->row_reader != nullptr) {
         return cast_set<int64_t>(_state->row_reader_range_rows);
@@ -1331,20 +1343,32 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _apply_split_range();
 
     RETURN_IF_ERROR(_select_stripe_ranges_by_statistics());
-    if (_state->stripe_pruning_applied && _state->selected_stripe_ranges.empty()) {
+    RETURN_IF_ERROR(_prepare_timestamp_stripe_ranges());
+    if (_state->stripe_ranges_applied && _state->selected_stripe_ranges.empty()) {
         _eof = true;
         return Status::OK();
     }
-    _apply_current_stripe_range();
+    RETURN_IF_ERROR(_apply_current_stripe_range());
 
     RETURN_IF_ERROR(_create_row_reader());
     if (_request->row_ids.has_value()) {
+        size_t range_index = 0;
         for (const int64_t row_id : *_request->row_ids) {
-            if (static_cast<uint64_t>(row_id) < _state->row_reader_range_first_row ||
-                static_cast<uint64_t>(row_id) >= _state->row_reader_range_end_row) {
+            uint64_t first_row = _state->row_reader_range_first_row;
+            uint64_t end_row = _state->row_reader_range_end_row;
+            if (_state->match_writer_timezone) {
+                const auto& ranges = _state->selected_stripe_ranges;
+                while (range_index + 1 < ranges.size() &&
+                       std::cmp_greater_equal(row_id, ranges[range_index].end_row)) {
+                    ++range_index;
+                }
+                first_row = ranges[range_index].first_row;
+                end_row = ranges[range_index].end_row;
+            }
+            if (std::cmp_less(row_id, first_row) || std::cmp_greater_equal(row_id, end_row)) {
                 return Status::InvalidArgument(
                         "ORC row id {} is outside the current split row range [{}, {})", row_id,
-                        _state->row_reader_range_first_row, _state->row_reader_range_end_row);
+                        first_row, end_row);
             }
         }
     }
@@ -1402,6 +1426,28 @@ Status OrcReader::_configure_row_reader_projection() {
         DORIS_CHECK(projection != nullptr);
         has_complex_projection = has_complex_projection || has_pruned_projection(*projection);
     }
+    // A hidden NANOS sibling can affect ordinary timestamps, but scans without civil
+    // timestamp columns do not need stripe-specific reader timezones.
+    _state->match_writer_timezone =
+            orc_serde_utils::has_nanosecond_timestamp(*_state->root_type) &&
+            std::ranges::any_of(_state->read_columns, [&](const auto column_id) {
+                return !is_virtual_column(column_id) &&
+                       has_timestamp(*_state->root_type->getSubtype(column_id.value()), false);
+            });
+    auto filter_projections = _request->predicate_columns;
+    if (_state->match_writer_timezone && _state->orc_lazy_read_enabled) {
+        // The pinned SDK's selected timestamp decoder tests a fraction at the wrong row index.
+        // Decode timestamp leaders densely; keep lazy reads for all other follower columns.
+        for (const auto column_id : _state->read_columns) {
+            if (!is_virtual_column(column_id) &&
+                has_timestamp(*_state->root_type->getSubtype(column_id.value()), true) &&
+                std::ranges::none_of(filter_projections, [column_id](const auto& projection) {
+                    return projection.column_id() == column_id;
+                })) {
+                filter_projections.push_back(*find_request_projection(*_request, column_id));
+            }
+        }
+    }
     if (!has_complex_projection) {
         std::list<uint64_t> include_columns;
         for (const auto file_column_id : _state->read_columns) {
@@ -1413,7 +1459,7 @@ Status OrcReader::_configure_row_reader_projection() {
         _state->row_reader_options.include(include_columns);
         if (_state->orc_lazy_read_enabled) {
             std::list<std::string> filter_columns;
-            for (const auto& projection : _request->predicate_columns) {
+            for (const auto& projection : filter_projections) {
                 if (is_row_position_column(projection.column_id())) {
                     continue;
                 }
@@ -1453,8 +1499,8 @@ Status OrcReader::_configure_row_reader_projection() {
     _state->row_reader_options.includeTypes(include_type_id_list);
     if (_state->orc_lazy_read_enabled) {
         std::set<uint64_t> filter_type_ids;
-        RETURN_IF_ERROR(collect_lazy_filter_type_ids(
-                *_state->root_type, _request->predicate_columns, &filter_type_ids));
+        RETURN_IF_ERROR(collect_lazy_filter_type_ids(*_state->root_type, filter_projections,
+                                                     &filter_type_ids));
         DORIS_CHECK(!filter_type_ids.empty());
         std::list<uint64_t> filter_type_id_list(filter_type_ids.begin(), filter_type_ids.end());
         _state->row_reader_options.filterTypes(filter_type_id_list);
@@ -1564,7 +1610,7 @@ void OrcReader::_apply_split_range() {
 Status OrcReader::_select_stripe_ranges_by_statistics() {
     _state->selected_stripe_ranges.clear();
     _state->current_stripe_range = 0;
-    _state->stripe_pruning_applied = false;
+    _state->stripe_ranges_applied = false;
     const bool has_search_argument = _state->row_reader_options.getSearchArgument() != nullptr;
     if (!has_search_argument) {
         return Status::OK();
@@ -1623,7 +1669,7 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
         return Status::OK();
     }
 
-    _state->stripe_pruning_applied = true;
+    _state->stripe_ranges_applied = true;
     _reader_statistics.filtered_row_groups = cast_set<int32_t>(filtered_stripes);
     _reader_statistics.filtered_row_groups_by_min_max = cast_set<int32_t>(filtered_stripes);
     _reader_statistics.filtered_group_rows = filtered_rows;
@@ -1669,24 +1715,91 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     return Status::OK();
 }
 
-void OrcReader::_apply_current_stripe_range() {
-    if (!_state->stripe_pruning_applied || _state->selected_stripe_ranges.empty()) {
-        return;
+Status OrcReader::_prepare_timestamp_stripe_ranges() {
+    if (!_state->match_writer_timezone) {
+        return Status::OK();
+    }
+    std::vector<uint64_t> stripes;
+    if (_state->stripe_ranges_applied) {
+        for (const auto& range : _state->selected_stripe_ranges) {
+            for (auto stripe = range.first_stripe; stripe < range.last_stripe; ++stripe) {
+                stripes.push_back(stripe);
+            }
+        }
+    } else {
+        RETURN_IF_ERROR(_collect_split_stripes(&stripes));
+    }
+    _state->selected_stripe_ranges.clear();
+    _state->stripe_ranges_applied = true;
+    _reader_statistics.read_row_groups = cast_set<int32_t>(stripes.size());
+    if (stripes.empty()) {
+        return Status::OK();
+    }
+    try {
+        uint64_t first_row = 0;
+        size_t selected = 0;
+        for (uint64_t index = 0; index <= stripes.back(); ++index) {
+            const auto stripe = _state->reader->getStripe(index);
+            const auto end_row = first_row + stripe->getNumberOfRows();
+            if (index == stripes[selected]) {
+                // A RowReader has one timezone, whereas writer timezones belong to stripes.
+                // Read footer timezone metadata only when entering the selected stripe.
+                _state->selected_stripe_ranges.push_back({
+                        .first_stripe = index,
+                        .last_stripe = index + 1,
+                        .offset = stripe->getOffset(),
+                        .length = stripe->getLength(),
+                        .first_row = first_row,
+                        .end_row = end_row,
+                });
+                ++selected;
+            }
+            first_row = end_row;
+        }
+    } catch (const std::exception& e) {
+        return Status::InternalError("Failed to prepare ORC timestamp stripe ranges: {}", e.what());
+    }
+    return Status::OK();
+}
+
+Status OrcReader::_apply_current_stripe_range() {
+    if (!_state->stripe_ranges_applied || _state->selected_stripe_ranges.empty()) {
+        return Status::OK();
     }
     DORIS_CHECK(_state->current_stripe_range < _state->selected_stripe_ranges.size());
     const auto& stripe_range = _state->selected_stripe_ranges[_state->current_stripe_range];
     _state->row_reader_options.range(stripe_range.offset, stripe_range.length);
+    if (_state->match_writer_timezone) {
+        try {
+            const auto stripe = _state->reader->getStripe(stripe_range.first_stripe);
+            const auto& name = stripe->getWriterTimezone();
+            const auto writer_timezone = name.empty() ? "GMT" : name;
+            if (!TimezoneUtils::find_cctz_time_zone(writer_timezone, _state->writer_timezone_obj)) {
+                return Status::InvalidArgument("Unknown ORC stripe writer timezone: {}",
+                                               writer_timezone);
+            }
+            // Matching zones preserves the SDK's UTC carrier until its negative-fraction
+            // correction is complete. cctz then applies historical offsets to that original second.
+            _state->row_reader_options.setTimezoneName(writer_timezone);
+        } catch (const std::exception& e) {
+            if (is_orc_stop(_io_ctx.get(), e)) {
+                return Status::EndOfFile("stop");
+            }
+            return Status::InternalError("Failed to read ORC stripe writer timezone: {}", e.what());
+        }
+    }
+    return Status::OK();
 }
 
 Status OrcReader::_advance_to_next_stripe_range(bool* advanced) {
     DORIS_CHECK(advanced != nullptr);
     *advanced = false;
-    if (!_state->stripe_pruning_applied || _state->selected_stripe_ranges.empty() ||
+    if (!_state->stripe_ranges_applied || _state->selected_stripe_ranges.empty() ||
         _state->current_stripe_range + 1 >= _state->selected_stripe_ranges.size()) {
         return Status::OK();
     }
     ++_state->current_stripe_range;
-    _apply_current_stripe_range();
+    RETURN_IF_ERROR(_apply_current_stripe_range());
     RETURN_IF_ERROR(_create_row_reader());
     *advanced = true;
     return Status::OK();
@@ -1977,19 +2090,8 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
     view.selected_rows = selected_rows;
     view.timezone = &_state->timezone_obj;
     view.enable_mapping_timestamp_tz = _enable_mapping_timestamp_tz;
-    if (_state->utc_wall_clock) {
-        const auto& writer_timezone = _state->input_stream->writer_timezone();
-        if (_state->stripe_writer_timezone != writer_timezone) {
-            cctz::time_zone zone = cctz::utc_time_zone();
-            if (!writer_timezone.empty() &&
-                !TimezoneUtils::find_cctz_time_zone(writer_timezone, zone)) {
-                return Status::InvalidArgument("Unknown ORC stripe writer timezone: {}",
-                                               writer_timezone);
-            }
-            _state->writer_epoch_offset = zone.lookup(cctz::time_point<cctz::seconds> {}).offset;
-            _state->stripe_writer_timezone = writer_timezone;
-        }
-        view.writer_epoch_offset = _state->writer_epoch_offset;
+    if (_state->match_writer_timezone) {
+        view.plain_timestamp_timezone = &_state->writer_timezone_obj;
     }
     return column_type->get_serde()->read_column_from_orc(*column, view);
 }
@@ -2028,6 +2130,13 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                     return Status::OK();
                 }
                 fetched_row_id = static_cast<uint64_t>((*_request->row_ids)[_state->next_row_id]);
+                // Row ids are sorted globally and can cross the per-writer-timezone ranges.
+                while (_state->match_writer_timezone &&
+                       *fetched_row_id >= _state->row_reader_range_end_row) {
+                    bool advanced = false;
+                    RETURN_IF_ERROR(_advance_to_next_stripe_range(&advanced));
+                    DORIS_CHECK(advanced);
+                }
                 _state->row_reader->seekToRow(*fetched_row_id);
             }
             // Condition-cache seeks can perform I/O, so keep them in the same cancellation
@@ -2160,7 +2269,7 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
     }
 
     std::vector<uint64_t> selected_stripes;
-    if (_state->stripe_pruning_applied) {
+    if (_state->stripe_ranges_applied) {
         for (const auto& stripe_range : _state->selected_stripe_ranges) {
             if (stripe_range.last_stripe < stripe_range.first_stripe ||
                 stripe_range.last_stripe > _state->reader->getNumberOfStripes()) {

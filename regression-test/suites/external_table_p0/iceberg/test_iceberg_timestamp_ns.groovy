@@ -85,6 +85,13 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
             sql "INSERT INTO ${defaultsTable} (id) VALUES (1)"
             sql "INSERT INTO ${defaultsTable} VALUES (2, '2024-01-02 03:04:05.123456788')"
             "qt_${format}_defaults" "SELECT id, CAST(ts AS STRING) FROM ${defaultsTable} ORDER BY id"
+            // Compact SQL literals must persist the same initial and write defaults as canonical text.
+            sql """ALTER TABLE ${defaultsTable} ADD COLUMN compact_date TIMESTAMP_NS DEFAULT '20240102'"""
+            sql """ALTER TABLE ${defaultsTable} ADD COLUMN compact_datetime TIMESTAMP_NS
+                DEFAULT '20240102030405'"""
+            sql "INSERT INTO ${defaultsTable} (id) VALUES (3)"
+            "qt_${format}_compact_defaults" """SELECT id, CAST(compact_date AS STRING),
+                CAST(compact_datetime AS STRING) FROM ${defaultsTable} ORDER BY id"""
             for (String transform : ["identity", "year", "month", "day", "hour", "bucket"]) {
                 String partitionTable = "${table}_${transform}"
                 String expression = transform == "identity" ? "ts"
