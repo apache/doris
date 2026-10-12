@@ -84,10 +84,13 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
     return Status::OK();
 }
 
-Status RuntimeState::add_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages) {
+Status RuntimeState::reserve_paimon_commit_messages(
+        const std::vector<TPaimonCommitMessage>& commit_messages, size_t* reserved_bytes) {
+    DORIS_CHECK(reserved_bytes != nullptr);
+    *reserved_bytes = 0;
     size_t serialized_bytes = 0;
     ThriftSerializer serializer(false, 256);
-    for (auto& commit_message : commit_messages) {
+    for (const auto& commit_message : commit_messages) {
         uint32_t serialized_size = 0;
         uint8_t* buffer = nullptr;
         RETURN_IF_ERROR(serializer.serialize(&commit_message, &serialized_size, &buffer));
@@ -105,12 +108,23 @@ Status RuntimeState::add_paimon_commit_messages(std::vector<TPaimonCommitMessage
                 "Paimon commit metadata exceeds the Thrift report limit; reduce output file "
                 "count");
     }
-    std::lock_guard<std::mutex> data_lock(_paimon_commit_messages_mutex);
     _external_file_report_state->serialized_commit_bytes += serialized_bytes;
+    *reserved_bytes = serialized_bytes;
+    return Status::OK();
+}
+
+void RuntimeState::publish_reserved_paimon_commit_messages(
+        std::vector<TPaimonCommitMessage> commit_messages) {
+    std::lock_guard<std::mutex> data_lock(_paimon_commit_messages_mutex);
     for (auto& commit_message : commit_messages) {
         _paimon_commit_messages.emplace_back(std::move(commit_message));
     }
-    return Status::OK();
+}
+
+void RuntimeState::release_paimon_commit_message_reservation(size_t reserved_bytes) {
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    DORIS_CHECK_GE(_external_file_report_state->serialized_commit_bytes, reserved_bytes);
+    _external_file_report_state->serialized_commit_bytes -= reserved_bytes;
 }
 
 size_t RuntimeState::coordinator_thrift_message_limit() const {

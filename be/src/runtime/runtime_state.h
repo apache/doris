@@ -547,7 +547,14 @@ public:
 
     Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
 
-    Status add_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages);
+    // Reserve report space before closing the Paimon writer, then either publish the prepared
+    // messages after a clean close or release the reservation while aborting the writer.
+    Status reserve_paimon_commit_messages(const std::vector<TPaimonCommitMessage>& commit_messages,
+                                          size_t* reserved_bytes);
+
+    void publish_reserved_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages);
+
+    void release_paimon_commit_message_reservation(size_t reserved_bytes);
 
     void append_paimon_commit_messages(std::vector<TPaimonCommitMessage>* output) const {
         std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);

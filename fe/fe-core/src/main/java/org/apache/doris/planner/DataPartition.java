@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TExternalTableSinkHashPartitionInfo;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TIcebergPartitionField;
@@ -134,6 +135,9 @@ public class DataPartition {
             info.setPartitionFunction(externalPartitionFunction);
             info.setPartitionFunctionOptions(externalPartitionFunctionOptions);
             info.setWriterAssignment(externalWriterAssignment);
+            if ("direct_hash".equals(externalPartitionFunction)) {
+                info.setAlgorithm(TExternalTableSinkHashAlgorithm.DIRECT_HASH);
+            }
             result.setExternalTableSinkHashPartitionInfo(info);
         }
         return result;

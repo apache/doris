@@ -60,7 +60,8 @@ class RuntimeState;
 /// Commit flow (BE only prepares messages; FE is the commit coordinator):
 ///   close() → writer->prepare_commit()
 ///          → collect TPaimonCommitMessage[] (DPCM-framed serialized messages)
-///          → RuntimeState::add_paimon_commit_messages()
+///          → reserve report budget while abort is still possible
+///          → RuntimeState::publish_reserved_paimon_commit_messages()
 ///          → RPC to FE Coordinator → PaimonTransaction
 class PaimonTableWriter final {
 public:
