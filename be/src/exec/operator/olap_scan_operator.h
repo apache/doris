@@ -135,6 +135,8 @@ private:
 
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
+    void _prune_rowsets_by_tso(const TPaloScanRange& scan_range, TabletReadSource& read_source);
+
     Status _build_key_ranges_and_filters();
 
     bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int32_t bucket_seq,
@@ -160,11 +162,16 @@ private:
     snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
     snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
+    RuntimeProfile::Counter* _condition_cache_lookup_counter = nullptr;
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_tso_prune_timer = nullptr;
+    RuntimeProfile::Counter* _rowsets_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _segments_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _tablets_pruned_by_tso_counter = nullptr;
     RuntimeProfile::Counter* _process_conjunct_timer = nullptr;
 
     RuntimeProfile::Counter* _io_timer = nullptr;
@@ -266,6 +273,10 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_conjuncts_short_circuited_counter = nullptr;
+    // Approximate (gram) index: rows pruned / candidate rows left for expression re-verification.
+    RuntimeProfile::Counter* _gram_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_candidate_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_gate_gave_up_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
 

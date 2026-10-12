@@ -49,6 +49,7 @@
 #include "exec/pipeline/pipeline_task.h"
 #include "exprs/function/array/function_array_distance.h"
 #include "exprs/function/function_agg_state.h"
+#include "exprs/function/function_agg_state_finalize.h"
 #include "exprs/function/function_fake.h"
 #include "exprs/function/function_java_udf.h"
 #include "exprs/function/function_python_udf.h"
@@ -79,6 +80,7 @@ class TExprNode;
 namespace doris {
 
 const std::string AGG_STATE_SUFFIX = "_state";
+const std::string AGG_FINALIZE_SUFFIX = "_finalize";
 
 // Now left child is a function call, we need to check if it is a distance function
 const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name,
@@ -209,10 +211,38 @@ size_t raw_comparison_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_COMPARISON_SIZE(TYPE_DECIMAL256);
         RETURN_RAW_COMPARISON_SIZE(TYPE_IPV4);
         RETURN_RAW_COMPARISON_SIZE(TYPE_IPV6);
+        RETURN_RAW_COMPARISON_SIZE(TYPE_UUID);
 #undef RETURN_RAW_COMPARISON_SIZE
     default:
         return 0;
     }
+}
+
+Status create_agg_state_finalize_function(const std::string& function_name,
+                                          const DataTypes& argument_types,
+                                          const DataTypePtr& return_type,
+                                          FunctionBasePtr& function) {
+    if (argument_types.size() != 1 ||
+        remove_nullable(argument_types[0])->get_primitive_type() != TYPE_AGG_STATE) {
+        return Status::InternalError("Finalize function requires one AGG_STATE argument");
+    }
+    const auto state_type = remove_nullable(argument_types[0]);
+    const auto* agg_state = assert_cast<const DataTypeAggState*>(state_type.get());
+    if (agg_state->get_function_name() + AGG_FINALIZE_SUFFIX != function_name) {
+        return Status::InternalError("{} does not match function {}", state_type->get_name(),
+                                     function_name);
+    }
+    const auto& nested = agg_state->get_nested_function();
+    auto expected_type = nested->get_return_type();
+    if (argument_types[0]->is_nullable()) {
+        expected_type = make_nullable(expected_type);
+    }
+    if (!expected_type->equals(*return_type)) {
+        return Status::InternalError("{} expects return type {}, but got {}", function_name,
+                                     expected_type->get_name(), return_type->get_name());
+    }
+    function = FunctionAggStateFinalize::create(argument_types, return_type, nested);
+    return Status::OK();
 }
 
 } // namespace
@@ -293,8 +323,11 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             _function = FunctionAggState::create(
                     argument_types, _data_type,
                     assert_cast<const DataTypeAggState*>(_data_type.get())->get_nested_function());
+        } else if (match_suffix(_fn.name.function_name, AGG_FINALIZE_SUFFIX)) {
+            RETURN_IF_ERROR(create_agg_state_finalize_function(
+                    _fn.name.function_name, argument_types, _data_type, _function));
         } else {
-            return Status::InternalError("Function {} is not endwith '_state'", _fn.signature);
+            return Status::InternalError("Unsupported AggState function {}", _fn.signature);
         }
     } else {
         // get the function. won't prepare function.
@@ -555,6 +588,7 @@ Status VectorizedFnCall::execute_on_raw_fixed_values(const uint8_t* values, size
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_DECIMAL256);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV4);
         EXECUTE_RAW_SCALAR_COMPARISON(TYPE_IPV6);
+        EXECUTE_RAW_SCALAR_COMPARISON(TYPE_UUID);
 #undef EXECUTE_RAW_SCALAR_COMPARISON
     default:
         __builtin_unreachable();
@@ -669,8 +703,9 @@ bool VectorizedFnCall::can_push_down_to_index() const {
 }
 
 bool VectorizedFnCall::is_deterministic() const {
+    // array_shuffle gives the rows of a block different orders, even with a seed.
     static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
-            "random", "rand", "random_bytes", "uuid", "uuid_numeric"};
+            "random", "rand", "random_bytes", "uuid", "uuid_numeric", "array_shuffle", "shuffle"};
     return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
 }
 

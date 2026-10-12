@@ -17,11 +17,13 @@
 
 package org.apache.doris.connector.maxcompute;
 
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -74,5 +76,16 @@ public class MaxComputeConnectorProvider implements ConnectorProvider {
     @Override
     public void validateProperties(Map<String, String> properties) {
         MCCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+        CacheSpec.checkWeightProperties(properties, properties, "max_compute", "partition");
+    }
+
+    @Override
+    public void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        MCCatalogProperties.of(candidate).checkCreateTimeOnlyRules();
+        CacheSpec.checkWeightProperties(candidate, updatedProperties, "max_compute", "partition");
     }
 }

@@ -17,9 +17,12 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -30,6 +33,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -40,6 +44,28 @@ import java.util.concurrent.atomic.AtomicInteger;
  * exercised against genuine iceberg {@link ManifestFile}s (no I/O — InMemoryCatalog serves manifests in-memory).
  */
 public class IcebergManifestCacheTest {
+
+    @Test
+    public void manifestEstimationCountsBackingArraysAndRejectsHiddenHeapBuffers() {
+        byte[] backing = new byte[1024 * 1024];
+        ByteBuffer slice = ByteBuffer.wrap(backing, 0, 1).slice();
+        ManifestCacheValue writable = manifestWithLowerBound(slice);
+        Assertions.assertTrue(writable.getSizeEstimate().isComplete());
+        Assertions.assertTrue(writable.getSizeEstimate().getBytes() >= backing.length);
+        ManifestCacheValue readOnly = manifestWithLowerBound(slice.asReadOnlyBuffer());
+        Assertions.assertFalse(readOnly.getSizeEstimate().isComplete());
+        Assertions.assertEquals(1, readOnly.getDataFiles().size(), "rejection must not discard the query result");
+        Assertions.assertFalse(manifestWithLowerBound(ByteBuffer.wrap(backing).asReadOnlyBuffer())
+                .getSizeEstimate().isComplete());
+    }
+
+    private static ManifestCacheValue manifestWithLowerBound(ByteBuffer lowerBound) {
+        DataFile file = DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("/data/buffer.parquet").withFileSizeInBytes(100)
+                .withMetrics(new Metrics(1L, null, null, null, null,
+                        Collections.singletonMap(1, lowerBound), null)).build();
+        return ManifestCacheValue.forDataFiles(Collections.singletonList(file), true);
+    }
 
     private static final Schema SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.IntegerType.get()));
@@ -78,6 +104,22 @@ public class IcebergManifestCacheTest {
         ManifestCacheValue second = cache.getManifestCacheValue(manifest, table);
         Assertions.assertSame(first, second, "the manifest payload must be served from the cache on a repeat");
         Assertions.assertEquals(1, cache.size());
+    }
+
+    @Test
+    public void weightBoundedManifestIsEstimatedAndCached() {
+        Table table = tableWithTwoDataFiles();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergManifestCache cache = new IcebergManifestCache(owner,
+                    Collections.singletonMap("meta.cache.iceberg.manifest.max-weight", "1MB"));
+
+            ManifestCacheValue first = cache.getManifestCacheValue(manifest, table);
+            ManifestCacheValue second = cache.getManifestCacheValue(manifest, table);
+
+            Assertions.assertSame(first, second);
+            Assertions.assertEquals(2, first.getDataFiles().size());
+        }
     }
 
     @Test

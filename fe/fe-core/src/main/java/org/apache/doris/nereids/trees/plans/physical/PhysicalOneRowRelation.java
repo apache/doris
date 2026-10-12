@@ -21,10 +21,7 @@ import org.apache.doris.analysis.ExprToStringValueVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.SqlCacheContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -46,7 +43,6 @@ import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
-import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -163,7 +159,7 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
 
     @Override
     public Optional<ResultSet> computeResultInFe(
-            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext, List<Slot> outputSlots) {
+            CascadesContext cascadesContext, List<Slot> outputSlots) {
         List<Column> columns = Lists.newArrayList();
         List<String> data = Lists.newArrayList();
         for (Slot outputSlot : outputSlots) {
@@ -201,16 +197,6 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
 
         ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
         ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
-        StatementContext statementContext = cascadesContext.getStatementContext();
-        boolean enableSqlCache
-                = CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable());
-        if (sqlCacheContext.isPresent() && enableSqlCache) {
-            sqlCacheContext.get().setResultSetInFe(resultSet);
-            Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
-                    statementContext.getConnectContext(),
-                    statementContext.getOriginStatement().originStmt
-            );
-        }
         return Optional.of(resultSet);
     }
 

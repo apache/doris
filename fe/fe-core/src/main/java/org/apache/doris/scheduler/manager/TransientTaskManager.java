@@ -56,8 +56,17 @@ public class TransientTaskManager {
 
     public Long addMemoryTask(TransientTaskExecutor executor) throws JobException {
         Long taskId = executor.getId();
+        // Registration must precede publication so the handler can resolve the task, but publication is
+        // fallible (ring buffer saturated or disruptor closed). TaskHandler only removes the task it actually
+        // runs, so a task whose event was never published must be unregistered here or it stays reachable for
+        // the FE lifetime.
         taskExecutorMap.put(taskId, executor);
-        disruptor.tryPublishTask(taskId);
+        try {
+            disruptor.tryPublishTask(taskId);
+        } catch (JobException e) {
+            taskExecutorMap.remove(taskId);
+            throw e;
+        }
         LOG.info("add memory task, taskId: {}", taskId);
         return taskId;
     }

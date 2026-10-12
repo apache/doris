@@ -89,9 +89,9 @@ public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
         if (distributionColumns.size() == 1 && distributionColumns.contains(col.getName().toLowerCase())) {
             bucketFlag = true;
             sb.append(LINEAR_ANALYZE_TEMPLATE);
-            params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            params.put("ndvFunction", "ROUND(NDV(${colName}) * ${scaleFactor})");
             params.put("rowCount", "ROUND(COUNT(1) * ${scaleFactor})");
-            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)");
         } else {
             sb.append(DUJ1_ANALYZE_TEMPLATE);
             params.put("subStringColName", getStringTypeColName(col));

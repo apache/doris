@@ -35,7 +35,7 @@
 
 namespace doris {
 class Decompressor;
-class LineReader;
+class NewPlainTextLineReader;
 class SlotDescriptor;
 class IColumn;
 } // namespace doris
@@ -188,7 +188,7 @@ private:
 
     io::FileReaderSPtr _physical_file_reader;
     std::unique_ptr<Decompressor> _decompressor;
-    std::unique_ptr<LineReader> _line_reader;
+    std::unique_ptr<NewPlainTextLineReader> _line_reader;
     int64_t _current_offset = 0;
     bool _reader_eof = false;
     bool _skip_first_line = false;

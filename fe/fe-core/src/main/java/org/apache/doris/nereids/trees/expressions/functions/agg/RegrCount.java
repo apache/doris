@@ -33,7 +33,7 @@ import java.util.List;
 
 /** regr_count agg function. */
 public class RegrCount extends NotNullableAggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature {
+        implements BinaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE));

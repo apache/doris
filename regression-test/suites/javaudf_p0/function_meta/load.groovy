@@ -29,13 +29,14 @@
      def tableName = 'function_query_test'
      def jarPath = """${context.file.parent}/../jars/java-udf-case-jar-with-dependencies.jar"""
      scp_udf_file_to_all_be(jarPath)
+     scp_udf_file_to_all_fe(jarPath)
 
      log.info("Jar path: ${jarPath}".toString())
      sql """ DROP TABLE IF EXISTS ${tableName} """
-     sql """DROP FUNCTION IF EXISTS java_udf_int_test(int);"""
-     sql """DROP FUNCTION IF EXISTS udaf_my_sum_int(int);"""
-     sql """DROP FUNCTION IF EXISTS udtf_int(int);"""
-     sql """DROP FUNCTION IF EXISTS java_udf_int_test_global_2(int);"""
+     sql """DROP FUNCTION IF EXISTS function_meta_java_udf_int_test(int);"""
+     sql """DROP FUNCTION IF EXISTS function_meta_udaf_my_sum_int(int);"""
+     sql """DROP FUNCTION IF EXISTS function_meta_udtf_int(int);"""
+     sql """DROP GLOBAL FUNCTION IF EXISTS function_meta_java_udf_int_test_global(int);"""
      sql """
      CREATE TABLE IF NOT EXISTS ${tableName} (
          `user_id`     INT         NOT NULL COMMENT ""
@@ -61,27 +62,27 @@
          throw new IllegalStateException("""${jarPath} doesn't exist! """)
      }
 
-    sql """ CREATE FUNCTION java_udf_int_test(int) RETURNS int PROPERTIES (
+    sql """ CREATE FUNCTION function_meta_java_udf_int_test(int) RETURNS int PROPERTIES (
         "file"="file://${jarPath}",
         "symbol"="org.apache.doris.udf.IntTest",
         "type"="JAVA_UDF"
     ); """
 
-    sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_int(int) RETURNS BigInt PROPERTIES (
+    sql """ CREATE AGGREGATE FUNCTION function_meta_udaf_my_sum_int(int) RETURNS BigInt PROPERTIES (
         "file"="file://${jarPath}",
         "symbol"="org.apache.doris.udf.MySumInt",
         "always_nullable"="false",
         "type"="JAVA_UDF"
     ); """
 
-    sql """ CREATE TABLES FUNCTION udtf_int(int) RETURNS array<int> PROPERTIES (
+    sql """ CREATE TABLES FUNCTION function_meta_udtf_int(int) RETURNS array<int> PROPERTIES (
         "file"="file://${jarPath}",
         "symbol"="org.apache.doris.udf.UDTFIntTest",
         "always_nullable"="true",
         "type"="JAVA_UDF"
     ); """
 
-    sql """ CREATE GLOBAL FUNCTION java_udf_int_test_global_2(int) RETURNS int PROPERTIES (
+    sql """ CREATE GLOBAL FUNCTION function_meta_java_udf_int_test_global(int) RETURNS int PROPERTIES (
         "file"="file://${jarPath}",
         "symbol"="org.apache.doris.udf.IntTest",
         "type"="JAVA_UDF"

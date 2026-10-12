@@ -26,6 +26,7 @@ import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
@@ -53,6 +54,7 @@ class PipelineExecutionTaskTest {
         Deencapsulation.setField(coordinatorContext, "timeoutDeadline", (Supplier<Long>) () -> 0L);
         Mockito.when(coordinatorContext.withLock(ArgumentMatchers.<Callable<Object>>any()))
                 .thenAnswer(invocation -> invocation.<Callable<Object>>getArgument(0).call());
+        Mockito.when(coordinatorContext.readCloneStatus()).thenReturn(Status.OK);
         Mockito.when(coordinatorContext.twoPhaseExecution()).thenReturn(false);
 
         MultiFragmentsPipelineTask fragmentsTask = Mockito.mock(MultiFragmentsPipelineTask.class);
@@ -83,6 +85,7 @@ class PipelineExecutionTaskTest {
         Deencapsulation.setField(coordinatorContext, "timeoutDeadline", (Supplier<Long>) () -> Long.MAX_VALUE);
         Mockito.when(coordinatorContext.withLock(ArgumentMatchers.<Callable<Object>>any()))
                 .thenAnswer(invocation -> invocation.<Callable<Object>>getArgument(0).call());
+        Mockito.when(coordinatorContext.readCloneStatus()).thenReturn(Status.OK);
         Mockito.when(coordinatorContext.twoPhaseExecution()).thenReturn(false);
 
         MultiFragmentsPipelineTask first = mockFragmentTask(10001L);
@@ -103,6 +106,41 @@ class PipelineExecutionTaskTest {
         Assertions.assertEquals(Set.of(10001L, 10002L),
                 executionTask.getDispatchedBackendIdsForAudit());
         Mockito.verify(neverAttempted, Mockito.never()).sendPhaseOneRpc(false);
+    }
+
+    @Test
+    void timeoutStatusPreventsFragmentDispatch() throws Exception {
+        CoordinatorContext coordinatorContext = Mockito.mock(CoordinatorContext.class);
+        Deencapsulation.setField(coordinatorContext, "timeoutDeadline", (Supplier<Long>) () -> Long.MAX_VALUE);
+        Mockito.when(coordinatorContext.withLock(ArgumentMatchers.<Callable<Object>>any()))
+                .thenAnswer(invocation -> invocation.<Callable<Object>>getArgument(0).call());
+        Mockito.when(coordinatorContext.readCloneStatus())
+                .thenReturn(new Status(TStatusCode.TIMEOUT, "timeout before fragment dispatch"));
+
+        MultiFragmentsPipelineTask fragmentsTask = mockFragmentTask(10001L);
+        PipelineExecutionTask executionTask = new PipelineExecutionTask(
+                coordinatorContext,
+                Mockito.mock(BackendServiceProxy.class),
+                Collections.singletonMap(Mockito.mock(BackendWorker.class), fragmentsTask));
+
+        UserException exception = Assertions.assertThrows(UserException.class, executionTask::execute);
+
+        Assertions.assertTrue(exception.getMessage().contains("timeout before fragment dispatch"));
+        Mockito.verify(fragmentsTask, Mockito.never()).sendPhaseOneRpc(ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    void loadProcessorCancelToleratesTaskPublishedBeforeLatch() {
+        LoadProcessor processor = Mockito.mock(LoadProcessor.class, Mockito.CALLS_REAL_METHODS);
+        PipelineExecutionTask task = Mockito.mock(PipelineExecutionTask.class);
+        Mockito.when(task.getChildrenTasks()).thenReturn(Collections.emptyMap());
+        Deencapsulation.setField(processor, "executionTask", java.util.Optional.of(task));
+        // AfterSetPipelineExecutionTask has not created the latch yet (Objenesis skipped the constructor).
+        Deencapsulation.setField(processor, "latch", java.util.Optional.empty());
+        // latch deliberately stays Optional.empty(): the window between executionTask publication and
+        // afterSetPipelineExecutionTask creating the latch must not throw out of the coordinator cleanup.
+        Assertions.assertDoesNotThrow(() ->
+                processor.cancel(new Status(TStatusCode.TIMEOUT, "cancel during publication")));
     }
 
     private static MultiFragmentsPipelineTask mockFragmentTask(long backendId) {

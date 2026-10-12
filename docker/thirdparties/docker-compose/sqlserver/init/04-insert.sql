@@ -132,3 +132,23 @@ Insert into dbo.test_date_filter values
 (3, '2024-12-31', '2024-12-31 23:59:59', '2024-12-31 23:59:59.999'),
 (4, '2023-01-17', '2023-01-17 08:00:00', '2023-01-17 08:00:00'),
 (5, '2025-03-15', '2025-03-15 12:00:00', '2025-03-15 12:00:00.500');
+
+-- Alias typed columns, see #67793
+Insert into dbo.test_alias_type values
+(1, 'plain', 'alias', 'alias varchar max', 'alias nvarchar', 'alias nvarchar max', 'Doris', 'Doris', 'alias text', 'alias ntext',
+ 1, 255, 32767, 1, 9223372036854775807, 123.123, 1.5, 12345.67, 1234567890123456789012345678.0123456789, 123.4567, 214748.3647,
+ '2023-01-17', '16:49:05.1234567', '2023-01-17 16:49:05', '2023-01-17 10:30:45.123', '2023-01-17 16:49:05.1234567', '2023-01-17 16:49:05',
+ 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF', 'sysname value'),
+(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+ NULL, NULL, NULL, NULL, NULL, NULL,
+ NULL, NULL);
+
+Insert into dbo.test_alias_identity (val) values ('first'), ('second');
+
+Insert into dbo.test_alias_name (alias_named_int_col, alias_named_decimal_identity_col, alias_named_int_identity_col)
+values ('not an int', 'not a decimal', 'not an id');
+
+Insert into dbo.test_alias_unsupported values
+(1, 'plain', 0x01, 0x0102, 0x03, '2023-01-17 16:49:05 +08:00', 1, '<a/>', geometry::STGeomFromText('POINT (1 2)', 0), hierarchyid::GetRoot()),
+(2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);

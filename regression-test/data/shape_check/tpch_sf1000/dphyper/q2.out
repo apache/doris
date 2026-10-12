@@ -19,7 +19,7 @@ PhysicalResultSink
 --------------------------filter((region.r_name = 'EUROPE'))
 ----------------------------PhysicalOlapScan[region]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey) and (partsupp.ps_supplycost = min(ps_supplycost))) otherCondition=() build RFs:RF4 p_partkey->ps_partkey;RF5 min(ps_supplycost)->ps_supplycost
+------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey) and (partsupp.ps_supplycost = min(ps_supplycost))) otherCondition=() build RFs:RF4 min(ps_supplycost)->ps_supplycost;RF5 p_partkey->ps_partkey
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[partsupp] apply RFs: RF4 RF5
 --------------------PhysicalProject

@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -332,10 +331,7 @@ public class VariantSubPathPruning implements CustomRewriter {
                         } else {
                             pushDownExpr = constExpr;
                         }
-                        for (int sp = entry.getKey().size() - 1; sp >= 0; sp--) {
-                            VarcharLiteral path = new VarcharLiteral(entry.getKey().get(sp));
-                            pushDownExpr = new ElementAt(pushDownExpr, path);
-                        }
+                        pushDownExpr = constructElementAt(pushDownExpr, entry.getKey());
                         constExprs.get(j).add(new Alias(pushDownExpr));
 
                     }
@@ -610,11 +606,7 @@ public class VariantSubPathPruning implements CustomRewriter {
             Set<List<String>> subPaths = context.slotToSubPathsMap
                     .get((SlotReference) projection.toSlot());
             for (List<String> subPath : subPaths) {
-                Expression pushDownExpr = child;
-                for (int i = subPath.size() - 1; i >= 0; i--) {
-                    VarcharLiteral path = new VarcharLiteral(subPath.get(i));
-                    pushDownExpr = new ElementAt(pushDownExpr, path);
-                }
+                Expression pushDownExpr = constructElementAt(child, subPath);
                 Alias alias = new Alias(pushDownExpr);
                 newProjections.add(alias);
                 subPathToSlot.put(subPath, (SlotReference) alias.toSlot());
@@ -781,6 +773,15 @@ public class VariantSubPathPruning implements CustomRewriter {
         }
     }
 
+    /** Build nested ElementAt expressions from a canonical root-to-leaf sub-path. */
+    protected static Expression constructElementAt(Expression root, List<String> subPath) {
+        Expression result = root;
+        for (String path : subPath) {
+            result = new ElementAt(result, new VarcharLiteral(path));
+        }
+        return result;
+    }
+
     protected static Pair<SlotReference, List<String>> extractSlotToSubPathPair(ElementAt elementAt) {
         List<String> subPath = Lists.newArrayList();
         while (true) {
@@ -790,14 +791,13 @@ public class VariantSubPathPruning implements CustomRewriter {
             if (!(elementAt.left() instanceof ElementAt || elementAt.left() instanceof SlotReference)) {
                 return null;
             }
+            // Storage sub-paths address object keys only. An integer index selects an array element of the
+            // VARIANT value, so the sub-path stops before it and the index is applied to the extracted value.
             Expression key = elementAt.right();
-            if (key instanceof StringLikeLiteral) {
-                subPath.add(((StringLikeLiteral) key).getStringValue());
-            } else if (key instanceof Literal && key.getDataType().isIntegerLikeType()) {
-                subPath.add(((Literal) key).getStringValue());
-            } else {
+            if (!(key instanceof StringLikeLiteral)) {
                 return null;
             }
+            subPath.add(((StringLikeLiteral) key).getStringValue());
             if (elementAt.left() instanceof SlotReference) {
                 // ElementAt's left child is SlotReference
                 // reverse subPath because we put them by reverse order

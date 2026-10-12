@@ -16,305 +16,278 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
+import java.util.concurrent.TimeUnit
 
 suite("test_delete_bitmap_lock_with_restart", "docker") {
     if (!isCloudMode()) {
         return
     }
-    def options = new ClusterOptions()
-    options.feConfigs += [
-            'cloud_cluster_check_interval_second=1',
-            'sys_log_verbose_modules=org',
-            'heartbeat_interval_second=1'
-    ]
-    options.setFeNum(1)
-    options.setBeNum(1)
-    options.enableDebugPoints()
-    options.cloudMode = true
+    final String LOAD_BARRIER = "CloudEngineCalcDeleteBitmapTask.handle.block_for_restart"
+    final String JOB_BARRIER = "CloudMetaMgr.get_delete_bitmap_update_lock.block_for_restart"
+    final int LOCK_TTL_SECONDS = 60
+    final int RECOVERY_TIMEOUT_SECONDS = 180
 
-    def customFeConfig1 = [meta_service_rpc_retry_times: 5]
-    def tableName = "tbl_basic"
-    def do_stream_load = {
-        streamLoad {
-            table "${tableName}"
+    // Isolate all six combinations: a failed/restarted operation must not supply another
+    // scenario's lock, debug point, rowsets or schema-change state.
+    ["load", "compaction", "schema_change"].each { operation ->
+        ["fe", "be"].each { restartNode ->
+            def options = new ClusterOptions()
+            options.feNum = 1
+            options.beNum = 1
+            options.cloudMode = true
+            options.enableDebugPoints()
+            options.feConfigs += [
+                    'cloud_cluster_check_interval_second=1',
+                    'heartbeat_interval_second=1',
+                    "delete_bitmap_lock_expiration_seconds=${LOCK_TTL_SECONDS}",
+            ]
+            options.beConfigs += ["delete_bitmap_lock_expiration_seconds=${LOCK_TTL_SECONDS}"]
 
-            set 'column_separator', ','
-            set 'columns', 'id, name, score'
-            file "test_stream_load.csv"
+            docker(options) {
+                String tableName = "bitmap_restart_${operation}_${restartNode}"
+                String token = UUID.randomUUID().toString()
+                String backgroundLabel = "bitmap_background_${token}"
+                String barrier = operation == "load" ? LOAD_BARRIER : JOB_BARRIER
+                def background = null
+                def recovery = null
+                def backgroundResult = null
+                def heldLock = null
+                def lastLock = null
+                def lastTxn = null
+                def lastJob = null
+                def backend = cluster.getAllBackends()[0]
+                def ms = cluster.getAllMetaservices()[0]
+                File beLog = new File(backend.getLogFilePath())
 
-            check { result, exception, startTime, endTime ->
-                log.info("Stream load result: ${result}")
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-            }
-        }
-    }
-    //1. load
-    docker(options) {
-        sql """ drop table if exists ${tableName}; """
-
-        sql """
-        CREATE TABLE `${tableName}` (
-            `id` int(11) NOT NULL,
-            `name` varchar(10) NULL,
-            `score` int(11) NULL
-        ) ENGINE=OLAP
-        UNIQUE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-            "disable_auto_compaction" = "true",
-            "enable_unique_key_merge_on_write" = "true",
-            "replication_num" = "1"
-        );
-        """
-        do_stream_load()
-        GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep", [percent: "1.0", sleep: "15"])
-        Thread.startDaemon {
-            do_stream_load()
-        }
-        // 1. load + restart fe
-        cluster.restartFrontends()
-        def now = System.currentTimeMillis()
-        do_stream_load()
-        def time_cost = System.currentTimeMillis() - now
-        log.info("time_cost(ms): ${time_cost}")
-        assertTrue(time_cost > 30000, "wait time should bigger than 30s")
-
-        // 2. load + restart be
-
-        Thread.startDaemon {
-            do_stream_load()
-        }
-        cluster.restartBackends()
-        now = System.currentTimeMillis()
-        do_stream_load()
-        time_cost = System.currentTimeMillis() - now
-        log.info("time_cost(ms): ${time_cost}")
-        assertTrue(time_cost < 10000, "wait time should bigger than 10s")
-    }
-    //2. compaction
-    options.beConfigs += [
-            'delete_bitmap_lock_expiration_seconds=60',
-    ]
-    docker(options) {
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
-
-        def getTabletStatus = { be_host, be_http_port, tablet_id ->
-            boolean running = true
-            Thread.sleep(1000)
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/show?tablet_id=")
-            sb.append(tablet_id)
-
-            String command = sb.toString()
-            logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            out = process.getText()
-            logger.info("Get tablet status:  =" + code + ", out=" + out)
-            assertEquals(code, 0)
-            def tabletStatus = parseJson(out.trim())
-            return tabletStatus
-        }
-        def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
-            if (compact_type == "cumulative") {
-                def (code_1, out_1, err_1) = be_run_cumulative_compaction(be_host, be_http_port, tablet_id)
-                logger.info("Run compaction: code=" + code_1 + ", out=" + out_1 + ", err=" + err_1)
-                assertEquals(code_1, 0)
-                return out_1
-            } else if (compact_type == "full") {
-                def (code_2, out_2, err_2) = be_run_full_compaction(be_host, be_http_port, tablet_id)
-                logger.info("Run compaction: code=" + code_2 + ", out=" + out_2 + ", err=" + err_2)
-                assertEquals(code_2, 0)
-                return out_2
-            } else {
-                assertFalse(True)
-            }
-        }
-        def waitForCompaction = { be_host, be_http_port, tablet_id ->
-            boolean running = true
-            do {
-                Thread.sleep(100)
-                StringBuilder sb = new StringBuilder();
-                Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
-                def protocol = enableTls ? "https" : "http"
-                sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
-                sb.append("/api/compaction/run_status?tablet_id=")
-                sb.append(tablet_id)
-                if (enableTls) {
-                    sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
-                    sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
-                    sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+                def httpJson = { String address, boolean allowMissing = false, String method = "GET" ->
+                    def connection = new URL(address).openConnection()
+                    connection.requestMethod = method
+                    connection.connectTimeout = 5000
+                    connection.readTimeout = 10000
+                    try {
+                        int status = connection.responseCode
+                        String body = status >= 400 ? connection.errorStream?.text : connection.inputStream.text
+                        // get_value reports an absent KV through its error response, not a lock.
+                        if (allowMissing && body?.contains("kv not found")) {
+                            return null
+                        }
+                        assertEquals(200, status, "HTTP request failed: ${body}")
+                        return parseJson(body)
+                    } finally {
+                        connection.disconnect()
+                    }
+                }
+                def stream = { String label ->
+                    def outcome = [:]
+                    streamLoad {
+                        table tableName
+                        set 'label', label
+                        set 'timeout', '120'
+                        connectTimeout 10000
+                        socketTimeout 150000
+                        set 'column_separator', ','
+                        set 'columns', 'id, name, score'
+                        file 'test_stream_load.csv'
+                        check { result, exception, startTime, endTime ->
+                            // The interrupted request may lose its response. Its persisted
+                            // transaction state below determines the outcome, not the HTTP error.
+                            outcome = [response: result ? parseJson(result) : null, error: exception]
+                        }
+                    }
+                    return outcome
                 }
 
-                String command = sb.toString()
-                logger.info(command)
-                process = command.execute()
-                code = process.waitFor()
-                out = process.getText()
-                logger.info("Get compaction status: code=" + code + ", out=" + out)
-                if (code == 0) {
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    running = compactionStatus.run_status
-                } else {
-                    break
+                try {
+                    sql """CREATE TABLE ${tableName} (
+                        id INT NOT NULL, name VARCHAR(10), score INT
+                    ) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+                    PROPERTIES ("enable_unique_key_merge_on_write"="true",
+                                "disable_auto_compaction"="true", "replication_num"="1")"""
+                    for (int id = 1; id <= 5; id++) {
+                        sql "INSERT INTO ${tableName} VALUES (${id}, 'seed', ${id * 10})"
+                    }
+                    sql 'SYNC'
+                    def tablet = sql_return_maparray("SHOW TABLETS FROM ${tableName}")[0]
+                    long tabletId = tablet.TabletId.toString().toLong()
+                    def tabletInfo = sql_return_maparray("SHOW TABLET ${tabletId}")[0]
+                    long tableId = tabletInfo.TableId.toString().toLong()
+                    def readLock = {
+                        // The isolated Docker fixture uses the default v1 table-level lock.
+                        // Observe the persisted owner/expiration instead of inferring it from sleep.
+                        httpJson("http://${ms.host}:${ms.httpPort}/MetaService/http/get_value" +
+                                "?token=greedisgood9999&key_type=MetaDeleteBitmapUpdateLock" +
+                                "&instance_id=default_instance_id&table_id=${tableId}&partition_id=-1", true)
+                    }
+                    def compactionStatus = {
+                        httpJson("http://${backend.host}:${backend.httpPort}/api/compaction/run_status?tablet_id=${tabletId}")
+                    }
+                    def triggerCompaction = {
+                        def response = httpJson("http://${backend.host}:${backend.httpPort}/api/compaction/run" +
+                                "?tablet_id=${tabletId}&compact_type=cumulative", false, "POST")
+                        assertEquals("success", response.status.toString().toLowerCase(),
+                                "compaction submission failed: ${response}")
+                    }
+
+                    GetDebugPoint().enableDebugPointForAllBEs(barrier,
+                            [tablet_id: tabletId, table_id: tableId, token: token, timeout: 180])
+                    if (operation == "load") {
+                        background = thread("bitmap-background-${token}") {
+                            try {
+                                return stream(backgroundLabel)
+                            } catch (Exception e) {
+                                return [error: e]
+                            }
+                        }
+                    } else if (operation == "compaction") {
+                        triggerCompaction()
+                    } else {
+                        sql "ALTER TABLE ${tableName} MODIFY COLUMN score VARCHAR(100)"
+                    }
+
+                    // Both conditions are required: BE reached the targeted barrier AND MS
+                    // still records that exact owner with an unexpired lock. Starting a thread
+                    // or seeing an ALTER/compaction submission succeed is not a handshake.
+                    awaitUntil(60, 0.2) {
+                        String text = beLog.exists() ? beLog.text : ''
+                        def marker = text =~ /delete bitmap restart barrier token=${token} lock_id=(-?\d+)/
+                        if (!marker.find()) {
+                            return false
+                        }
+                        long owner = marker.group(1).toLong()
+                        lastLock = readLock()
+                        if (lastLock == null || lastLock.lock_id.toString().toLong() != owner ||
+                                lastLock.expiration.toString().toLong() <= System.currentTimeMillis().intdiv(1000)) {
+                            return false
+                        }
+                        if (operation == "load") {
+                            def transactions = sql_return_maparray("SHOW TRANSACTION WHERE LABEL='${backgroundLabel}'")
+                            if (transactions.size() != 1 || transactions[0].TransactionId.toString().toLong() != owner) {
+                                return false
+                            }
+                        }
+                        heldLock = lastLock
+                        return true
+                    }
+                    logger.info("Restart ${restartNode} during ${operation}: heldLock=${heldLock}, token=${token}")
+                    if (restartNode == "fe") {
+                        cluster.restartFrontends()
+                    } else {
+                        cluster.restartBackends()
+                    }
+                    context.reconnectFe()
+                    // FE restart leaves BE debug points intact. Release before the recovery load
+                    // so the new request cannot inherit the old artificial delay.
+                    GetDebugPoint().disableDebugPointForAllBEs(barrier)
+                    lastLock = readLock()
+                    long remainingMs = heldLock.expiration.toString().toLong() * 1000L - System.currentTimeMillis()
+                    logger.info("After restart: oldLock=${heldLock}, currentLock=${lastLock}, " +
+                            "oldLockRemainingMs=${Math.max(0L, remainingMs)}")
+
+                    // Start the competing load immediately; waiting for the old lock first
+                    // would hide a failure to recover while a stale lock is still present.
+                    long recoveryStartMs = System.currentTimeMillis()
+                    recovery = thread("bitmap-recovery-${token}") {
+                        def result = stream("bitmap_recovery_${token}")
+                        result.elapsedMs = System.currentTimeMillis() - recoveryStartMs
+                        return result
+                    }
+                    if (background != null) {
+                        backgroundResult = background.get(RECOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        logger.info("Interrupted load outcome: ${backgroundResult}")
+                        awaitUntil(RECOVERY_TIMEOUT_SECONDS) {
+                            def rows = sql_return_maparray("SHOW TRANSACTION WHERE LABEL='${backgroundLabel}'")
+                            lastTxn = rows.isEmpty() ? null : rows[0]
+                            lastTxn != null && lastTxn.TransactionStatus.toString() in ['VISIBLE', 'ABORTED']
+                        }
+                        if (backgroundResult.response?.Status?.toString()?.equalsIgnoreCase('Success')) {
+                            assertEquals('VISIBLE', lastTxn.TransactionStatus.toString())
+                        }
+                    }
+                    if (operation == "schema_change") {
+                        // Do not silently accept CANCELLED: the schema job must recover and finish.
+                        awaitUntil(RECOVERY_TIMEOUT_SECONDS) {
+                            def jobs = sql_return_maparray("SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1")
+                            lastJob = jobs.isEmpty() ? null : jobs[0]
+                            assert lastJob?.State != 'CANCELLED' : "schema change cancelled: ${lastJob}"
+                            lastJob?.State == 'FINISHED'
+                        }
+                    }
+                    // Restart may consume part or all of the lease. Accept release, replacement,
+                    // or expiry of the old owner; do not demand another fixed 10/30 seconds.
+                    awaitUntil(RECOVERY_TIMEOUT_SECONDS) {
+                        lastLock = readLock()
+                        lastLock == null || lastLock.lock_id != heldLock.lock_id ||
+                                lastLock.expiration.toString().toLong() <= System.currentTimeMillis().intdiv(1000)
+                    }
+                    try {
+                        def result = recovery.get(RECOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        assertEquals('success', result.response?.Status?.toString()?.toLowerCase(),
+                                "recovery load failed: ${result}")
+                        assertTrue(result.elapsedMs < RECOVERY_TIMEOUT_SECONDS * 1000L,
+                                "recovery load exceeded its completion budget: ${result}")
+                        awaitUntil(30) {
+                            def txns = sql_return_maparray("SHOW TRANSACTION WHERE LABEL='bitmap_recovery_${token}'")
+                            txns.size() == 1 && txns[0].TransactionStatus == 'VISIBLE'
+                        }
+                    } finally {
+                        if (!recovery.isDone()) {
+                            recovery.cancel(true)
+                        }
+                    }
+                    if (operation == "compaction") {
+                        awaitUntil(RECOVERY_TIMEOUT_SECONDS) {
+                            def status = compactionStatus()
+                            assertEquals('success', status.status.toString().toLowerCase())
+                            !status.run_status
+                        }
+                        // A BE restart kills the old in-memory compaction. Verify a fresh
+                        // compaction can complete after recovery, rather than requiring its survival.
+                        // Supply fresh deltas even if the original FE-restart compaction
+                        // finished successfully. A successful submission alone is not completion.
+                        for (int i = 0; i < 6; i++) {
+                            sql "INSERT INTO ${tableName} VALUES (1, 'seed', 10)"
+                        }
+                        sql 'SYNC'
+                        sql "SELECT SUM(CAST(score AS INT)) FROM ${tableName}"
+                        def tabletStatus = {
+                            httpJson("http://${backend.host}:${backend.httpPort}/api/compaction/show?tablet_id=${tabletId}")
+                        }
+                        def beforeRows = []
+                        awaitUntil(30) {
+                            beforeRows = tabletStatus().rowsets
+                            beforeRows != null && beforeRows.size() >= 6
+                        }
+                        triggerCompaction()
+                        awaitUntil(RECOVERY_TIMEOUT_SECONDS) {
+                            def status = compactionStatus()
+                            assertEquals('success', status.status.toString().toLowerCase())
+                            !status.run_status && tabletStatus().rowsets.size() < beforeRows.size()
+                        }
+                    }
+                    def rows = sql "SELECT id, name, CAST(score AS INT) FROM ${tableName} ORDER BY id"
+                    assertEquals([[1, 'seed', 10], [2, 'seed', 20], [3, 'seed', 30],
+                                  [4, 'seed', 40], [5, 'e', 90], [6, 'f', 100]].toString(), rows.toString())
+                } finally {
+                    logger.info("${operation}/${restartNode}: heldLock=${heldLock}, lastLock=${lastLock}, " +
+                            "lastTxn=${lastTxn}, lastJob=${lastJob}, background=${backgroundResult}")
+                    try {
+                        GetDebugPoint().disableDebugPointForAllBEs(barrier)
+                    } finally {
+                        def cleanupErrors = []
+                        [recovery, background].findAll { it != null }.each { task ->
+                            try {
+                                task.get(RECOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                            } catch (Exception e) {
+                                cleanupErrors << e
+                            } finally {
+                                if (!task.isDone()) {
+                                    task.cancel(true)
+                                }
+                            }
+                        }
+                        assert cleanupErrors.isEmpty() : "background task cleanup failed: ${cleanupErrors}"
+                    }
                 }
-            } while (running)
-        }
-
-        sql """ drop table if exists ${tableName}; """
-
-        sql """
-        CREATE TABLE `${tableName}` (
-            `id` int(11) NOT NULL,
-            `name` varchar(10) NULL,
-            `score` int(11) NULL
-        ) ENGINE=OLAP
-        UNIQUE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-            "disable_auto_compaction" = "true",
-            "enable_unique_key_merge_on_write" = "true",
-            "replication_num" = "1"
-        );
-        """
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (1, "AAA", 15);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (2, "BBB", 25);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (3, "CCC", 35);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (4, "DDD", 45);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (5, "EEE", 55);"""
-
-        GetDebugPoint().enableDebugPointForAllBEs("CloudMetaMgr.get_delete_bitmap_update_lock.inject_sleep", [percent: "1.0", sleep: "10"])
-        def tablets = sql_return_maparray "SHOW TABLETS FROM ${tableName}"
-        logger.info("tablets: " + tablets)
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
-            logger.info("tablet: " + tablet_info)
-            String trigger_backend_id = tablet.BackendId
-            getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-            assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "cumulative", tablet_id).contains("Success"))
-
-        }
-        // 1. compaction + restart fe
-        cluster.restartFrontends()
-        def now = System.currentTimeMillis()
-        do_stream_load()
-        def time_cost = System.currentTimeMillis() - now
-        log.info("time_cost(ms): ${time_cost}")
-        assertTrue(time_cost < 10000, "wait time should less than 10s")
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            String trigger_backend_id = tablet.BackendId
-            waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-            getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-        }
-        sleep(30000)
-        context.reconnectFe()
-        // 2. compaction + restart be
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (1, "AAA", 15);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (2, "BBB", 25);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (3, "CCC", 35);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (4, "DDD", 45);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (5, "EEE", 55);"""
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
-            logger.info("tablet: " + tablet_info)
-            String trigger_backend_id = tablet.BackendId
-            getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-            assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "cumulative", tablet_id).contains("Success"))
-
-        }
-        cluster.restartBackends()
-        now = System.currentTimeMillis()
-        do_stream_load()
-        time_cost = System.currentTimeMillis() - now
-        log.info("time_cost(ms): ${time_cost}")
-        assertTrue(time_cost > 10000, "wait time should less than 10s")
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            String trigger_backend_id = tablet.BackendId
-            waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-            getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-        }
-    }
-    //3. sc
-    docker(options) {
-        def getJobState = {
-            def res = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1"
-            assert res.size() == 1
-            log.info("res:" + res[0].State)
-            return res[0].State
-        }
-        sql """ drop table if exists ${tableName}; """
-
-        sql """
-        CREATE TABLE `${tableName}` (
-            `id` int(11) NOT NULL,
-            `name` varchar(10) NULL,
-            `score` int(11) NULL
-        ) ENGINE=OLAP
-        UNIQUE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-            "disable_auto_compaction" = "true",
-            "enable_unique_key_merge_on_write" = "true",
-            "replication_num" = "1"
-        );
-        """
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (1, "AAA", 15);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (2, "BBB", 25);"""
-        sql """ INSERT INTO ${tableName} (id, name, score) VALUES (3, "CCC", 35);"""
-        GetDebugPoint().enableDebugPointForAllBEs("CloudMetaMgr.get_delete_bitmap_update_lock.inject_sleep", [percent: "1.0", sleep: "10"])
-        sql "alter table ${tableName} modify column score varchar(100);"
-        // 1. sc + restart fe
-        cluster.restartFrontends()
-        context.reconnectFe()
-        for (int i = 0; i < 30; i++) {
-            log.info("i: ${i}")
-            try {
-                def now = System.currentTimeMillis()
-                sql """ INSERT INTO ${tableName} (id, name, score) VALUES (1, "AAA", 15);"""
-                def time_cost = System.currentTimeMillis() - now
-                log.info("time_cost(ms): ${time_cost}")
-                assertTrue(time_cost < 10000, "wait time should less than 10s")
-                break
-            } catch (Exception e) {
-                log.info("Exception:" + e)
-                Thread.sleep(2000)
-            }
-        }
-        int max_try_time = 30
-        while (max_try_time--) {
-            def result = getJobState(tableName)
-            if (result == "FINISHED" || result == "CANCELLED") {
-                break
-            } else {
-                Thread.sleep(1000)
-            }
-        }
-        // 2. sc + restart be
-        sql "alter table ${tableName} modify column score varchar(200);"
-        cluster.restartBackends()
-        def now = System.currentTimeMillis()
-        do_stream_load()
-        def time_cost = System.currentTimeMillis() - now
-        log.info("time_cost(ms): ${time_cost}")
-        assertTrue(time_cost > 10000, "wait time should less than 10s")
-        max_try_time = 30
-        while (max_try_time--) {
-            def result = getJobState(tableName)
-            if (result == "FINISHED" || result == "CANCELLED") {
-                break
-            } else {
-                Thread.sleep(1000)
             }
         }
     }

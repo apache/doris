@@ -52,6 +52,9 @@ public class PhysicalProperties {
     public static PhysicalProperties SINK_RANDOM_PARTITIONED
             = new PhysicalProperties(DistributionSpecHiveTableSinkUnPartitioned.INSTANCE);
 
+    public static PhysicalProperties EXTERNAL_TABLE_SINK_UNPARTITIONED
+            = new PhysicalProperties(DistributionSpecExternalTableSinkUnPartitioned.INSTANCE);
+
     // gather then broadcast to all BE with exact one instance
     public static PhysicalProperties ALL_SINGLETON = new PhysicalProperties(DistributionSpecAllSingleton.INSTANCE);
 

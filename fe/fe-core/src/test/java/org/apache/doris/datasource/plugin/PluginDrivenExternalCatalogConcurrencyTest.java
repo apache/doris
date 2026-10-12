@@ -20,6 +20,13 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheBudgetManager;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -40,6 +47,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -93,6 +101,69 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
     }
 
     @Test
+    public void testCreateRejectsIncompleteHiveHaConfiguration() {
+        Map<String, String> properties = hiveCatalogProperties();
+        properties.put("dfs.nameservices", "ns1");
+        PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                1L, "test-catalog", null, properties, "", null);
+
+        DdlException exception = Assertions.assertThrows(DdlException.class, catalog::checkProperties);
+        Assertions.assertTrue(exception.getMessage().contains("dfs.ha.namenodes.ns1"), exception.getMessage());
+    }
+
+    @Test
+    public void testAlterRejectsIncompleteHiveHaConfiguration() {
+        Map<String, String> properties = hiveCatalogProperties();
+        PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                1L, "test-catalog", null, properties, "", null);
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(properties,
+                        Collections.singletonMap("dfs.nameservices", "ns1")));
+        Assertions.assertTrue(exception.getMessage().contains("dfs.ha.namenodes.ns1"), exception.getMessage());
+    }
+
+    @Test
+    public void testAlterPreservesLegacyEmptyNameservices() throws Exception {
+        for (String nameservices : new String[] {",", " ", ""}) {
+            Map<String, String> properties = hiveCatalogProperties();
+            properties.put("dfs.nameservices", nameservices);
+            PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                    1L, "test-catalog", null, properties, "", null);
+
+            Assertions.assertTrue(catalog.validatePropertiesBeforeUpdate(properties,
+                    Collections.singletonMap("test_connection", "false")));
+            Assertions.assertEquals(nameservices, catalog.getProperties().get("dfs.nameservices"));
+        }
+    }
+
+    @Test
+    public void testDdlRejectsSubmittedEmptyNameservices() {
+        for (String nameservices : new String[] {",", " ", ""}) {
+            Map<String, String> properties = hiveCatalogProperties();
+            PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                    1L, "test-catalog", null, properties, "", null);
+            DdlException alterException = Assertions.assertThrows(DdlException.class,
+                    () -> catalog.validatePropertiesBeforeUpdate(properties,
+                            Collections.singletonMap("dfs.nameservices", nameservices)));
+            Assertions.assertTrue(alterException.getMessage().contains("dfs.nameservices"));
+
+            properties.put("dfs.nameservices", nameservices);
+            PluginDrivenExternalCatalog createCatalog = new PluginDrivenExternalCatalog(
+                    2L, "create-catalog", null, properties, "", null);
+            DdlException createException = Assertions.assertThrows(DdlException.class, createCatalog::checkProperties);
+            Assertions.assertTrue(createException.getMessage().contains("dfs.nameservices"));
+        }
+    }
+
+    private static Map<String, String> hiveCatalogProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "hms");
+        properties.put("hive.metastore.uris", "thrift://localhost:9083");
+        return properties;
+    }
+
+    @Test
     public void testPropertyUpdateInvalidatesCatalogCaches() throws Exception {
         TestablePluginCatalog catalog = new TestablePluginCatalog(
                 mockConnector("old", new ConcurrentLinkedQueue<>()));
@@ -126,6 +197,96 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
 
         Mockito.verify(cacheMgr).removeCatalog(1L);
         Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(Mockito.anyLong());
+    }
+
+    @Test
+    public void testCatalogWeightPropertyRebuildsAllCacheBudgets() throws Exception {
+        TestablePluginCatalog catalog = new TestablePluginCatalog(
+                mockConnector("old", new ConcurrentLinkedQueue<>()));
+
+        catalog.notifyPropertiesUpdated(Collections.singletonMap(
+                MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY, "1KB"));
+
+        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(Mockito.anyLong());
+    }
+
+    @Test
+    public void testPluginEntryWeightPropertyReliesOnConnectorRebuild() throws Exception {
+        TestablePluginCatalog catalog = new TestablePluginCatalog(
+                mockConnector("old", new ConcurrentLinkedQueue<>()));
+
+        catalog.notifyPropertiesUpdated(Collections.singletonMap(
+                "meta.cache.iceberg.table.max-weight", "1KB"));
+
+        Mockito.verify(cacheMgr).isEngineRegistered("iceberg");
+        Mockito.verify(cacheMgr, Mockito.never()).removeCatalogByEngine(Mockito.anyLong(), Mockito.anyString());
+        Mockito.verify(cacheMgr).invalidateCatalog(1L);
+        Mockito.verify(cacheMgr, Mockito.never()).removeCatalog(Mockito.anyLong());
+    }
+
+    @Test
+    public void testCatalogBudgetRetiresBeforeResetAllowsInitialization() throws Exception {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(8192L));
+        try (CatalogMetaCache oldCore = new CatalogMetaCache(manager, 1L, "default",
+                Collections.singletonMap("meta.cache.max-weight", "4KB"))) {
+            MetaCache<String, String> oldEntry = oldCore.create(MetaCacheDefinition
+                    .<String, String>builder("schema", CacheSpec.of(true, -1L, 100L),
+                            ignored -> ScopePath.catalog())
+                    .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(512L)).build());
+            oldEntry.put("key", "old");
+            AtomicReference<CatalogMetaCache> replacement = new AtomicReference<>();
+            TestablePluginCatalog catalog = new TestablePluginCatalog(
+                    mockConnector("old", new ConcurrentLinkedQueue<>())) {
+                @Override
+                public void onRefreshCache(boolean invalidCache) {
+                    super.onRefreshCache(invalidCache);
+                    // This callback is the first point outside the reset monitor where a query can initialize.
+                    makeSureInitialized();
+                }
+            };
+            catalog.setConnectorSupplier(() -> {
+                CatalogMetaCache next = new CatalogMetaCache(manager, 1L, "iceberg",
+                        Collections.singletonMap("meta.cache.max-weight", "2KB"));
+                replacement.set(next);
+                next.create(MetaCacheDefinition.<String, String>builder("table",
+                        CacheSpec.of(true, -1L, 100L), ignored -> ScopePath.catalog())
+                        .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(512L)).build());
+                return Mockito.mock(Connector.class);
+            });
+            Mockito.doAnswer(invocation -> {
+                Assertions.assertTrue(Thread.holdsLock(catalog),
+                        "core budget retirement must be fenced against makeSureInitialized");
+                oldCore.close();
+                return null;
+            }).when(cacheMgr).removeCatalog(1L);
+
+            try {
+                catalog.modifyCatalogPropsWithDeferredAccessControllerCleanup(
+                        Collections.singletonMap("meta.cache.max-weight", "2KB")).run();
+                Assertions.assertNotNull(replacement.get());
+                Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
+            } finally {
+                if (replacement.get() != null) {
+                    replacement.get().close();
+                }
+                catalog.onClose();
+            }
+        }
+    }
+
+    @Test
+    public void testCoreEntryWeightPropertyRebuildsRegisteredEngineCache() throws Exception {
+        Mockito.when(cacheMgr.isEngineRegistered("default")).thenReturn(true);
+        TestablePluginCatalog catalog = new TestablePluginCatalog(
+                mockConnector("old", new ConcurrentLinkedQueue<>()));
+
+        catalog.notifyPropertiesUpdated(Collections.singletonMap(
+                "meta.cache.default.schema.max-weight", "1KB"));
+
+        Mockito.verify(cacheMgr, Mockito.times(1)).removeCatalogByEngine(1L, "default");
+        Mockito.verify(cacheMgr).invalidateCatalog(1L);
+        Mockito.verify(cacheMgr, Mockito.never()).removeCatalog(Mockito.anyLong());
     }
 
     /**

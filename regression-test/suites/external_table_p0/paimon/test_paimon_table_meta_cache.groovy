@@ -99,6 +99,7 @@ suite("test_paimon_table_meta_cache", "p0,external") {
 
         spark_paimon "INSERT INTO paimon.${testDb}.test_insert VALUES (2, 'external_insert')"
 
+        // The cached catalog keeps reading the latest snapshot it cached until REFRESH (or its TTL).
         sql """switch ${catalogWithCache}"""
         def result2 = sql """select * from ${testDb}.test_insert order by id"""
         assertEquals(1, result2.size())

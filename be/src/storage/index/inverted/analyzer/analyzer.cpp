@@ -185,9 +185,16 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
 }
 
 AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(
-        const InvertedIndexAnalyzerConfig* config) {
+        const InvertedIndexAnalyzerConfig* config, std::string* resolved_name,
+        std::string* legacy_name) {
     DCHECK(config != nullptr);
+    if (legacy_name != nullptr) {
+        legacy_name->clear();
+    }
     if (config->analyzer_name.empty() || is_builtin_analyzer(config->analyzer_name)) {
+        if (resolved_name != nullptr) {
+            *resolved_name = config->analyzer_name;
+        }
         return std::make_shared<BuiltinAnalyzerProvider>(*config);
     }
 
@@ -196,8 +203,8 @@ AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Index policy manager is not initialized");
     }
-    return index_policy_mgr->get_analyzer_provider_by_name(config->analyzer_name,
-                                                           config->char_filter_map);
+    return index_policy_mgr->get_analyzer_provider_by_name(
+            config->analyzer_name, config->char_filter_map, resolved_name, legacy_name);
 }
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(

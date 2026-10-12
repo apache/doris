@@ -449,6 +449,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
         req.setTaskId(String.valueOf(taskSeq.incrementAndGet()));
         req.setTargetDb(targetDb);
         req.setToken("test-token");
+        req.setDorisUser("cdc_job_user");
         req.setMaxInterval(3);
         req.setTaskTimeoutMs(60_000);
         req.setRebuildReader(rebuildReaderOnNextWrite);

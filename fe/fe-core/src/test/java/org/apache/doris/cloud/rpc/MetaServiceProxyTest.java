@@ -140,6 +140,25 @@ public class MetaServiceProxyTest {
     }
 
     @Test
+    public void testExecuteRequestCanDisableRpcFailureRetry() {
+        Config.meta_service_rpc_retry_cnt = 3;
+        MetaServiceProxy proxy = new MetaServiceProxy();
+        MetaServiceClient client = mockNormalClient();
+        Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
+        serviceMap.put(Config.meta_service_endpoint, client);
+        MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
+        AtomicInteger callCount = new AtomicInteger();
+
+        Assertions.assertThrows(RpcException.class, () -> wrapper.executeRequest("commitTxn", ignored -> {
+            callCount.incrementAndGet();
+            throw new RuntimeException("rpc failed");
+        }, Cloud.CommitTxnResponse::getStatus, false));
+
+        Assertions.assertEquals(1, callCount.get());
+        Mockito.verify(client).shutdown(true);
+    }
+
+    @Test
     public void testGetVisibleVersionAsyncShutdownOnFailure() throws RpcException {
         MetaServiceProxy proxy = new MetaServiceProxy();
         MetaServiceClient client = mockNormalClient();

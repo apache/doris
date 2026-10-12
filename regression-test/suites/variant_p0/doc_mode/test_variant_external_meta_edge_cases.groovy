@@ -16,7 +16,7 @@
 // under the License.
 
 suite("variant_external_meta_doc_value", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_doc_mode = true """
     def set_be_config = { key, value ->
         String backend_id;
@@ -25,8 +25,8 @@ suite("variant_external_meta_doc_value", "p0") {
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
         backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), 
-                                                backendId_to_backendHttpPort.get(backend_id), 
+        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id),
+                                                backendId_to_backendHttpPort.get(backend_id),
                                                 key, value)
         logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
@@ -42,7 +42,7 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     // Generate JSON with 100 subcolumns
     def generateLargeJson = { int numFields ->
         def fields = []
@@ -51,7 +51,7 @@ suite("variant_external_meta_doc_value", "p0") {
         }
         return "{" + fields.join(", ") + "}"
     }
-    
+
     // external meta enabled by table property
     // Insert rows with different numbers of subcolumns
     for (int row = 0; row < 10; row++) {
@@ -59,7 +59,7 @@ suite("variant_external_meta_doc_value", "p0") {
         def json = generateLargeJson(numFields)
         sql """insert into test_many_subcolumns values (${row}, ${variantV2Function}('${json}'))"""
     }
-    
+
     qt_many_1 "select k, v['field_0'] from test_many_subcolumns order by k"
     qt_many_2 "select k, v['field_50'] from test_many_subcolumns where cast(v['field_50'] as int) is not null order by k"
     qt_many_3 "select k, v['field_99'] from test_many_subcolumns where cast(v['field_99'] as int) is not null order by k"
@@ -76,25 +76,25 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     // Write with old format (V2)
     sql """insert into test_mixed_format values (1, ${variantV2Function}('{"a": 1, "b": 2}'))"""
     sql """insert into test_mixed_format values (2, ${variantV2Function}('{"a": 10, "c": 3}'))"""
-    
+
     // Switch to new format (V2.1) and write more rows
     sql """insert into test_mixed_format values (3, ${variantV2Function}('{"a": 100, "d": 4}'))"""
     sql """insert into test_mixed_format values (4, ${variantV2Function}('{"a": 1000, "e": 5}'))"""
-    
+
     // Query should work across all segments
     qt_mixed_1 "select k, v['a'] from test_mixed_format order by k"
     qt_mixed_2 "select k, v['b'] from test_mixed_format where cast(v['b'] as int) is not null order by k"
     qt_mixed_3 "select k, v['c'] from test_mixed_format where cast(v['c'] as int) is not null order by k"
     qt_mixed_4 "select k, v['d'] from test_mixed_format where cast(v['d'] as int) is not null order by k"
     qt_mixed_5 "select k, v['e'] from test_mixed_format where cast(v['e'] as int) is not null order by k"
-    
+
     // Trigger compaction and verify
     trigger_and_wait_compaction("test_mixed_format", "full")
-    
+
     qt_mixed_after_compact_1 "select k, v['a'] from test_mixed_format order by k"
     qt_mixed_after_compact_2 "select count(distinct k) from test_mixed_format"
 
@@ -109,12 +109,12 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     sql """insert into test_nested_external values (1, ${variantV2Function}('{"nested": {"level1": {"level2": "value"}}}'))"""
     sql """insert into test_nested_external values (2, ${variantV2Function}('{"nested": {"level1": {"level2": "value2", "level2_b": 123}}}'))"""
     sql """insert into test_nested_external values (3, ${variantV2Function}('{"nested": {"level1": null}}'))"""
     sql """insert into test_nested_external values (4, ${variantV2Function}('{"nested": null}'))"""
-    
+
     qt_nested_1 "select k, v['nested']['level1']['level2'] from test_nested_external order by k"
     qt_nested_2 "select k, v['nested']['level1']['level2_b'] from test_nested_external where cast(v['nested']['level1']['level2_b'] as int) is not null order by k"
     qt_nested_3 "select k from test_nested_external where v['nested'] is not null order by k"
@@ -131,12 +131,12 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     sql """insert into test_array_external values (1, ${variantV2Function}('{"arr": [1, 2, 3]}'))"""
     sql """insert into test_array_external values (2, ${variantV2Function}('{"arr": [10, 20, 30, 40]}'))"""
     sql """insert into test_array_external values (3, ${variantV2Function}('{"arr": []}'))"""
     sql """insert into test_array_external values (4, ${variantV2Function}('{"arr": null}'))"""
-    
+
     qt_array_1 "select k, sort_json_object_keys(cast(v['arr'] as json)) from test_array_external order by k"
     qt_array_2 "select k from test_array_external where v['arr'] is not null order by k"
 
@@ -151,18 +151,18 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     sql """insert into test_schema_evolution values (1, ${variantV2Function}('{"a": 1}'))"""
-    
+
     // Segment 2: add field 'b'
     sql """insert into test_schema_evolution values (2, ${variantV2Function}('{"a": 2, "b": 2}'))"""
-    
+
     // Segment 3: add field 'c'
     sql """insert into test_schema_evolution values (3, ${variantV2Function}('{"a": 3, "b": 3, "c": 3}'))"""
-    
+
     // Segment 4: completely different schema
     sql """insert into test_schema_evolution values (4, ${variantV2Function}('{"x": 10, "y": 20}'))"""
-    
+
     qt_evolution_1 "select k, v['a'] from test_schema_evolution order by k"
     qt_evolution_2 "select k, v['b'] from test_schema_evolution order by k"
     qt_evolution_3 "select k, v['c'] from test_schema_evolution order by k"
@@ -180,11 +180,11 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     sql """insert into test_special_chars values (1, ${variantV2Function}('{"field-with-dash": 1}'))"""
     sql """insert into test_special_chars values (2, ${variantV2Function}('{"field.with.dot": 2}'))"""
     sql """insert into test_special_chars values (3, ${variantV2Function}('{"field_with_underscore": 3}'))"""
-    
+
     qt_special_1 "select k, v['field-with-dash'] from test_special_chars where cast(v['field-with-dash'] as int) is not null order by k"
     qt_special_2 "select k, v['field.with.dot'] from test_special_chars where cast(v['field.with.dot'] as int) is not null order by k"
     qt_special_3 "select k, v['field_with_underscore'] from test_special_chars where cast(v['field_with_underscore'] as int) is not null order by k"
@@ -200,11 +200,11 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     sql """insert into test_null_handling values (1, ${variantV2Function}('{"a": null}'))"""
     sql """insert into test_null_handling values (2, ${variantV2Function}('{"a": 1}'))"""
     sql """insert into test_null_handling values (3, null)"""
-    
+
     qt_null_1 "select k, v['a'] from test_null_handling order by k"
     qt_null_2 "select k from test_null_handling where v is null order by k"
     qt_null_3 "select k from test_null_handling where v['a'] is null order by k"
@@ -221,11 +221,11 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     def largeString = "x" * 10000  // 10KB string
     sql """insert into test_large_strings values (1, ${variantV2Function}('{"large_field": "${largeString}"}'))"""
     sql """insert into test_large_strings values (2, ${variantV2Function}('{"large_field": "small"}'))"""
-    
+
     qt_large_1 "select k, length(cast(v['large_field'] as string)) from test_large_strings order by k"
     qt_large_2 "select k from test_large_strings where length(cast(v['large_field'] as string)) > 100 order by k"
 
@@ -240,24 +240,24 @@ suite("variant_external_meta_doc_value", "p0") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "storage_format" = "V3");
     """
-    
+
     // Start with new format (V2.1)
     sql """insert into test_config_toggle values (1, ${variantV2Function}('{"a": 1}'))"""
-    
+
     // Switch to legacy (V2)
     sql """insert into test_config_toggle values (2, ${variantV2Function}('{"a": 2, "b": 2}'))"""
-    
+
     // Enable again (V2.1)
     sql """insert into test_config_toggle values (3, ${variantV2Function}('{"a": 3, "b": 3, "c": 3}'))"""
-    
+
     // All queries should work regardless of config state
     qt_toggle_1 "select k, v['a'] from test_config_toggle order by k"
     qt_toggle_2 "select k, v['b'] from test_config_toggle where cast(v['b'] as int) is not null order by k"
     qt_toggle_3 "select k, v['c'] from test_config_toggle where cast(v['c'] as int) is not null order by k"
-    
+
     // Compact and verify
     trigger_and_wait_compaction("test_config_toggle", "full")
-    
+
     qt_toggle_after_compact_1 "select k, v['a'] from test_config_toggle order by k"
     qt_toggle_after_compact_2 "select k, v['b'] from test_config_toggle where cast(v['b'] as int) is not null order by k"
 
@@ -272,5 +272,5 @@ suite("variant_external_meta_doc_value", "p0") {
     sql "DROP TABLE IF EXISTS test_null_handling"
     sql "DROP TABLE IF EXISTS test_large_strings"
     sql "DROP TABLE IF EXISTS test_config_toggle"
-    
+
 }

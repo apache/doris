@@ -84,6 +84,51 @@ Status Crc32CHashPartitioner::clone(RuntimeState* state,
     return _clone_expr_ctxs(state, new_partitioner->_partition_expr_ctxs);
 }
 
+HashPartitionFunction::HashPartitionFunction(HashValType partition_count,
+                                             ShuffleHashMethod hash_method)
+        : _partition_count(partition_count), _hash_method(hash_method) {}
+
+Status HashPartitionFunction::init(const std::vector<TExpr>& texprs) {
+    if (_hash_method == ShuffleHashMethod::CRC32C) {
+        _partitioner = std::make_unique<Crc32CHashPartitioner>(_partition_count);
+    } else {
+        _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_partition_count);
+    }
+    return _partitioner->init(texprs);
+}
+
+Status HashPartitionFunction::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
+    return _partitioner->prepare(state, row_desc);
+}
+
+Status HashPartitionFunction::open(RuntimeState* state) {
+    return _partitioner->open(state);
+}
+
+Status HashPartitionFunction::close(RuntimeState* state) {
+    return _partitioner->close(state);
+}
+
+Status HashPartitionFunction::get_partitions(RuntimeState* state, Block* block,
+                                             size_t partition_count,
+                                             std::vector<HashValType>& partitions) const {
+    if (partition_count != _partition_count) {
+        return Status::InvalidArgument("Hash partition count {} does not match planned count {}",
+                                       partition_count, _partition_count);
+    }
+    RETURN_IF_ERROR(_partitioner->do_partitioning(state, block));
+    partitions = _partitioner->get_channel_ids();
+    return Status::OK();
+}
+
+Status HashPartitionFunction::clone(RuntimeState* state,
+                                    std::unique_ptr<PartitionFunction>& function) const {
+    auto cloned = std::make_unique<HashPartitionFunction>(_partition_count, _hash_method);
+    RETURN_IF_ERROR(_partitioner->clone(state, cloned->_partitioner));
+    function = std::move(cloned);
+    return Status::OK();
+}
+
 template class Crc32HashPartitioner<ShuffleChannelIds>;
 template class Crc32HashPartitioner<SpillPartitionChannelIds>;
 template class Crc32HashPartitioner<SpillRePartitionChannelIds>;

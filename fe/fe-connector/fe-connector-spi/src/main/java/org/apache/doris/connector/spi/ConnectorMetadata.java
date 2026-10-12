@@ -99,6 +99,46 @@ public interface ConnectorMetadata extends
     }
 
     /**
+     * Whether {@link #listPartitions} reads the pin carried by a snapshot-applied handle, so that a
+     * {@code FOR TIME/VERSION AS OF} query can be told which partitions existed AT that pin.
+     *
+     * <p>Point-in-time time travel otherwise pins with EMPTY partition maps, because a partition set
+     * listed at LATEST is the wrong universe for a past snapshot in both directions: it hides a
+     * partition that has since been dropped (pruning it away loses rows) and invents ones created
+     * after the pin. Empty is the safe answer — the generic scan node reads it as scan-all and lets
+     * the connector's own predicate pushdown do the pruning — but it costs the query its partition
+     * pruning and makes EXPLAIN report {@code partition=0/0} for a scan that reads everything.</p>
+     *
+     * <p>A connector that answers true promises that {@code listPartitions} on the handle returned by
+     * {@link #applySnapshot} enumerates exactly the partitions with data at that pin. The generic
+     * model then pins the real partition set and both pruning and {@code partition=N/M} become
+     * truthful. The default is false: a connector whose listing is snapshot-blind keeps the empty pin,
+     * which is correct, just coarse.</p>
+     *
+     * <p><b>A SECOND PROMISE COMES WITH IT, and it is easy to miss:</b> the AT-SNAPSHOT schema this
+     * connector returns from {@link #getTableSchema(ConnectorSession, ConnectorTableHandle,
+     * ConnectorMvccSnapshot)} must declare, through {@code ConnectorTableSchema.PARTITION_COLUMNS_KEY},
+     * partition columns that MATCH the values that pinned listing produces - same count, in the same
+     * order, each parseable into the column's type. That schema is what types the pinned partition
+     * items, because it is the schema this snapshot publishes; the latest schema may partition the
+     * table differently.</p>
+     *
+     * <p>Breaking that promise degrades quietly rather than failing: each mismatched partition is
+     * skipped inside a per-partition catch, the pinned item map ends up shorter than the listed name
+     * set, and the table is reported UNPARTITIONED. Rows are still correct - pruning and
+     * {@code partition=N/M} are what is lost. Two signals in the log: one WARN per skipped
+     * partition, and - when EVERY partition was skipped, which is what a schema that never matched
+     * produces as opposed to iceberg spec evolution - one aggregate WARN naming both counts and the
+     * partition columns, from {@code PluginDrivenMvccExternalTable}. Note
+     * that a connector whose at-snapshot schema resolution can degrade to an empty column list on
+     * error - hudi's {@code getSchemaFromMetaClient} swallows a failed metadata read into one -
+     * produces exactly this shape from a transient fault.</p>
+     */
+    default boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        return false;
+    }
+
+    /**
      * Whole-table MTMV freshness for a connector whose table-level change signal is a last-modified
      * TIMESTAMP rather than a snapshot id (e.g. hive: {@code transient_lastDdlTime} / the max partition
      * modify time). The generic model wraps the result in an {@code MTMVMaxTimestampSnapshot} table snapshot.

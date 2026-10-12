@@ -429,6 +429,42 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
+    public void testDropTemporaryTableNeverDropsPermanentExternalTable() {
+        // An external catalog hosts no temporary tables, so the name resolves to the permanent table.
+        // DROP TEMPORARY TABLE must report the missing temporary table and leave the permanent one alone.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> catalog.dropTable("db1", "t1", false, false, false, false, true, false));
+        Assertions.assertTrue(ex.getMessage().contains("Unknown table"), ex.getMessage());
+        Mockito.verifyNoInteractions(metadata);
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testDropTemporaryTableIfExistsIsNoopAndKeepsPermanentExternalTable() throws Exception {
+        // With IF EXISTS the missing temporary table is a no-op; the permanent table must survive.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
+        catalog.dropTable("db1", "t1", false, false, false, true, true, false);
+
+        Mockito.verifyNoInteractions(metadata);
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void testDropTableHandleAbsentAfterLocalResolveCleansLocalStateWithIfExists() throws Exception {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         ExternalTable table = Mockito.mock(ExternalTable.class);

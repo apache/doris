@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
+import org.apache.doris.regression.util.NodeType
 import groovy.json.JsonSlurper
 
 // Covers a two-part bug on the event-driven warm-up path:
@@ -43,7 +44,11 @@ suite('test_warm_up_cluster_event_cancel_expired', 'docker') {
         'file_cache_enter_disk_resource_limit_mode_percent=99',
         'enable_evict_file_cache_in_advance=false',
         'file_cache_background_monitor_interval_ms=1000',
+        // Expire cached replica locations before the post-cancel INSERTs so
+        // source BE must ask FE again and consume the CANCELLED status.
+        'warmup_tablet_replica_info_cache_ttl_sec=5',
     ]
+    options.enableDebugPoints()
     options.cloudMode = true
 
     def clearFileCache = { ip, port ->
@@ -77,16 +82,20 @@ suite('test_warm_up_cluster_event_cancel_expired', 'docker') {
         }
     }
 
-    def getSkippedRowsetSum = { cluster ->
+    def getMetricSum = { cluster, metric ->
         def backends = sql """SHOW BACKENDS"""
         def cluster_bes = backends.findAll {
             it[19].contains("""\"compute_group_name\" : \"${cluster}\"""")
         }
         long sum = 0
         for (be in cluster_bes) {
-            sum += getBrpcMetrics(be[1], be[5], "file_cache_event_driven_warm_up_skipped_rowset_num")
+            sum += getBrpcMetrics(be[1], be[5], metric)
         }
         return sum
+    }
+
+    def getSkippedRowsetSum = { cluster ->
+        return getMetricSum(cluster, "file_cache_event_driven_warm_up_skipped_rowset_num")
     }
 
     docker(options) {
@@ -124,27 +133,55 @@ suite('test_warm_up_cluster_event_cancel_expired', 'docker') {
         }
         sleep(5000)
 
-        // 3. Cancel the job. After the fix, BE sees TStatus.CANCELLED on
-        //    the next get_replica_info and drops the job from
-        //    _tablet_replica_cache; before the fix (CANCELED typo) it
-        //    would keep the entry.
-        sql """CANCEL WARM UP JOB WHERE ID = ${jobId}"""
+        // 3. Ignore the proactive CLEAR_JOB on source BE so this case
+        //    exercises the passive cleanup path: after replica-info cache
+        //    expiry, get_replica_info asks FE and receives TStatus.CANCELLED.
+        def sourceBes = sql("""SHOW BACKENDS""").findAll {
+            it[19].contains("""\"compute_group_name\" : \"${clusterSrc}\"""")
+        }
+        assertFalse(sourceBes.isEmpty(), "source cluster should have at least one BE")
+        def activeJobsBeforeCancel = getMetricSum(clusterSrc, "file_cache_warm_up_job_num")
+        assertTrue(activeJobsBeforeCancel > 0, "source BE should hold the event-driven job")
+        try {
+            for (be in sourceBes) {
+                GetDebugPoint().enableDebugPoint(be[1].toString(), be[4] as int, NodeType.BE,
+                        "CloudWarmUpManager.set_event.ignore_all")
+            }
+            sql """CANCEL WARM UP JOB WHERE ID = ${jobId}"""
+        } finally {
+            for (be in sourceBes) {
+                GetDebugPoint().disableDebugPoint(be[1].toString(), be[4] as int, NodeType.BE,
+                        "CloudWarmUpManager.set_event.ignore_all")
+            }
+        }
         def st = sql """SHOW WARM UP JOB WHERE ID = ${jobId}"""
         assertEquals("CANCELLED", st[0][3])
+        def activeJobsAfterCancel = getMetricSum(clusterSrc, "file_cache_warm_up_job_num")
+        assertEquals(activeJobsBeforeCancel, activeJobsAfterCancel,
+                "ignored CLEAR_JOB should leave the source BE cache intact")
+        sleep(6000)
 
-        // 4. One more batch so BE actually sees the CANCELLED status
-        //    and (with the fix) purges its cache entry.
+        // 4. Waited past the 5s replica-info TTL after cancellation.
+        //    The next batch makes source BE observe CANCELLED and purge the job.
         for (int i = 0; i < 20; i++) {
             sql """INSERT INTO t_exp VALUES (${100 + i}, 'y')"""
         }
-        sleep(5000)
+        def activeJobsAfterPassiveCleanup = getMetricSum(clusterSrc, "file_cache_warm_up_job_num")
+        for (int i = 0; i < 20 && activeJobsAfterPassiveCleanup >= activeJobsAfterCancel; i++) {
+            sleep(500)
+            activeJobsAfterPassiveCleanup = getMetricSum(clusterSrc, "file_cache_warm_up_job_num")
+        }
+        assertTrue(activeJobsAfterPassiveCleanup < activeJobsAfterCancel,
+                "source BE should remove the job after receiving TStatus.CANCELLED, " +
+                "before=${activeJobsAfterCancel} after=${activeJobsAfterPassiveCleanup}")
 
         // 5. Baseline for the skipped-rowset counter. After BE has
         //    cleaned its cache, subsequent warm_up_rowset calls return
         //    early (empty replicas -> "skipping rowset") and bump this
-        //    counter on every commit. If the typo is unfixed the counter
-        //    stays flat because BE keeps calling FE.
-        def skippedBaseline = getSkippedRowsetSum(clusterDst)
+        //    counter on every commit.
+        // warm_up_rowset is invoked by the BE committing source rowsets, so
+        // this metric belongs to the source cluster rather than the target.
+        def skippedBaseline = getSkippedRowsetSum(clusterSrc)
         logger.info("skipped_rowset baseline=${skippedBaseline}")
 
         // 6. Wait past history_cloud_warm_up_job_keep_max_second plus one
@@ -160,13 +197,16 @@ suite('test_warm_up_cluster_event_cancel_expired', 'docker') {
                     logger.info("job ${jobId} removed from FE after ${i}s")
                     break
                 }
-            } catch (Exception e) {
-                if (!e.getMessage().contains("cloud warm up with job ${jobId} does not exist")) {
-                    throw e
+            } catch (Throwable t) {
+                def message = (t.getMessage() ?: t.toString()).toLowerCase()
+                if (message.contains("warm up") && message.contains("does not exist")) {
+                    // FE may report an expired job as "does not exist" instead of an empty result.
+                    // Both states mean the cancelled job has been removed from FE.
+                    logger.info("job ${jobId} removed from FE after ${i}s: ${t.getMessage()}")
+                    removed = true
+                    break
                 }
-                removed = true
-                logger.info("job ${jobId} removed from FE after ${i}s: ${e.getMessage()}")
-                break
+                throw t
             }
             sleep(1000)
         }
@@ -197,11 +237,15 @@ suite('test_warm_up_cluster_event_cancel_expired', 'docker') {
                 "post-removal inserts should not be blocked by NPE sleeps, " +
                 "took ${elapsedMs}ms")
 
-        // 8. On the fixed path every commit short-circuits through
-        //    g_file_cache_event_driven_warm_up_skipped_rowset_num.
-        //    We expect it to grow; on the buggy path it would be flat
-        //    since BE never stopped pursuing FE replicas.
-        def skippedAfter = getSkippedRowsetSum(clusterDst)
+        // 8. After passive cleanup, source commits short-circuit through
+        //    g_file_cache_event_driven_warm_up_skipped_rowset_num. The
+        //    warm-up tasks are asynchronous, so allow a short observation
+        //    window before checking that source-side traffic was counted.
+        def skippedAfter = getSkippedRowsetSum(clusterSrc)
+        for (int i = 0; i < 20 && skippedAfter <= skippedBaseline; i++) {
+            sleep(500)
+            skippedAfter = getSkippedRowsetSum(clusterSrc)
+        }
         logger.info("skipped_rowset after=${skippedAfter}")
         assertTrue(skippedAfter > skippedBaseline,
                 "BE should skip warm_up_rowset for tablets after cancel+expire, " +

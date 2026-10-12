@@ -179,21 +179,6 @@ inline bool parse_ipv4_whole(const char* src, const char* end, unsigned char* ds
     return parse_ipv4(src, end, dst) == end;
 }
 
-/// returns pointer to the right after parsed sequence or null on failed parsing
-inline const char* parse_ipv4(const char* src, unsigned char* dst) {
-    if (parse_ipv4(
-                src, []() { return false; }, dst)) {
-        return src;
-    }
-    return nullptr;
-}
-
-/// returns true if whole null-terminated string was parsed successfully
-inline bool parse_ipv4_whole(const char* src, unsigned char* dst) {
-    const char* end = parse_ipv4(src, dst);
-    return end != nullptr && *end == '\0';
-}
-
 /// integer logarithm, return ceil(log(value, base)) (the smallest integer greater or equal than log(value, base)
 inline constexpr UInt32 int_log(const UInt32 value, const UInt32 base, const bool carry) {
     return value >= base ? 1 + int_log(value / base, base, value % base || carry)
@@ -233,7 +218,7 @@ inline void print_integer(char*& out, T value) {
   * bounds checking, unnecessary string copying and length calculation.
   * @param src         - pointer to IPv6 (16 bytes) stored in little-endian byte order
   * @param dst         - where to put format result bytes
-  * @param zeroed_tail_bytes_count - the parameter is currently not being used
+  * @param zeroed_tail_bytes_count - number of bytes to zero from the address tail
   */
 inline void format_ipv6(unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_count = 0) {
     struct {
@@ -250,8 +235,13 @@ inline void format_ipv6(unsigned char* src, char*& dst, uint8_t zeroed_tail_byte
     /** Preprocess:
         *    Copy the input (bytewise) array into a wordwise array.
         *    Find the longest run of 0x00's in src[] for :: shorthanding. */
-    for (size_t i = 0; i < (IPV6_BINARY_LENGTH - zeroed_tail_bytes_count); i += 2) {
-        words[i / 2] = (uint16_t)(src[i] << 8) | src[i + 1];
+    const size_t remaining_bytes = IPV6_BINARY_LENGTH - zeroed_tail_bytes_count;
+    for (size_t i = 0; i + 1 < remaining_bytes; i += 2) {
+        words[i / 2] = static_cast<UInt16>((static_cast<UInt16>(src[i]) << 8) | src[i + 1]);
+    }
+    if (remaining_bytes % 2 != 0) {
+        words[remaining_bytes / 2] =
+                static_cast<UInt16>(static_cast<UInt16>(src[remaining_bytes - 1]) << 8);
     }
 
     for (size_t i = 0; i < words.size(); i++) {
@@ -478,20 +468,6 @@ inline const char* parse_ipv6(const char* src, const char* end, unsigned char* d
 /// returns true if whole buffer was parsed successfully
 inline bool parse_ipv6_whole(const char* src, const char* end, unsigned char* dst) {
     return parse_ipv6(src, end, dst) == end;
-}
-
-/// returns pointer to the right after parsed sequence or null on failed parsing
-inline const char* parse_ipv6(const char* src, unsigned char* dst) {
-    if (parse_ipv6(
-                src, []() { return false; }, dst))
-        return src;
-    return nullptr;
-}
-
-/// returns true if whole null-terminated string was parsed successfully
-inline bool parse_ipv6_whole(const char* src, unsigned char* dst) {
-    const char* end = parse_ipv6(src, dst);
-    return end != nullptr && *end == '\0';
 }
 
 } // namespace doris

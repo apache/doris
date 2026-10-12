@@ -183,6 +183,87 @@ TEST_F(EqualityDeletePredicateTest, MatchAfterCastToDeleteKeyType) {
     context->close();
 }
 
+// A delete set is a set, so the repeats a caller happens to hand over cost memory and hash-map entries
+// without changing a single answer.
+TEST_F(EqualityDeletePredicateTest, DistinctRowsKeepsOneOfEachRepeatedKey) {
+    Block keys;
+    keys.insert(make_nullable_int_column("id", {1, 2, 1, 1, 3, 2}));
+
+    const Block distinct = EqualityDeletePredicate::distinct_rows(keys);
+
+    ASSERT_EQ(distinct.rows(), 3);
+    // First occurrence wins, so the surviving order is the order they were first named in.
+    Block data_block;
+    data_block.insert(make_nullable_int_column("id", {1, 2, 3, 4}));
+    int result_column_id = -1;
+    auto status = execute_equality_delete_predicate(distinct, {1}, &data_block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(result_column_data(data_block, result_column_id), std::vector<UInt8>({1, 1, 1, 0}));
+}
+
+// The invariant the whole thing rests on: whatever a caller deduplicates with this, the predicate it
+// then builds answers exactly what the predicate built from the raw block answers. A dedup that called
+// two keys the same where the matching would not would silently stop deleting one of them.
+TEST_F(EqualityDeletePredicateTest, DistinctRowsAnswersWhatTheRawBlockAnswers) {
+    // Composite, nullable, with repeats that agree on one column only -- and a NULL named twice, which
+    // matching treats as one value and so must dedup as one value.
+    const auto ids = std::vector<std::optional<int>> {1, 1, 2, 1, std::nullopt, std::nullopt, 2};
+    const auto names =
+            std::vector<std::optional<std::string>> {"a", "b", "a", "a", "z", "z", std::nullopt};
+    const auto make_keys = [&]() {
+        Block keys;
+        keys.insert(make_nullable_int_column("id", ids));
+        keys.insert(make_nullable_string_column("name", names));
+        return keys;
+    };
+    const auto make_data = [&]() {
+        Block data_block;
+        data_block.insert(
+                make_nullable_int_column("id", {1, 1, 2, std::nullopt, std::nullopt, 2, 3}));
+        data_block.insert(
+                make_nullable_string_column("name", {"a", "c", "a", "z", "y", std::nullopt, "a"}));
+        return data_block;
+    };
+
+    const Block distinct = EqualityDeletePredicate::distinct_rows(make_keys());
+    EXPECT_EQ(distinct.rows(), 5) << "expected only the exact repeats to be dropped";
+
+    Block raw_data = make_data();
+    int raw_result = -1;
+    ASSERT_TRUE(
+            execute_equality_delete_predicate(make_keys(), {1, 2}, &raw_data, &raw_result).ok());
+
+    Block distinct_data = make_data();
+    int distinct_result = -1;
+    ASSERT_TRUE(
+            execute_equality_delete_predicate(distinct, {1, 2}, &distinct_data, &distinct_result)
+                    .ok());
+
+    EXPECT_EQ(result_column_data(distinct_data, distinct_result),
+              result_column_data(raw_data, raw_result));
+    // Pinned, so that "they agree" cannot become "they agree on nothing at all".
+    EXPECT_EQ(result_column_data(raw_data, raw_result), std::vector<UInt8>({1, 0, 1, 1, 0, 1, 0}));
+}
+
+// Nothing to drop must not cost a copy of every column, and the degenerate sizes must not need a
+// special case at every call site.
+TEST_F(EqualityDeletePredicateTest, DistinctRowsPassesThroughWhenThereAreNoRepeats) {
+    Block empty;
+    empty.insert(make_nullable_int_column("id", {}));
+    EXPECT_EQ(EqualityDeletePredicate::distinct_rows(empty).rows(), 0);
+
+    Block one;
+    one.insert(make_nullable_int_column("id", {7}));
+    EXPECT_EQ(EqualityDeletePredicate::distinct_rows(one).rows(), 1);
+
+    Block all_distinct;
+    all_distinct.insert(make_nullable_int_column("id", {3, 1, 2}));
+    const Block result = EqualityDeletePredicate::distinct_rows(all_distinct);
+    ASSERT_EQ(result.rows(), 3);
+    EXPECT_EQ(result.get_by_position(0).column.get(), all_distinct.get_by_position(0).column.get())
+            << "a block with no repeats should be returned as-is, not rebuilt";
+}
+
 TEST_F(EqualityDeletePredicateTest, ChildCountMismatchReturnsError) {
     Block delete_block;
     delete_block.insert(make_nullable_int_column("id", {1}));

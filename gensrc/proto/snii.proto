@@ -66,6 +66,14 @@ message SniiLogicalIndexMetadataPB {
     // change the bytes of every pure-text directory.
     optional uint32 kind = 6;
     repeated SniiNamedBlobPB files = 7; // blob kinds only
+    // INVERTED only: this index's dictionary holds at least one entry whose posting list the
+    // writer dropped (stop-gram), so its body ends early and carries no locator. Writers MUST
+    // NOT set this field when it is false, for the same reason as `kind`: proto2 presence
+    // would change the bytes of every directory that drops nothing. The directory-wide
+    // required feature stays the fence for readers that cannot parse such an entry; this
+    // field is what says WHICH index needs it, which a rewrite has to know to re-declare it
+    // for exactly the indexes it carries over.
+    optional bool dropped_postings = 8;
 }
 
 message SniiBlobRefPB {
@@ -82,6 +90,42 @@ message SniiCoreMetadataPB {
     // the contents. Older production 4.1.7-series readers already ignore these fields.
     optional bytes legacy_common_grams = 4;
     optional uint32 legacy_common_grams_posting_policy = 5;
+    // Chunking scheme of a gram-family index (the sparse/dense/auto modes of the ngram
+    // tokenizer). The writer records the scheme it actually used and the query side compiles
+    // patterns against it, so the two can never disagree. Absent on every index that is not gram
+    // family, which leaves the encoded bytes of those segments unchanged.
+    // Append only -- the numbers of the first 5 fields must not change.
+    optional SniiGramSchemePB gram_scheme = 6;
+    // Digest of this index's highest-df terms, so a query can bound its own candidate count
+    // before reading a single dictionary block. See SniiHighDfTermsPB.
+    optional SniiHighDfTermsPB high_df_terms = 7;
+}
+
+// The highest-df terms of one index, as (hash, df) pairs, small enough to travel with the
+// core metadata and be resident for the life of the segment.
+//
+// It exists to answer one question without IO: is this query's candidate set already too
+// large for the index to be worth reading? The query side's cost gate needs min(df) over an
+// AND's terms, or max(df) over an OR's, and reading those df values means one remote
+// dictionary round trip per term. On a segment whose cache holds nothing, that round trip
+// has been measured at 40 seconds -- paid in full before the gate decides to give up.
+//
+// A miss is as informative as a hit: the digest holds the top-K terms by df, so any term
+// absent from it has df <= df_ceiling. That upper bound is what lets an AND proceed without
+// consulting the dictionary at all.
+//
+// K scales with the index's own vocabulary rather than being configured, and is capped so
+// the digest stays small. Real log text puts 88.6% of all posting entries in the top 0.7%
+// of terms, so a small K captures nearly every term a gate would reject.
+message SniiHighDfTermsPB {
+    // bsbf_hash of each term, ascending, so a lookup is a binary search.
+    repeated fixed64 term_hash = 1 [packed = true];
+    // Document frequencies, parallel to term_hash.
+    repeated uint32 df = 2 [packed = true];
+    // Every term NOT in this digest has df <= this value (it is the smallest df present).
+    // Absent digest or an empty one means no bound is available and the reader must fall
+    // back to reading df from the dictionary.
+    optional uint32 df_ceiling = 3;
 }
 
 // FIELD NUMBERS ARE ON DISK. The SNII format shipped before this message reached
@@ -115,3 +159,22 @@ message SniiSectionRefsPB {
     optional SniiRegionRefPB norms = 5;
 }
 
+// Scheme parameters of a gram-family index (the sparse/dense modes of the ngram tokenizer), the
+// single source of truth by which downstream components such as GramExtractor and
+// RegexGramCompiler split grams. The writer persists the scheme it actually used into every
+// gram-family segment, and the query side compiles LIKE/REGEXP patterns against the scheme read
+// back from that same segment, so a pattern is always split exactly the way the data was. Mode
+// "auto" is a write-side input only: it is resolved to dense or sparse before it is stored here,
+// so this message never carries it.
+// Unlike the messages above, this one has never shipped: it is introduced together with the
+// gram-family index itself, so no released version has ever written a tag of it and the numbering
+// is still free to change. Once this lands, the same "field numbers are on disk" rule applies here
+// as everywhere else in this file.
+message SniiGramSchemePB {
+    optional uint32 mode = 1;              // on-disk encoding of GramMode: 1 = dense, 2 = sparse
+    optional uint32 min_len = 2;
+    optional uint32 max_len = 3;
+    optional uint32 density_permille = 4;
+    optional bool lower_case = 5;
+    optional uint32 hash_version = 6;
+}

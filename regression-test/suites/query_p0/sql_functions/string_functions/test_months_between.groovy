@@ -82,6 +82,7 @@ suite("test_months_between") {
     order_qt_const_partial_nullable_no_null "select months_between('2020-01-01', nullable('2020-02-01')), months_between(nullable('2020-01-01'), '2020-02-01'), months_between('2020-01-01', nullable('2020-02-01 00:00:00'), nullable(true)) from months_between_args"
     order_qt_const1 "select months_between('2020-01-01', date2_not_null), months_between('2020-01-01', date2_not_null, round_off_not_null) from months_between_args"
     order_qt_const12 "select months_between('2020-01-01', '2020-02-01', round_off_not_null) from months_between_args"
+    order_qt_const_dates_round_off "select k0, round_off_not_null, months_between('2020-12-26', '2020-10-25', round_off_not_null) from months_between_args order by k0"
     order_qt_const23 "select months_between(date1_not_null, '2020-02-01', true) from months_between_args"
     order_qt_const3 "select months_between(date1_not_null, date2_not_null, true) from months_between_args"
 

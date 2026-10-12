@@ -18,11 +18,7 @@
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_ivm_drop_column_fallback_reason", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
+suite("test_ivm_drop_column_fallback_reason") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ivm_drop_col_reason_mv"""
     sql """DROP TABLE IF EXISTS ivm_drop_col_reason_t"""
     sql """

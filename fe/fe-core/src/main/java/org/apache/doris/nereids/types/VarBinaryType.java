@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.base.Preconditions;
@@ -52,6 +53,13 @@ public class VarBinaryType extends PrimitiveType {
             return MAX_VARBINARY_TYPE;
         }
         return new VarBinaryType(len);
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        // VARBINARY length is schema metadata only: BE's DataTypeVarbinary equality ignores it and
+        // does not truncate values. Its string cast also copies the raw bytes without formatting.
+        return target instanceof VarBinaryType || target instanceof CharacterType;
     }
 
     @Override

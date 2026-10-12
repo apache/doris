@@ -19,6 +19,7 @@
 """Run the actual workflow shell steps against fake OSS, Codex and GitHub.
 
 Requires bash, jq and GNU coreutils (gdate is accepted on macOS).
+Tests invoking the review helper require Linux process supervision.
 Run: python3 -m unittest discover -s .github/scripts -p test_review_auth_quarantine.py
 No credentials or network access are used.
 """
@@ -26,7 +27,6 @@ No credentials or network access are used.
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -35,7 +35,7 @@ import tempfile
 import textwrap
 import time
 import unittest
-
+from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml"
 PREFIX = "oss://doris-community-ci/codex/"
@@ -103,6 +103,14 @@ import os
 from pathlib import Path
 import sys
 
+if os.environ.get("FAKE_FINAL_REVIEW") == "1":
+    import json, subprocess
+    request = Path(os.environ["REVIEW_CONTEXT_DIR"], "final-input.json")
+    request.write_text(json.dumps({"body": "Complete review", "comments": [], "existing_blocking_comment_ids": []}))
+    subprocess.run([sys.executable, str(Path(os.environ["RUNNER_TEMP"], "submit_review.py")),
+                    "--context-dir", os.environ["REVIEW_CONTEXT_DIR"], "--input-file", str(request)],
+                   check=True, stdout=subprocess.DEVNULL)
+print('{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}')
 print(os.environ.get("FAKE_CODEX_EVENTS", ""))
 print(os.environ.get("FAKE_CODEX_STDERR", ""), file=sys.stderr, flush=True)
 # Rotation during a run must not change the identity used for the failure marker.
@@ -117,8 +125,31 @@ import os
 from pathlib import Path
 import sys
 
-if sys.argv[1] == "api":
-    print(json.dumps([[{"submitted_at": "2099-01-01T00:00:00Z", "commit_id": os.environ["HEAD_SHA"]}]]))
+helper = next((arg.split("/contents/.github/scripts/", 1)[1].split("?ref=", 1)[0]
+               for arg in sys.argv if "/contents/.github/scripts/" in arg), None)
+if sys.argv[1] == "api" and helper:
+    sys.stdout.write(Path(os.environ["FAKE_REVIEW_HELPER"]).with_name(helper).read_text())
+elif sys.argv[1] == "api":
+    root = f"repos/{os.environ['REPO']}/pulls/{os.environ['PR_NUMBER']}"
+    path = sys.argv[2]
+    saved = Path(os.environ["REVIEW_CONTEXT_DIR"], "fake-review.json")
+    if path == root:
+        print(json.dumps({"state": "open", "head": {"sha": os.environ["HEAD_SHA"]},
+                          "base": {"sha": os.environ["BASE_SHA"]}}))
+    elif path == root + "/reviews":
+        if "POST" in sys.argv:
+            payload = json.load(sys.stdin)
+            review = {"id": 99, "body": payload["body"], "commit_id": payload["commit_id"],
+                      "user": {"login": "github-actions[bot]"}, "state": "COMMENTED",
+                      "submitted_at": "2099-01-01T00:00:00Z", "html_url": "https://example.test/review/99"}
+            saved.write_text(json.dumps(review))
+            print(json.dumps(review))
+        else:
+            print(json.dumps([[json.loads(saved.read_text())] if saved.exists() else []]))
+    elif path.endswith("/reviews/99/comments"):
+        print("[[]]")
+    else:
+        raise AssertionError(path)
 else:
     Path(os.environ["FAKE_COMMENT_FILE"]).write_text(sys.argv[-1])
 '''
@@ -151,6 +182,8 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
             "OSS_AK": "fake", "OSS_SK": "fake", "OSS_ENDPOINT": "unused",
             "REPO": "example/repo", "PR_NUMBER": "1", "HEAD_SHA": "a" * 40,
             "GITHUB_WORKSPACE": str(self.root),
+            "BASE_SHA": "b" * 40, "HELPER_REF": "test-pin", "REVIEW_TIMEOUT_MINUTES": "120",
+            "FAKE_REVIEW_HELPER": str(Path(__file__).resolve().with_name("run_review_with_resume.py")),
         })
         self.new_runner()
 
@@ -167,11 +200,18 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
         self.env.pop("CODEX_AUTH_OSS_OBJECT", None)
 
     def run_step(self, name, expected=0, **env):
+        if name == "Run automated code review":
+            if sys.platform != "linux":
+                self.skipTest("review helper process supervision requires Linux")
+            # Each invocation models a separate review step with its own attempt files.
+            context = Path(tempfile.mkdtemp(dir=self.env["RUNNER_TEMP"]))
+            (context / "codex_goal_prompt.txt").write_text("Fake review")
+            self.env["REVIEW_CONTEXT_DIR"] = str(context)
         output = Path(self.env["GITHUB_OUTPUT"])
         output.write_text("")
         result = subprocess.run(
             ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step_script(name)],
-            env={**self.env, **env}, cwd=self.root, capture_output=True, text=True, timeout=15,
+            env={**self.env, **env}, cwd=self.root, capture_output=True, text=True, timeout=15, check=False,
         )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         env_file = Path(self.env["GITHUB_ENV"])
@@ -361,12 +401,49 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
             {"type": "turn.failed", "error": {"message": "Request timed out"}},
         ], expected_invalid=False)
 
+    def test_zero_exit_auth_failure_still_reaches_quarantine(self):
+        _, outputs = self.fail_review(FAKE_CODEX_STATUS="0")
+        self.assertIn(REUSED_MESSAGE, outputs)
+        self.assertNotIn("no new pull request review", outputs)
+
+    def test_zero_exit_without_terminal_event_does_not_pass_with_a_review(self):
+        _, outputs = self.fail_review(
+            events=[], expected_invalid=False, FAKE_CODEX_STATUS="0"
+        )
+        # The fake GitHub API reports a review, but an incomplete attempt must
+        # still fail rather than borrowing that review as proof of completion.
+        self.assertIn("without a terminal turn event", outputs)
+
     def test_success_is_not_quarantined_even_with_earlier_stderr_error(self):
         _, outputs = self.run_step(
-            "Run automated code review", FAKE_CODEX_STATUS="0",
+            "Run automated code review", FAKE_CODEX_STATUS="0", FAKE_FINAL_REVIEW="1",
+            FAKE_CODEX_EVENTS=json.dumps({"type": "turn.completed", "usage": {}}),
             FAKE_CODEX_STDERR='{"code":"refresh_token_reused"}',
         )
         self.assertNotIn("auth_invalid_reason", outputs)
+
+    def test_capacity_after_submission_is_success_without_auth_quarantine(self):
+        _, outputs = self.run_step(
+            "Run automated code review", FAKE_FINAL_REVIEW="1", FAKE_CODEX_STATUS="1",
+            FAKE_CODEX_EVENTS=json.dumps({"type": "turn.failed", "error": {
+                "message": "Selected model is at capacity. Please try a different model."
+            }}),
+        )
+        self.assertIn("review_state=success", outputs)
+        self.assertNotIn("auth_invalid_reason", outputs)
+        self.assertNotIn("failure_reason", outputs)
+
+    def test_sync_separates_execution_failure_from_blocking_findings(self):
+        # Exercise the real workflow shell; record POST args instead of writing a status.
+        for execution, verdict, expected in (("success", "success", "success"),
+                ("success", "failure", "failure"), ("failure", "success", "pending")):
+            with self.subTest(execution=execution, verdict=verdict):
+                result = subprocess.run(["bash", "-eo", "pipefail", "-c",
+                    'gh() { printf "%s\\n" "$@"; };\n' + re.sub(r"\$\{\{.*?\}\}", "test", step_script("Sync Code Review check for current head"))],
+                    env={**self.env, "JOB_STATUS": execution, "REVIEW_CONTEXT_OUTCOME": "success",
+                         "REVIEW_OUTCOME": execution, "REVIEW_STATE": verdict, "REVIEW_P0": "0", "REVIEW_P1": "1"},
+                    capture_output=True, text=True, check=True)
+                self.assertIn(f"state={expected}", result.stdout)
 
     def test_failure_comment_reports_marker_write_outcome(self):
         for outcome in ("success", "failure"):

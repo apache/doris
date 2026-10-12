@@ -711,6 +711,7 @@ message BinlogConfigPB {
     optional int64 max_history_nums = 4;
     optional BinlogFormatPB binlog_format = 5;
     optional bool need_historical_value = 6;
+    optional int64 config_version = 7 [default = 0];
 }
 
 // ATTN: When adding or deleting fields, please update `message TabletMetaCloudPB`
@@ -899,6 +900,8 @@ message PartialUpdateInfoPB {
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
+    // Replica-stable seed for volatile defaults, retained through publish/recovery.
+    optional PUniqueId load_id = 16;
 }
 
 message FileEncryptionInfoPB {

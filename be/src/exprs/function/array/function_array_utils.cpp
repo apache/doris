@@ -24,7 +24,6 @@
 
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
@@ -52,15 +51,6 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     if (const auto* nullable = check_and_get_column<ColumnNullable>(data.nested_col.get())) {
         data.nested_nullmap_data = nullable->get_null_map_data().data();
         data.nested_col = nullable->get_nested_column_ptr();
-    }
-    if (data.output_as_variant &&
-        data.nested_type->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
-        // set variant root column/type to from column/type
-        auto variant = ColumnVariant::create(0, data.variant_enable_doc_mode);
-        auto nullable_nested_type = make_nullable(data.nested_type);
-        auto nullable_col = make_nullable(data.nested_col);
-        variant->create_root(nullable_nested_type, std::move(*nullable_col).mutate());
-        data.nested_col = variant->get_ptr();
     }
     return true;
 }

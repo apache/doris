@@ -600,7 +600,9 @@ TEST(DataTypeTimeStampNsTest, SerDeStrictBatchJsonJsonbMysqlAndBinaryField) {
     EXPECT_EQ(const_json->get_data_at(0).to_string(), "1970-01-01 00:00:00.000000001");
 
     JsonbWriter jsonb_writer;
-    ASSERT_TRUE(serde->serialize_column_to_jsonb(*source, 1, jsonb_writer).ok());
+    ASSERT_TRUE(serde->serialize_column_to_jsonb(*source, 1, jsonb_writer,
+                                                 DataTypeSerDe::FormatOptions {})
+                        .ok());
     EXPECT_EQ(JsonbToJson::jsonb_to_json_string(jsonb_writer.getOutput()->getBuffer(),
                                                 jsonb_writer.getOutput()->getSize()),
               "\"2024-02-29 12:34:56.123456789\"");
@@ -613,7 +615,9 @@ TEST(DataTypeTimeStampNsTest, SerDeStrictBatchJsonJsonbMysqlAndBinaryField) {
               assert_cast<const ColumnTimeStampNs&>(*source).get_element(1));
 
     auto jsonb_values = ColumnString::create();
-    ASSERT_TRUE(serde->serialize_column_to_jsonb_vector(*source, *jsonb_values).ok());
+    ASSERT_TRUE(serde->serialize_column_to_jsonb_vector(*source, *jsonb_values,
+                                                        DataTypeSerDe::FormatOptions {})
+                        .ok());
     auto jsonb_vector_result = ColumnNullable::create(type.create_column(), ColumnUInt8::create());
     ASSERT_TRUE(serde->deserialize_column_from_jsonb_vector(*jsonb_vector_result, *jsonb_values,
                                                             cast_params)

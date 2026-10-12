@@ -355,7 +355,6 @@ nonExplainableDmlStatement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | replayCommand                                                    #replay
     | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
             (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
@@ -1418,12 +1417,6 @@ planType
     | ALL // default type
     ;
 
-replayCommand
-    : PLAN REPLAYER replayType;
-
-replayType
-    : DUMP query;
-
 mergeType
     : APPEND
     | DELETE
@@ -1785,7 +1778,8 @@ columnDef
         ((NOT)? nullable=NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
         (DEFAULT (nullValue=NULL | SUBTRACT? INTEGER_VALUE | SUBTRACT? DECIMAL_VALUE | PI | E | BITMAP_EMPTY | stringValue=STRING_LITERAL
-           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+           | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?
+           | defaultFunction=identifier LEFT_PAREN RIGHT_PAREN))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
@@ -2164,6 +2158,7 @@ primitiveColType
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=UUID
     | type=VARBINARY
     | type=VARIANT
     | type=ALL
@@ -2550,7 +2545,6 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
-    | REPLAYER
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE
@@ -2633,6 +2627,7 @@ nonReserved
     | UNSET
     | UP
     | USER
+    | UUID
     | VALUE
     | VARBINARY
     | VARCHAR

@@ -48,8 +48,8 @@ Status validate_non_nullable_special_type_result(const IColumn& result, size_t r
     return Status::OK();
 }
 
-std::string JdbcJniReader::connector_class() const {
-    return "org/apache/doris/jdbc/JdbcJniScanner";
+Jni::PluginRef JdbcJniReader::plugin_ref() const {
+    return Jni::plugin::JDBC_SCANNER;
 }
 
 Status JdbcJniReader::prepare_split(const format::SplitReadOptions& options) {

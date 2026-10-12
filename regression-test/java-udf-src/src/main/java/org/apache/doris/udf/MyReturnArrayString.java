@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 package org.apache.doris.udf;
-import org.apache.log4j.Logger;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -24,7 +23,6 @@ import java.util.Collections;
 import java.util.Comparator;
 
 public class MyReturnArrayString {
-    private static final Logger LOG = Logger.getLogger(MyReturnArrayString.class);
     public static class State {
         public ArrayList<String> data = new ArrayList<String>();
     }

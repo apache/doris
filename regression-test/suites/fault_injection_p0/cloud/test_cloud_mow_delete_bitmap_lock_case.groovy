@@ -18,6 +18,8 @@
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
+import org.apache.doris.regression.util.Http
+
 suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
     if (!isCloudMode()) {
         return
@@ -44,7 +46,13 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
         for (String id in backendId_to_backendIP.keySet()) {
             def beIp = backendId_to_backendIP.get(id)
             def bePort = backendId_to_backendHttpPort.get(id)
-            def original_value = backendId_to_params.get(id).get(paramName)
+            def savedParams = backendId_to_params.get(id)
+            if (savedParams == null || !savedParams.containsKey(paramName)) {
+                logger.info("skip resetting BE config {} on {}, original value was not captured",
+                        paramName, id)
+                continue
+            }
+            def original_value = savedParams.get(paramName)
             def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, original_value))
             assertTrue(out.contains("OK"))
         }
@@ -77,7 +85,6 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
     def tableName = "tbl_basic"
     String[][] backends = sql """ show backends """
     assertTrue(backends.size() > 0)
-    String backendId;
     def backendIdToBackendIP = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
@@ -86,37 +93,40 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
         }
     }
+    // Send every stream load in this suite to one known BE. The retry metric is process-local,
+    // so using the same coordinator lets each assertion measure only this suite's request path.
+    String streamLoadBackendId = backendIdToBackendIP.keySet().toList().sort()[0]
+    String streamLoadBackendHost = backendIdToBackendIP.get(streamLoadBackendId)
+    int streamLoadBackendHttpPort = backendId_to_backendHttpPort.get(streamLoadBackendId).toInteger()
 
-    backendId = backendIdToBackendIP.keySet()[0]
-    def getMetricsMethod = { check_func ->
+    def getMetricsMethod = { currentBackendId, check_func ->
         httpTest {
-            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
+            endpoint backendIdToBackendIP.get(currentBackendId) + ":" + backendIdToBackendBrpcPort.get(currentBackendId)
             uri "/brpc_metrics"
             op "get"
             check check_func
         }
     }
 
-    int total_retry = 0;
-    int last_total_retry = -1;
-
-    def getTotalRetry = {
-        getMetricsMethod.call() { respCode, body ->
-            logger.info("get total retry resp Code {}", "${respCode}".toString())
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            for (String line in strs) {
+    def getStreamLoadRetryCount = {
+        int retryCount = -1
+        getMetricsMethod.call(streamLoadBackendId) { respCode, body ->
+            logger.info("get stream load retry count from backend {} resp Code {}",
+                    streamLoadBackendId, "${respCode}".toString())
+            assertEquals("200", "${respCode}".toString())
+            String metrics = "${body}".toString()
+            for (String line in metrics.split('\n')) {
                 if (line.startsWith("stream_load_commit_retry_counter")) {
-                    logger.info("find: {}", line)
-                    total_retry = line.replaceAll("stream_load_commit_retry_counter ", "").toInteger()
-                    if (last_total_retry < 0) {
-                        last_total_retry = total_retry
-                    }
+                    logger.info("find on backend {}: {}", streamLoadBackendId, line)
+                    retryCount = line.replaceAll(
+                            "stream_load_commit_retry_counter ", "").toInteger()
                     break
                 }
             }
         }
+        assertTrue(retryCount >= 0,
+                "stream_load_commit_retry_counter is missing on backend ${streamLoadBackendId}")
+        return retryCount
     }
 
     def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
@@ -152,9 +162,9 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
-        code = process.waitFor()
-        out = process.getText()
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
         logger.info("Get tablet status:  =" + code + ", out=" + out)
         assertEquals(code, 0)
         def tabletStatus = parseJson(out.trim())
@@ -179,9 +189,9 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
 
             String command = sb.toString()
             logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            out = process.getText()
+            def process = command.execute()
+            def code = process.waitFor()
+            def out = process.getText()
             logger.info("Get compaction status: code=" + code + ", out=" + out)
             assertEquals(code, 0)
             def compactionStatus = parseJson(out.trim())
@@ -192,6 +202,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
 
     def do_stream_load = {
         streamLoad {
+            directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
             table "${tableName}"
 
             set 'column_separator', ','
@@ -233,8 +244,6 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
 
     try {
         GetDebugPoint().enableDebugPointForAllFEs('FE.mow.check.lock.release', null)
-        getTotalRetry.call()
-        log.info("last_total_retry:" + last_total_retry)
         // store the original value
         get_be_param("mow_stream_load_commit_retry_times")
         set_be_param("mow_stream_load_commit_retry_times", "2")
@@ -257,9 +266,11 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
         """
         // 1.test normal load, lock is released normally, retry times is 0
         // 1.1 first load success
+        int retryCountBeforeLoad = getStreamLoadRetryCount()
         try {
             GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -279,10 +290,11 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
         }
         qt_sql1 """ select * from ${tableName} order by id"""
 
-        getTotalRetry.call()
-        assertEquals(last_total_retry, total_retry)
+        assertEquals(retryCountBeforeLoad, getStreamLoadRetryCount())
         // 1.2 second load success
+        retryCountBeforeLoad = getStreamLoadRetryCount()
         streamLoad {
+            directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
             table "${tableName}"
 
             set 'column_separator', ','
@@ -299,14 +311,15 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
         }
         qt_sql2 """ select * from ${tableName} order by id"""
 
-        getTotalRetry.call()
-        assertEquals(last_total_retry, total_retry)
+        assertEquals(retryCountBeforeLoad, getStreamLoadRetryCount())
 
 
         //2. test commit fail, lock is released normally, will not retry
         // 2.1 first load will fail on fe commit phase
         GetDebugPoint().enableDebugPointForAllFEs('FE.mow.commit.exception', null)
+        retryCountBeforeLoad = getStreamLoadRetryCount()
         streamLoad {
+            directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
             table "${tableName}"
 
             set 'column_separator', ','
@@ -325,12 +338,13 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
         qt_sql3 """ select * from ${tableName} order by id"""
 
         // commit fail is not DELETE_BITMAP_LOCK_ERR will not retry
-        getTotalRetry.call()
-        assertEquals(last_total_retry, total_retry)
+        assertEquals(retryCountBeforeLoad, getStreamLoadRetryCount())
 
         // 2.2 second load will success because of removing exception injection
         GetDebugPoint().disableDebugPointForAllFEs('FE.mow.commit.exception')
+        retryCountBeforeLoad = getStreamLoadRetryCount()
         streamLoad {
+            directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
             table "${tableName}"
 
             set 'column_separator', ','
@@ -346,8 +360,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
             }
         }
         qt_sql4 """ select * from ${tableName} order by id"""
-        getTotalRetry.call()
-        assertEquals(last_total_retry, total_retry)
+        assertEquals(retryCountBeforeLoad, getStreamLoadRetryCount())
 
         // 3. test update delete bitmap fail, lock is released normally, will retry
         setFeConfigTemporary(customFeConfig2) {
@@ -355,7 +368,9 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("CloudMetaMgr::test_update_delete_bitmap_fail")
 
             def now = System.currentTimeMillis()
+            retryCountBeforeLoad = getStreamLoadRetryCount()
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -372,13 +387,14 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                 }
             }
             def time_cost = System.currentTimeMillis() - now
-            getTotalRetry.call()
-            assertEquals(last_total_retry + 2, total_retry)
+            assertEquals(retryCountBeforeLoad + 2, getStreamLoadRetryCount())
             qt_sql5 """ select * from ${tableName} order by id"""
 
             // 3.2 second load will success because of removing timeout simulation
             GetDebugPoint().disableDebugPointForAllBEs("CloudMetaMgr::test_update_delete_bitmap_fail")
+            retryCountBeforeLoad = getStreamLoadRetryCount()
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -393,8 +409,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                     assertEquals("success", json.Status.toLowerCase())
                 }
             }
-            getTotalRetry.call()
-            assertEquals(last_total_retry + 2, total_retry)
+            assertEquals(retryCountBeforeLoad, getStreamLoadRetryCount())
             qt_sql6 """ select * from ${tableName} order by id"""
         }
 
@@ -405,7 +420,9 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.tryCommitLock.timeout", [sleep_time: 5])
             // 4.1 first load will fail, because of waiting for fe lock timeout
             def now = System.currentTimeMillis()
+            retryCountBeforeLoad = getStreamLoadRetryCount()
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -422,14 +439,15 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                 }
             }
             def time_cost = System.currentTimeMillis() - now
-            getTotalRetry.call()
-            assertEquals(last_total_retry + 4, total_retry)
+            assertEquals(retryCountBeforeLoad + 2, getStreamLoadRetryCount())
             assertTrue(time_cost > 10000, "wait time should bigger than total retry interval")
             qt_sql7 """ select * from ${tableName} order by id"""
 
             // 4.2 second load will success because of removing timeout simulation
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.tryCommitLock.timeout")
+            retryCountBeforeLoad = getStreamLoadRetryCount()
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -444,8 +462,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                     assertEquals("success", json.Status.toLowerCase())
                 }
             }
-            getTotalRetry.call()
-            assertEquals(last_total_retry + 4, total_retry)
+            assertEquals(retryCountBeforeLoad, getStreamLoadRetryCount())
             qt_sql8 """ select * from ${tableName} order by id"""
             reset_be_param("txn_commit_rpc_timeout_ms")
         }
@@ -454,7 +471,9 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
         // 5.1 first load will fail, because of waiting for delete bitmap lock timeout
         setFeConfigTemporary(customFeConfig1) {
             def now = System.currentTimeMillis()
+            retryCountBeforeLoad = getStreamLoadRetryCount()
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -471,13 +490,14 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                 }
             }
             def time_cost = System.currentTimeMillis() - now
-            getTotalRetry.call()
-            assertEquals(last_total_retry + 6, total_retry)
+            assertEquals(retryCountBeforeLoad + 2, getStreamLoadRetryCount())
             qt_sql9 """ select * from ${tableName} order by id"""
 
             // 5.2 second load will success because of removing timeout simulation
             GetDebugPoint().disableDebugPointForAllFEs("FE.mow.get_delete_bitmap_lock.fail")
+            retryCountBeforeLoad = getStreamLoadRetryCount()
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -492,8 +512,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                     assertEquals("success", json.Status.toLowerCase())
                 }
             }
-            getTotalRetry.call()
-            assertEquals(last_total_retry + 6, total_retry)
+            assertEquals(retryCountBeforeLoad, getStreamLoadRetryCount())
             qt_sql10 """ select * from ${tableName} order by id"""
         }
 
@@ -503,7 +522,9 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
 
             def now = System.currentTimeMillis()
+            retryCountBeforeLoad = getStreamLoadRetryCount()
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -519,14 +540,15 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                 }
             }
             def time_cost = System.currentTimeMillis() - now
-            getTotalRetry.call()
-            assertEquals(last_total_retry + 7, total_retry)
+            assertEquals(retryCountBeforeLoad + 1, getStreamLoadRetryCount())
             assertTrue(time_cost > 2000, "wait time should bigger than total retry interval")
             qt_sql11 """ select * from ${tableName} order by id"""
 
             // 6.2 second load will success and no need retry because of removing timeout simulation
             GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+            retryCountBeforeLoad = getStreamLoadRetryCount()
             streamLoad {
+                directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
                 table "${tableName}"
 
                 set 'column_separator', ','
@@ -541,8 +563,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                     assertEquals("success", json.Status.toLowerCase())
                 }
             }
-            getTotalRetry.call()
-            assertEquals(last_total_retry + 7, total_retry)
+            assertEquals(retryCountBeforeLoad, getStreamLoadRetryCount())
             qt_sql12 """ select * from ${tableName} order by id"""
         }
 
@@ -616,6 +637,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
             }
         }
         streamLoad {
+            directToBe(streamLoadBackendHost, streamLoadBackendHttpPort)
             table "${tableName}"
 
             set 'column_separator', ','
@@ -631,38 +653,257 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
             }
         }
 
-        //9. when load hold delete bitmap lock, compaction and schema change will fail and retry
-        setFeConfigTemporary(customFeConfig5) {
-            GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep", [percent: "1.0", sleep: "10"])
-            Thread.startDaemon {
-                do_insert_into()
+        // 9. Observe a real MS lock conflict, then release the load and verify recovery.
+        // Keep the original lazy-commit and packed-file settings. Neither thread start nor
+        // elapsed time proves that a load has reached the commit/lock phase.
+        def lockTestFeConfig = [meta_service_rpc_retry_times: 5,
+                delete_bitmap_lock_expiration_seconds: 180,
+                calculate_delete_bitmap_task_timeout_seconds: 180,
+                enable_schema_change_retry: true, schema_change_max_retry_time: 20]
+        setFeConfigTemporary(lockTestFeConfig) {
+            setBeConfigTemporary([get_delete_bitmap_lock_max_retry_times: 1,
+                                  disable_auto_compaction: true]) {
+                final String loadBarrier = "CloudTabletCalcDeleteBitmapTask.handle.block_after_calc"
+                final String alterBarrier = "CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block"
+                def tablet = sql_return_maparray("SHOW TABLETS FROM ${tableName}")[0]
+                long tabletId = tablet.TabletId as long
+                long tableId = getTableId(tableName)
+                long dbId = getDbId()
+                def backendById = sql_return_maparray("SHOW BACKENDS").collectEntries {
+                    [(it.BackendId.toString()): it]
+                }
+                def instanceId = context.config.otherConfigs.get("multiClusterInstanceId") ?:
+                        context.config.multiClusterInstance
+                assertTrue(instanceId != null && !instanceId.toString().trim().isEmpty(),
+                        "the deployed MS instance must be configured")
+                def endpoint = context.config.metaServiceHttpAddress
+                def token = context.config.metaServiceToken
+                assertTrue(endpoint && token, "MS HTTP address and token must be configured")
+                def lockParams = [token: token, key_type: "MetaDeleteBitmapUpdateLock",
+                        instance_id: instanceId, table_id: tableId, partition_id: -1]
+                String lockQuery = lockParams.collect { key, value ->
+                    "${key}=${java.net.URLEncoder.encode(value.toString(), 'UTF-8')}"
+                }.join('&')
+                String msBase = endpoint.contains('://') ? endpoint : "http://${endpoint}"
+                def readLock = {
+                    // Do not use the logging HTTP helpers with a credential-bearing URL.
+                    HttpURLConnection conn = new URL("${msBase}/MetaService/http/get_value?${lockQuery}").openConnection()
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    conn.instanceFollowRedirects = false
+                    try {
+                        int status = conn.responseCode
+                        def stream = status == 200 ? conn.inputStream : conn.errorStream
+                        String body = stream == null ? '' : stream.withCloseable { it.getText('UTF-8') }
+                        if (status == 500 && body.contains('kv not found')) {
+                            return null // Before the load commits, the lock key can be absent.
+                        }
+                        assertEquals(200, status, "MS lock read failed for table ${tableId}")
+                        return parseJson(body)
+                    } catch (IOException e) {
+                        throw new IOException("MS lock read failed for table ${tableId}: ${e.class.simpleName}")
+                    } finally {
+                        conn.disconnect()
+                    }
+                }
+                def readMetrics = { be ->
+                    def conn = Http.openConnection("http://${be.Host}:${be.BrpcPort}/brpc_metrics")
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    try {
+                        def metrics = [:]
+                        conn.inputStream.withCloseable { stream ->
+                            stream.getText('UTF-8').eachLine { line ->
+                                def fields = line.trim().split(/\s+/)
+                                if (fields.size() == 2 && !line.startsWith('#')) {
+                                    metrics[fields[0]] = fields[1]
+                                }
+                            }
+                        }
+                        return metrics
+                    } finally {
+                        conn.disconnect()
+                    }
+                }
+                def waitForLoadTasks = {
+                    // Cleanup uses absolute quiescence, never a baseline polluted by another
+                    // suite's still-running task. This suite is nonConcurrent.
+                    awaitUntil(60, 0.2) {
+                        backendById.values().findAll { it.Alive.toString() == 'true' }.every { be ->
+                            def count = readMetrics(be).task_calculate_delete_bitmap
+                            assertNotNull(count, "missing calculate-delete-bitmap metric on ${be.Host}")
+                            count.toLong() == 0
+                        }
+                    }
+                }
+                def readTablet = {
+                    def (code, out, err) = curl('GET', tablet.CompactionStatus.toString(), null, 5, '', '', 1)
+                    assertEquals(0, code, "cannot read tablet ${tabletId}")
+                    parseJson(out)
+                }
+                def loadError = new java.util.concurrent.atomic.AtomicReference<Throwable>()
+                Thread loadThread = null
+                Long loadTxnId = null
+                Long alterJobId = null
+                boolean alterSubmitted = false
+                def checkLoad = {
+                    if (loadError.get() != null) {
+                        throw new AssertionError("lock-holder INSERT failed", loadError.get())
+                    }
+                }
+                def ownsLock = {
+                    checkLoad()
+                    def lock = readLock()
+                    loadThread != null && loadThread.isAlive() && lock != null &&
+                            lock.lock_id.toString().toLong() == loadTxnId &&
+                            lock.expiration.toString().toLong() > System.currentTimeMillis().intdiv(1000) + 5
+                }
+                def startLockHolder = {
+                    loadError.set(null)
+                    loadTxnId = null
+                    String label = "bitmap_lock_${UUID.randomUUID().toString().replace('-', '')}"
+                    GetDebugPoint().enableDebugPointForAllBEs(loadBarrier,
+                            [tablet_id: tabletId, timeout: 180])
+                    loadThread = Thread.startDaemon {
+                        try {
+                            sql """INSERT INTO ${tableName} WITH LABEL `${label}` (id, name, score)
+                                   VALUES (1, "Emily", 25),(2, "Benjamin", 35)"""
+                        } catch (Throwable t) {
+                            loadError.set(t)
+                        }
+                    }
+                    awaitUntil(60, 0.2) {
+                        checkLoad()
+                        def txns = sql_return_maparray("SHOW TRANSACTION WHERE LABEL='${label}'")
+                        if (txns.size() != 1) {
+                            return false
+                        }
+                        loadTxnId = txns[0].TransactionId as long
+                        ownsLock()
+                    }
+                    logger.info("INSERT {} owns the MS lock for table {}", loadTxnId, tableId)
+                }
+                def releaseLoad = {
+                    GetDebugPoint().disableDebugPointForAllBEs(loadBarrier)
+                    if (loadThread != null) {
+                        loadThread.join(60000)
+                        assertFalse(loadThread.isAlive(), "lock-holder INSERT did not exit")
+                    }
+                    waitForLoadTasks()
+                    checkLoad()
+                }
+                Throwable primaryError = null
+                try {
+                    waitForLoadTasks()
+                    // Cumulative compaction has no automatic scheduler for this table. Require
+                    // a failed attempt on this tablet, then explicitly retry after releasing load.
+                    long visibleVersion = sql_return_maparray("SHOW PARTITIONS FROM ${tableName}")[0].VisibleVersion as long
+                    syncAndWaitTabletVersion([tablet], visibleVersion)
+                    def before = readTablet()
+                    startLockHolder()
+                    def (code, out, err) = be_run_cumulative_compaction(
+                            backendId_to_backendIP[tablet.BackendId.toString()],
+                            backendId_to_backendHttpPort[tablet.BackendId.toString()], tabletId.toString())
+                    assertEquals(0, code)
+                    assertEquals('success', parseJson(out).status.toString().toLowerCase())
+                    awaitUntil(30, 0.2) {
+                        assertTrue(ownsLock(), "INSERT lost its lock before the compaction conflict")
+                        def state = readTablet()
+                        assertEquals(before['last cumulative success time'], state['last cumulative success time'],
+                                "compaction succeeded while INSERT owns the MS lock")
+                        state['last cumulative failure time'] != before['last cumulative failure time'] &&
+                                state['last cumulative status'].toString().contains('DELETE_BITMAP_LOCK_ERROR')
+                    }
+                    releaseLoad()
+                    def expectedRows = sql("SELECT id, name, score FROM ${tableName} ORDER BY id")
+                    def beforeRetry = readTablet()
+                    trigger_and_wait_compaction(tableName, "cumulative")
+                    def afterRetry = readTablet()
+                    assertEquals('[OK]', afterRetry['last cumulative status'])
+                    assertTrue(afterRetry['last cumulative success time'] != beforeRetry['last cumulative success time'])
+                    assertTrue(afterRetry.rowsets != beforeRetry.rowsets, "compaction did not replace its input rowsets")
+                    assertTrue(afterRetry.missing_rowsets.isEmpty(), "compaction left a version gap")
+                    assertEquals(expectedRows, sql("SELECT id, name, score FROM ${tableName} ORDER BY id"))
+
+                    // Start ALTER before the load, otherwise it can wait at WAITING_TXN and
+                    // never reach the MS lock. Pause the BE immediately before taking that lock.
+                    GetDebugPoint().enableDebugPointForAllBEs(alterBarrier, [timeout: 180])
+                    sql "ALTER TABLE ${tableName} ORDER BY (id,score,name)"
+                    alterSubmitted = true
+                    def alterJob = {
+                        def jobs = sql_return_maparray("SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1")
+                        assertEquals(1, jobs.size())
+                        if (alterJobId != null) {
+                            assertEquals(alterJobId, jobs[0].JobId as long, "ALTER job changed")
+                        }
+                        jobs[0]
+                    }
+                    awaitUntil(60, 0.2) {
+                        def job = alterJob()
+                        alterJobId = job.JobId as long
+                        assertFalse(job.State in ['CANCELLED', 'FINISHED'], "ALTER did not stop before MS lock: ${job}")
+                        job.State == 'RUNNING'
+                    }
+                    def tasks = sql_return_maparray("SHOW PROC '/jobs/${dbId}/schema_change/${alterJobId}'")
+                    def task = tasks.find { (it.BaseTabletId as long) == tabletId }
+                    assertNotNull(task, "no ALTER task for base tablet ${tabletId}")
+                    def alterBe = backendById[task.BackendId.toString()]
+                    final String backoffMetric = 'cloud_be_mow_get_dbm_lock_backoff_sleep_time'
+                    def initialMetrics = readMetrics(alterBe)
+                    assertNotNull(initialMetrics[backoffMetric + '_count'], "missing MS-lock backoff metric")
+                    long backoffCount = initialMetrics[backoffMetric + '_count'].toLong()
+                    startLockHolder()
+                    GetDebugPoint().disableDebugPointForAllBEs(alterBarrier)
+                    awaitUntil(60, 0.2) {
+                        assertTrue(ownsLock(), "INSERT lost its lock before the ALTER conflict")
+                        assertEquals('RUNNING', alterJob().State, "ALTER must retry the same job")
+                        def failures = sql_return_maparray("SHOW PROC '/tasks/ALTER/${task.BackendId}'")
+                        def failure = failures.find { (it.TaskSignature as long) == (task.RollupTabletId as long) }
+                        def metrics = readMetrics(alterBe)
+                        // PROC identifies this exact ALTER task. The BE-local metric is only
+                        // corroboration that the failure went through MS LOCK_CONFLICT backoff;
+                        // neither a cluster-wide counter nor WAITING_TXN is sufficient.
+                        failure != null && (failure.FailedTimes as int) > 0 &&
+                                metrics[backoffMetric + '_count'].toLong() > backoffCount &&
+                                metrics[backoffMetric + '_latency'].toLong() > 0
+                    }
+                    releaseLoad()
+                    awaitUntil(120, 0.5) {
+                        def job = alterJob()
+                        assertFalse(job.State == 'CANCELLED', "ALTER failed instead of retrying: ${job}")
+                        job.State == 'FINISHED'
+                    }
+                    assertEquals(expectedRows, sql("SELECT id, name, score FROM ${tableName} ORDER BY id"))
+                } catch (Throwable t) {
+                    primaryError = t
+                    throw t
+                } finally {
+                    // Release both barriers even if the handshake/assertion fails. Drain the
+                    // actual load/ALTER before restoring timeouts or running the next suite.
+                    def cleanupErrors = []
+                    [loadBarrier, alterBarrier].each { point ->
+                        try { GetDebugPoint().disableDebugPointForAllBEs(point) }
+                        catch (Throwable t) { cleanupErrors.add(t) }
+                    }
+                    try { releaseLoad() } catch (Throwable t) { cleanupErrors.add(t) }
+                    if (alterSubmitted) {
+                        try {
+                            awaitUntil(120, 0.5) {
+                                def jobs = sql_return_maparray("SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1")
+                                if (jobs.size() != 1) { return false }
+                                if (alterJobId == null) { alterJobId = jobs[0].JobId as long }
+                                (jobs[0].JobId as long) == alterJobId &&
+                                        jobs[0].State in ['FINISHED', 'CANCELLED']
+                            }
+                        } catch (Throwable t) { cleanupErrors.add(t) }
+                    }
+                    if (!cleanupErrors.isEmpty()) {
+                        def failure = primaryError ?: new AssertionError('lock test cleanup failed')
+                        cleanupErrors.each { failure.addSuppressed(it) }
+                        if (primaryError == null) { throw failure }
+                    }
+                }
             }
-            def tablets = sql_return_maparray """ show tablets from ${tableName}; """
-            logger.info("tablets: " + tablets)
-            for (def tablet in tablets) {
-                String tablet_id = tablet.TabletId
-                def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
-                logger.info("tablet: " + tablet_info)
-                String trigger_backend_id = tablet.BackendId
-                def now = System.currentTimeMillis()
-                assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                        "cumulative", tablet_id).contains("Success"));
-                waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-                getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
-                def time_cost = System.currentTimeMillis() - now
-                log.info("time_cost(ms): ${time_cost}")
-                assertTrue(time_cost > 10000, "wait time should bigger than 10s")
-            }
-            Thread.startDaemon {
-                do_insert_into()
-            }
-            def now = System.currentTimeMillis()
-            sql """ alter table ${tableName} order by (id,score,name); """
-            assertTrue(getAlterTableState(tableName), "schema change should success")
-            def time_cost = System.currentTimeMillis() - now
-            log.info("time_cost(ms): ${time_cost}")
-            assertTrue(time_cost > 10000, "wait time should bigger than 10s")
-            GetDebugPoint().disableDebugPointForAllFEs("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep")
         }
         //10.test stream load will fail when not found delete bitmap cache
         setFeConfigTemporary(customFeConfig5) {
@@ -787,12 +1028,13 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
             }
         }
     } finally {
+        // Release fault hooks first so cleanup RPCs and subsequent suites cannot be affected.
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        GetDebugPoint().clearDebugPointsForAllFEs()
         reset_be_param("mow_stream_load_commit_retry_times")
         reset_be_param("txn_commit_rpc_timeout_ms")
         reset_be_param("delete_bitmap_lock_expiration_seconds")
         reset_be_param("get_delete_bitmap_lock_max_retry_times")
-        GetDebugPoint().clearDebugPointsForAllBEs()
-        GetDebugPoint().clearDebugPointsForAllFEs()
     }
 
 }

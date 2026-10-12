@@ -18,7 +18,7 @@
 // DORIS-25891: Variant SEARCH must bind subcolumn predicates to the real stored
 // field names for direct, nested, and special-character paths.
 suite("test_variant_search_subcolumn") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def table_name = "test_variant_search_subcolumn"
     sql "set default_variant_doc_materialization_min_rows = 0"
 

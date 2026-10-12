@@ -29,9 +29,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -123,6 +126,16 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
             this.rowBinlogTableWrapper = new RowBinlogTableWrapper(originTable);
         } finally {
             originTable.readUnlock();
+        }
+    }
+
+    @Override
+    public void checkAuth(ConnectContext ctx) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                dbName, tableName, PrivPredicate.SELECT)) {
+            String message = ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SELECT.getPrivs().toString(), tableName);
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
         }
     }
 

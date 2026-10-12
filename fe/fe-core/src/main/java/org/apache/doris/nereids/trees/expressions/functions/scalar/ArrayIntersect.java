@@ -62,6 +62,7 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         DataType itemType = NullType.INSTANCE;
         for (Expression child : getArguments()) {
             DataType argType = child.getDataType();
@@ -69,19 +70,24 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
             if (argType == NullType.INSTANCE) {
                 continue;
             }
-            if (!argType.isArrayType() || ((ArrayType) argType).getItemType().isComplexType()) {
-                throw new AnalysisException("array_intersect does not support complex types: " + toSql());
+            if (!argType.isArrayType()) {
+                throw new AnalysisException("array_intersect requires ARRAY arguments, but got " + argType.toSql());
             }
-            if (((ArrayType) argType).getItemType().isNullType()) {
+            DataType currentItemType = ((ArrayType) argType).getItemType();
+            if (!ArrayFunctionUtils.isSupportedByArraySetFunctions(currentItemType)) {
+                throw new AnalysisException("array_intersect does not support element type "
+                        + currentItemType.toSql());
+            }
+            if (currentItemType.isNullType()) {
                 continue;
             }
             if (itemType == NullType.INSTANCE) {
-                itemType = ((ArrayType) argType).getItemType();
+                itemType = currentItemType;
             }
-            if (itemType.equals(((ArrayType) argType).getItemType())) {
+            if (itemType.equals(currentItemType)) {
                 continue;
             }
-            if (!itemType.isSameTypeForComplexTypeParam(((ArrayType) argType).getItemType())) {
+            if (!itemType.isSameTypeForComplexTypeParam(currentItemType)) {
                 throw new AnalysisException("array_intersect only supports arguments with the same item type, "
                         + "but got " + toSql());
             }

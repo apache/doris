@@ -33,8 +33,7 @@ VMCPartitionWriter::VMCPartitionWriter(RuntimeState* state,
 
 Status VMCPartitionWriter::open() {
     _jni_format_transformer = std::make_unique<VJniFormatTransformer>(
-            _state, _output_vexpr_ctxs, "org/apache/doris/maxcompute/MaxComputeJniWriter",
-            _writer_params);
+            _state, _output_vexpr_ctxs, Jni::plugin::MAX_COMPUTE_WRITER, _writer_params);
     return _jni_format_transformer->open();
 }
 

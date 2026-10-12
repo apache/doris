@@ -32,6 +32,7 @@ import java.util.function.Function;
  */
 public final class MetaCacheDefinition<K, V> {
     private final String name;
+    private final String budgetGroup;
     private final CacheSpec cacheSpec;
     private final Function<K, ScopePath> scopeResolver;
     private final Function<K, V> loader;
@@ -39,9 +40,11 @@ public final class MetaCacheDefinition<K, V> {
     private final BiConsumer<K, V> discardListener;
     private final Duration refreshAfterWrite;
     private final Executor refreshExecutor;
+    private final MetaCacheSizeEstimator<K, V> sizeEstimator;
 
     private MetaCacheDefinition(Builder<K, V> builder) {
         name = requireName(builder.name);
+        budgetGroup = requireName(builder.budgetGroup == null ? builder.name : builder.budgetGroup);
         cacheSpec = Objects.requireNonNull(builder.cacheSpec, "cacheSpec can not be null");
         scopeResolver = Objects.requireNonNull(builder.scopeResolver, "scopeResolver can not be null");
         loader = builder.loader;
@@ -49,6 +52,7 @@ public final class MetaCacheDefinition<K, V> {
         discardListener = builder.discardListener;
         refreshAfterWrite = builder.refreshAfterWrite;
         refreshExecutor = builder.refreshExecutor;
+        sizeEstimator = builder.sizeEstimator;
         if (refreshAfterWrite != null && loader == null) {
             throw new IllegalArgumentException("refresh-after-write requires a default loader");
         }
@@ -61,6 +65,10 @@ public final class MetaCacheDefinition<K, V> {
 
     public String name() {
         return name;
+    }
+
+    String budgetGroup() {
+        return budgetGroup;
     }
 
     CacheSpec cacheSpec() {
@@ -93,6 +101,10 @@ public final class MetaCacheDefinition<K, V> {
         return refreshExecutor;
     }
 
+    MetaCacheSizeEstimator<K, V> sizeEstimator() {
+        return sizeEstimator;
+    }
+
     private static String requireName(String name) {
         String nonNullName = Objects.requireNonNull(name, "name can not be null");
         if (nonNullName.isEmpty()) {
@@ -110,6 +122,8 @@ public final class MetaCacheDefinition<K, V> {
         private BiConsumer<K, V> discardListener;
         private Duration refreshAfterWrite;
         private Executor refreshExecutor;
+        private MetaCacheSizeEstimator<K, V> sizeEstimator;
+        private String budgetGroup;
 
         private Builder(String name, CacheSpec cacheSpec, Function<K, ScopePath> scopeResolver) {
             this.name = name;
@@ -143,6 +157,17 @@ public final class MetaCacheDefinition<K, V> {
             }
             this.refreshAfterWrite = nonNullDuration;
             this.refreshExecutor = Objects.requireNonNull(executor, "refreshExecutor can not be null");
+            return this;
+        }
+
+        public Builder<K, V> sizeEstimator(MetaCacheSizeEstimator<K, V> estimator) {
+            this.sizeEstimator = Objects.requireNonNull(estimator, "estimator can not be null");
+            return this;
+        }
+
+        /** Shares one configured weight limit across physical caches in the same logical entry group. */
+        public Builder<K, V> budgetGroup(String budgetGroup) {
+            this.budgetGroup = requireName(budgetGroup);
             return this;
         }
 

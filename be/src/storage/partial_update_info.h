@@ -35,6 +35,7 @@
 namespace doris {
 class TabletSchema;
 class PartialUpdateInfoPB;
+class PUniqueId;
 class BitmapValue;
 struct RowLocation;
 class Block;
@@ -63,7 +64,7 @@ struct PartialUpdateInfo {
                 const std::set<std::string>& partial_update_cols, bool is_strict_mode,
                 int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
                 const std::string& auto_increment_column, int32_t sequence_map_col_uid = -1,
-                int64_t cur_max_version = -1);
+                int64_t cur_max_version = -1, const PUniqueId* load_id = nullptr);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
     Status handle_new_key(const TabletSchema& tablet_schema,
@@ -106,6 +107,11 @@ public:
     // to generate a new row, only available in non-strict mode
     bool can_insert_new_rows_in_partial_update {true};
     bool is_strict_mode {false};
+    // Shared by all replicas and persisted for publish/recovery. Never use process-local RNGs
+    // when filling a missing cell after the input rows have been fanned out.
+    bool has_load_id {false};
+    uint64_t load_id_hi {0};
+    uint64_t load_id_lo {0};
     int64_t timestamp_ms {0};
     int32_t nano_seconds {0};
     std::string timezone;
@@ -127,6 +133,13 @@ struct RidAndPos {
 
 class FixedReadPlan {
 public:
+    enum class ReadStrategy {
+        // Use the full row-store column when available; otherwise read physical columns.
+        PREFER_ROW_STORE,
+        // Read only the requested physical columns, even when a full row-store column exists.
+        COLUMN_STORE,
+    };
+
     bool empty() const;
     void clear() { plan.clear(); }
     void prepare_to_read(const RowLocation& row_location, size_t pos);
@@ -134,7 +147,7 @@ public:
                                 std::vector<uint32_t> cids_to_read,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 Block& block, std::map<uint32_t, uint32_t>* read_index,
-                                bool force_read_old_delete_signs,
+                                ReadStrategy read_strategy, bool force_read_old_delete_signs,
                                 const signed char* __restrict cur_delete_signs = nullptr) const;
     Status fill_missing_columns(const segment_v2::HistoricalRowRetrieverContext& historical_context,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,

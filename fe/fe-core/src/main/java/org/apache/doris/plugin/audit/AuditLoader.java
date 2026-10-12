@@ -213,6 +213,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         appendField(logBuffer, event.workloadGroup);
         appendField(logBuffer, event.cloudClusterName);
 
+        // protocol
+        appendField(logBuffer, event.protocol);
+
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;
         if (LOG.isDebugEnabled()) {

@@ -110,8 +110,8 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     {
         // convert one batch
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
-        st = convert_to_arrow_batch(*result, _schema, arrow::default_memory_pool(), out,
-                                    _timezone_obj);
+        st = ArrowFlightArrowBlockConvertor(_schema, _timezone_obj)
+                     .convert_to_arrow(*result, arrow::default_memory_pool(), out);
         st.prepend("ArrowFlightBatchLocalReader convert block to arrow batch failed");
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
     }
@@ -189,6 +189,7 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_schema() {
     st = Status::create(callback->response_->status());
     ARROW_RETURN_NOT_OK(to_arrow_status(st));
 
+    ARROW_RETURN_NOT_OK(to_arrow_status(register_arrow_variant_extension()));
     if (callback->response_->has_schema() && !callback->response_->schema().empty()) {
         auto input =
                 arrow::io::BufferReader::FromString(std::string(callback->response_->schema()));
@@ -303,8 +304,8 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNextImpl(std::shared_ptr<arrow::
     {
         // convert one batch
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
-        auto st = convert_to_arrow_batch(*_block, _schema, arrow::default_memory_pool(), out,
-                                         _timezone_obj);
+        auto st = ArrowFlightArrowBlockConvertor(_schema, _timezone_obj)
+                          .convert_to_arrow(*_block, arrow::default_memory_pool(), out);
         st.prepend("ArrowFlightBatchRemoteReader convert block to arrow batch failed");
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
     }

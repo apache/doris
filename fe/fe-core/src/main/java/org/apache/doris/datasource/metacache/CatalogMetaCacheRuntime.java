@@ -17,10 +17,8 @@
 
 package org.apache.doris.datasource.metacache;
 
-import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
-import org.apache.doris.connector.cache.ScopedMetaCache.CacheMetrics;
 
 import com.google.common.collect.Maps;
 
@@ -32,8 +30,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * Catalog scoped entry container.
  */
 final class CatalogMetaCacheRuntime {
-    private final CatalogMetaCache owner = new CatalogMetaCache();
+    private final CatalogMetaCache owner;
     private final Map<String, MetaCache<?, ?>> entries = new ConcurrentHashMap<>();
+
+    CatalogMetaCacheRuntime(long catalogId, String engine, Map<String, String> catalogProperties) {
+        owner = CatalogMetaCache.managed(catalogId, engine, catalogProperties);
+    }
 
     CatalogMetaCache owner() {
         return owner;
@@ -62,29 +64,6 @@ final class CatalogMetaCacheRuntime {
     }
 
     private MetaCacheEntryStats stats(MetaCache<?, ?> entry) {
-        CacheSpec spec = entry.cacheSpec();
-        CacheMetrics metrics = entry.metrics();
-        long requests = metrics.getRequestCount();
-        long loads = metrics.getLoadSuccessCount() + metrics.getLoadFailureCount();
-        return new MetaCacheEntryStats(
-                spec.isEnable(),
-                entry.isEnabled(),
-                entry.isAutoRefresh(),
-                spec.getTtlSecond(),
-                spec.getCapacity(),
-                entry.size(),
-                requests,
-                metrics.getHitCount(),
-                metrics.getMissCount(),
-                requests == 0L ? 0D : (double) metrics.getHitCount() / requests,
-                metrics.getLoadSuccessCount(),
-                metrics.getLoadFailureCount(),
-                metrics.getTotalLoadTimeNanos(),
-                loads == 0L ? 0D : (double) metrics.getTotalLoadTimeNanos() / loads,
-                metrics.getEvictionCount(),
-                metrics.getInvalidateCount(),
-                metrics.getLastLoadSuccessTimeMs(),
-                metrics.getLastLoadFailureTimeMs(),
-                metrics.getLastError());
+        return MetaCacheEntryStats.from(entry);
     }
 }

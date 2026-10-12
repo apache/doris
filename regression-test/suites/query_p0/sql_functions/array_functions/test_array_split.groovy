@@ -70,6 +70,20 @@ suite("test_array_split") {
             from dt order by x; """
     qt_dt_null """ select x, array_reverse_split(x->(null_or_empty(x)), k0) from dt order by x; """
 
+    sql "set short_circuit_evaluation = false;"
+    qt_nullable_lambda_split """
+        select id, array_split((x, y) -> y > 0, [1, 2],
+                               if(id = 1, cast(null as array<int>), [10, 20]))
+        from (select 1 as id union all select 2 as id) t
+        order by id;
+    """
+    qt_nullable_lambda_reverse_split """
+        select id, array_reverse_split((x, y) -> y > 0, [1, 2],
+                                       if(id = 1, cast(null as array<int>), [10, 20]))
+        from (select 1 as id union all select 2 as id) t
+        order by id;
+    """
+
     test {
         sql " select array_split([1,2,3,4,5], [1,1,1]); "
         exception "function array_split has uneven arguments on row 0"

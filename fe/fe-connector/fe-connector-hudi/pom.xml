@@ -206,6 +206,67 @@ under the License.
             <artifactId>parquet-avro</artifactId>
         </dependency>
 
+        <!-- The hadoop class parquet-hadoop extends, and the second half of the LinkageError the block
+             above set out to prevent. ParquetReadOptions.Builder's constructor reads
+             ParquetInputFormat's defaults, and org.apache.parquet.hadoop.ParquetInputFormat is an
+             org.apache.hadoop.mapreduce.lib.input.FileInputFormat - a class that lives in
+             hadoop-mapreduce-client-core, excluded from hudi-common above to drop the YARN/MR job stack.
+             Bundling parquet child-first without it left ParquetInputFormat in the child loader and its
+             superclass in the parent 'app' loader (fe-core ships mapreduce-client-core), which splits
+             org.apache.hadoop.fs.Path across the two loaders in the inherited
+             isSplitable(JobContext, Path) signature:
+
+               LinkageError: loader constraint violation for class
+               org.apache.parquet.hadoop.ParquetInputFormat ... have different Class objects for the
+               type org.apache.hadoop.fs.Path used in the signature
+
+             It is thrown from TableSchemaResolver's parquet-footer read, i.e. on the FIRST schema
+             resolution of any hudi table, so no hudi table could be read at all. Same shape as the
+             paimon BE plugin's missing FileInputFormat, one loader further along.
+
+             Re-declared like hadoop-hdfs-client above rather than by dropping the hudi-common
+             exclusion: only the class hierarchy is wanted and it is entirely inside this one jar,
+             while the artifact drags a job client behind it - YARN and its jersey/guice/jaxb web
+             stack, netty-all, a second slf4j binding. hadoop-common is excluded so the plugin keeps
+             the SINGLE copy fe-connector-hms contributes; hadoop-hdfs-client because hdfs:// arrives
+             through its own declaration above and nowhere else. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-hdfs-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-yarn-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-yarn-common</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-reload4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.inject.extensions</groupId>
+                    <artifactId>guice-servlet</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-all</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem for s3a:// warehouses. Unlike hive
              (whose FE metadata path is HMS-thrift-only and never opens an s3a:// FileSystem), the hudi
              connector opens the table base path on the FE to read the .hoodie timeline
@@ -263,6 +324,50 @@ under the License.
     <build>
         <finalName>doris-fe-connector-hudi</finalName>
         <plugins>
+            <!-- The other half of the hierarchy hadoop-mapreduce-client-core above completes.
+                 hudi-hadoop-mr's org.apache.hudi.hadoop.HoodieParquetInputFormatBase extends hive's
+                 org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat, which extends
+                 org.apache.hadoop.mapred.FileInputFormat - the OLD mapred API, in the same jar as the
+                 new one. So bundling mapreduce-client-core child-first moves mapred.FileInputFormat
+                 into the child while MapredParquetInputFormat stays in the parent (hive-exec is
+                 fe-core's; the slim fe-connector-hms-hive-shade is metastore + common + storage-api and
+                 carries no ql/io/parquet), splitting the subclass from the superclass the incremental
+                 read path declares:
+
+                   VerifyError: Bad return type ... HoodieInputFormatUtils.getInputFormat ...
+                   'HoodieParquetRealtimeInputFormat' is not assignable to
+                   'org/apache/hadoop/mapred/FileInputFormat' (from method signature)
+
+                 Unpacked rather than declared as a dependency because only this one package is wanted:
+                 the whole hive-exec:core jar in lib/ would put every hive ql class child-first, shadowing
+                 the slim shade the other connectors share. 156 classes, ~230KB, landing in this module's
+                 own jar - which the assembly already ships into lib/. Same unpack-a-subset shape as
+                 be-java-extensions/hive-apache-shade. -->
+            <plugin>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-hive-parquet-serde</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.apache.hive</groupId>
+                                    <artifactId>hive-exec</artifactId>
+                                    <version>${hive.version}</version>
+                                    <classifier>core</classifier>
+                                    <type>jar</type>
+                                    <includes>org/apache/hadoop/hive/ql/io/parquet/**</includes>
+                                    <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>

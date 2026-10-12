@@ -132,6 +132,10 @@ public class PluginDrivenScanNodePartitionPruningTest {
         Assertions.assertNull(
                 PluginDrivenScanNode.resolveRequiredPartitions(emptyPruned, true),
                 "a predicate-driven connector must scan-all (null) on a prune-to-zero, not short-circuit");
+        Assertions.assertTrue(PluginDrivenScanNode.partitionsPrunedToEmpty(emptyPruned, true),
+                "the request must retain that scan-all came from an empty live selection");
+        Assertions.assertFalse(PluginDrivenScanNode.partitionsPrunedToEmpty(emptyPruned, false),
+                "a connector that short-circuits receives no request to annotate");
     }
 
     @Test
@@ -161,5 +165,7 @@ public class PluginDrivenScanNodePartitionPruningTest {
 
         Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(emptyUniverse),
                 "a pruned-empty selection over an empty partition universe (time-travel pin) must scan all");
+        Assertions.assertFalse(PluginDrivenScanNode.partitionsPrunedToEmpty(emptyUniverse, true),
+                "an empty metadata universe is not a predicate exclusion of live partitions");
     }
 }

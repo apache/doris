@@ -18,8 +18,6 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("rqg7", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
         StringBuilder sqlBuilder = new StringBuilder()
         sqlBuilder.append($/
 
@@ -387,5 +385,5 @@ SELECT  CAST(table2 . var['col_ipv4_undef_signed'] AS ipv4) as v1,  CAST(table1 
         if (!exceptions.isEmpty()) {
             throw new IllegalStateException("exceptions : ${exceptions}")
         }
-    }
+
 }

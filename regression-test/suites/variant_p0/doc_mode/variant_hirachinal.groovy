@@ -16,7 +16,7 @@
 // under the License.
 
 suite("variant_hirachinal_doc_value", "nonConcurrent"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_doc_mode = true """
     sql """ set default_variant_doc_materialization_min_rows = 0 """
     def set_be_config = { key, value ->
@@ -29,7 +29,7 @@ suite("variant_hirachinal_doc_value", "nonConcurrent"){
         def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
         logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
- 
+
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
 
@@ -52,7 +52,7 @@ suite("variant_hirachinal_doc_value", "nonConcurrent"){
     order_qt_sql2 "select cast(v['c'] as string) from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 2"
 
 
-    table_name = "var_rs2" 
+    table_name = "var_rs2"
     sql "DROP TABLE IF EXISTS ${table_name}"
 
     sql """

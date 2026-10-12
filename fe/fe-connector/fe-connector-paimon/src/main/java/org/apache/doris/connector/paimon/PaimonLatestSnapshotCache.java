@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.paimon.catalog.Identifier;
@@ -53,7 +54,7 @@ final class PaimonLatestSnapshotCache {
     private final MetaCache<Identifier, Long> entry;
 
     PaimonLatestSnapshotCache(long ttlSeconds, int maxSize) {
-        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize);
     }
 
     PaimonLatestSnapshotCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
@@ -63,6 +64,7 @@ final class PaimonLatestSnapshotCache {
         this.entry = owner.create(MetaCacheDefinition
                 .<Identifier, Long>builder("paimon-latest-snapshot", spec,
                         id -> ScopePath.table(id.getDatabaseName(), id.getObjectName()))
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
     }
 

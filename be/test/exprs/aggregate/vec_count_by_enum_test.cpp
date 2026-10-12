@@ -142,6 +142,54 @@ TEST_F(VCountByEnumTest, testNotNullableSample) {
     agg_function->destroy(place2);
 }
 
+TEST_F(VCountByEnumTest, testNulInStringKey) {
+    Arena arena;
+    auto column = ColumnString::create();
+    column->insert_data("A\0B", 3);
+    column->insert_data("A", 1);
+
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+    const IColumn* columns[1] = {column.get()};
+    agg_function->add(place, columns, 0, arena);
+    agg_function->add(place, columns, 1, arena);
+
+    auto result_column = std::make_shared<DataTypeString>()->create_column();
+    agg_function->insert_result_into(place, *result_column);
+    auto& result = assert_cast<ColumnString&>(*result_column);
+
+    rapidjson::Document document;
+    document.Parse(result.get_data_at(0).to_string().c_str());
+    ASSERT_TRUE(document.IsArray());
+    ASSERT_EQ(document.Size(), 1);
+    const rapidjson::Value& cbe = document[0]["cbe"];
+    ASSERT_TRUE(cbe.IsObject());
+    ASSERT_EQ(cbe.MemberCount(), 2);
+
+    bool found_nul_key = false;
+    bool found_plain_key = false;
+    for (auto member = cbe.MemberBegin(); member != cbe.MemberEnd(); ++member) {
+        if (member->name.GetStringLength() == 3 && member->name.GetString()[1] == '\0') {
+            found_nul_key = true;
+            EXPECT_EQ(std::string(member->name.GetString(), member->name.GetStringLength()),
+                      std::string("A\0B", 3));
+            EXPECT_EQ(member->value.GetInt(), 1);
+        } else if (member->name.GetStringLength() == 1) {
+            found_plain_key = true;
+            EXPECT_EQ(member->name.GetString()[0], 'A');
+            EXPECT_EQ(member->value.GetInt(), 1);
+        }
+    }
+    EXPECT_TRUE(found_nul_key);
+    EXPECT_TRUE(found_plain_key);
+    EXPECT_EQ(document[0]["notnull"].GetInt(), 2);
+    EXPECT_EQ(document[0]["null"].GetInt(), 0);
+    EXPECT_EQ(document[0]["all"].GetInt(), 2);
+
+    agg_function->destroy(place);
+}
+
 TEST_F(VCountByEnumTest, testNullableSample) {
     Arena arena;
     const int batch_size = 5;

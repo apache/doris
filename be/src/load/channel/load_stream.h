@@ -186,6 +186,8 @@ private:
     std::unordered_map<int64_t, IndexStreamSharedPtr> _index_streams_map;
     int32_t _total_streams = 0;
     int32_t _close_load_cnt = 0;
+    // Only used by close_load.force_last_source, protected by _lock.
+    int64_t _debug_last_close_src_id = -1;
     std::atomic<int32_t> _close_rpc_cnt = 0;
     std::vector<PTabletID> _tablets_to_commit;
     bthread::Mutex _lock;

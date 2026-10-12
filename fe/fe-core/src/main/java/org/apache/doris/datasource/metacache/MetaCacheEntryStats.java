@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.ScopedMetaCache.CacheMetrics;
 
 import java.util.Objects;
 
@@ -53,6 +55,10 @@ public final class MetaCacheEntryStats {
     private final long lastLoadSuccessTimeMs;
     private final long lastLoadFailureTimeMs;
     private final String lastError;
+    private final long maxWeight;
+    private final long estimatedWeight;
+    private final long weightAdmissionRejectedCount;
+    private final String lastWeightRejectReason;
 
     /**
      * Build an immutable stats snapshot.
@@ -76,7 +82,11 @@ public final class MetaCacheEntryStats {
             long invalidateCount,
             long lastLoadSuccessTimeMs,
             long lastLoadFailureTimeMs,
-            String lastError) {
+            String lastError,
+            long maxWeight,
+            long estimatedWeight,
+            long weightAdmissionRejectedCount,
+            String lastWeightRejectReason) {
         this.configEnabled = configEnabled;
         this.effectiveEnabled = effectiveEnabled;
         this.autoRefresh = autoRefresh;
@@ -96,6 +106,28 @@ public final class MetaCacheEntryStats {
         this.lastLoadSuccessTimeMs = lastLoadSuccessTimeMs;
         this.lastLoadFailureTimeMs = lastLoadFailureTimeMs;
         this.lastError = Objects.requireNonNull(lastError, "lastError");
+        this.maxWeight = maxWeight;
+        this.estimatedWeight = estimatedWeight;
+        this.weightAdmissionRejectedCount = weightAdmissionRejectedCount;
+        this.lastWeightRejectReason = Objects.requireNonNull(lastWeightRejectReason, "lastWeightRejectReason");
+    }
+
+    /** Creates the FE system-table view of a cache owned by the shared connector framework. */
+    public static MetaCacheEntryStats from(MetaCache<?, ?> entry) {
+        CacheSpec spec = entry.cacheSpec();
+        CacheMetrics metrics = entry.metrics();
+        long requests = metrics.getRequestCount();
+        long loads = metrics.getLoadSuccessCount() + metrics.getLoadFailureCount();
+        return new MetaCacheEntryStats(
+                spec.isEnable(), entry.isEnabled(), entry.isAutoRefresh(), spec.getTtlSecond(), spec.getCapacity(),
+                entry.size(), requests, metrics.getHitCount(), metrics.getMissCount(),
+                requests == 0L ? 0D : (double) metrics.getHitCount() / requests,
+                metrics.getLoadSuccessCount(), metrics.getLoadFailureCount(), metrics.getTotalLoadTimeNanos(),
+                loads == 0L ? 0D : (double) metrics.getTotalLoadTimeNanos() / loads,
+                metrics.getEvictionCount(), metrics.getInvalidateCount(), metrics.getLastLoadSuccessTimeMs(),
+                metrics.getLastLoadFailureTimeMs(), metrics.getLastError(), metrics.getMaxWeight(),
+                metrics.getEstimatedWeight(), metrics.getWeightRejectCount(),
+                metrics.getLastWeightRejectReason());
     }
 
     public boolean isConfigEnabled() {
@@ -194,5 +226,21 @@ public final class MetaCacheEntryStats {
      */
     public String getLastError() {
         return lastError;
+    }
+
+    public long getMaxWeight() {
+        return maxWeight;
+    }
+
+    public long getEstimatedWeight() {
+        return estimatedWeight;
+    }
+
+    public long getWeightAdmissionRejectedCount() {
+        return weightAdmissionRejectedCount;
+    }
+
+    public String getLastWeightRejectReason() {
+        return lastWeightRejectReason;
     }
 }

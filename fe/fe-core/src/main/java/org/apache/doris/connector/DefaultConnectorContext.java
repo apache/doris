@@ -177,6 +177,11 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     }
 
     @Override
+    public int getClusterId() {
+        return Env.getCurrentEnv().getClusterId();
+    }
+
+    @Override
     public Map<String, String> getEnvironment() {
         return environment;
     }

@@ -89,6 +89,32 @@ public class PaimonPredicateConverterTest {
     }
 
     @Test
+    public void ntzPushPreservesMicroseconds() {
+        RowType rowType = RowType.builder().field("ts", DataTypes.TIMESTAMP(6)).build();
+        LocalDateTime literal = LocalDateTime.of(2024, 1, 1, 0, 0, 0, 123_456_000);
+
+        List<Predicate> predicates = convertEq(rowType, "ts", literal);
+
+        LeafPredicate leaf = (LeafPredicate) predicates.get(0);
+        Assertions.assertEquals(Timestamp.fromLocalDateTime(literal), leaf.literals().get(0),
+                "an NTZ predicate literal must retain precision below one millisecond");
+    }
+
+    @Test
+    public void nanosecondTimestampComparisonsRemainResidual() {
+        RowType rowType = RowType.builder().field("ts", DataTypes.TIMESTAMP(9)).build();
+        LocalDateTime stored = LocalDateTime.of(2024, 1, 1, 0, 0, 0, 123_456_789);
+        LocalDateTime visible = stored.withNano(123_456_000);
+        Assertions.assertNotEquals(Timestamp.fromLocalDateTime(stored), Timestamp.fromLocalDateTime(visible));
+        for (ConnectorComparison.Operator operator : ConnectorComparison.Operator.values()) {
+            ConnectorComparison comparison = new ConnectorComparison(operator,
+                    new ConnectorColumnRef("ts", ANY), new ConnectorLiteral(ANY, visible));
+            Assertions.assertTrue(new PaimonPredicateConverter(rowType).convert(comparison).isEmpty(),
+                    "sub-microsecond source values must be compared after Doris truncation: " + operator);
+        }
+    }
+
+    @Test
     public void ltzNotPushed() {
         RowType rowType = RowType.builder()
                 .field("ts", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE()).build();

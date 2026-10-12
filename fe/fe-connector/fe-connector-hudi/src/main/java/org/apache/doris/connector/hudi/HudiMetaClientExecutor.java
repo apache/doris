@@ -20,14 +20,18 @@ package org.apache.doris.connector.hudi;
 import java.util.concurrent.Callable;
 
 /**
- * Runs a Hudi {@code HoodieTableMetaClient}-touching action under the plugin's Kerberos UGI {@code doAs} and a
- * TCCL pin to the hudi plugin classloader.
+ * Runs a Hudi {@code HoodieTableMetaClient}-touching action under the plugin's Kerberos UGI {@code doAs} - or,
+ * for a non-Kerberos catalog, the connector's per-configuration filesystem scope - and a TCCL pin to the hudi
+ * plugin classloader.
  *
- * <p>Built by {@link HudiConnector} and injected into {@link HudiConnectorMetadata} so the partition-listing /
- * MVCC-snapshot metadata methods — which build a live metaClient off the query-planning / MTMV-refresh thread,
- * NOT the TCCL-pinned scan thread ({@code PluginDrivenScanNode.onPluginClassLoader}) — resolve hudi-bundled
- * reflection against the plugin's child-first copies and authenticate to a secured HMS/HDFS (post-flip the
- * FE-injected {@code context.executeAuthenticated} is NOOP for a sibling). See
+ * <p>Built by {@link HudiConnector} and injected into {@link HudiConnectorMetadata} and
+ * {@link HudiScanPlanProvider}. The metadata methods build a live metaClient off the query-planning /
+ * MTMV-refresh thread, NOT the TCCL-pinned scan thread ({@code PluginDrivenScanNode.onPluginClassLoader}),
+ * so they need the pin to resolve hudi-bundled reflection against the plugin's child-first copies and to
+ * authenticate to a secured HMS/HDFS (post-flip the FE-injected {@code context.executeAuthenticated} is NOOP
+ * for a sibling). The scan provider is already pinned by the engine and needs the OTHER half: the engine runs
+ * it under no {@code doAs} at all, and the UGI current while a metaClient opens its filesystems decides where
+ * Hadoop caches them - and therefore whether {@code HudiConnector.close()} can ever close them. See
  * {@code HudiConnector.metaClientExecutor()} and memory {@code catalog-spi-plugin-tccl-classloader-gotcha}.</p>
  *
  * <p>A generic method (not a lambda target): the implementation is an anonymous class in {@link HudiConnector}.
@@ -35,4 +39,24 @@ import java.util.concurrent.Callable;
  */
 interface HudiMetaClientExecutor {
     <T> T execute(Callable<T> action);
+
+    /**
+     * Runs the action on the calling thread as it is - no pin, no {@code doAs}. For the pure-helper tests of
+     * {@link HudiScanPlanProvider}; a checked exception surfaces as an unchecked wrapper so a mis-set-up
+     * fixture fails loud.
+     */
+    static HudiMetaClientExecutor inline() {
+        return new HudiMetaClientExecutor() {
+            @Override
+            public <T> T execute(Callable<T> action) {
+                try {
+                    return action.call();
+                } catch (RuntimeException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+        };
+    }
 }

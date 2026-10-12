@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -31,6 +35,8 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -109,6 +115,30 @@ public class FrontendConjunctsUtilsTest {
         InPredicate in = generateIn("c1", Lists.newArrayList("v1", "v2"));
         Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(in), "c1", "v1"));
         Assertions.assertTrue(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(in), "c1", "v3"));
+    }
+
+    @Test
+    public void testSerializedBigIntInPredicate() throws Exception {
+        List<Expr> options = Lists.newArrayList(
+                new IntLiteral(10000L, Type.BIGINT),
+                new IntLiteral(10001L, Type.BIGINT));
+        Expr in = new org.apache.doris.analysis.InPredicate(new SlotRef(null, "STREAM_ID"), options, false);
+        List<Expression> expressions = FrontendConjunctsUtils.convertToExpression(
+                GsonUtils.GSON.toJson(Lists.newArrayList(in)));
+
+        Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(expressions, "STREAM_ID", 10000L));
+        Assertions.assertTrue(FrontendConjunctsUtils.isFiltered(expressions, "STREAM_ID", 10002L));
+    }
+
+    @Test
+    public void testSerializedIntLiteralPreservesType() throws Exception {
+        for (Type type : Lists.newArrayList(Type.TINYINT, Type.SMALLINT, Type.INT, Type.BIGINT)) {
+            IntLiteral literal = new IntLiteral(1L, type);
+            Expression expression = FrontendConjunctsUtils.convertToExpression(
+                    GsonUtils.GSON.toJson(Lists.newArrayList(literal))).get(0);
+
+            Assertions.assertEquals(DataType.fromCatalogType(type), expression.getDataType(), type.toSql());
+        }
     }
 
     @Test

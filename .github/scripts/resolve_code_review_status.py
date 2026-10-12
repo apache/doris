@@ -72,10 +72,23 @@ def resolve_status(
             latest_by_context[context] = item
 
     approved_contexts: set[tuple[int, str]] = set()
+    blocked_contexts: set[tuple[int, str]] = set()
     for context, item in latest_by_context.items():
         match = SOURCE_CONTEXT_RE.fullmatch(context)
         if match is not None and item["state"] == "success":
             approved_contexts.add((int(match.group(1)), match.group(2).casefold()))
+        elif (match is not None and item["state"] == "failure"
+              and context.startswith("code-review/source/automated/")):
+            blocked_contexts.add((int(match.group(1)), match.group(2).casefold()))
+
+    # Preserve the authorized local PASS / skip override. Otherwise a completed
+    # automated review with P0/P1 blocks, rather than appearing to still be running.
+    blocked = sorted((open_contexts - approved_contexts) & blocked_contexts)
+    if blocked:
+        number, base_sha = blocked[0]
+        return Resolution(
+            "failure", f"Review completed with P0/P1 for PR #{number} at {base_sha[:12]}.",
+        )
 
     missing = sorted(open_contexts - approved_contexts)
     if missing:

@@ -318,6 +318,30 @@ TEST_F(HashJoinBuildSinkTest, Sink) {
     run_test_block(test_block);
 }
 
+TEST_F(HashJoinBuildSinkTest, BroadcastJoinRequiredDataDistribution) {
+    auto tnode = _helper.create_test_plan_node(TJoinOp::INNER_JOIN, {TPrimitiveType::INT}, {false},
+                                               {false});
+    tnode.hash_join_node.__set_is_broadcast_join(true);
+    auto [probe_operator, sink_operator] = _helper.create_operators(tnode);
+    ASSERT_TRUE(probe_operator);
+    ASSERT_TRUE(sink_operator);
+
+    EXPECT_EQ(sink_operator->required_data_distribution(_helper.runtime_state.get())
+                      .distribution_type,
+              TLocalPartitionType::NOOP);
+
+    sink_operator->child()->set_serial_operator();
+    _helper.runtime_state->_enable_share_hash_table_for_broadcast_join = true;
+    EXPECT_EQ(sink_operator->required_data_distribution(_helper.runtime_state.get())
+                      .distribution_type,
+              TLocalPartitionType::PASS_TO_ONE);
+
+    _helper.runtime_state->_enable_share_hash_table_for_broadcast_join = false;
+    EXPECT_EQ(sink_operator->required_data_distribution(_helper.runtime_state.get())
+                      .distribution_type,
+              TLocalPartitionType::BROADCAST);
+}
+
 TEST_F(HashJoinBuildSinkTest, Terminate) {
     auto test_block = [&](TJoinOp::type op_type, const std::vector<TPrimitiveType::type>& key_types,
                           const std::vector<bool>& left_nullables,

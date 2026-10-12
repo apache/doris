@@ -19,8 +19,10 @@
 
 #include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -48,6 +50,27 @@ TEST(VersionstampTest, ByteSwap) {
     constexpr uint16_t original16 = 0x0102;
     constexpr uint16_t swapped16 = Versionstamp::byteswap16(original16);
     EXPECT_EQ(swapped16, 0x0201);
+}
+
+TEST(VersionstampTest, ToString) {
+    using doris::cloud::Versionstamp;
+
+    EXPECT_EQ(Versionstamp::min().to_string(), "00000000000000000000");
+    EXPECT_EQ(Versionstamp::max().to_string(), "ffffffffffffffffffff");
+    const Versionstamp versionstamp(0x0001020304050607, 0x08ff);
+    EXPECT_EQ(versionstamp.to_string(), "000102030405060708ff");
+
+    // Verify every byte at every position against an independent formatter.
+    for (size_t position = 0; position < 10; ++position) {
+        for (unsigned int byte = 0; byte <= 0xff; ++byte) {
+            std::array<uint8_t, 10> bytes {};
+            bytes[position] = static_cast<uint8_t>(byte);
+            const auto text = Versionstamp(bytes).to_string();
+            std::string expected(20, '0');
+            expected.replace(position * 2, 2, fmt::format("{:02x}", byte));
+            EXPECT_EQ(text, expected) << "position=" << position << " byte=" << byte;
+        }
+    }
 }
 
 TEST(VersionstampTest, Usage) {

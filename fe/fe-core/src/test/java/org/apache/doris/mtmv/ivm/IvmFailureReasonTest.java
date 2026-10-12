@@ -25,6 +25,9 @@ public class IvmFailureReasonTest {
     @Test
     public void testRequiresCompleteRefresh() {
         Assertions.assertTrue(IvmFailureReason.BINLOG_BROKEN.requiresCompleteRefresh());
+        // An unusable stream can only be recreated by the COMPLETE path's reconcile step; a
+        // PARTITIONS fallback would read the same stream and fail again.
+        Assertions.assertTrue(IvmFailureReason.STREAM_UNSUPPORTED.requiresCompleteRefresh());
         Assertions.assertTrue(IvmFailureReason.MIN_MAX_BOUNDARY_HIT.requiresCompleteRefresh());
         Assertions.assertTrue(IvmFailureReason.BITMAP_AGG_DELETE.requiresCompleteRefresh());
         Assertions.assertTrue(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.requiresCompleteRefresh());

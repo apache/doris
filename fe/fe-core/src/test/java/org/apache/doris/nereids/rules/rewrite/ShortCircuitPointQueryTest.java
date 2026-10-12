@@ -30,13 +30,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.lang.reflect.Field;
 
 /**
  * Regression test:
@@ -164,21 +162,25 @@ class ShortCircuitPointQueryTest extends TestWithFeService
         // FlightSqlEndpointsLocation and leaves no Arrow result on the BE, so GetFlightInfo used to fail
         // with "fetch arrow flight schema failed, no FlightSqlEndpointsLocations" and drop the row.
         // An Arrow Flight SQL connection has to plan the normal execution path. See #67368.
-        Field connectTypeField = ConnectContext.class.getDeclaredField("connectType");
-        connectTypeField.setAccessible(true);
-        ConnectType originConnectType = (ConnectType) connectTypeField.get(connectContext);
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        flightContext.setRemoteIP(connectContext.getRemoteIP());
+        flightContext.setEnv(Env.getCurrentEnv());
+        flightContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
+        flightContext.setDatabase(connectContext.getDatabase());
+        // The rule reads the connection through ConnectContext.get().
+        flightContext.setThreadLocalInfo();
         try {
-            connectTypeField.set(connectContext, ConnectType.ARROW_FLIGHT_SQL);
-            Plan plan = rewrite("select * from tbl_point_query where `key` = 1");
+            Plan plan = rewrite(flightContext, "select * from tbl_point_query where `key` = 1");
 
-            Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery());
+            Assertions.assertFalse(flightContext.getStatementContext().isShortCircuitQuery());
             // And the plan really is the ordinary one: tbl_point_query is empty, so it prunes to a
             // LogicalEmptyRelation, which is exactly what the short circuit suppresses in
             // testShortCircuitPointQueryKeepOlapScanWhenTableEmpty above.
             Assertions.assertTrue(plan.anyMatch(p -> p instanceof LogicalEmptyRelation));
             Assertions.assertFalse(plan.anyMatch(p -> p instanceof LogicalOlapScan));
         } finally {
-            connectTypeField.set(connectContext, originConnectType);
+            connectContext.setThreadLocalInfo();
         }
 
         // The very same statement still short circuits on a MySQL connection.
@@ -194,10 +196,14 @@ class ShortCircuitPointQueryTest extends TestWithFeService
     }
 
     private Plan rewrite(String sql) {
+        return rewrite(connectContext, sql);
+    }
+
+    private Plan rewrite(ConnectContext ctx, String sql) {
         boolean originRunningUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = false;
         try {
-            return PlanChecker.from(connectContext)
+            return PlanChecker.from(ctx)
                     .analyze(sql)
                     .rewrite()
                     .getPlan();

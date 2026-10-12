@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_topn_lazy_materialize_sparse_variant", "p0") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     sql "set default_variant_enable_doc_mode = false"
     sql "set default_variant_max_subcolumns_count = 1"
     sql "set default_variant_sparse_hash_shard_count = 2"

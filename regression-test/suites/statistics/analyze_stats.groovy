@@ -120,6 +120,12 @@ suite("test_analyze") {
         SET forbid_unknown_col_stats=false;
     """
 
+    // DROP STATS does not invalidate the SQL cache and the stats version is not part of the cache
+    // key, so a cached SELECT is replayed without planning and forbid_unknown_col_stats never fires.
+    sql """
+        SET enable_sql_cache=false;
+    """
+
     sql """
         SELECT * FROM ${tbl}
     """
@@ -2747,11 +2753,8 @@ PARTITION `p599` VALUES IN (599)
    """
     sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
     sql """analyze table string_min_max with sync"""
-    explain {
-        sql("select min(name), max(name) from string_min_max")
-        contains "pushAggOp=NONE"
-    }
-    sql """set enable_pushdown_string_minmax = true"""
+    // Every string column is pushed down now, and the storage layer decides per segment whether
+    // a cut bound may answer. These bounds are short, so the zone map answers them.
     explain {
         sql("select min(name), max(name) from string_min_max")
         contains "pushAggOp=MINMAX"

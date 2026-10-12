@@ -142,7 +142,7 @@ public class IndexDefinition {
         return columnType.isDateLikeType() || columnType.isDecimalLikeType()
                 || columnType.isIntegralType() || columnType.isStringLikeType()
                 || columnType.isBooleanType() || columnType.isVariantType()
-                || columnType.isIPType() || columnType.isFloatLikeType();
+                || columnType.isIPType() || columnType.isUuidType() || columnType.isFloatLikeType();
     }
 
     /**
@@ -167,7 +167,7 @@ public class IndexDefinition {
         }
         return columnType.isDateLikeType() || columnType.isDecimalLikeType()
                 || columnType.isIntegralType() || columnType.isBooleanType()
-                || columnType.isIPType() || columnType.isFloatLikeType();
+                || columnType.isIPType() || columnType.isUuidType() || columnType.isFloatLikeType();
     }
 
     /**
@@ -472,6 +472,34 @@ public class IndexDefinition {
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
                 comment);
+    }
+
+    /**
+     * Syncs the index properties (possibly completed with defaults by {@link #checkColumn}) back into
+     * an already materialized {@link Index}.
+     *
+     * <p>On the ADD INDEX / standalone CREATE INDEX path, {@code CreateIndexOp#validate}
+     * materializes the {@link Index} through {@link #translateToCatalogStyle()} before
+     * {@code checkColumn} runs, while gram-family defaults such as {@code support_phrase=false} are
+     * only written into the IndexDefinition properties by {@code checkColumn}
+     * ({@code InvertedIndexUtil#applyGramFamilyIndexDefaults}); without this write-back they would be
+     * lost from the index that is finally persisted. The CREATE TABLE path runs checkColumn before
+     * translate and is unaffected.
+     *
+     * <p>Merge rule: a key present on the IndexDefinition side overrides the Index side, and a key
+     * only the Index side has is kept -- the latter is a default filled in by the {@link Index}
+     * constructor's general rules (for example {@code lower_case=true} for a parser index) and must
+     * not be lost to this write-back. The passed instance is modified in place, because the caller
+     * may already hold the same Index reference.
+     */
+    public void applyPropertiesTo(Index index) {
+        if (index == null || properties == null || properties.isEmpty()) {
+            return;
+        }
+        Map<String, String> merged = index.getProperties() == null
+                ? new HashMap<>() : new HashMap<>(index.getProperties());
+        merged.putAll(properties);
+        index.setProperties(merged);
     }
 
     public List<String> getPartitionNames() {

@@ -61,8 +61,8 @@ class HiveCatalogPropertiesTest {
         Assertions.assertEquals(500, p.getHmsEventsBatchSizePerRpc());
         // The tolerant default: a partition whose location vanished is skipped with a warning.
         Assertions.assertTrue(p.isIgnoreAbsentPartitions());
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
         Assertions.assertTrue(p.isRecursiveDirectories());
         Assertions.assertEquals("/tmp/.doris_staging", p.getStagingDir());
     }
@@ -224,6 +224,25 @@ class HiveCatalogPropertiesTest {
         Map<String, String> m = HiveTestProperties.mapWith("partition.cache.ttl-second", "-2");
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> HiveCatalogProperties.of(m).checkCreateTimeOnlyRules());
+    }
+
+    @Test
+    void icebergSiblingWeightsAreValidatedAtTheHmsCreateTimeDoor() {
+        Map<String, String> invalidWeight = HiveTestProperties.mapWith(
+                "meta.cache.iceberg.manifest.max-weight", "invalid");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HiveCatalogProperties.of(invalidWeight).checkCreateTimeOnlyRules());
+
+        Map<String, String> unknownEntry = HiveTestProperties.mapWith(
+                "meta.cache.iceberg.manfiest.max-weight", "64MB");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> HiveCatalogProperties.of(unknownEntry).checkCreateTimeOnlyRules());
+        HiveConnectorProvider provider = new HiveConnectorProvider();
+        Assertions.assertDoesNotThrow(() -> HiveCatalogProperties.of(unknownEntry));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(unknownEntry,
+                java.util.Collections.singletonMap("comment", "updated")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                HiveTestProperties.mapWith(), unknownEntry));
     }
 
     @Test

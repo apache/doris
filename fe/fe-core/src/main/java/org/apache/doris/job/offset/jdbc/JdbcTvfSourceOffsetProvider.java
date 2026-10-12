@@ -96,6 +96,11 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         super();
     }
 
+    @Override
+    public String getSourceType() {
+        return CdcStreamTableValuedFunction.NAME;
+    }
+
     /** Initializes provider state from TVF properties; called every schedule tick. */
     @Override
     public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {

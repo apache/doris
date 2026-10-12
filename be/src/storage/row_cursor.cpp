@@ -147,9 +147,9 @@ void RowCursor::_encode_column_value(const TabletColumn* column, const Field& va
     // ignores `index_size` and delegates to full_encode_ascending, so the
     // `full_encode` flag here is a no-op and we always call the full helper.
     switch (ft) {
-#define CASE(FT, PT)                                                    \
-    case FieldType::FT:                                                 \
-        full_encode_field_as_key<PrimitiveType::PT>(value, coder, buf); \
+#define CASE(FT)                                                    \
+    case FieldType::FT:                                             \
+        full_encode_field_as_key<FieldType::FT>(value, coder, buf); \
         break;
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
 #undef CASE

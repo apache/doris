@@ -90,7 +90,7 @@ public:
 
     Status do_partition_topn_sort();
 
-    void create_or_reset_sorter_state();
+    void create_sorter_if_needed();
 
     void append_whole_block(Block* input_block, const RowDescriptor& row_desc) {
         auto empty_block = Block::create_unique(VectorizedUtils::create_empty_block(row_desc));
@@ -105,6 +105,7 @@ public:
     IColumn::Selector _selector;
     std::vector<std::unique_ptr<Block>> _blocks;
     size_t _current_input_rows = 0;
+    size_t _partition_sort_rows_threshold = PARTITION_SORT_ROWS_THRESHOLD;
     int64_t _init_rows = 4096;
     bool _is_first_sorter = false;
 

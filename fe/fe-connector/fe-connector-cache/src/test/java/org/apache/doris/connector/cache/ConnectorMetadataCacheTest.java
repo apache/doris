@@ -41,6 +41,11 @@ public class ConnectorMetadataCacheTest {
         return new ConnectorTableKey(db, table, snapshotId, schemaId);
     }
 
+    private static ConnectorTableKey key(
+            String db, String table, long snapshotId, long schemaId, long metadataGeneration) {
+        return new ConnectorTableKey(db, table, snapshotId, schemaId, metadataGeneration);
+    }
+
     private static ConnectorMetadataCache<String> newCache() {
         return new ConnectorMetadataCache<>(ENGINE, "partition_view", new HashMap<>());
     }
@@ -106,6 +111,23 @@ public class ConnectorMetadataCacheTest {
 
         Assertions.assertEquals("schema-2", second);
         Assertions.assertEquals(2, loads.get(), "distinct schemaId must trigger a distinct load");
+    }
+
+    @Test
+    public void differentMetadataGenerationIsADistinctEntry() {
+        AtomicInteger loads = new AtomicInteger();
+        ConnectorMetadataCache<String> cache = newCache();
+
+        cache.get(key("db", "t", 1L, 1L, 10L), () -> "generation-10");
+        String second = cache.get(key("db", "t", 1L, 1L, 11L), () -> {
+            loads.incrementAndGet();
+            return "generation-11";
+        });
+
+        // Some table metadata evolves independently of both snapshot and schema; treating this axis as part of
+        // key identity prevents a connector from serving a derived view built for the preceding generation.
+        Assertions.assertEquals("generation-11", second);
+        Assertions.assertEquals(1, loads.get(), "a distinct metadata generation must trigger a distinct load");
     }
 
     @Test

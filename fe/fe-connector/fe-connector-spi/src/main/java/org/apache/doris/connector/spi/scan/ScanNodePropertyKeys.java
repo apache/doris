@@ -132,6 +132,9 @@ public final class ScanNodePropertyKeys {
     /** Quote character enclosing a field; a single character. */
     public static final String TEXT_ENCLOSE = TEXT_PROPERTY_PREFIX + "enclose";
 
+    /** {@code "true"} for Hive OpenCSV field states and physical record boundaries. */
+    public static final String TEXT_HIVE_OPEN_CSV = TEXT_PROPERTY_PREFIX + "hive_open_csv";
+
     /** {@code "true"} to strip the enclosing quotes from field values. */
     public static final String TEXT_TRIM_DOUBLE_QUOTES = TEXT_PROPERTY_PREFIX + "trim_double_quotes";
 

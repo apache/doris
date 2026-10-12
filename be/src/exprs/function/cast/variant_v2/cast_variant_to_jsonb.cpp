@@ -40,7 +40,7 @@ Status cast_jsonb_to_variant(const ColumnPtr& source, size_t rows, ForcedNulls f
     const auto* strings = check_and_get_column<ColumnString>(source.get());
     if (strings == nullptr || strings->size() != rows ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid JSONB input shape for Variant V2 CAST");
+        return Status::InternalError("Invalid JSONB input shape for Variant V2 CAST");
     }
     JsonbToVariantEncoder encoder(VariantBatchBuilder::ReserveHint {.rows = rows});
     for (size_t row = 0; row < rows; ++row) {
@@ -60,7 +60,7 @@ Status cast_jsonb_to_variant(const ColumnPtr& source, size_t rows, ForcedNulls f
 Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& source, size_t rows,
                              ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input shape for JSONB CAST");
+        return Status::InternalError("Invalid Variant V2 input shape for JSONB CAST");
     }
     auto strings = ColumnString::create();
     auto nulls = ColumnUInt8::create(rows, 0);
@@ -83,8 +83,8 @@ Status cast_variant_to_jsonb(FunctionContext* context, const ColumnVariantV2& so
 Status cast_variant_refs_to_jsonb(FunctionContext* context, std::span<const VariantRef> values,
                                   ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {
-        return Status::InvalidArgument("Variant V2 JSONB CAST null map has {} rows, expected {}",
-                                       forced_nulls.size(), values.size());
+        return Status::InternalError("Variant V2 JSONB CAST null map has {} rows, expected {}",
+                                     forced_nulls.size(), values.size());
     }
     auto strings = ColumnString::create();
     auto nulls = ColumnUInt8::create(values.size(), 0);

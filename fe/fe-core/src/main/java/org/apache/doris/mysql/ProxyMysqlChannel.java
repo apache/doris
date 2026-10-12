@@ -34,6 +34,18 @@ public class ProxyMysqlChannel extends MysqlChannel {
         proxyResultBuffer.add(packet);
     }
 
+    /**
+     * Nothing is ever flushed to a client here, so a reset -- before a statement, and before a
+     * failed query is attempted again -- drops everything the statement wrote so far: the packets
+     * of a failed attempt must not travel to the client next to those of the attempt that
+     * succeeded.
+     */
+    @Override
+    public void reset() {
+        super.reset();
+        proxyResultBuffer.clear();
+    }
+
     public List<ByteBuffer> getProxyResultBufferList() {
         return proxyResultBuffer;
     }

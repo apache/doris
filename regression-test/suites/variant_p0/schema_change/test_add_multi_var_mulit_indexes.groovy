@@ -19,7 +19,7 @@
 suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
 
 
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"

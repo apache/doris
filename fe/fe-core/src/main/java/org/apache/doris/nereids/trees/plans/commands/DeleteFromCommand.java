@@ -142,8 +142,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
-            RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
-                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
+            RowLevelDmlArgs args = rowLevelDmlArgs(table);
             new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).run(ctx, executor);
             return;
         }
@@ -210,9 +209,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             }
         }
 
-        // if table's enable_mow_light_delete is false, use `DeleteFromUsingCommand`
+        // Row binlog needs row-bearing deletes to emit DELETE events. Predicate deletes only write
+        // delete predicates, so use `DeleteFromUsingCommand` even when MOW light delete is enabled.
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
-                && !olapTable.getEnableMowLightDelete()) {
+                && (!olapTable.getEnableMowLightDelete() || olapTable.needRowBinlog())) {
             new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
                     Optional.empty(), false).run(ctx, executor);
             return;
@@ -498,11 +498,15 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
-            RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
-                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
+            RowLevelDmlArgs args = rowLevelDmlArgs(table);
             return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);
+    }
+
+    protected RowLevelDmlArgs rowLevelDmlArgs(TableIf table) {
+        return RowLevelDmlArgs.forDelete(
+                table, nameParts, tableAlias, isTempPart, partitions, logicalQuery);
     }
 
     private OlapTable getTargetTable(ConnectContext ctx) {

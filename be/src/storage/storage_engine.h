@@ -126,6 +126,10 @@ public:
     virtual Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
                                    bool force_use_only_cached = false) = 0;
 
+    void register_row_binlog_tablet(const BaseTabletSPtr& tablet);
+    // Catalog discovery refreshes cached Cloud metadata too, including tablets with no recent reads.
+    Status submit_row_binlog_ttl(int64_t tablet_id, bool refresh_cloud_meta = false);
+
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
     void notify_listeners();
@@ -180,6 +184,14 @@ protected:
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor_for_load;
     CountDownLatch _stop_background_threads_latch;
+
+    Status _start_row_binlog_ttl_scanner();
+    void _stop_row_binlog_ttl_scanner();
+    std::mutex _row_binlog_ttl_mutex;
+    std::map<int64_t, std::weak_ptr<BaseTablet>> _row_binlog_ttl_tablets;
+    std::unordered_set<int64_t> _row_binlog_ttl_pending;
+    std::unique_ptr<ThreadPool> _row_binlog_ttl_prepare_pool;
+    std::shared_ptr<Thread> _row_binlog_ttl_scan_thread;
 
     std::shared_ptr<Thread> _id_file_map_gc_thread;
 

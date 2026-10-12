@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 
@@ -34,10 +35,12 @@ import java.util.concurrent.RejectedExecutionException;
 public class ReadListener implements ChannelListener<ConduitStreamSourceChannel> {
     private static final Logger LOG = LogManager.getLogger(ReadListener.class);
     private ConnectContext ctx;
+    private MysqlProtocolAdapter protocol;
     private ConnectProcessor connectProcessor;
 
     public ReadListener(ConnectContext connectContext, ConnectProcessor connectProcessor) {
         this.ctx = connectContext;
+        this.protocol = MysqlProtocolAdapter.of(connectContext);
         this.connectProcessor = connectProcessor;
     }
 
@@ -46,7 +49,7 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
         // suspend must be call sync in current thread (the IO-Thread notify the read event),
         // otherwise multi handler(task thread) would be waked up by once query.
         XnioIoThread.requireCurrentThread();
-        ctx.suspendAcceptQuery();
+        protocol.suspendAcceptQuery();
         // start async query handle in task thread.
         try {
             channel.getWorker().execute(() -> {
@@ -54,9 +57,9 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
                 try {
                     connectProcessor.processOnce();
                     if (!ctx.isKilled()) {
-                        ctx.resumeAcceptQuery();
+                        protocol.resumeAcceptQuery();
                     } else {
-                        ctx.stopAcceptQuery();
+                        protocol.stopAcceptQuery();
                         ctx.cleanup();
                     }
                 } catch (Throwable e) {

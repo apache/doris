@@ -68,6 +68,16 @@ suite("test_generated_column_fault_tolerance_nereids") {
         exception "Generated column expression cannot contain variable."
     }
 
+    // Variables are resolved to literals during binding, so generated columns must reject them before binding.
+    test {
+        sql """
+        create table test_gen_col_var_in_function(a int, c int generated always as (abs(@myvar)) not null)
+        DISTRIBUTED BY HASH(a)
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "Generated column expression cannot contain variable."
+    }
+
     test {
         sql """
         create table test_gen_col_auto_increment(a bigint not null auto_increment, b int, c int as (a*b)) 

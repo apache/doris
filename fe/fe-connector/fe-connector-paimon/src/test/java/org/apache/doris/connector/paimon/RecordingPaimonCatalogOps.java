@@ -22,12 +22,14 @@ import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.function.BooleanSupplier;
 
 /**
  * Hand-written recording fake for {@link PaimonCatalogOps} (no Mockito), mirroring the
@@ -80,6 +82,8 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     String lastDroppedDb;
     boolean lastDropCascade;
     boolean lastDropDbIgnoreIfNotExists;
+    Identifier lastAlteredTableId;
+    List<SchemaChange> lastSchemaChanges;
 
     // ---- B3 DDL throw flags (mirror the read-path throwDatabaseNotExist/throwTableNotExist) ----
     boolean throwTableAlreadyExist;
@@ -90,6 +94,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     // ---- T20 E5 MVCC seam: configurable lookup results (no real Snapshot/SnapshotManager) ----
     OptionalLong latestSnapshotId = OptionalLong.empty();
+    BooleanSupplier latestSnapshotAuthentication;
     OptionalLong snapshotIdAtOrBefore = OptionalLong.empty();
     boolean snapshotExists;
     /** The table the metadata layer passed to the most recent MVCC seam call. */
@@ -241,7 +246,17 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     }
 
     @Override
+    public void alterTable(Identifier identifier, List<SchemaChange> changes) {
+        log.add("alterTable:" + identifier.getFullName());
+        lastAlteredTableId = identifier;
+        lastSchemaChanges = changes;
+    }
+
+    @Override
     public OptionalLong latestSnapshotId(Table table) {
+        if (latestSnapshotAuthentication != null && !latestSnapshotAuthentication.getAsBoolean()) {
+            throw new IllegalStateException("latestSnapshotId called outside authentication");
+        }
         log.add("latestSnapshotId");
         lastMvccTable = table;
         return latestSnapshotId;

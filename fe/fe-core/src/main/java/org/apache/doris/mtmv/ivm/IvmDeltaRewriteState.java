@@ -57,11 +57,11 @@ class IvmDeltaRewriteState {
     private int nextDeltaScanIndex;
 
     IvmDeltaRewriteState(Map<OlapTable, OlapTableStream> streams,
-            boolean includeExhaustedStreams, long refreshVersion, DataType sequenceType,
+            boolean includeExhaustedStreams, long sequencePrefix, DataType sequenceType,
             Map<OlapTable, List<Long>> windowPartitionIdsByTable) {
         this.streams = new HashMap<>(streams);
         this.includeExhaustedStreams = includeExhaustedStreams;
-        this.sequenceCalculator = IvmSequenceCalculator.create(refreshVersion, sequenceType);
+        this.sequenceCalculator = IvmSequenceCalculator.create(sequencePrefix, sequenceType);
         this.windowPartitionIdsByTable = windowPartitionIdsByTable;
     }
 

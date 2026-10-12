@@ -27,10 +27,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * AddColumnsOp
@@ -108,7 +110,31 @@ public class AddColumnsOp extends AlterTableOp {
 
     @Override
     public boolean needChangeMTMVState() {
-        return false;
+        // As in {@link AddColumnOp}: a name a view's query reaches a column by can be taken over by one of
+        // these, and that is the view's query to judge.
+        return true;
+    }
+
+    @Override
+    public boolean hasReachedTheTable(OlapTable table) {
+        // The column has to be in the table: a change that is not a light one is applied by a job, and a
+        // query judged before that job has run is judged against the table from before the change -- which
+        // is the one that cannot be answered about at all.
+        for (String columnName : queryJudgedColumnNames()) {
+            if (table.getColumn(columnName) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public Set<String> queryJudgedColumnNames() {
+        Set<String> names = Sets.newHashSetWithExpectedSize(columns.size());
+        for (Column column : columns) {
+            names.add(column.getName());
+        }
+        return names;
     }
 
     @Override

@@ -25,7 +25,7 @@
 //
 //   LARGEINT -> utf8   -> STRING     value kept, arithmetic lost
 //   JSON     -> utf8   -> STRING     text kept, json functions lost
-//   VARIANT  -> utf8   -> STRING     text kept, sub-column access lost
+//   VARIANT  -> native Arrow Variant -> VARIANT, including sub-column access
 //   IPV6     -> utf8   -> STRING     text kept
 //   IPV4     -> int32  -> INT        *** the value itself changes form ***
 //
@@ -145,6 +145,8 @@ suite("test_adbc_type_semantic", "p0,external") {
         CREATE CATALOG ${catalogName} PROPERTIES (
             "type" = "adbc",
             "driver_url" = "${driverPath}",
+            -- The loopback source is Doris even when vendor detection is unavailable.
+            "sql_dialect" = "doris",
             "uri" = "grpc://127.0.0.1:${arrowPort}",
             "user" = "root",
             "password" = "",
@@ -251,18 +253,20 @@ suite("test_adbc_type_semantic", "p0,external") {
             ) DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_num" = "1")
         """
+        // Casting a string to VARIANT preserves a scalar; parse JSON to exercise object serialization.
         sql """
             INSERT INTO internal.${dbName}.t_variant VALUES
-              (1, '{"a": 1, "b": "two"}'),
-              (2, '{"nested": {"deep": 3}}'),
+              (1, parse_to_variant('{"a": 1, "b": "two"}')),
+              (2, parse_to_variant('{"nested": {"deep": 3}}')),
               (3, NULL)
         """
 
         qt_desc_variant """DESC ${catalogName}.${dbName}.t_variant"""
         qt_select_variant """SELECT id, c_var FROM ${catalogName}.${dbName}.t_variant ORDER BY id"""
-        assertEquals("text", externalTypeOf("t_variant", "c_var"),
-                "VARIANT is serialised as Arrow utf8, so the external column is a string and its "
-                        + "sub-columns are no longer addressable through the catalog")
+        sameAsSourceText("t_variant", "c_var")
+        // The extension's binary storage must round-trip as Variant, not leak as two text fields.
+        assertTrue(externalTypeOf("t_variant", "c_var").startsWith("variant"))
+        qt_variant_subcolumn """SELECT id, CAST(c_var['a'] AS INT) FROM ${catalogName}.${dbName}.t_variant ORDER BY id"""
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
         sql """DROP DATABASE IF EXISTS internal.${dbName} FORCE"""

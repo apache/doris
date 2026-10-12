@@ -40,18 +40,14 @@ struct TimerArg {
     std::string name;
     int64_t interval_ms;
 
-    // Set by cancel() before calling bthread_timer_del. The callback checks
-    // this flag after acquiring `mu` and skips re-registration when true.
+    // Set before cancel() acquires mu, preventing further adjustment/re-registration.
     std::atomic<bool> stopped {false};
 
-    // Tracks the most recently registered timer id. Updated under `mu` by the
-    // callback after each re-registration; read by cancel() to call
-    // bthread_timer_del on the latest pending timer.
+    // Updated and read under mu, including the initial registration in add().
     std::atomic<bthread_timer_t> timer_id {0};
 
-    // Held for the entire duration of the callback (fire + re-registration).
-    // cancel() acquires it after bthread_timer_del to wait for any in-flight
-    // invocation to complete before freeing `this`.
+    // Serializes initial registration, adjustment, re-registration and cancellation.
+    // Taking this lock alone does not join a callback that has not acquired it yet.
     std::mutex mu;
 };
 
@@ -88,10 +84,11 @@ public:
     // Initialize with system-level dependencies.
     void init(SystemMetrics* system_metrics, ThreadPool* s3_file_upload_pool);
 
-    // Cancel all registered pool groups. Must be called before the pools are destroyed.
+    // Permanently stop registration and cancel all groups before pools are destroyed.
     void stop();
 
-    // Register a pool group and start a recurring bthread_timer_add chain.
+    // Register a timer chain, draining an existing registration with the same name.
+    // Lifecycle methods must not be called from an AdjustFunc.
     void add(std::string name, std::vector<ThreadPool*> pools, AdjustFunc adjust_func,
              double max_threads_per_cpu, double min_threads_per_cpu,
              int64_t interval_ms = kDefaultIntervalMs);
@@ -137,10 +134,16 @@ private:
 
     void _apply_thread_count(PoolGroup& group, int target_threads, const std::string& reason);
 
+    // Requires _lifecycle_mutex.
+    void _cancel(const std::string& name);
+
 private:
     SystemMetrics* _system_metrics = nullptr;
     ThreadPool* _s3_file_upload_pool = nullptr;
 
+    // Serializes add/cancel/stop so concurrent teardown also waits for cancellation.
+    std::mutex _lifecycle_mutex;
+    bool _stopped = false;
     mutable std::mutex _mutex;
     mutable std::mutex _metrics_state_mutex;
     std::map<std::string, PoolGroup> _pool_groups;

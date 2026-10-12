@@ -33,6 +33,19 @@ import org.junit.jupiter.api.Test;
 public class ConnectorMvccSnapshotTest {
 
     @Test
+    public void schemaPublicationRequiresExplicitOptIn() {
+        ConnectorMvccSnapshot ordinary = ConnectorMvccSnapshot.builder().schemaId(3).build();
+        ConnectorMvccSnapshot retained = ConnectorMvccSnapshot.builder().schemaId(3).retainSchema(true).build();
+        Assertions.assertFalse(ordinary.isSchemaRetained());
+        Assertions.assertTrue(retained.isSchemaRetained());
+        Assertions.assertNotEquals(ordinary, retained);
+        Assertions.assertEquals(retained,
+                ConnectorMvccSnapshot.builder().schemaId(3).retainSchema(true).build());
+        Assertions.assertEquals(retained.hashCode(),
+                ConnectorMvccSnapshot.builder().schemaId(3).retainSchema(true).build().hashCode());
+    }
+
+    @Test
     public void schemaIdDefaultsToMinusOneWhenUnset() {
         // WHY: -1 is the "unknown => fall back to latest schema" sentinel. Every existing builder
         // caller (which never calls schemaId(..)) must observe -1, i.e. zero behavior change.

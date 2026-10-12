@@ -63,6 +63,19 @@ import java.util.concurrent.locks.LockSupport;
 
 public class TableStreamManager extends MasterDaemon implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableStreamManager.class);
+    private static final String BASE_TABLE_NOT_FOUND_STALE_REASON = "Base table does not exist";
+
+    @FunctionalInterface
+    public interface StreamConsumptionSelector {
+        // unit is null while selecting a stream, and is set after its base-table partitions are known.
+        boolean test(String dbName, String streamName, long streamId, String unit);
+
+        // Callers override this to skip partition snapshots when no UNIT predicate exists.
+        default boolean hasUnitFilter() {
+            return true;
+        }
+    }
+
     @SerializedName(value = "dbStreamMap")
     private Map<Long, Set<Long>> dbStreamMap;
     protected MonitoredReentrantReadWriteLock rwLock;
@@ -356,7 +369,8 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                             // STREAM_COMMENT
                             trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
                             TableIf baseTable = stream.getBaseTableNullable();
-                            if (baseTable == null) {
+                            boolean baseTableExists = baseTable != null;
+                            if (!baseTableExists) {
                                 // BASE_TABLE_NAME
                                 trow.addToColumnValue(new TCell().setStringVal("N/A"));
                                 // BASE_TABLE_DB
@@ -377,11 +391,13 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                                 trow.addToColumnValue(new TCell().setStringVal(baseTable.getType().name()));
                             }
                             // ENABLED
-                            trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled()));
+                            trow.addToColumnValue(
+                                    new TCell().setBoolVal(baseTableExists && !stream.isDisabled()));
                             // IS_STALE
-                            trow.addToColumnValue(new TCell().setBoolVal(stream.isStale()));
+                            trow.addToColumnValue(new TCell().setBoolVal(!baseTableExists || stream.isStale()));
                             // STALE_REASON
-                            trow.addToColumnValue(new TCell().setStringVal(stream.getStaleReason()));
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableExists
+                                    ? stream.getStaleReason() : BASE_TABLE_NOT_FOUND_STALE_REASON));
                             dataBatch.add(trow);
                         } finally {
                             stream.readUnlock();
@@ -394,9 +410,24 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
 
     public void fillStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) throws UserException {
         if (Config.isCloudMode()) {
-            fillCloudStreamConsumptionValuesMetadataResult(dataBatch);
+            fillCloudStreamConsumptionValuesMetadataResult(dataBatch, null);
             return;
         }
+        fillLocalStreamConsumptionValuesMetadataResult(dataBatch, null);
+    }
+
+    public void fillStreamConsumptionValuesMetadataResult(List<TRow> dataBatch,
+            StreamConsumptionSelector selector) throws UserException {
+        if (Config.isCloudMode()) {
+            fillCloudStreamConsumptionValuesMetadataResult(dataBatch, selector);
+            return;
+        }
+        fillLocalStreamConsumptionValuesMetadataResult(dataBatch, selector);
+    }
+
+    private void fillLocalStreamConsumptionValuesMetadataResult(List<TRow> dataBatch,
+            StreamConsumptionSelector selector) {
+        // Resolve registered streams and apply stream-level predicates before taking metadata locks.
         for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
             Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
             if (db.isPresent()) {
@@ -408,13 +439,32 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                         }
                         continue;
                     }
-                    Preconditions.checkArgument(table.get() instanceof BaseTableStream);
-                    BaseTableStream stream = (BaseTableStream) table.get();
+                    Preconditions.checkArgument(table.get() instanceof OlapTableStream);
+                    OlapTableStream stream = (OlapTableStream) table.get();
+                    String dbName = db.get().getFullName();
+                    String streamName = stream.getName();
+                    long streamId = stream.getId();
+                    if (selector != null && !selector.test(dbName, streamName, streamId, null)) {
+                        continue;
+                    }
+                    List<OlapTableStream.StreamConsumptionUnitSnapshot> snapshots = Collections.emptyList();
                     if (stream.readLockIfExist()) {
                         try {
-                            stream.fillTableStreamConsumptionInfo(dataBatch);
+                            // Build rows directly unless UNIT evaluation requires a lock-protected metadata snapshot.
+                            if (selector == null || !selector.hasUnitFilter()) {
+                                stream.fillTableStreamConsumptionInfo(dataBatch);
+                            } else {
+                                // UNIT evaluation rewrites and folds expressions, so defer it until after unlocking.
+                                snapshots = stream.snapshotTableStreamConsumptionInfo();
+                            }
                         } finally {
                             stream.readUnlock();
+                        }
+                    }
+                    // Both metadata locks are released here; materialize only units accepted by the selector.
+                    for (OlapTableStream.StreamConsumptionUnitSnapshot snapshot : snapshots) {
+                        if (selector.test(dbName, streamName, streamId, snapshot.getUnit())) {
+                            snapshot.appendRow(dataBatch, dbName, streamName, streamId);
                         }
                     }
                 }
@@ -422,8 +472,10 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
     }
 
-    private void fillCloudStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) throws UserException {
+    private void fillCloudStreamConsumptionValuesMetadataResult(List<TRow> dataBatch,
+            StreamConsumptionSelector selector) throws UserException {
         Map<Cloud.TableStreamIdentityPB, CloudStreamConsumptionSnapshot> snapshots = new LinkedHashMap<>();
+        // Resolve registered streams and apply stream-level predicates before taking metadata locks.
         for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
             Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
             if (!db.isPresent()) {
@@ -436,44 +488,59 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                 }
                 Preconditions.checkArgument(table.get() instanceof OlapTableStream);
                 OlapTableStream stream = (OlapTableStream) table.get();
+                if (selector != null
+                        && !selector.test(db.get().getFullName(), stream.getName(), stream.getId(), null)) {
+                    continue;
+                }
                 if (!stream.readLockIfExist()) {
                     continue;
                 }
+                Cloud.TableStreamIdentityPB identity;
+                CloudStreamConsumptionSnapshot snapshot;
                 try {
+                    // Snapshot partition identities under lock; authoritative consumption state lives in MetaService.
                     OlapTable baseTable = stream.getBaseTableNullable();
                     if (baseTable == null || !baseTable.readLockIfExist()) {
                         continue;
                     }
                     try {
                         Map<Long, String> partitionNames = new LinkedHashMap<>();
-                        baseTable.getPartitions().forEach(partition ->
-                                partitionNames.put(partition.getId(), partition.getName()));
+                        baseTable.getPartitions().stream()
+                                .forEach(partition -> partitionNames.put(partition.getId(), partition.getName()));
                         if (partitionNames.isEmpty()) {
                             continue;
                         }
-                        Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                        identity = Cloud.TableStreamIdentityPB.newBuilder()
                                 .setBaseDbId(stream.getBaseTableInfo().getDbId())
                                 .setBaseTableId(stream.getBaseTableInfo().getTableId())
                                 .setStreamDbId(entry.getKey())
                                 .setStreamId(stream.getId())
                                 .build();
-                        CloudStreamConsumptionSnapshot previous = snapshots.put(identity,
-                                new CloudStreamConsumptionSnapshot(db.get().getFullName(), stream.getName(),
-                                        stream.getId(), partitionNames));
-                        Preconditions.checkState(previous == null,
-                                "Duplicate Cloud Table Stream identity %s", identity);
+                        snapshot = new CloudStreamConsumptionSnapshot(db.get().getFullName(), stream.getName(),
+                                stream.getId(), partitionNames);
                     } finally {
                         baseTable.readUnlock();
                     }
                 } finally {
                     stream.readUnlock();
                 }
+                // Evaluate UNIT expressions after unlocking, then retain only selected units in the global map.
+                if (selector != null && selector.hasUnitFilter()) {
+                    snapshot = snapshot.selectUnits(selector);
+                    if (snapshot == null) {
+                        continue;
+                    }
+                }
+                CloudStreamConsumptionSnapshot previous = snapshots.put(identity, snapshot);
+                Preconditions.checkState(previous == null,
+                        "Duplicate Cloud Table Stream identity %s", identity);
             }
         }
         if (snapshots.isEmpty()) {
             return;
         }
 
+        // Fetch authoritative states for selected units in one batch, then materialize the result rows.
         Map<Cloud.TableStreamIdentityPB, Set<Long>> requestedPartitions = new LinkedHashMap<>();
         snapshots.forEach((identity, snapshot) ->
                 requestedPartitions.put(identity, snapshot.partitionNames.keySet()));
@@ -497,6 +564,18 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
             this.streamName = streamName;
             this.streamId = streamId;
             this.partitionNames = Collections.unmodifiableMap(partitionNames);
+        }
+
+        private CloudStreamConsumptionSnapshot selectUnits(StreamConsumptionSelector selector) {
+            Map<Long, String> selectedPartitions = new LinkedHashMap<>();
+            for (Map.Entry<Long, String> entry : partitionNames.entrySet()) {
+                if (selector.test(dbName, streamName, streamId, entry.getValue())) {
+                    selectedPartitions.put(entry.getKey(), entry.getValue());
+                }
+            }
+            return selectedPartitions.isEmpty()
+                    ? null
+                    : new CloudStreamConsumptionSnapshot(dbName, streamName, streamId, selectedPartitions);
         }
 
         private void fillRows(Map<Long, Cloud.TableStreamPartitionReadStatePB> partitionStates,

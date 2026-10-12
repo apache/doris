@@ -18,6 +18,7 @@
 import groovy.json.JsonOutput
 
 suite("default_cluster") {
+    withRestoredMultiClusterState(false) {
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
 
@@ -27,9 +28,9 @@ suite("default_cluster") {
     List<String> beUniqueIdList = new ArrayList<>()
 
     String[] bes = context.config.multiClusterBes.split(',');
-    println("the value is " + context.config.multiClusterBes);
+    logger.info("the value is " + context.config.multiClusterBes);
     for(String values : bes) {
-        println("the value is " + values);
+        logger.info("the value is " + values);
         String[] beInfo = values.split(':');
         ipList.add(beInfo[0]);
         hbPortList.add(beInfo[1]);
@@ -37,10 +38,10 @@ suite("default_cluster") {
         beUniqueIdList.add(beInfo[3]);
     }
 
-    println("the ip is " + ipList);
-    println("the heartbeat port is " + hbPortList);
-    println("the http port is " + httpPortList);
-    println("the be unique id is " + beUniqueIdList);
+    logger.info("the ip is " + ipList);
+    logger.info("the heartbeat port is " + hbPortList);
+    logger.info("the http port is " + httpPortList);
+    logger.info("the be unique id is " + beUniqueIdList);
 
     for (unique_id : beUniqueIdList) {
         resp = get_cluster.call(unique_id);
@@ -50,7 +51,7 @@ suite("default_cluster") {
             }
         }
     }
-    wait_cluster_change()
+    sleep(20000)
 
     List<List<Object>> result  = sql "show clusters"
     assertTrue(result.size() == 0);
@@ -59,22 +60,22 @@ suite("default_cluster") {
                      "regression_cluster_name2", "regression_cluster_id2");
     add_cluster.call(beUniqueIdList[1], ipList[1], hbPortList[1],
                      "regression_cluster_name3", "regression_cluster_id3");
-    wait_cluster_change()
+    sleep(20000)
 
     result  = sql "show clusters"
     assertTrue(result.size() == 2);
     for (row : result) {
-        log.info("show cluster row: ${row}".toString())
+        logger.info("show cluster row: ${row}".toString())
     }
 
     sql "SET PROPERTY 'default_cloud_cluster' = 'regression_cluster_name3'"
 
     context.reconnectFe()
     def before_cluster0_flush = get_be_metric(ipList[0], httpPortList[0], "memtable_flush_total");
-    log.info("before_cluster0_flush : ${before_cluster0_flush}".toString())
+    logger.info("before_cluster0_flush : ${before_cluster0_flush}".toString())
 
     def before_cluster1_flush = get_be_metric(ipList[1], httpPortList[1], "memtable_flush_total");
-    log.info("before_cluster1_flush : ${before_cluster1_flush}".toString())
+    logger.info("before_cluster1_flush : ${before_cluster1_flush}".toString())
 
 
     sql """
@@ -92,17 +93,17 @@ suite("default_cluster") {
     """
 
     def after_cluster0_flush = get_be_metric(ipList[0], httpPortList[0], "memtable_flush_total");
-    log.info("after_cluster0_flush : ${after_cluster0_flush}".toString())
+    logger.info("after_cluster0_flush : ${after_cluster0_flush}".toString())
 
     def after_cluster1_flush = get_be_metric(ipList[1], httpPortList[1], "memtable_flush_total");
-    log.info("after_cluster1_flush : ${after_cluster1_flush}".toString())
+    logger.info("after_cluster1_flush : ${after_cluster1_flush}".toString())
 
     assertTrue(before_cluster0_flush == after_cluster0_flush)
     assertTrue(before_cluster1_flush < after_cluster1_flush)
 
     result  = sql "show clusters"
     for (row : result) {
-        println row
+        logger.info("row: ${row.toString()}")
         if(row[0] == "regression_cluster_name2") {
             assertTrue(row[1].toString().toLowerCase() == "false")
         }
@@ -115,7 +116,7 @@ suite("default_cluster") {
     sql "use @regression_cluster_name2"
     result  = sql "show clusters"
     for (row : result) {
-        println row
+        logger.info("row: ${row.toString()}")
         if(row[0] == "regression_cluster_name2") {
             assertTrue(row[1].toString().toLowerCase() == "true")
         }
@@ -128,7 +129,7 @@ suite("default_cluster") {
     context.reconnectFe()
     result  = sql "show clusters"
     for (row : result) {
-        println row
+        logger.info("row: ${row.toString()}")
         if(row[0] == "regression_cluster_name2") {
             assertTrue(row[1].toString().toLowerCase() == "true")
         }
@@ -140,7 +141,7 @@ suite("default_cluster") {
     sql "use @regression_cluster_name3"
     result  = sql "show clusters"
     for (row : result) {
-        println row
+        logger.info("row: ${row.toString()}")
         if(row[0] == "regression_cluster_name2") {
             assertTrue(row[1].toString().toLowerCase() == "false")
         }
@@ -160,7 +161,7 @@ suite("default_cluster") {
 
     result  = sql "show property"
     for (row : result) {
-        println row
+        logger.info("row: ${row.toString()}")
         if(row[0] == "default_cloud_cluster") {
             assertTrue(row[1].toString().isEmpty())
         }
@@ -169,4 +170,5 @@ suite("default_cluster") {
     sql """
         drop table if exists test_table
     """
+    }
 }

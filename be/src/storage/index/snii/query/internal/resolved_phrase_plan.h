@@ -31,6 +31,10 @@ namespace doris::snii::query {
 struct PhraseMatch;
 }
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris::snii::query::internal {
 
 enum class ExactPhrasePositionAccess : uint8_t {
@@ -75,8 +79,7 @@ struct ResolvedPhrasePlan {
 Status execute_resolved_phrase_plan(
         const reader::LogicalIndexReader& idx, ResolvedPhrasePlan&& plan,
         std::vector<uint32_t>* docids, format::PrxDecodeContext* observer_context = nullptr,
-        std::vector<PhraseMatch>* matches = nullptr,
-        const std::vector<uint32_t>* candidate_prefilter = nullptr,
+        std::vector<PhraseMatch>* matches = nullptr, const roaring::Roaring* candidates = nullptr,
         ExactPhrasePositionAccess position_access = ExactPhrasePositionAccess::kAuto);
 
 } // namespace doris::snii::query::internal

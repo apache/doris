@@ -20,6 +20,7 @@ package org.apache.doris.connector.hudi;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.junit.jupiter.api.Assertions;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Tests the {@code force_jni_scanner} escape hatch (legacy {@code HudiScanNode.canUseNativeReader()} /
@@ -35,6 +37,21 @@ import java.util.Map;
  * native-eligible slice still reads via the JNI reader.
  */
 public class HudiForceJniTest {
+
+    @Test
+    public void lazyMorScanAdvertisesNativeParquetBeforeRangesArrive() {
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(Collections.emptyMap(), null);
+        HudiTableHandle table = new HudiTableHandle.Builder("db", "t", "s3://bucket/t", "MERGE_ON_READ")
+                .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat").build();
+        for (boolean forceJni : Arrays.asList(false, true)) {
+            Map<String, String> properties = provider.getScanNodeProperties(
+                    sessionWithProps(Collections.singletonMap("force_jni_scanner", Boolean.toString(forceJni))),
+                    table, Collections.emptyList(), Optional.empty());
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            provider.populateScanLevelParams(params, properties);
+            Assertions.assertEquals(!forceJni, params.isContainsNativeParquet());
+        }
+    }
 
     @Test
     public void sessionFlagTrueEnablesForceJni() {

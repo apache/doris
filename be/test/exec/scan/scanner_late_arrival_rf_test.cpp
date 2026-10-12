@@ -583,14 +583,38 @@ TEST_F(ScannerLateArrivalRfTest, parallel_scanner_factory_preserves_bucket_ident
     scan_range->__set_bucket_num(bucket_num);
     scan_ranges.push_back(std::move(scan_range));
     auto profile = std::make_shared<RuntimeProfile>("parallel scanner bucket identity");
+    const std::vector<OlapScanRange*> key_ranges;
+    const std::vector<const std::vector<OlapScanRange*>*> tablet_key_ranges(1, &key_ranges);
     ParallelScannerBuilder builder(local_state.get(), tablets, read_sources, scan_ranges, profile,
-                                   {}, state, -1, true, true);
+                                   tablet_key_ranges, state, -1, true, true);
 
     auto scanner = builder._build_scanner(tablet, 1, {}, *scan_ranges.front(), TabletReadSource {},
                                           io::FileCacheStatistics {});
     EXPECT_EQ(scanner->_bucket_seq, bucket_seq);
     EXPECT_EQ(scanner->_bucket_num, bucket_num);
     EXPECT_TRUE(scanner->is_pruned_by_runtime_filter());
+}
+
+TEST_F(ScannerLateArrivalRfTest, empty_bucket_keys_skip_loading_and_both_scanner_split_paths) {
+    auto tablet = std::make_shared<FakeTablet>(1, 20);
+    std::vector<TabletWithVersion> tablets {{tablet, 1}};
+    std::vector<TabletReadSource> read_sources(1);
+    std::vector<std::unique_ptr<TPaloScanRange>> scan_ranges;
+    auto scan_range = std::make_unique<TPaloScanRange>();
+    scan_range->__set_tablet_id(20);
+    scan_ranges.push_back(std::move(scan_range));
+    const std::vector<OlapScanRange*> empty_keys;
+    const std::vector<const std::vector<OlapScanRange*>*> tablet_key_ranges(1, &empty_keys);
+    auto profile = std::make_shared<RuntimeProfile>("empty bucket");
+    for (bool per_segment : {false, true}) {
+        ParallelScannerBuilder builder(nullptr, tablets, read_sources, scan_ranges, profile,
+                                       tablet_key_ranges, _runtime_states[0].get(), -1, true, true);
+        builder.set_scan_parallelism_by_per_segment(per_segment);
+        std::list<ScannerSPtr> scanners;
+        ASSERT_TRUE(builder.build_scanners(scanners).ok());
+        EXPECT_TRUE(scanners.empty());
+        EXPECT_TRUE(builder._all_read_sources.empty());
+    }
 }
 
 TEST_F(ScannerLateArrivalRfTest, high_cardinality_ineligible_parallel_builder_reuses_scan_ranges) {
@@ -612,8 +636,10 @@ TEST_F(ScannerLateArrivalRfTest, high_cardinality_ineligible_parallel_builder_re
     std::vector<OlapScanRange*> key_ranges;
     std::shared_ptr<RuntimeProfile> profile;
 
-    ParallelScannerBuilder builder(nullptr, tablets, read_sources, scan_ranges, profile, key_ranges,
-                                   nullptr, -1, true, true);
+    const std::vector<const std::vector<OlapScanRange*>*> tablet_key_ranges(scan_range_count,
+                                                                            &key_ranges);
+    ParallelScannerBuilder builder(nullptr, tablets, read_sources, scan_ranges, profile,
+                                   tablet_key_ranges, nullptr, -1, true, true);
 
     EXPECT_EQ(&builder._scan_ranges, &scan_ranges);
     EXPECT_EQ(builder._scan_ranges.size(), scan_range_count);

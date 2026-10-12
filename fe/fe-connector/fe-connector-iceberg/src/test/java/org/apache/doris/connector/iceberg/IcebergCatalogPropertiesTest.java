@@ -37,6 +37,21 @@ import java.util.Map;
  */
 public class IcebergCatalogPropertiesTest {
 
+    @Test
+    public void alterToleratesPersistedFutureWeightEntryButValidatesKnownValues() {
+        Map<String, String> current = props("iceberg.catalog.type", "hadoop", "warehouse", "s3://bucket/wh",
+                "meta.cache.iceberg.future_entry.max-weight", "future-format");
+        IcebergConnectorProvider provider = new IcebergConnectorProvider();
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(current));
+        Assertions.assertDoesNotThrow(() -> IcebergCatalogProperties.of(current));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("meta.cache.iceberg.partiton.max-weight", "64MB")));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("comment", "updated")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("meta.cache.iceberg.table.max-weight", "invalid")));
+    }
+
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
         for (int i = 0; i < kv.length; i += 2) {
@@ -111,8 +126,8 @@ public class IcebergCatalogPropertiesTest {
         // read false and silently drop the BINARY->VARBINARY / TIMESTAMPTZ mapping for every table.
         // MUTATION: binding an underscore key name -> red.
         IcebergCatalogProperties off = IcebergCatalogProperties.of(Collections.emptyMap());
-        Assertions.assertFalse(off.isEnableMappingVarbinary());
-        Assertions.assertFalse(off.isEnableMappingTimestampTz());
+        Assertions.assertTrue(off.isEnableMappingVarbinary());
+        Assertions.assertTrue(off.isEnableMappingTimestampTz());
 
         IcebergCatalogProperties on = IcebergCatalogProperties.of(props(
                 "enable.mapping.varbinary", "true", "enable.mapping.timestamp_tz", "TRUE"));

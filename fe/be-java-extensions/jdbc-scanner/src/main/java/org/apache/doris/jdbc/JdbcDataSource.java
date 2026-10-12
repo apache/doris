@@ -19,7 +19,8 @@ package org.apache.doris.jdbc;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -31,7 +32,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 public class JdbcDataSource {
-    private static final Logger LOG = Logger.getLogger(JdbcDataSource.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcDataSource.class);
     private static final ThreadFactory THREAD_FACTORY = new ThreadFactoryBuilder()
             .setDaemon(true)
             .setNameFormat("jdbc-datasource-cleanup-%d")
@@ -116,14 +117,21 @@ public class JdbcDataSource {
      * Create a cache key for connection pool lookup.
      * The key includes all connection parameters so that any change
      * (e.g. password via ALTER RESOURCE) results in a new pool.
+     *
+     * <p>The driver checksum is one of them. A pool owns the Driver instance it was created with,
+     * so a jar replaced in place and re-declared with ALTER CATALOG ... driver_checksum gets a
+     * fresh classloader from JdbcDriverUtils and then, without this, the SAME pool - which keeps
+     * handing out connections from the old driver until the pool idles out or BE restarts. A new
+     * checksum is a new pool; the old one is left to the cleanup task, since its connections may
+     * still be in use.
      */
     public static String createCacheKey(long catalogId, String jdbcUrl, String jdbcUser,
             String jdbcPassword, String jdbcDriverUrl, String jdbcDriverClass,
-            int connectionPoolMinSize, int connectionPoolMaxSize,
+            String jdbcDriverChecksum, int connectionPoolMinSize, int connectionPoolMaxSize,
             int connectionPoolMaxLifeTime, int connectionPoolMaxWaitTime,
             boolean connectionPoolKeepAlive) {
         return catalogId + jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass
-                + connectionPoolMinSize + connectionPoolMaxSize + connectionPoolMaxLifeTime
-                + connectionPoolMaxWaitTime + connectionPoolKeepAlive;
+                + jdbcDriverChecksum + connectionPoolMinSize + connectionPoolMaxSize
+                + connectionPoolMaxLifeTime + connectionPoolMaxWaitTime + connectionPoolKeepAlive;
     }
 }

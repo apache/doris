@@ -548,13 +548,16 @@ TEST(BkdCorruptionTest, InflatedSectionLengthIsCaughtByTheBoundsCheckNotTheCheck
             original.bytes.begin() + static_cast<long>(original.data_begin),
             original.bytes.begin() + static_cast<long>(original.data_begin + original.data_size));
     const std::vector<uint8_t> payload = payload_of(original.index_bytes());
+    // payload.size() is size_t, which is not uint64_t on every platform; mixing the two in
+    // one initializer list leaves the element type undeducible.
+    const uint64_t payload_size = payload.size();
 
     // THE old defect, reproduced: a length field read off disk and then trusted
     // as a size. The checksum here is CORRECT for the bytes present, so nothing
     // but a bounds check inside ByteSource can stop it -- and in the old
     // implementation nothing did: ByteArrayDataInput::readBytes was a plain
     // std::copy of the declared length, i.e. a heap overread.
-    for (const uint64_t declared : {payload.size() + 1, payload.size() + 4096, uint64_t {1} << 20,
+    for (const uint64_t declared : {payload_size + 1, payload_size + 4096, uint64_t {1} << 20,
                                     uint64_t {1} << 40, uint64_t {0xFFFFFFFFFFFFFFFFULL}}) {
         SCOPED_TRACE("declared payload length " + std::to_string(declared));
         const Image damaged = assemble(frame_with_declared_length(payload, declared), data_bytes);
@@ -563,7 +566,7 @@ TEST(BkdCorruptionTest, InflatedSectionLengthIsCaughtByTheBoundsCheckNotTheCheck
     }
 
     // A shrunken one is damage too: the payload then has bytes nobody claims.
-    for (const uint64_t declared : {uint64_t {0}, uint64_t {1}, payload.size() - 1}) {
+    for (const uint64_t declared : {uint64_t {0}, uint64_t {1}, payload_size - 1}) {
         SCOPED_TRACE("declared payload length " + std::to_string(declared));
         const Image damaged = assemble(frame_with_declared_length(payload, declared), data_bytes);
         const Outcome outcome = probe(damaged);

@@ -21,10 +21,13 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
 import com.aliyun.odps.Partition;
+import com.aliyun.odps.PartitionSpec;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -45,10 +48,8 @@ import java.util.Objects;
  * {@link MaxComputeDorisConnector} (the only object that outlives a single query; the metadata is rebuilt per
  * call), so a partition read warms the others.
  *
- * <p><b>Read-only convention.</b> The cached {@code List<Partition>} is shared by reference. The consumers only
- * read local partition accessors ({@code getPartitionSpec()}, {@code spec.keys()/get()}, {@code toString()}),
- * never a per-partition lazy reload, so the shared list is safe as long as callers treat it as read-only (the
- * codebase-wide metadata-cache convention).
+ * <p><b>Read-only projection.</b> Only partition specs are retained, not SDK partitions and their ODPS clients.
+ * Consumers share the specs by reference and must treat them as read-only.
  *
  * <p><b>TCCL.</b> The entry is contextual-only + manual-miss + no auto-refresh, so the loader runs synchronously
  * on the CALLING thread — keeping TCCL/classloading byte-identical to today's uncached ODPS call (a background
@@ -87,11 +88,11 @@ public class MaxComputePartitionCache {
     }
 
     private final CatalogMetaCache owner;
-    private final MetaCache<PartitionKey, List<Partition>> cache;
+    private final MetaCache<PartitionKey, List<PartitionSpec>> cache;
     private final PartitionLister lister;
 
     MaxComputePartitionCache(Map<String, String> properties, PartitionLister lister) {
-        this(new CatalogMetaCache(), properties, lister);
+        this(CatalogMetaCache.unmanaged(), properties, lister);
     }
 
     MaxComputePartitionCache(CatalogMetaCache owner, Map<String, String> properties, PartitionLister lister) {
@@ -100,8 +101,10 @@ public class MaxComputePartitionCache {
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, ENTRY_PARTITION,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_PARTITION_CAPACITY));
         this.cache = owner.create(MetaCacheDefinition
-                .<PartitionKey, List<Partition>>builder("max-compute-partition", spec,
+                .<PartitionKey, List<PartitionSpec>>builder("max-compute-partition", spec,
                         key -> ScopePath.table(key.dbName, key.tableName))
+                .budgetGroup(ENTRY_PARTITION)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
         this.lister = Objects.requireNonNull(lister, "lister can not be null");
     }
@@ -112,9 +115,15 @@ public class MaxComputePartitionCache {
      * failure propagates and is NOT cached. The returned list is shared by reference — callers must treat it as
      * read-only (the codebase-wide metadata-cache convention).
      */
-    public List<Partition> getPartitions(String dbName, String tableName) {
-        return cache.get(new PartitionKey(dbName, tableName),
-                key -> lister.list(key.dbName, key.tableName));
+    public List<PartitionSpec> getPartitions(String dbName, String tableName) {
+        return cache.get(new PartitionKey(dbName, tableName), key -> {
+            List<Partition> partitions = lister.list(key.dbName, key.tableName);
+            List<PartitionSpec> specs = new ArrayList<>(partitions.size());
+            for (Partition partition : partitions) {
+                specs.add(partition.getPartitionSpec());
+            }
+            return Collections.unmodifiableList(specs);
+        });
     }
 
     /** Drops the cached partition listing for one table. Backs {@code REFRESH TABLE}. */

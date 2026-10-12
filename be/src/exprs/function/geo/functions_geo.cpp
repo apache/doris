@@ -559,6 +559,11 @@ struct StTouchesFunc {
     static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->touches(shape2); }
 };
 
+struct StWithinFunc {
+    static constexpr auto NAME = "st_within";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->within(shape2); }
+};
+
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
@@ -1132,6 +1137,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StRelationFunction<StIntersectsFunc>>>();
     factory.register_function<GeoFunction<StRelationFunction<StDisjointFunc>>>();
     factory.register_function<GeoFunction<StRelationFunction<StTouchesFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StWithinFunc>>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeomFromText>>>();

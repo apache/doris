@@ -110,6 +110,11 @@ public final class MetaCache<K, V> {
         return metrics().isEffectiveEnabled();
     }
 
+    /** Whether this entry currently participates in byte-based memory governance. */
+    public boolean isWeightBounded() {
+        return metrics().isWeightBounded();
+    }
+
     public long size() {
         return metrics().getPhysicalEntryCount();
     }
@@ -128,6 +133,10 @@ public final class MetaCache<K, V> {
 
     public void forEach(BiConsumer<K, V> consumer) {
         delegate.forEach(consumer);
+    }
+
+    void closeFromOwner() {
+        delegate.close();
     }
 
     public static final class BulkLoad<K, V> implements AutoCloseable {

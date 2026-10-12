@@ -21,7 +21,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.proto.Data;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TMasterOpRequest;
 
 import org.junit.jupiter.api.AfterEach;
@@ -108,7 +107,6 @@ class ConnectProcessorDelegatedCredentialTest {
 
         private RecordingConnectProcessor(ConnectContext context) {
             super(context);
-            this.connectType = ConnectType.MYSQL;
         }
 
         private void handle(String originStmt) throws Exception {

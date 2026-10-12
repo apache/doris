@@ -68,9 +68,16 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                         + ")\n"
                         + "UNIQUE KEY(id3)\n"
                         + "DISTRIBUTED BY HASH(id3) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS unrelated_pri (\n"
+                        + "    id1 int not null\n"
+                        + ")\n"
+                        + "UNIQUE KEY(id1)\n"
+                        + "DISTRIBUTED BY HASH(id1) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         addConstraint("Alter table pri add constraint pk primary key (id1)");
+        addConstraint("Alter table unrelated_pri add constraint unrelated_pk primary key (id1)");
         addConstraint("Alter table foreign_not_null add constraint f_not_null foreign key (id2)\n"
                 + "references pri(id1)");
         addConstraint("Alter table foreign_null add constraint f_not_null foreign key (id3)\n"
@@ -103,6 +110,17 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testDoNotEliminateJoinWithUnrelatedPrimaryTable() {
+        String sql = "select foreign_not_null.id2 from unrelated_pri "
+                + "inner join foreign_not_null on unrelated_pri.id1 = foreign_not_null.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
                 .printlnTree();
     }
 

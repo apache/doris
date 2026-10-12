@@ -39,6 +39,8 @@
   * code, and C++ exception handling. Use ScopedPHDRCacheRead only around the minimal
   * signal-handler unwind section; GNU libunwind reaches this cache through
   * doris_unwind_iterate_phdr without changing ordinary dl_iterate_phdr callers.
+  * ASAN builds do not interpose dl_iterate_phdr, even inside ScopedPHDRCacheRead, to avoid
+  * dlsym reentrancy during ASAN's slow unwinding. The dedicated GNU libunwind hook still caches.
   *
   * Old cache snapshots are intentionally leaked and remain readable by concurrent signal-handler
   * unwinders.

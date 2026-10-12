@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_variant_cast", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     qt_sql1 """select cast(${variantV2Function}('{"a" : 1}') as jsonb);"""
     qt_sql2 """select json_type(cast(${variantV2Function}('{"a" : 1}') as jsonb), "\$.a");"""
     sql "DROP TABLE IF EXISTS var_cast"

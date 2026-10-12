@@ -328,4 +328,46 @@ TEST(WordDelimiterFilterTest, SortedTokensWithPositionIncrement) {
     EXPECT_EQ(i, expected.size()) << "Token count mismatch. Check splitting rules.";
 }
 
+TEST(WordDelimiterFilterTest, RepeatedFilterDropsTrailingMalformedByte) {
+    // Scanning a word absorbs a malformed byte, but the bounds of a later pass stop before it, so
+    // running the filter twice is not the same as running it once. It is not an idempotent filter.
+    const std::string text = std::string("abc\xFF") + " def";
+    const int32_t flags = WordDelimiterFilter::GENERATE_WORD_PARTS;
+
+    auto collect = [](const TokenStreamPtr& stream) {
+        std::vector<std::string> terms;
+        Token token;
+        while (stream->next(&token)) {
+            terms.emplace_back(token.termBuffer<char>(), token.termLength<char>());
+        }
+        return terms;
+    };
+
+    const std::vector<std::string> once = collect(create_filter(text, flags));
+
+    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), text.size(), false);
+    Settings settings;
+    KeywordTokenizerFactory tokenizer_factory;
+    tokenizer_factory.initialize(settings);
+    auto tokenizer = tokenizer_factory.create();
+    tokenizer->set_reader(reader);
+    auto inner = std::make_shared<WordDelimiterFilter>(
+            tokenizer, WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE, flags,
+            std::unordered_set<std::string> {});
+    auto outer = std::make_shared<WordDelimiterFilter>(
+            inner, WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE, flags,
+            std::unordered_set<std::string> {});
+    outer->reset();
+    const std::vector<std::string> twice = collect(outer);
+
+    ASSERT_EQ(once.size(), 2);
+    EXPECT_EQ(once[0], std::string("abc\xFF"));
+    EXPECT_EQ(once[1], "def");
+    ASSERT_EQ(twice.size(), 2);
+    EXPECT_EQ(twice[0], "abc");
+    EXPECT_EQ(twice[1], "def");
+    EXPECT_NE(once, twice);
+}
+
 } // namespace doris::segment_v2::inverted_index

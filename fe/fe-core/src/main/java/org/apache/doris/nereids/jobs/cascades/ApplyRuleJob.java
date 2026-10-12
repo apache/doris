@@ -23,11 +23,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.metrics.EventChannel;
-import org.apache.doris.nereids.metrics.EventProducer;
-import org.apache.doris.nereids.metrics.consumer.LogConsumer;
-import org.apache.doris.nereids.metrics.event.TransformEvent;
-import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -43,8 +38,6 @@ import java.util.List;
  * Job to apply rule on {@link GroupExpression}.
  */
 public class ApplyRuleJob extends Job {
-    private static final EventProducer APPLY_RULE_TRACER = new EventProducer(TransformEvent.class,
-            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, EventChannel.LOG)));
     private final GroupExpression groupExpression;
     private final Rule rule;
 
@@ -68,8 +61,6 @@ public class ApplyRuleJob extends Job {
                 || groupExpression.isUnused()) {
             return;
         }
-        countJobExecutionTimesOfGroupExpressions(groupExpression);
-
         List<DeriveStatsJob> deriveStatsJobs = Lists.newArrayList();
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
@@ -116,9 +107,6 @@ public class ApplyRuleJob extends Job {
                     }
                 }
 
-                NereidsTracer.logApplyRuleEvent(rule.toString(), plan, newGroupExpression.getPlan());
-                APPLY_RULE_TRACER.log(TransformEvent.of(groupExpression, plan, newPlans, rule.getRuleType()),
-                        rule::isRewrite);
             }
             // we do derive stats job eager to avoid un derive stats due to merge group and optimize group
             // consider:

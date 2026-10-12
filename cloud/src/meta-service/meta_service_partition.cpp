@@ -1250,8 +1250,8 @@ void MetaServiceImpl::commit_table_stream_partition_internal(
         }
 
         if (is_versioned_write) {
-            const std::string versioned_offset_key =
-                    versioned::table_stream_offset_key(offset_key_info);
+            const std::string versioned_offset_key = versioned::table_stream_offset_key(
+                    versioned::TableStreamOffsetKeyInfo(offset_key_info));
             const TableStreamOffsetPB* existing_versioned_offset = nullptr;
             const auto versioned_stream_it = versioned_offsets.find(stream_id);
             if (versioned_stream_it != versioned_offsets.end()) {

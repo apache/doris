@@ -34,6 +34,8 @@ public class S3Offset implements Offset {
     // s3://bucket/path/{1.csv,2.csv}
     String fileLists;
     int fileNum;
+    @SerializedName("lastBatch")
+    boolean lastBatch;
 
     @Override
     public String toSerializedJson() {

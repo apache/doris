@@ -1976,21 +1976,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            // PERF-06 cache A: memoize the BUILT derived view keyed by (db, table, snapshotId, schemaId) -- pure
-            // function of the pinned MVCC coordinate (a new snapshot/schema yields a new key, never a stale hit).
-            // The lookup sits INSIDE executeAuthenticated so a miss runs the loader (resolveTableForRead + the
-            // remote PARTITIONS build) under the FE-injected auth scope; a hit returns without any remote call. A
-            // null cache (session=user / no-cache catalog) computes directly every call. A resolved-empty -1
+            // PERF-06 cache A: memoize the BUILT derived view keyed by snapshot/schema/spec generation.
+            // The lookup sits INSIDE executeAuthenticated: every lookup resolves the live spec generation, while
+            // a miss additionally runs the remote PARTITIONS build under the FE-injected auth scope. A null cache
+            // (session=user / no-cache catalog) computes directly every call. A resolved-empty -1
             // bypasses cache A because its numeric key is otherwise indistinguishable from an unresolved latest
             // read, even though only the former is a query-begin MVCC boundary.
             return executeAuthenticated(() -> {
                 if (mvccPartitionViewCache == null || iceHandle.isResolvedEmptySnapshot()) {
                     return Optional.of(buildMvccPartitionViewUncached(session, iceHandle));
                 }
+                Table table = resolveTableForRead(session, iceHandle);
+                // A partition-spec commit does not create a snapshot or schema, so the spec id is a separate
+                // cache generation; omitting it can retain a stale derived view for the full cache TTL.
                 ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
-                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId());
+                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId(),
+                        table.spec().specId());
                 return Optional.of(mvccPartitionViewCache.get(key,
-                        () -> buildMvccPartitionViewUncached(session, iceHandle)));
+                        () -> buildMvccPartitionView(table, iceHandle)));
             });
         } catch (Exception e) {
             throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
@@ -2013,6 +2016,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     iceHandle.getResolvedEmptyPartitionStyle());
         }
         Table table = resolveTableForRead(session, iceHandle);
+        return buildMvccPartitionView(table, iceHandle);
+    }
+
+    private ConnectorMvccPartitionView buildMvccPartitionView(Table table, IcebergTableHandle iceHandle) {
         return IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId(),
                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }
@@ -2064,18 +2071,29 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
         try {
-            // PERF-06 cache A: memoize the BUILT partition-info list keyed by (db, table, snapshotId, schemaId).
-            // The lookup sits INSIDE executeAuthenticated (a miss runs the remote build under the auth scope; a hit
-            // returns without a remote call). BYPASS the cache when the filter is present -- that is not the
+            // PERF-06 cache A: memoize the BUILT partition-info list keyed by snapshot/schema/spec generation.
+            // The lookup sits INSIDE executeAuthenticated (each lookup resolves the current spec, and a miss runs
+            // the remote build under the auth scope). BYPASS the cache when the filter is present -- that is not the
             // pruning path (which always passes Optional.empty()) and is not keyed by (snapshot, schema) alone -- or
             // when the cache is null (session=user / no-cache catalog): compute directly every call.
             return executeAuthenticated(() -> {
                 if (listPartitionsViewCache == null || filter.isPresent()) {
                     return listPartitionsUncached(session, iceHandle);
                 }
+                Table table;
+                try {
+                    table = resolveTableForRead(session, iceHandle);
+                } catch (NoSuchTableException e) {
+                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
+                            iceHandle.getDbName(), iceHandle.getTableName(), e);
+                    return Collections.<ConnectorPartitionInfo>emptyList();
+                }
                 ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
-                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId());
-                return listPartitionsViewCache.get(key, () -> listPartitionsUncached(session, iceHandle));
+                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId(),
+                        table.spec().specId());
+                // A partition-spec commit does not create a snapshot or schema, so the spec id is a separate
+                // cache generation; omitting it can retain a stale derived view for the full cache TTL.
+                return listPartitionsViewCache.get(key, () -> listPartitions(table, iceHandle));
             });
         } catch (Exception e) {
             throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
@@ -2099,6 +2117,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     iceHandle.getDbName(), iceHandle.getTableName(), e);
             return Collections.<ConnectorPartitionInfo>emptyList();
         }
+        return listPartitions(table, iceHandle);
+    }
+
+    private List<ConnectorPartitionInfo> listPartitions(Table table, IcebergTableHandle iceHandle) {
         return IcebergPartitionUtils.listPartitions(table,
                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }
@@ -2115,7 +2137,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * a HIT returns the cached pin without re-loading the table (saves the load I/O and keeps the snapshot
      * STABLE across queries — the legacy with-cache catalog). The cached value carries BOTH ids atomically so a
      * schema-only ALTER between two queries cannot skew snapshotId vs schemaId. A disabled cache
-     * ({@code meta.cache.iceberg.table.ttl-second <= 0}) reads live every call (the legacy no-cache catalog).
+     * ({@code meta.cache.iceberg.table.enable=false}, {@code ttl-second <= 0} or {@code capacity=0}) reads live
+     * every call (the legacy no-cache catalog).
      */
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
@@ -2124,8 +2147,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         TableIdentifier id = TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName());
         // A null latestSnapshotCache (iceberg.rest.session=user, where a shared table-keyed hit would bypass the
         // per-user loadTable authorization) reads live per-user every call, so authorization runs every time (no
-        // stale-authz window); mirrors resolveTableForRead's tableCache null-fallback. A disabled cache (ttl<=0)
-        // is a non-null cache that reads live internally.
+        // stale-authz window); mirrors resolveTableForRead's tableCache null-fallback. A disabled cache (the table
+        // entry turned off) is a non-null cache that reads live internally.
         IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache != null
                 ? latestSnapshotCache.getOrLoad(id, () -> loadLatestSnapshotPin(session, iceHandle))
                 : loadLatestSnapshotPin(session, iceHandle);

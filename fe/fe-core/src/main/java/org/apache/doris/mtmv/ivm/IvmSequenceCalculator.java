@@ -33,32 +33,32 @@ import java.math.BigInteger;
 /**
  * Encodes IVM delta ordering into the MTMV sequence column.
  *
- * <p>BIGINT encodes {@code (refresh version, delta index, op)}. LARGEINT additionally encodes
- * a 64-bit binlog sequence: {@code (refresh version, delta index, binlog sequence, op)}.
+ * <p>BIGINT encodes {@code (sequence prefix, delta index, op)}. LARGEINT additionally encodes
+ * a 64-bit binlog sequence: {@code (sequence prefix, delta index, binlog sequence, op)}.
  */
 abstract class IvmSequenceCalculator {
     static final int DELTA_INDEX_BITS = 10;
     private static final int BIGINT_LOW_BITS = DELTA_INDEX_BITS + 1;
     private static final int LARGEINT_BINLOG_BITS = 64;
     private static final int LARGEINT_DELTA_INDEX_SHIFT = LARGEINT_BINLOG_BITS + 1;
-    private static final int LARGEINT_REFRESH_VERSION_SHIFT =
+    private static final int LARGEINT_SEQUENCE_PREFIX_SHIFT =
             LARGEINT_DELTA_INDEX_SHIFT + DELTA_INDEX_BITS;
     private static final int MAX_DELTA_INDEX = 1 << DELTA_INDEX_BITS;
     private static final BigInteger MAX_BINLOG_SEQUENCE =
             BigInteger.ONE.shiftLeft(LARGEINT_BINLOG_BITS).subtract(BigInteger.ONE);
 
-    final long refreshVersion;
+    final long sequencePrefix;
 
-    private IvmSequenceCalculator(long refreshVersion) {
-        this.refreshVersion = refreshVersion;
+    private IvmSequenceCalculator(long sequencePrefix) {
+        this.sequencePrefix = sequencePrefix;
     }
 
-    static IvmSequenceCalculator create(long refreshVersion, DataType sequenceType) {
+    static IvmSequenceCalculator create(long sequencePrefix, DataType sequenceType) {
         if (sequenceType.equals(BigIntType.INSTANCE)) {
-            return new BigIntSequenceCalculator(refreshVersion);
+            return new BigIntSequenceCalculator(sequencePrefix);
         }
         if (sequenceType.equals(LargeIntType.INSTANCE)) {
-            return new LargeIntSequenceCalculator(refreshVersion);
+            return new LargeIntSequenceCalculator(sequencePrefix);
         }
         throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                 "unsupported IVM sequence type: " + sequenceType.simpleString());
@@ -87,11 +87,11 @@ abstract class IvmSequenceCalculator {
     }
 
     private static class BigIntSequenceCalculator extends IvmSequenceCalculator {
-        private BigIntSequenceCalculator(long refreshVersion) {
-            super(refreshVersion);
-            if (refreshVersion < 0 || refreshVersion > (Long.MAX_VALUE >>> BIGINT_LOW_BITS)) {
+        private BigIntSequenceCalculator(long sequencePrefix) {
+            super(sequencePrefix);
+            if (sequencePrefix < 0 || sequencePrefix > (Long.MAX_VALUE >>> BIGINT_LOW_BITS)) {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                        "IVM refresh version exceeds the BIGINT sequence encoding range: " + refreshVersion);
+                        "IVM sequence prefix exceeds the BIGINT sequence encoding range: " + sequencePrefix);
             }
         }
 
@@ -102,18 +102,18 @@ abstract class IvmSequenceCalculator {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "BIGINT IVM sequence does not support binlog sequence");
             }
-            long sequence = (refreshVersion << BIGINT_LOW_BITS)
+            long sequence = (sequencePrefix << BIGINT_LOW_BITS)
                     | ((long) deltaIndex << 1) | (positive ? 1 : 0);
             return new BigIntLiteral(sequence);
         }
     }
 
     private static class LargeIntSequenceCalculator extends IvmSequenceCalculator {
-        private LargeIntSequenceCalculator(long refreshVersion) {
-            super(refreshVersion);
-            if (refreshVersion < 0 || refreshVersion > (Long.MAX_VALUE >>> BIGINT_LOW_BITS)) {
+        private LargeIntSequenceCalculator(long sequencePrefix) {
+            super(sequencePrefix);
+            if (sequencePrefix < 0 || sequencePrefix > (Long.MAX_VALUE >>> BIGINT_LOW_BITS)) {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                        "IVM refresh version exceeds the LARGEINT sequence encoding range: " + refreshVersion);
+                        "IVM sequence prefix exceeds the LARGEINT sequence encoding range: " + sequencePrefix);
             }
         }
 
@@ -121,7 +121,7 @@ abstract class IvmSequenceCalculator {
         Literal encode(int deltaIndex, BigInteger binlogSequence, boolean positive) {
             checkDeltaIndex(deltaIndex);
             checkBinlogSequence(binlogSequence);
-            BigInteger sequence = BigInteger.valueOf(refreshVersion).shiftLeft(LARGEINT_REFRESH_VERSION_SHIFT)
+            BigInteger sequence = BigInteger.valueOf(sequencePrefix).shiftLeft(LARGEINT_SEQUENCE_PREFIX_SHIFT)
                     .or(BigInteger.valueOf(deltaIndex).shiftLeft(LARGEINT_DELTA_INDEX_SHIFT))
                     .or(binlogSequence.shiftLeft(1));
             if (positive) {

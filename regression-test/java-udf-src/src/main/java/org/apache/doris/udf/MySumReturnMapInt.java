@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 package org.apache.doris.udf;
-import org.apache.log4j.Logger;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -23,7 +22,6 @@ import java.util.*;
 
 
 public class MySumReturnMapInt {
-    private static final Logger LOG = Logger.getLogger(MySumReturnMapInt.class);
     public static class State {
         public HashMap<Integer,Integer> counter = new HashMap<>();
     }

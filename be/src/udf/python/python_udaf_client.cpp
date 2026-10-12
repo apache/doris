@@ -20,6 +20,7 @@
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/array/util.h>
 #include <arrow/flight/client.h>
 #include <arrow/flight/server.h>
 #include <arrow/io/memory.h>
@@ -537,13 +538,10 @@ Status PythonUDAFClient::_create_binary_request_batch(
     // Schema: [argument_types..., places, binary_data]
     int num_data_columns = _schema->num_fields() - 1;
     for (int i = 0; i < num_data_columns; ++i) {
-        std::unique_ptr<arrow::ArrayBuilder> builder;
-        std::shared_ptr<arrow::Array> null_array;
-        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(ExecEnv::GetInstance()->arrow_memory_pool(),
-                                                        _schema->field(i)->type(), &builder));
-        RETURN_DORIS_STATUS_IF_ERROR(builder->AppendNull());
-        RETURN_DORIS_STATUS_IF_ERROR(builder->Finish(&null_array));
-        columns.push_back(null_array);
+        auto null_array = arrow::MakeArrayOfNull(_schema->field(i)->type(), 1,
+                                                 ExecEnv::GetInstance()->arrow_memory_pool());
+        RETURN_DORIS_STATUS_IF_ERROR(null_array.status());
+        columns.push_back(*null_array);
     }
 
     // Create binary_data column
@@ -569,14 +567,10 @@ Status PythonUDAFClient::_get_empty_request_batch(std::shared_ptr<arrow::RecordB
     std::vector<std::shared_ptr<arrow::Array>> columns;
 
     for (int i = 0; i < _schema->num_fields(); ++i) {
-        auto field = _schema->field(i);
-        std::unique_ptr<arrow::ArrayBuilder> builder;
-        std::shared_ptr<arrow::Array> null_array;
-        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(ExecEnv::GetInstance()->arrow_memory_pool(),
-                                                        field->type(), &builder));
-        RETURN_DORIS_STATUS_IF_ERROR(builder->AppendNull());
-        RETURN_DORIS_STATUS_IF_ERROR(builder->Finish(&null_array));
-        columns.push_back(null_array);
+        auto null_array = arrow::MakeArrayOfNull(_schema->field(i)->type(), 1,
+                                                 ExecEnv::GetInstance()->arrow_memory_pool());
+        RETURN_DORIS_STATUS_IF_ERROR(null_array.status());
+        columns.push_back(*null_array);
     }
 
     _empty_request_batch = arrow::RecordBatch::Make(_schema, 1, columns);

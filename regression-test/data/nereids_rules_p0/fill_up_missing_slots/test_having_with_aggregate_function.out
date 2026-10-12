@@ -10,3 +10,8 @@
 -- !having_array_lambda_local_slots --
 1	2
 
+-- !scalar_subquery_having_true --
+1
+
+-- !scalar_subquery_having_false --
+

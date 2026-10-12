@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_with_index", "p0"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def timeout = 60000
 
     sql "set enable_add_index_for_new_data = true"

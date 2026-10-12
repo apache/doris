@@ -606,17 +606,18 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     }
 
     @Test
-    public void testModifyNestedDecimalPrecisionFailsLoud() {
-        // Legacy parity: a nested primitive change is restricted to int->long / float->double / exact; a
-        // DECIMAL precision change inside a struct is rejected (checkSupportSchemaChangeForNestedPrimitive).
+    public void testModifyNestedDecimalPrecisionWidens() {
+        // Iceberg permits a nested DECIMAL precision increase when the scale stays fixed.
         createTable("s_dec", new ConnectorColumn("st",
                 structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("DECIMALV3", 10, 2)),
                         Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
-        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> modifyComplex("s_dec", "st",
-                        structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("DECIMALV3", 20, 2)),
-                                Arrays.asList(true), Arrays.asList((String) null)), true));
-        Assertions.assertTrue(ex.getMessage().contains("nested"));
+        modifyComplex("s_dec", "st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("DECIMALV3", 20, 2)),
+                        Arrays.asList(true), Arrays.asList((String) null)), true);
+        Types.DecimalType amount = (Types.DecimalType) reload("s_dec").findField("st")
+                .type().asStructType().field("a").type();
+        Assertions.assertEquals(20, amount.precision());
+        Assertions.assertEquals(2, amount.scale());
     }
 
     @Test

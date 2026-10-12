@@ -61,6 +61,7 @@ public class CatalogMgrTest {
         addCatalog(catalogMgr, catalog);
 
         Map<String, String> oldProperties = ImmutableMap.of("read.batch-size", "1024");
+        Mockito.when(catalog.getProperties()).thenReturn(oldProperties);
         Map<String, String> newProperties = ImmutableMap.of("read.batch-size", "0");
         CatalogLog log = new CatalogLog();
         log.setCatalogId(catalogId);

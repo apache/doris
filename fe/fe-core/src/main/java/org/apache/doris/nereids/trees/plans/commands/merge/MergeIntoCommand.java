@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -212,7 +211,8 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             }
             Expression currentResult = new IntegerLiteral(i);
             if (clause.getCasePredicate().isPresent()) {
-                matchedLabel = new If(clause.getCasePredicate().get(), currentResult, matchedLabel);
+                matchedLabel = MergeUtils.selectBranch(
+                        clause.getCasePredicate().get(), currentResult, matchedLabel);
             } else {
                 matchedLabel = currentResult;
             }
@@ -225,12 +225,13 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
             }
             Expression currentResult = new IntegerLiteral(i + matchedClauses.size());
             if (clause.getCasePredicate().isPresent()) {
-                notMatchedLabel = new If(clause.getCasePredicate().get(), currentResult, notMatchedLabel);
+                notMatchedLabel = MergeUtils.selectBranch(
+                        clause.getCasePredicate().get(), currentResult, notMatchedLabel);
             } else {
                 notMatchedLabel = currentResult;
             }
         }
-        return new UnboundAlias(new If(new Not(new IsNull(deleteSign)),
+        return new UnboundAlias(MergeUtils.selectBranch(new Not(new IsNull(deleteSign)),
                 matchedLabel, notMatchedLabel), BRANCH_LABEL);
     }
 
@@ -447,7 +448,8 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         for (int i = 0; i < finalProjections.get(0).size(); i++) {
             Expression project = new NullLiteral();
             for (int j = 0; j < finalProjections.size(); j++) {
-                project = new If(new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
+                project = MergeUtils.selectBranch(
+                        new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
                         finalProjections.get(j).get(i), project);
             }
             outputProjectionsBuilder.add(new UnboundAlias(project, colNames.get(i)));

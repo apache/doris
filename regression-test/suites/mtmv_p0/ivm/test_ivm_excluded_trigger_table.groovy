@@ -141,12 +141,23 @@ suite("test_ivm_excluded_trigger_table", "mtmv") {
     """
     sql """REFRESH MATERIALIZED VIEW test_ivm_excluded_trigger_table_alt_mv INCREMENTAL FALLBACK"""
     waitingMTMVTaskFinishedByMvName("test_ivm_excluded_trigger_table_alt_mv")
+    // (3, 30) is absent on purpose. b is excluded by the ALTER above, and the property is read by the
+    // refresh that follows it, not by the one that preceded the INSERT: an excluded table is out of what
+    // the MV maintains, so this refresh leaves its rows where the last complete refresh left them. The
+    // request was an INCREMENTAL, and it runs as one rather than being escalated by the property change.
+    // The remedy for an excluded table is a manual COMPLETE, which is what makes the property's
+    // documentation load-bearing: an ALTER no longer sweeps the table's pending changes in for free.
     order_qt_alter_after_incremental_fallback """
         SELECT k1, v1 FROM test_ivm_excluded_trigger_table_alt_mv
     """
 
+    // This refresh runs as a plain incremental rewrite, which leaves RefreshMode unset. An unset column
+    // comes back as the literal two-character string "\N", which does not survive the .out round trip, so
+    // fold every value that is not a scope into a printable token.
     qt_alter_fallback_refresh_mode """
-        SELECT RefreshMode FROM tasks('type'='mv')
+        SELECT CASE WHEN RefreshMode IN ('COMPLETE', 'PARTIAL', 'NOT_REFRESH')
+                    THEN RefreshMode ELSE 'NONE' END
+        FROM tasks('type'='mv')
         WHERE MvDatabaseName = '${context.dbName}'
           AND MvName = 'test_ivm_excluded_trigger_table_alt_mv'
         ORDER BY CreateTime DESC, TaskId DESC LIMIT 1

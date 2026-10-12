@@ -1210,7 +1210,7 @@ public class IcebergConnectorMetadataTest {
                 Types.NestedField.optional(2, "ts_ntz", Types.TimestampType.withoutZone()),
                 Types.NestedField.optional(3, "id", Types.IntegerType.get()));
 
-        // Mapping flag OFF (default): with-zone ts maps to DATETIMEV2 but STILL carries the marker.
+        // Legacy false flags preserve the source instant type and its marker.
         RecordingIcebergCatalogOps offOps = new RecordingIcebergCatalogOps();
         offOps.table = new FakeIcebergTable(
                 "t1", tsSchema, PartitionSpec.unpartitioned(), "s3://b/t1", Collections.emptyMap());
@@ -1218,8 +1218,8 @@ public class IcebergConnectorMetadataTest {
                 metadataWith(offOps).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
         Assertions.assertTrue(offCols.get(0).isWithTimeZone(),
                 "with-zone timestamp must carry the WITH_TIMEZONE marker even with mapping flag OFF");
-        Assertions.assertEquals("DATETIMEV2", offCols.get(0).getType().getTypeName(),
-                "with mapping flag off the with-zone timestamp is still mapped to DATETIMEV2");
+        Assertions.assertEquals("TIMESTAMPTZ", offCols.get(0).getType().getTypeName(),
+                "the source instant type must survive a legacy false flag");
         Assertions.assertFalse(offCols.get(1).isWithTimeZone(),
                 "a without-zone timestamp must NOT carry the WITH_TIMEZONE marker");
         Assertions.assertFalse(offCols.get(2).isWithTimeZone(),
@@ -1294,7 +1294,7 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getTableSchemaDefaultsMappingFlagsOff() {
+    public void getTableSchemaDefaultsPreserveBytesAndInstants() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         Schema binTsSchema = new Schema(
                 Types.NestedField.optional(1, "b", Types.BinaryType.get()),
@@ -1307,13 +1307,11 @@ public class IcebergConnectorMetadataTest {
         ConnectorTableSchema schema =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
-        // WHY: with the toggles absent, BINARY must map to STRING and TIMESTAMP-with-zone to DATETIMEV2
-        // (default false). This guards against a fix that accidentally flips the defaults on. MUTATION:
-        // defaulting either flag to true -> VARBINARY / TIMESTAMPTZ -> red.
-        Assertions.assertEquals("STRING", schema.getColumns().get(0).getType().getTypeName(),
-                "absent enable.mapping.varbinary must leave Iceberg BINARY as STRING (default off)");
-        Assertions.assertEquals("DATETIMEV2", schema.getColumns().get(1).getType().getTypeName(),
-                "absent enable.mapping.timestamp_tz must leave Iceberg TIMESTAMP-with-zone as DATETIMEV2");
+        // Catalog defaults preserve source bytes and instants without requiring legacy opt-in properties.
+        Assertions.assertEquals("VARBINARY", schema.getColumns().get(0).getType().getTypeName(),
+                "Iceberg BINARY maps to VARBINARY without an opt-in flag");
+        Assertions.assertEquals("TIMESTAMPTZ", schema.getColumns().get(1).getType().getTypeName(),
+                "Iceberg TIMESTAMP-with-zone maps to TIMESTAMPTZ without an opt-in flag");
     }
 
     // ---------------------------------------------------------------------

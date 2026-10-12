@@ -199,8 +199,9 @@ TEST_F(AnalysisFactoryMgrTest, MultipleCreationsFromSameName) {
 TEST_F(AnalysisFactoryMgrTest, AllBuiltInTokenizersRegistered) {
     Settings empty_settings;
 
-    std::vector<std::string> tokenizer_names = {"standard",   "keyword", "ngram", "edge_ngram",
-                                                "char_group", "basic",   "icu",   "empty"};
+    std::vector<std::string> tokenizer_names = {"standard",    "keyword", "ngram", "edge_ngram",
+                                                "char_group",  "basic",   "icu",   "ik_smart",
+                                                "ik_max_word", "empty"};
 
     for (const auto& name : tokenizer_names) {
         auto factory =

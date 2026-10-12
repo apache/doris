@@ -40,8 +40,7 @@ suite("docs/data-operate/import/import-way/group-commit-manual.md", "p0,nonConcu
             );
         """
 
-        Demo.HOST = getMasterIp()
-        Demo.PORT = getMasterPort("mysql")
+        Demo.JDBC_URL = getServerPrepareJdbcUrl(context.config.jdbcUrl, Demo.DB)
         Demo.USER = context.config.jdbcUser
         Demo.PASSWD = context.config.jdbcPassword
 
@@ -86,9 +85,7 @@ suite("docs/data-operate/import/import-way/group-commit-manual.md", "p0,nonConcu
 
 class Demo {
     static String JDBC_DRIVER = "com.mysql.jdbc.Driver";
-    static String URL_PATTERN = "jdbc:mysql://%s:%d/%s?useServerPrepStmts=true";
-    static String HOST = "127.0.0.1";
-    static int PORT = 9030;
+    static String JDBC_URL;
     static String DB = "db";
     static String TBL = "dt";
     static String USER = "root";
@@ -97,7 +94,7 @@ class Demo {
 
     static final void groupCommitInsert() throws Exception {
         Class.forName(JDBC_DRIVER);
-        Connection conn = DriverManager.getConnection(String.format(URL_PATTERN, HOST, PORT, DB), USER, PASSWD)
+        Connection conn = DriverManager.getConnection(JDBC_URL, USER, PASSWD)
         try {
             // set session variable 'group_commit'
             Statement statement = conn.createStatement()
@@ -133,7 +130,7 @@ class Demo {
         // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
         // set session variables by sessionVariables=group_commit=async_mode in JDBC url
         Connection conn = DriverManager.getConnection(
-                String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)
+                JDBC_URL + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", USER, PASSWD)
         try {
             String query = "insert into " + TBL + " values(?, ?, ?)";
             PreparedStatement stmt = conn.prepareStatement(query)

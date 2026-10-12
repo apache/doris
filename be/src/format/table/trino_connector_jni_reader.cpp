@@ -19,6 +19,7 @@
 
 #include <map>
 
+#include "common/config.h"
 #include "core/types.h"
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/descriptors.h"
@@ -33,13 +34,14 @@ class Block;
 
 namespace doris {
 const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
+const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_PLUGIN_DIR =
+        "trino_connector_plugin_dir";
 
 TrinoConnectorJniReader::TrinoConnectorJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
         RuntimeProfile* profile, const TFileRangeDesc& range)
         : JniReader(
-                  file_slot_descs, state, profile,
-                  "org/apache/doris/trinoconnector/TrinoConnectorJniScanner",
+                  file_slot_descs, state, profile, Jni::plugin::TRINO_CONNECTOR_SCANNER,
                   [&]() {
                       std::vector<std::string> column_names;
                       std::vector<std::string> column_types;
@@ -78,6 +80,13 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
                                                     .trino_connector_options) {
                           params[TRINO_CONNECTOR_OPTION_PREFIX + kv.first] = kv.second;
                       }
+                      // Where the plugin should look for the Trino connector plugins it
+                      // loads inside itself. BE used to push this by calling a static setter
+                      // on a class it named directly, which stopped being possible once a
+                      // plugin's classes became private to its own classloader. A scan
+                      // parameter is the channel that survives isolation.
+                      params[TRINO_CONNECTOR_PLUGIN_DIR] =
+                              doris::config::trino_connector_plugin_dir;
                       return params;
                   }(),
                   [&]() {
@@ -89,31 +98,7 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
                   }()) {}
 
 Status TrinoConnectorJniReader::init_reader() {
-    RETURN_IF_ERROR(_set_spi_plugins_dir());
     return open(_state, _profile);
-}
-
-Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    // get PluginLoader class
-    Jni::LocalClass plugin_loader_cls;
-    std::string plugin_loader_str = "org/apache/doris/trinoconnector/TrinoConnectorPluginLoader";
-    RETURN_IF_ERROR(
-            Jni::Util::get_jni_scanner_class(env, plugin_loader_str.c_str(), &plugin_loader_cls));
-
-    Jni::MethodId set_plugins_dir_method;
-    RETURN_IF_ERROR(plugin_loader_cls.get_static_method(
-            env, "setPluginsDir", "(Ljava/lang/String;)V", &set_plugins_dir_method));
-
-    Jni::LocalString trino_connector_plugin_path;
-    RETURN_IF_ERROR(Jni::LocalString::new_string(
-            env, doris::config::trino_connector_plugin_dir.c_str(), &trino_connector_plugin_path));
-
-    return plugin_loader_cls.call_static_void_method(env, set_plugins_dir_method)
-            .with_arg(trino_connector_plugin_path)
-            .call();
 }
 
 } // namespace doris

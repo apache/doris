@@ -35,7 +35,7 @@ import java.util.List;
  * AggregateFunction 'bool_or'.
  */
 public class BoolOr extends NullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature {
+        implements UnaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE).args(BooleanType.INSTANCE)
     );

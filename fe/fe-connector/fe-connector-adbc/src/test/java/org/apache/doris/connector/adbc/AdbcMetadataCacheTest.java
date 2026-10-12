@@ -18,7 +18,11 @@
 package org.apache.doris.connector.adbc;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -36,6 +40,51 @@ import java.util.function.Supplier;
  * that only compared returned values would pass against a cache that never caches.
  */
 class AdbcMetadataCacheTest {
+
+    @Test
+    void managedCachesAccountAllPayloadsAndReleaseReservations() {
+        long baseline = MetaCacheGovernance.globalEstimatedWeight();
+        for (String limit : List.of("meta.cache.max-weight", "meta.cache.adbc.metadata.max-weight")) {
+            Map<String, String> properties = Map.of(limit, "1MB");
+            try (CatalogMetaCache owner = CatalogMetaCache.managed(91002L, "adbc", properties)) {
+                AdbcMetadataCache cache = new AdbcMetadataCache(owner, properties);
+                Counting<List<AdbcNamespace>> namespaces = new Counting<>(List.of(MAIN));
+                Counting<List<String>> names = new Counting<>(List.of("t1"));
+                Counting<Schema> schema = new Counting<>(new Schema(List.of(
+                        Field.nullable("payload", new ArrowType.Utf8())), Map.of("source", "adbc")));
+                for (int i = 0; i < 2; i++) {
+                    cache.namespaces(namespaces);
+                    cache.tableNames(MAIN, names);
+                    cache.tableSchema(MAIN_T1, schema);
+                }
+                Assertions.assertEquals(1, namespaces.calls);
+                Assertions.assertEquals(1, names.calls);
+                Assertions.assertEquals(1, schema.calls);
+                Assertions.assertEquals(List.of(owner), MetaCacheGovernance.catalogCaches(91002L));
+                owner.entries().values().forEach(entry -> {
+                    Assertions.assertTrue(entry.metrics().getEstimatedWeight() > 0);
+                    Assertions.assertEquals(0L, entry.metrics().getWeightRejectCount());
+                });
+                Assertions.assertTrue(MetaCacheGovernance.globalEstimatedWeight() > baseline);
+            }
+            Assertions.assertTrue(MetaCacheGovernance.catalogCaches(91002L).isEmpty());
+            Assertions.assertEquals(baseline, MetaCacheGovernance.globalEstimatedWeight());
+        }
+    }
+
+    @Test
+    void rejectedSchemaIsReturnedWithoutBeingCached() {
+        Map<String, String> properties = Map.of("meta.cache.adbc.metadata.max-weight", "1");
+        try (CatalogMetaCache owner = CatalogMetaCache.managed(91003L, "adbc", properties)) {
+            AdbcMetadataCache cache = new AdbcMetadataCache(owner, properties);
+            Counting<Schema> source = new Counting<>(SCHEMA);
+            Assertions.assertSame(SCHEMA, cache.tableSchema(MAIN_T1, source));
+            Assertions.assertSame(SCHEMA, cache.tableSchema(MAIN_T1, source));
+            Assertions.assertEquals(2, source.calls);
+            Assertions.assertEquals(2L,
+                    owner.entries().get("adbc-table-schema").metrics().getWeightRejectCount());
+        }
+    }
 
     private static final AdbcNamespace MAIN = new AdbcNamespace("main", "");
     private static final AdbcNamespace OTHER = new AdbcNamespace("other", "");

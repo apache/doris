@@ -20,9 +20,11 @@ package org.apache.doris.statistics.analysis;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
 
@@ -68,7 +70,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         if (shouldCollectHotValue()) {
             params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
             params.put("subStringColName", getStringTypeColName(col));
-            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)");
             template = FULL_ANALYZE_TEMPLATE;
         } else {
             template = FULL_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE;
@@ -87,11 +89,11 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", "-1");
-        params.put("colName", info.colName);
-        params.put("colId", info.colName);
-        params.put("catalogName", catalog.getName());
-        params.put("dbName", db.getFullName());
-        params.put("tblName", tbl.getName());
+        params.put("colName", SqlUtils.getIdentSql(info.colName));
+        params.put("colId", StatisticsUtil.escapeSQL(info.colName));
+        params.put("catalogName", SqlUtils.getIdentSql(catalog.getName()));
+        params.put("dbName", SqlUtils.getIdentSql(db.getFullName()));
+        params.put("tblName", SqlUtils.getIdentSql(tbl.getName()));
         params.put("sampleHints", getSampleHint());
         params.put("limit", "");
         params.put("scaleFactor", "1");

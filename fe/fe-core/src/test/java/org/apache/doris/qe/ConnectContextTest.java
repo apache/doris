@@ -21,8 +21,10 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -99,13 +101,11 @@ public class ConnectContextTest {
         ctx.currentDb = "test_db";
         ctx.currentDbId = 10;
         ctx.addLastDBOfCatalog("external_catalog", "test_db");
-        ctx.addPreparedQuery("1", "select 1");
         long initialPreparedStmtId = ctx.getPreparedStmtId();
         ctx.getSessionVariable().enableServeSidePreparedStatement = true;
         ctx.addPreparedStatementContext(String.valueOf(initialPreparedStmtId),
                 new PreparedStatementContext(null, ctx, null, "select 1"));
         long nextPreparedStmtId = ctx.getPreparedStmtId();
-        ctx.setRunningQuery("select 1");
         TUniqueId queryId = new TUniqueId(100, 200);
         ctx.setQueryId(queryId);
         ctx.setTraceId("old_trace");
@@ -129,8 +129,6 @@ public class ConnectContextTest {
         Assertions.assertEquals("external_catalog", ctx.getDefaultCatalog());
         Assertions.assertEquals("test_db", ctx.getDatabase());
         Assertions.assertEquals("test_db", ctx.getLastDBOfCatalog("external_catalog"));
-        Assertions.assertNull(ctx.getPreparedQuery("1"));
-        Assertions.assertNull(ctx.getRunningQuery());
         Assertions.assertNull(ctx.queryId());
         Assertions.assertNull(ctx.getLastQueryId());
         Assertions.assertNull(ctx.traceId());
@@ -295,7 +293,7 @@ public class ConnectContextTest {
             // Thread info
             Assertions.assertNotNull(ctx.toThreadInfo(false));
             List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.of("+08:00"));
-            Assertions.assertEquals(15, row.size());
+            Assertions.assertEquals(16, row.size());
             Assertions.assertEquals("Yes", row.get(0));
             Assertions.assertEquals("101", row.get(1));
             Assertions.assertEquals("testUser", row.get(2));
@@ -308,6 +306,7 @@ public class ConnectContextTest {
             Assertions.assertEquals("OK", row.get(9));
             Assertions.assertEquals("", row.get(10));
             Assertions.assertEquals("", row.get(11));
+            Assertions.assertEquals("MySQL", row.get(15));
 
             // Start time
             Assertions.assertEquals(0, ctx.getStartTime());
@@ -325,6 +324,44 @@ public class ConnectContextTest {
 
             // clean up
             ctx.cleanup();
+        }
+    }
+
+    @Test
+    public void testThreadInfoUsesSessionCloudCluster() {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSelfNode())
+                    .thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9030));
+
+            ConnectContext ctx = new ConnectContext();
+            ctx.cloudCluster = "test";
+            ctx.setCloudCluster("test1");
+
+            List<String> row = ctx.toThreadInfo(false).toRow(-1, 0, Optional.empty());
+            Assertions.assertEquals("test1", row.get(14));
+        }
+    }
+
+    // The row of SHOW PROCESSLIST / information_schema.processlist has exactly the columns SchemaTable
+    // declares for processlist, and ends with the session's protocol.
+    @Test
+    public void testThreadInfoRowMatchesProcesslistColumnsAndEndsWithProtocol() {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSelfNode())
+                    .thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9030));
+            List<Column> columns = SchemaTable.TABLE_MAP.get("processlist").getBaseSchema();
+            Assertions.assertEquals("Protocol", columns.get(columns.size() - 1).getName());
+
+            List<String> mysqlRow = new ConnectContext().toThreadInfo(false).toRow(-1, 0, Optional.empty());
+            Assertions.assertEquals(columns.size(), mysqlRow.size());
+            Assertions.assertEquals("MySQL", mysqlRow.get(mysqlRow.size() - 1));
+
+            List<String> flightRow = ConnectContext.forFlight("peer-identity").toThreadInfo(false)
+                    .toRow(-1, 0, Optional.empty());
+            Assertions.assertEquals(columns.size(), flightRow.size());
+            Assertions.assertEquals("ArrowFlightSQL", flightRow.get(flightRow.size() - 1));
         }
     }
 
@@ -763,7 +800,7 @@ public class ConnectContextTest {
 
     @Test
     public void testCloseFlightSqlDeferredExecutorsFinalizesEachExecutor() {
-        ConnectContext ctx = new ConnectContext();
+        ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
         StmtExecutor deferred1 = Mockito.mock(StmtExecutor.class);
         StmtExecutor deferred2 = Mockito.mock(StmtExecutor.class);
         ctx.addFlightSqlDeferredExecutor(deferred1);
@@ -779,7 +816,7 @@ public class ConnectContextTest {
 
     @Test
     public void testCloseFlightSqlDeferredExecutorsClearsListSoSecondCallIsNoOp() {
-        ConnectContext ctx = new ConnectContext();
+        ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
         ctx.addFlightSqlDeferredExecutor(deferred);
 
@@ -794,7 +831,7 @@ public class ConnectContextTest {
 
     @Test
     public void testCloseFlightSqlDeferredExecutorsFinalizesRemainingWhenOneFails() {
-        ConnectContext ctx = new ConnectContext();
+        ConnectContext ctx = ConnectContext.forFlight("test-peer-identity");
         StmtExecutor failing = Mockito.mock(StmtExecutor.class);
         StmtExecutor healthy = Mockito.mock(StmtExecutor.class);
         Mockito.doThrow(new RuntimeException("finalize failed")).when(failing).finalizeArrowFlightQuery();

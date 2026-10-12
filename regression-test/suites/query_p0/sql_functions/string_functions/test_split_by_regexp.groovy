@@ -17,6 +17,8 @@
 
 suite("test_split_by_regexp") {
     qt_select1 "select split_by_regexp('abcde','');"
+    order_qt_select_utf8_empty_pattern "select split_by_regexp('中a😀', '');"
+    order_qt_select_utf8_empty_pattern_with_limit "select split_by_regexp('中a😀', '', 2);"
     qt_select2 "select split_by_regexp('a12bc23de345f','\\\\d+');"
     qt_select3 "select split_by_regexp('a12bc23de345f',NULL);"
     qt_select4 "select split_by_regexp(NULL, 'a12bc23de345f');"

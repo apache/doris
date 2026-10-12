@@ -86,6 +86,7 @@ public abstract class DataType {
                     .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
                     .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
                     .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .put(Type.UUID.getPrimitiveType(), UuidType.INSTANCE)
                     .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
                     .build();
         }
@@ -390,12 +391,24 @@ public abstract class DataType {
             case "ipv6":
                 dataType = IPv6Type.INSTANCE;
                 break;
+            case "uuid":
+                if (types.size() != 1) {
+                    throw new AnalysisException("UUID does not support length or precision parameters");
+                }
+                dataType = UuidType.INSTANCE;
+                break;
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
             case "varbinary":
-                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
-                dataType = VarBinaryType.INSTANCE;
+                // Keep declared byte limits in table schemas and nested binary leaves.
+                if (types.size() == 1 || (types.size() == 2 && types.get(1).equals("*"))) {
+                    dataType = VarBinaryType.INSTANCE;
+                } else if (types.size() == 2) {
+                    dataType = VarBinaryType.createVarBinaryType(Integer.parseInt(types.get(1)));
+                } else {
+                    throw new AnalysisException("Nereids do not support type: " + type);
+                }
                 break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
@@ -447,6 +460,7 @@ public abstract class DataType {
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
+            case UUID: return UuidType.INSTANCE;
             case VARBINARY: return VarBinaryType.createVarBinaryType(type.getLength());
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
@@ -713,6 +727,10 @@ public abstract class DataType {
         return this instanceof IPv6Type;
     }
 
+    public boolean isUuidType() {
+        return this instanceof UuidType;
+    }
+
     public boolean isBitmapType() {
         return this instanceof BitmapType;
     }
@@ -833,6 +851,13 @@ public abstract class DataType {
 
     public abstract int width();
 
+    /**
+     * Return whether a legal cast to {@code target} preserves distinctness: two values that are
+     * distinct under this type's equality semantics must not become equal after the cast. Rewrite
+     * rules use this property when moving casts across DISTINCT or GROUP BY, so implementations
+     * must account for rounding, truncation, ambiguous text formatting, and special equality
+     * classes such as floating-point NaNs and signed zero.
+     */
     public boolean isInjectiveCastTo(DataType target) {
         return this.equals(target);
     }

@@ -1602,14 +1602,17 @@ TEST_F(AsyncCacheWriteManagerTest, PendingLimitDecreaseKeepsReplacingOldestQueue
         released_entries = std::numeric_limits<size_t>::max();
     }
     cv.notify_all();
-    for (int attempt = 0; attempt < 5000 && manager->pending_count() != 0; ++attempt) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // The worker drops the task from the pending counters before it invokes the finalizer, so
+    // wait on the finalizers themselves rather than on pending_count() reaching zero.
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() {
+            return std::all_of(finalized.begin(), finalized.end(),
+                               [](size_t count) { return count == 1; });
+        }));
     }
     ASSERT_EQ(manager->pending_count(), 0);
     ASSERT_EQ(manager->pending_bytes(), 0);
-    for (size_t finalized_count : finalized) {
-        EXPECT_EQ(finalized_count, 1);
-    }
     EXPECT_FALSE(is_cache_range_downloaded(cache.get(), first_evicted_hash));
     EXPECT_FALSE(is_cache_range_downloaded(cache.get(), second_evicted_hash));
     EXPECT_FALSE(is_cache_range_downloaded(cache.get(), third_evicted_hash));

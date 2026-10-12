@@ -32,9 +32,6 @@ public class StartTransactionCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (ctx.getConnectType() == ConnectContext.ConnectType.MYSQL) {
-            ctx.getMysqlChannel().reset();
-        }
         // do nothing
         ctx.getState().setOk();
     }

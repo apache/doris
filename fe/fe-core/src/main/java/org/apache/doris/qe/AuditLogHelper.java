@@ -287,7 +287,8 @@ public class AuditLogHelper {
                 .setIsNereids(ctx.getState().isNereids())
                 .setisInternal(ctx.getState().isInternal())
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
-                .setWorkloadGroup(ctx.getWorkloadGroupName());
+                .setWorkloadGroup(ctx.getWorkloadGroupName())
+                .setProtocol(ctx.getConnectType().protocolName());
 
         // sql mode
         if (ctx.sessionVariable != null) {

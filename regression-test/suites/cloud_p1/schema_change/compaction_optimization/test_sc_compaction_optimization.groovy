@@ -90,8 +90,9 @@ suite('test_sc_compaction_optimization', 'docker') {
             def newTablets = allTablets.findAll { !(it.TabletId.toString() in baseTabletIds) }
             assertEquals(2, newTablets.size())
 
-            // Insert 6 batches during SC -> creates double-write rowsets on new tablets
-            for (int i = 0; i < 6; i++) {
+            // NOTREADY tablets keep the latest 10 versions unmerged. Insert enough batches so
+            // older double-write rowsets become eligible for auto cumulative compaction.
+            for (int i = 0; i < 16; i++) {
                 StringBuilder sb = new StringBuilder()
                 sb.append("INSERT INTO ${tableName} VALUES ")
                 for (int j = 0; j < 10; j++) {
@@ -102,37 +103,34 @@ suite('test_sc_compaction_optimization', 'docker') {
                 sql sb.toString()
             }
 
-            // Wait for auto compaction to sync double-write rowsets and compact them
-            sleep(30000)
-
             // Verify compaction happened: check if any non-placeholder rowset spans multiple
             // versions (e.g. [4-6]). Each INSERT creates a single-version rowset [v-v],
             // so a multi-version rowset is direct proof of compaction.
-            boolean compactionHappened = false
-            for (def tablet : newTablets) {
-                def tabletId = tablet.TabletId.toString()
-                def (code, out, err) = curl("GET", tablet.CompactionStatus)
-                if (code == 0) {
-                    def status = parseJson(out.trim())
-                    if (status.rowsets instanceof List) {
-                        logger.info("New tablet ${tabletId} rowsets: ${status.rowsets}")
-                        for (def rowset : status.rowsets) {
-                            def match = (rowset =~ /\[(\d+)-(\d+)\]/)
-                            if (match) {
-                                def start = match[0][1] as int
-                                def end = match[0][2] as int
-                                if (start > 1 && end > start) {
-                                    logger.info("New tablet ${tabletId} has merged rowset [${start}-${end}], compaction confirmed")
-                                    compactionHappened = true
-                                    break
+            awaitUntil(90, 1) {
+                for (def tablet : newTablets) {
+                    def tabletId = tablet.TabletId.toString()
+                    def (code, out, err) = curl("GET", tablet.CompactionStatus)
+                    if (code == 0) {
+                        def status = parseJson(out.trim())
+                        if (status.rowsets instanceof List) {
+                            logger.info("New tablet ${tabletId} rowsets: ${status.rowsets}")
+                            for (def rowset : status.rowsets) {
+                                def match = (rowset =~ /\[(\d+)-(\d+)\]/)
+                                if (match) {
+                                    def start = match[0][1] as int
+                                    def end = match[0][2] as int
+                                    if (start > 1 && end > start) {
+                                        logger.info("New tablet ${tabletId} has merged rowset "
+                                                + "[${start}-${end}], compaction confirmed")
+                                        return true
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                if (compactionHappened) break
+                return false
             }
-            assertTrue(compactionHappened, "Expected auto compaction on new tablets during SC queue wait")
 
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs(injectName)
@@ -152,8 +150,8 @@ suite('test_sc_compaction_optimization', 'docker') {
         assertEquals("FINISHED", finalState)
 
         // Verify data correctness after SC
-        assertEquals(120L, (sql "SELECT count(*) FROM ${tableName}")[0][0])
-        assertEquals(120L, (sql "SELECT count(distinct k1) FROM ${tableName}")[0][0])
+        assertEquals(220L, (sql "SELECT count(*) FROM ${tableName}")[0][0])
+        assertEquals(220L, (sql "SELECT count(distinct k1) FROM ${tableName}")[0][0])
 
     }
 }

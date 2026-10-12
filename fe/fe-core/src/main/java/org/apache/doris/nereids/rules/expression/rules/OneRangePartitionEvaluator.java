@@ -23,7 +23,6 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluator.EvaluateRangeInput;
 import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluator.EvaluateRangeResult;
@@ -52,9 +51,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -92,8 +91,26 @@ public class OneRangePartitionEvaluator<K>
     // whether the Expression in partition range may be null.
     private final Map<Expression, Boolean> partitionSlotContainsNull;
     private final Map<Slot, PartitionSlotType> slotToType;
+    // An impossible expander/evaluator state makes pruning unsafe. Production keeps the partition;
+    // fe_debug throws at the point where the broken invariant is observed.
+    private boolean disablePruning;
 
-    /** OneRangePartitionEvaluator */
+    /**
+     * Create an evaluator for one RANGE partition.
+     *
+     * <p>The constructor converts the tuple endpoints to Nereids literals, classifies every
+     * partition coordinate as {@code CONST}, {@code RANGE}, or {@code OTHER}, and expands the
+     * enumerable prefix up to {@code expandThreshold}. It also records whether each coordinate can
+     * contain NULL so expression evaluation can fold null-sensitive predicates safely. An unknown
+     * coordinate type violates the expander/evaluator contract: fe_debug reports it immediately,
+     * while production marks this evaluator as non-prunable.
+     *
+     * @param partitionIdent identifier returned when this partition must be scanned
+     * @param partitionSlots partition-key slots in lexicographic order
+     * @param partitionItem inclusive-lower/exclusive-upper RANGE partition definition
+     * @param cascadesContext planner context used by expression rewrite rules
+     * @param expandThreshold maximum number of enumerable values expanded from the partition range
+     */
     public OneRangePartitionEvaluator(K partitionIdent, List<Slot> partitionSlots,
             RangePartitionItem partitionItem, CascadesContext cascadesContext, int expandThreshold) {
         this.partitionIdent = partitionIdent;
@@ -139,7 +156,10 @@ public class OneRangePartitionEvaluator<K>
                         maybeNull = true;
                         break;
                     default:
-                        throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
+                        disablePruningOnInvalidState(
+                                "Unknown partition slot type while deriving nullability: " + partitionSlotType);
+                        maybeNull = true;
+                        break;
                 }
                 partitionSlotContainsNull.put(slot, maybeNull);
             }
@@ -170,12 +190,28 @@ public class OneRangePartitionEvaluator<K>
         }
     }
 
+    /**
+     * Evaluate a partition predicate under one projected input row.
+     *
+     * <p>The projected ranges seed expression evaluation and are then narrowed by the predicate.
+     * If input construction or range refinement discovers an invalid internal state, returning any
+     * folded result could incorrectly remove data. In production this method therefore returns the
+     * original predicate, which {@link PartitionPruner} treats as unknown and keeps the partition.
+     * In fe_debug the invalid state is thrown before this fallback is reached.
+     *
+     * @param expression partition predicate to simplify
+     * @param currentInputs replacement expression and projected range for every partition slot
+     * @return the simplified predicate, or {@code expression} when pruning has been disabled
+     */
     @Override
     public Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs) {
+        if (disablePruning) {
+            return expression;
+        }
         Map<Expression, ColumnRange> defaultColumnRanges = currentInputs.values().iterator().next().columnRanges;
         Map<Expression, ColumnRange> rangeMap = new HashMap<>(defaultColumnRanges);
         EvaluateRangeResult result = expression.accept(this, new EvaluateRangeInput(currentInputs, rangeMap));
-        return result.result;
+        return disablePruning ? expression : result.result;
     }
 
     @Override
@@ -407,6 +443,19 @@ public class OneRangePartitionEvaluator<K>
         return result;
     }
 
+    /**
+     * Evaluate a conjunction and refine the independent column ranges with the tuple boundary.
+     *
+     * <p>The normal child evaluation first intersects the ranges contributed by every conjunct.
+     * A composite RANGE partition needs one additional pass: a suffix column is constrained by a
+     * lower or upper endpoint only while every preceding coordinate is still equal to that endpoint.
+     * Applying this pass after merging the children also recovers prefix coordinates whose equality
+     * expression was folded to a literal and therefore disappeared from the child range map.
+     *
+     * @param and conjunction being evaluated
+     * @param context replacement values and projected ranges for the current expanded partition input
+     * @return the folded conjunction together with its lexicographically refined column ranges
+     */
     @Override
     public EvaluateRangeResult visitAnd(And and, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
@@ -424,8 +473,8 @@ public class OneRangePartitionEvaluator<K>
         }
 
         // shrink range and prune the other type: if previous column is literal and equals to the bound
-        andResult = determinateRangeOfOtherType(andResult, lowers, true);
-        andResult = determinateRangeOfOtherType(andResult, uppers, false);
+        andResult = determinateRangeOfOtherType(andResult, lowers, true, context.rangeMap);
+        andResult = determinateRangeOfOtherType(andResult, uppers, false, context.rangeMap);
         return andResult;
     }
 
@@ -526,60 +575,83 @@ public class OneRangePartitionEvaluator<K>
         }
     }
 
+    /**
+     * Refine the first unresolved suffix column against one lexicographic partition endpoint.
+     *
+     * <p>Partition slot types have the shape {@code CONST*, RANGE, OTHER*}. The scan proceeds from
+     * left to right and keeps an endpoint active only while the observed singleton values equal its
+     * prefix. For the first unresolved {@code OTHER} coordinate, the active lower endpoint contributes
+     * {@code >= bound}; an active upper endpoint contributes {@code <= bound}, except that the final
+     * partition column uses {@code < bound} because RANGE partitions are upper-exclusive. The method
+     * returns immediately after that coordinate because once it may differ from the endpoint, later
+     * coordinates are lexicographically unconstrained.
+     *
+     * <p>Constant folding can remove an expanded {@code RANGE} slot from {@code context.columnRanges}.
+     * For that slot only, the method reads the singleton from {@code defaultColumnRanges} so the
+     * omitted equal-prefix coordinate can still participate in prefix comparison. A missing
+     * {@code OTHER} slot is different: its default range describes only the partition boundary, not
+     * the predicate. Adding it to the predicate result would let {@code NOT} complement a synthetic
+     * range and could incorrectly prune the partition, so a missing {@code OTHER} stops refinement.
+     *
+     * @param context result of merging all conjunct ranges
+     * @param partitionBound lower or upper endpoint of the composite partition
+     * @param isLowerBound whether {@code partitionBound} is the inclusive lower endpoint
+     * @param defaultColumnRanges projected ranges for the current expanded partition input
+     * @return {@code context} refined at the first decisive suffix coordinate, or an equivalent
+     *         false result if the refined range is empty
+     */
     private EvaluateRangeResult determinateRangeOfOtherType(
-            EvaluateRangeResult context, List<Literal> partitionBound, boolean isLowerBound) {
+            EvaluateRangeResult context, List<Literal> partitionBound, boolean isLowerBound,
+            Map<Expression, ColumnRange> defaultColumnRanges) {
         if (context.result instanceof Literal) {
             return context;
         }
 
-        Slot qualifiedSlot = null;
-        ColumnRange qualifiedRange = null;
+        LexicographicBoundState boundState = new LexicographicBoundState(
+                partitionBound, isLowerBound, partitionSlots.size());
         for (int i = 0; i < partitionSlotTypes.size(); i++) {
             PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
             Slot slot = partitionSlots.get(i);
-            if (!context.columnRanges.containsKey(slot)) {
-                return context;
-            }
+            ColumnRange columnRange = context.columnRanges.get(slot);
             switch (partitionSlotType) {
                 case CONST: continue;
                 case RANGE:
-                    ColumnRange columnRange = context.columnRanges.get(slot);
-                    if (!columnRange.isSingleton()
-                            || !columnRange.getLowerBound().getValue().equals(partitionBound.get(i))) {
+                    // Expanded RANGE literals can disappear after constant folding. Recover only this
+                    // equal-prefix coordinate from the partition projection.
+                    if (columnRange == null) {
+                        columnRange = defaultColumnRanges.get(slot);
+                    }
+                    if (columnRange == null || !columnRange.isSingleton()) {
+                        return context;
+                    }
+                    boundState.observeLiteral(columnRange.getLowerBound().getValue(), i);
+                    if (!boundState.hasEqualPrefix()) {
                         return context;
                     }
                     continue;
                 case OTHER:
-                    columnRange = context.columnRanges.get(slot);
+                    // Do not expose a default-only partition range to the predicate tree. In
+                    // particular, visitNot() must never complement a range that the predicate did
+                    // not contribute.
+                    if (columnRange == null) {
+                        return context;
+                    }
                     if (columnRange.isSingleton()
-                            && columnRange.getLowerBound().getValue().equals(partitionBound.get(i))) {
+                            && columnRange.getLowerBound().getValue().equals(partitionBound.get(i))
+                            && i + 1 < partitionSlots.size()) {
                         continue;
                     }
-
-                    qualifiedSlot = slot;
-                    if (isLowerBound) {
-                        qualifiedRange = ColumnRange.atLeast(partitionBound.get(i));
-                    } else {
-                        qualifiedRange = i + 1 == partitionSlots.size()
-                                ? ColumnRange.lessThen(partitionBound.get(i))
-                                : ColumnRange.atMost(partitionBound.get(i));
-                    }
-                    break;
+                    ColumnRange newRange = boundState.constrainFirstUnresolvedColumn(columnRange, i);
+                    Map<Expression, ColumnRange> newRanges = replaceExprRange(
+                            context.columnRanges, slot, newRange);
+                    return newRange.isEmptyRange()
+                            ? new EvaluateRangeResult(BooleanLiteral.FALSE, newRanges, context.childrenResult)
+                            : new EvaluateRangeResult(context.result, newRanges, context.childrenResult);
                 default:
-                    throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
-            }
-        }
-
-        if (qualifiedSlot != null) {
-            ColumnRange origin = context.columnRanges.get(qualifiedSlot);
-            ColumnRange newRange = origin.intersect(qualifiedRange);
-
-            Map<Expression, ColumnRange> newRanges = replaceExprRange(context.columnRanges, qualifiedSlot, newRange);
-
-            if (newRange.isEmptyRange()) {
-                return new EvaluateRangeResult(BooleanLiteral.FALSE, newRanges, context.childrenResult);
-            } else {
-                return new EvaluateRangeResult(context.result, newRanges, context.childrenResult);
+                    disablePruningOnInvalidState(
+                            "Unknown partition slot type while refining a lexicographic bound: "
+                                    + partitionSlotType);
+                    return context;
             }
         }
         return context;
@@ -745,52 +817,69 @@ public class OneRangePartitionEvaluator<K>
         return ImmutableList.of(slotToInputs);
     }
 
+    /**
+     * Build evaluator inputs for every expanded representation of this composite RANGE partition.
+     *
+     * <p>Range expansion replaces enumerable coordinates with literals and leaves unexpanded
+     * coordinates as slots. Separate lower- and upper-bound states track whether the literal prefix
+     * of each generated input still equals the corresponding endpoint. Only the first unresolved
+     * coordinate while a state is active receives that endpoint's constraint; after it can diverge,
+     * all suffix coordinates remain unbounded. This preserves tuple ordering instead of incorrectly
+     * treating each partition column as an independent interval.
+     *
+     * <p>The returned {@link PartitionSlotInput}s all contain the complete projected range map for
+     * their generated input. Expression evaluation can therefore recover ranges for slots that were
+     * replaced by literals and removed by constant folding.
+     *
+     * <p>A {@code CONST} coordinate must have been expanded to a literal. If it is not, the input is
+     * structurally invalid: fe_debug throws, while production makes the coordinate unbounded and
+     * disables pruning for the whole evaluator so planning can continue without dropping data.
+     *
+     * @return one slot-to-input map for each Cartesian-product row produced by range expansion
+     */
     private List<Map<Slot, PartitionSlotInput>> commonComputeOnePartitionInputs() {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = Lists.newArrayListWithCapacity(inputs.size());
         for (List<Expression> input : inputs) {
-            boolean previousIsLowerBoundLiteral = true;
-            boolean previousIsUpperBoundLiteral = true;
+            LexicographicBoundState lowerState = new LexicographicBoundState(
+                    lowers, true, partitionSlots.size());
+            LexicographicBoundState upperState = new LexicographicBoundState(
+                    uppers, false, partitionSlots.size());
             Builder<Slot, PartitionSlotInput> slotToInputs = ImmutableMap.builderWithExpectedSize(16);
             for (int i = 0; i < partitionSlots.size(); ++i) {
                 Slot partitionSlot = partitionSlots.get(i);
                 // partitionSlot will be replaced to this expression
                 Expression expression = input.get(i);
-                ColumnRange slotRange = null;
+                ColumnRange slotRange;
                 PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
                 if (expression instanceof Literal) {
                     // const or expanded range
                     slotRange = ColumnRange.singleton((Literal) expression);
-                    if (!expression.equals(lowers.get(i))) {
-                        previousIsLowerBoundLiteral = false;
-                    }
-                    if (!expression.equals(uppers.get(i))) {
-                        previousIsUpperBoundLiteral = false;
-                    }
+                    lowerState.observeLiteral(expression, i);
+                    upperState.observeLiteral(expression, i);
                 } else {
-                    // un expanded range
+                    // The first unresolved column carries every still-active lexicographic bound.
+                    // Once that column can diverge, every suffix column must remain unbounded.
                     switch (partitionSlotType) {
                         case RANGE:
-                            boolean isLastPartitionColumn = i + 1 == partitionSlots.size();
-                            BoundType rightBoundType = isLastPartitionColumn
-                                    ? BoundType.OPEN : BoundType.CLOSED;
-                            slotRange = ColumnRange.range(
-                                    lowers.get(i), BoundType.CLOSED, uppers.get(i), rightBoundType);
-                            break;
                         case OTHER:
-                            if (previousIsLowerBoundLiteral) {
-                                slotRange = ColumnRange.atLeast(lowers.get(i));
-                            } else if (previousIsUpperBoundLiteral) {
-                                slotRange = ColumnRange.lessThen(uppers.get(i));
-                            } else {
-                                // unknown range
-                                slotRange = ColumnRange.all();
-                            }
+                            slotRange = lowerState.constrainFirstUnresolvedColumn(ColumnRange.all(), i);
+                            slotRange = upperState.constrainFirstUnresolvedColumn(slotRange, i);
+                            break;
+                        case CONST:
+                            disablePruningOnInvalidState("CONST partition input must be a literal: slot="
+                                    + partitionSlot + ", expression=" + expression);
+                            slotRange = ColumnRange.all();
+                            lowerState.diverge();
+                            upperState.diverge();
                             break;
                         default:
-                            throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
+                            disablePruningOnInvalidState(
+                                    "Unknown partition slot type while building evaluator inputs: "
+                                            + partitionSlotType);
+                            slotRange = ColumnRange.all();
+                            lowerState.diverge();
+                            upperState.diverge();
                     }
-                    previousIsLowerBoundLiteral = false;
-                    previousIsUpperBoundLiteral = false;
                 }
                 ImmutableMap<Expression, ColumnRange> slotToRange = ImmutableMap.of(partitionSlot, slotRange);
                 slotToInputs.put(partitionSlot, new PartitionSlotInput(expression, slotToRange));
@@ -800,6 +889,120 @@ public class OneRangePartitionEvaluator<K>
             onePartitionInputs.add(slotPartitionSlotInputMap);
         }
         return onePartitionInputs;
+    }
+
+    /**
+     * Handle a state that violates the contract between {@link PartitionRangeExpander} and this evaluator.
+     *
+     * <p>Tests and debugging sessions set {@code fe_debug=true}, so they fail immediately and expose
+     * the broken invariant. Production planning must remain available: after logging the problem,
+     * evaluation returns the original predicate for this partition, which conservatively keeps it.
+     *
+     * @param message description of the invalid state
+     */
+    private void disablePruningOnInvalidState(String message) {
+        SessionVariable.throwAnalysisExceptionWhenFeDebug(message);
+        disablePruning = true;
+    }
+
+    /** Describes whether the coordinates already consumed are still equal to an endpoint prefix. */
+    private enum BoundPrefixState {
+        /** No consumed coordinate differs from the tracked lower or upper endpoint. */
+        EQUAL_PREFIX,
+
+        /** An earlier coordinate can differ, so this endpoint cannot constrain any later coordinate. */
+        DIVERGED
+    }
+
+    /**
+     * Tracks one lower or upper endpoint while projected ranges are built or refined.
+     *
+     * <p>Lexicographic comparison makes an endpoint relevant only as long as all preceding
+     * coordinates equal its prefix. For example, with lower endpoint {@code (1, 10, 100)}, an input
+     * whose first coordinate is {@code 1} must constrain the first unresolved coordinate to
+     * {@code >= 10}. If the first coordinate is {@code 2}, the lower endpoint is already satisfied
+     * and neither the second nor third coordinate receives a lower constraint.
+     *
+     * <p>The state is monotonic: it starts at {@link BoundPrefixState#EQUAL_PREFIX} and can transition
+     * to {@link BoundPrefixState#DIVERGED} only once.
+     */
+    private static class LexicographicBoundState {
+        private final List<Literal> bound;
+        private final boolean lowerBound;
+        private final int columnCount;
+        private BoundPrefixState prefixState = BoundPrefixState.EQUAL_PREFIX;
+
+        /**
+         * Create state for one endpoint of a composite partition.
+         *
+         * @param bound endpoint values in partition-column order
+         * @param lowerBound true for the inclusive lower endpoint, false for the exclusive upper endpoint
+         * @param columnCount total number of partition columns, used to identify the final coordinate
+         */
+        private LexicographicBoundState(List<Literal> bound, boolean lowerBound, int columnCount) {
+            this.bound = bound;
+            this.lowerBound = lowerBound;
+            this.columnCount = columnCount;
+        }
+
+        /**
+         * Return whether every coordinate observed so far is equal to this endpoint's prefix.
+         *
+         * @return true while this endpoint may still constrain the next unresolved coordinate
+         */
+        private boolean hasEqualPrefix() {
+            return prefixState == BoundPrefixState.EQUAL_PREFIX;
+        }
+
+        /**
+         * Consume a literal coordinate and deactivate this endpoint if the literal differs from it.
+         *
+         * <p>Once a coordinate differs, later values cannot make the tuple equal to the endpoint
+         * again, so an already-diverged state is intentionally left unchanged.
+         *
+         * @param literal literal selected for the current partition coordinate
+         * @param index zero-based partition-column index of {@code literal}
+         */
+        private void observeLiteral(Expression literal, int index) {
+            if (hasEqualPrefix() && !literal.equals(bound.get(index))) {
+                diverge();
+            }
+        }
+
+        /**
+         * Intersect an unresolved coordinate with this endpoint when its prefix is still equal.
+         *
+         * <p>The lower endpoint is inclusive on every coordinate. The upper endpoint is inclusive on
+         * non-terminal coordinates because equality there leaves later coordinates to decide tuple
+         * membership; only the final coordinate is exclusive. Consuming an unresolved coordinate
+         * always deactivates the endpoint so no suffix coordinate is independently constrained.
+         *
+         * @param origin range already inferred for the unresolved coordinate
+         * @param index zero-based partition-column index of that coordinate
+         * @return {@code origin} intersected with the active endpoint, or unchanged if an earlier
+         *         coordinate has already diverged
+         */
+        private ColumnRange constrainFirstUnresolvedColumn(ColumnRange origin, int index) {
+            if (!hasEqualPrefix()) {
+                return origin;
+            }
+            diverge();
+            Literal boundary = bound.get(index);
+            ColumnRange boundaryRange;
+            if (lowerBound) {
+                boundaryRange = ColumnRange.atLeast(boundary);
+            } else if (index + 1 == columnCount) {
+                boundaryRange = ColumnRange.lessThen(boundary);
+            } else {
+                boundaryRange = ColumnRange.atMost(boundary);
+            }
+            return origin.intersect(boundaryRange);
+        }
+
+        /** Mark this endpoint as satisfied or violated by an earlier decisive coordinate. */
+        private void diverge() {
+            prefixState = BoundPrefixState.DIVERGED;
+        }
     }
 
     public EvaluateRangeResult visitMonotonic(Expression monotonic, EvaluateRangeInput context) {

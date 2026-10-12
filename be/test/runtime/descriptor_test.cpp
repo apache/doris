@@ -216,6 +216,30 @@ TEST(TupleDescriptorTest, GetColumnId) {
     EXPECT_EQ(tuple_desc->get_column_id(100), -1);
 }
 
+TEST(RowDescriptorTest, MultiTupleLayoutAndSingleTupleCount) {
+    ObjectPool pool;
+    DescriptorTblBuilder builder(&pool);
+    builder.declare_tuple() << std::make_shared<DataTypeInt32>();
+    builder.declare_tuple() << std::make_shared<DataTypeInt64>()
+                            << std::make_shared<DataTypeInt32>();
+    auto* desc_tbl = builder.build();
+
+    RowDescriptor single(desc_tbl->get_tuple_descriptor(1));
+    EXPECT_EQ(single.num_slots(), 2);
+
+    RowDescriptor row(*desc_tbl, {0, 1});
+    EXPECT_EQ(row.num_slots(), 3);
+    ASSERT_EQ(row.tuple_descriptors().size(), 2);
+    EXPECT_EQ(row.tuple_descriptors()[0], desc_tbl->get_tuple_descriptor(0));
+    EXPECT_EQ(row.tuple_descriptors()[1], desc_tbl->get_tuple_descriptor(1));
+    EXPECT_EQ(row.get_column_id(desc_tbl->get_tuple_descriptor(1)->slots()[0]->id()), 1);
+    EXPECT_EQ(row.get_column_id(desc_tbl->get_tuple_descriptor(1)->slots()[1]->id()), 2);
+
+    RowDescriptor copied(row);
+    EXPECT_EQ(copied.num_slots(), row.num_slots());
+    EXPECT_EQ(copied.tuple_descriptors(), row.tuple_descriptors());
+}
+
 TEST_F(SlotDescriptorTest, AccessPathsPreservedThroughProtobuf) {
     TColumnAccessPath data_path;
     data_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);

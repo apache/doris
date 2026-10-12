@@ -40,7 +40,7 @@ public class TransposeAggSemiJoinProject extends OneExplorationRuleFactory {
                 .then(agg -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = agg.child();
                     LogicalJoin<GroupPlan, GroupPlan> join = project.child();
-                    if (!TransposeSemiJoinAgg.canTranspose(agg, join)) {
+                    if (!TransposeSemiJoinAgg.canTranspose(agg, join, project)) {
                         return null;
                     }
                     Plan newJoin = join.withChildren(agg.withChildren(project.withChildren(join.left())), join.right());

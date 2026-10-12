@@ -56,13 +56,21 @@ Status SchemaTableStreamConsumptionScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaTableStreamConsumptionScanner::_get_table_stream_consumption_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
-
+TFetchSchemaTableDataRequest SchemaTableStreamConsumptionScanner::_build_fetch_request() const {
     TSchemaTableRequestParams schema_table_request_params;
+    if (_param->common_param->frontend_conjuncts) {
+        schema_table_request_params.__set_frontend_conjuncts(
+                *_param->common_param->frontend_conjuncts);
+    }
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::TABLE_STREAM_CONSUMPTION);
     request.__set_schema_table_params(schema_table_request_params);
+    return request;
+}
+
+Status SchemaTableStreamConsumptionScanner::_get_table_stream_consumption_block_from_fe() {
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TFetchSchemaTableDataRequest request = _build_fetch_request();
 
     TFetchSchemaTableDataResult result;
 

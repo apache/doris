@@ -24,7 +24,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <google/protobuf/stubs/port.h>
 
 #include <cstdint>
 #include <ostream>
@@ -41,11 +40,6 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "storage/utils.h"
-
-namespace google::protobuf {
-template <typename Element>
-class RepeatedField;
-} // namespace google::protobuf
 
 namespace doris {
 class ObjectPool;
@@ -441,96 +435,31 @@ private:
 #endif
 };
 
-#define RETURN_IF_INVALID_TUPLE_IDX(tuple_id, tuple_idx)                                         \
-    do {                                                                                         \
-        if (UNLIKELY(RowDescriptor::INVALID_IDX == tuple_idx)) {                                 \
-            return Status::InternalError("failed to get tuple idx with tuple id: {}", tuple_id); \
-        }                                                                                        \
-    } while (false)
-
-// Records positions of tuples within row produced by ExecNode.
-// TODO: this needs to differentiate between tuples contained in row
-// and tuples produced by ExecNode (parallel to PlanNode.rowTupleIds and
-// PlanNode.tupleIds); right now, we conflate the two (and distinguish based on
-// context; for instance, HdfsScanNode uses these tids to create row batches, ie, the
-// first case, whereas TopNNode uses these tids to copy output rows, ie, the second
-// case)
+// Describes the ordered tuples whose slots form an operator's block layout.
 class RowDescriptor {
 public:
     RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples);
 
-    // standard copy c'tor, made explicit here
-    RowDescriptor(const RowDescriptor& desc)
-            : _tuple_desc_map(desc._tuple_desc_map),
-              _tuple_idx_map(desc._tuple_idx_map),
-              _has_varlen_slots(desc._has_varlen_slots) {
-        auto it = desc._tuple_desc_map.begin();
-        for (; it != desc._tuple_desc_map.end(); ++it) {
-            _num_materialized_slots += (*it)->num_materialized_slots();
-            _num_slots += (*it)->slots().size();
-        }
-    }
-
-    RowDescriptor& operator=(const RowDescriptor&) = default;
-
     RowDescriptor(TupleDescriptor* tuple_desc);
 
-    RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc);
-
-    // dummy descriptor, needed for the JNI EvalPredicate() function
+    // Empty layout for expressions that do not reference slots.
     RowDescriptor() = default;
 
     MOCK_DEFINE(virtual ~RowDescriptor() = default;)
 
-    int num_materialized_slots() const { return _num_materialized_slots; }
-
-    int num_slots() const { return _num_slots; }
-
-    static const int INVALID_IDX;
-
-    // Returns INVALID_IDX if id not part of this row.
-    int get_tuple_idx(TupleId id) const;
-
-    // Return true if any Tuple has variable length slots.
-    bool has_varlen_slots() const { return _has_varlen_slots; }
+    int num_slots() const;
 
     // Return descriptors for all tuples in this row, in order of appearance.
     MOCK_FUNCTION const std::vector<TupleDescriptor*>& tuple_descriptors() const {
         return _tuple_desc_map;
     }
 
-    // Populate row_tuple_ids with our ids.
-    void to_thrift(std::vector<TTupleId>* row_tuple_ids);
-    void to_protobuf(google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids) const;
-
-    // Return true if the tuple ids of this descriptor are a prefix
-    // of the tuple ids of other_desc.
-    bool is_prefix_of(const RowDescriptor& other_desc) const;
-
-    // Return true if the tuple ids of this descriptor match tuple ids of other desc.
-    bool equals(const RowDescriptor& other_desc) const;
-
     std::string debug_string() const;
 
     int get_column_id(int slot_id) const;
 
 private:
-    // Initializes tupleIdxMap during c'tor using the _tuple_desc_map.
-    void init_tuple_idx_map();
-
-    // Initializes _has_varlen_slots during c'tor using the _tuple_desc_map.
-    void init_has_varlen_slots();
-
-    // map from position of tuple w/in row to its descriptor
+    // Tuples in block column order; descriptors are owned elsewhere.
     std::vector<TupleDescriptor*> _tuple_desc_map;
-
-    // map from TupleId to position of tuple w/in row
-    std::vector<int> _tuple_idx_map;
-
-    // Provide quick way to check if there are variable length slots.
-    bool _has_varlen_slots = false;
-
-    int _num_materialized_slots = 0;
-    int _num_slots = 0;
 };
 } // namespace doris

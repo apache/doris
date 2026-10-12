@@ -62,8 +62,8 @@ Status MaxComputeJniReader::validate_scan_range(const TFileRangeDesc& range) con
     return Status::OK();
 }
 
-std::string MaxComputeJniReader::connector_class() const {
-    return "org/apache/doris/maxcompute/MaxComputeJniScanner";
+Jni::PluginRef MaxComputeJniReader::plugin_ref() const {
+    return Jni::plugin::MAX_COMPUTE_SCANNER;
 }
 
 Status MaxComputeJniReader::build_scanner_params(std::map<std::string, std::string>* params) const {

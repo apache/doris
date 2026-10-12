@@ -97,6 +97,10 @@ public abstract class ExprVisitor<R, C> {
         return visit(expr, context);
     }
 
+    public R visitUuidLiteral(UuidLiteral expr, C context) {
+        return visit(expr, context);
+    }
+
     public R visitVarBinaryLiteral(VarBinaryLiteral expr, C context) {
         return visit(expr, context);
     }

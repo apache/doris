@@ -78,12 +78,12 @@ TEST_F(ValidateStageTest, CompositionCompactionEmpty) {
     EXPECT_TRUE(build_transform_chain(c).stage_names().empty());
 }
 
-// TYPE_DIRECT, no PU -> Validate, RowStoreFill, VariantParse.
+// TYPE_DIRECT, no PU -> Validate, RowStoreFill.
 TEST_F(ValidateStageTest, CompositionDirectNonPartialUpdate) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     EXPECT_EQ(build_transform_chain(direct_rwc(schema)).stage_names(),
-              (V {"Validate", "RowStoreFill", "VariantParse"}));
+              (V {"Validate", "RowStoreFill"}));
 }
 
 // TYPE_SCHEMA_CHANGE, no PU -> same shape as a direct write.
@@ -92,17 +92,16 @@ TEST_F(ValidateStageTest, CompositionSchemaChange) {
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext c = direct_rwc(schema);
     c.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-    EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "RowStoreFill", "VariantParse"}));
+    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate", "RowStoreFill"}));
 }
 
-// Non-binlog TYPE_DEFAULT does not rebuild the row store: Validate and parse only.
+// Non-binlog TYPE_DEFAULT does not rebuild the row store: Validate only.
 TEST_F(ValidateStageTest, CompositionDefaultOmitsRowStoreFill) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     RowsetWriterContext c = direct_rwc(schema);
     c.write_type = DataWriteType::TYPE_DEFAULT;
-    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate", "VariantParse"}));
+    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate"}));
 }
 
 // A transient-rowset-writer PU degrades to the plain direct chain: the PU
@@ -118,12 +117,10 @@ TEST_F(ValidateStageTest, CompositionTransientPartialUpdateDegradesToNoFill) {
     RowsetWriterContext c = direct_rwc(schema);
     c.partial_update_info = pui;
     c.is_transient_rowset_writer = true; // degrade: PU predicate becomes false
-    EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "RowStoreFill", "VariantParse"}));
+    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate", "RowStoreFill"}));
 }
 
-// TYPE_DIRECT + fixed PU -> the fixed fill stage sits between Validate and Parse;
-// the legacy fixed path parsed variants before rebuilding RowStore.
+// TYPE_DIRECT + fixed PU -> fill the full block before rebuilding RowStore.
 TEST_F(ValidateStageTest, CompositionFixedPartialUpdate) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
@@ -134,12 +131,10 @@ TEST_F(ValidateStageTest, CompositionFixedPartialUpdate) {
     RowsetWriterContext c = direct_rwc(schema);
     c.partial_update_info = fixed;
     EXPECT_EQ(build_transform_chain(c).stage_names(),
-              (V {"Validate", "FixedPartialUpdateFill", "VariantParse", "RowStoreFill"}));
+              (V {"Validate", "FixedPartialUpdateFill", "RowStoreFill"}));
 }
 
-// TYPE_DIRECT + flexible PU -> the flexible fill stage sits after Validate; the
-// legacy flexible path rebuilt RowStore before parsing the filled variants, the
-// reverse of the fixed order.
+// TYPE_DIRECT + flexible PU -> fill the full block before rebuilding RowStore.
 TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
     using V = std::vector<std::string_view>;
     auto fschema = create_flexible_mow_schema();
@@ -151,7 +146,7 @@ TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
     RowsetWriterContext fc = direct_rwc(fschema);
     fc.partial_update_info = flexible;
     EXPECT_EQ(build_transform_chain(fc).stage_names(),
-              (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill", "VariantParse"}));
+              (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill"}));
 }
 
 // Binlog sub-writers derive their rows in the chain: a direct write picks the

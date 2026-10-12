@@ -20,7 +20,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <rapidjson/rapidjson.h>
 
-#include <algorithm>
 #include <cctype>
 #include <memory>
 #include <string>
@@ -42,16 +41,17 @@ namespace doris {
 struct AIResource {
     AIResource() = default;
     AIResource(const TAIResource& tai)
-            : endpoint(tai.endpoint),
-              provider_type(tai.provider_type),
-              model_name(tai.model_name),
-              api_key(tai.api_key),
-              temperature(tai.temperature),
-              max_tokens(tai.max_tokens),
-              max_retries(tai.max_retries),
-              retry_delay_second(tai.retry_delay_second),
-              anthropic_version(tai.anthropic_version),
-              dimensions(tai.dimensions) {}
+            : AIResource(tai, tai.endpoint, tai.provider_type, tai.model_name, tai.api_key) {}
+
+    static AIResource from_embed(const TAIResource& tai) {
+        return AIResource(tai, tai.embed_endpoint, tai.embed_provider_type, tai.embed_model_name,
+                          tai.embed_api_key);
+    }
+
+    static AIResource from_multimodal_embed(const TAIResource& tai) {
+        return AIResource(tai, tai.embed_mm_endpoint, tai.embed_mm_provider_type,
+                          tai.embed_mm_model_name, tai.embed_mm_api_key);
+    }
 
     std::string endpoint;
     std::string provider_type;
@@ -63,6 +63,7 @@ struct AIResource {
     int32_t retry_delay_second;
     std::string anthropic_version;
     int32_t dimensions;
+    std::string effort;
 
     void serialize(BufferWritable& buf) const {
         buf.write_binary(endpoint);
@@ -75,6 +76,9 @@ struct AIResource {
         buf.write_binary(retry_delay_second);
         buf.write_binary(anthropic_version);
         buf.write_binary(dimensions);
+        if (!effort.empty()) {
+            buf.write_binary(effort);
+        }
     }
 
     void deserialize(BufferReadable& buf) {
@@ -88,7 +92,26 @@ struct AIResource {
         buf.read_binary(retry_delay_second);
         buf.read_binary(anthropic_version);
         buf.read_binary(dimensions);
+        if (buf.has_remaining()) {
+            buf.read_binary(effort);
+        }
     }
+
+private:
+    AIResource(const TAIResource& tai, const std::string& selected_endpoint,
+               const std::string& selected_provider_type, const std::string& selected_model_name,
+               const std::string& selected_api_key)
+            : endpoint(selected_endpoint),
+              provider_type(selected_provider_type),
+              model_name(selected_model_name),
+              api_key(selected_api_key),
+              temperature(tai.temperature),
+              max_tokens(tai.max_tokens),
+              max_retries(tai.max_retries),
+              retry_delay_second(tai.retry_delay_second),
+              anthropic_version(tai.anthropic_version),
+              dimensions(tai.dimensions),
+              effort(tai.effort) {}
 };
 
 enum class MultimodalType { IMAGE, VIDEO, AUDIO };
@@ -123,6 +146,8 @@ public:
         _config.max_retries = config.max_retries;
         _config.retry_delay_second = config.retry_delay_second;
         _config.anthropic_version = config.anthropic_version;
+        _config.dimensions = config.dimensions;
+        _config.effort = config.effort;
     }
 
     // Build request payload based on input text strings
@@ -207,6 +232,27 @@ protected:
         }
 
         results.emplace_back(text.data(), text.size());
+        return Status::OK();
+    }
+
+    Status append_parsed_embedding_result(const rapidjson::Value& embedding,
+                                          std::vector<std::vector<float>>& results,
+                                          const std::string& response_body) const {
+        if (!embedding.IsArray()) {
+            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
+                                         response_body);
+        }
+
+        std::vector<float> parsed_embedding;
+        parsed_embedding.reserve(embedding.Size());
+        for (const auto& value : embedding.GetArray()) {
+            if (!value.IsNumber()) {
+                return Status::InternalError("Invalid {} response format: {}",
+                                             _config.provider_type, response_body);
+            }
+            parsed_embedding.emplace_back(value.GetFloat());
+        }
+        results.emplace_back(std::move(parsed_embedding));
         return Status::OK();
     }
 
@@ -407,14 +453,12 @@ public:
         const auto& data = doc["data"];
         results.reserve(data.Size());
         for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
-            if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
+            if (!data[i].IsObject() || !data[i].HasMember("embedding")) {
                 return Status::InternalError("Invalid {} response format: {}",
                                              _config.provider_type, response_body);
             }
-
-            std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
-                           std::back_inserter(results.emplace_back()),
-                           [](const auto& val) { return val.GetFloat(); });
+            RETURN_IF_ERROR(
+                    append_parsed_embedding_result(data[i]["embedding"], results, response_body));
         }
 
         return Status::OK();
@@ -481,6 +525,14 @@ public:
             results.reserve(choices.Size());
 
             for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
+                if (!choices[i].IsObject()) {
+                    return Status::InternalError("Invalid {} response format: {}",
+                                                 _config.provider_type, response_body);
+                }
+                if (choices[i].HasMember("message") && !choices[i]["message"].IsObject()) {
+                    return Status::InternalError("Invalid {} response format: {}",
+                                                 _config.provider_type, response_body);
+                }
                 if (choices[i].HasMember("message") && choices[i]["message"].HasMember("content") &&
                     choices[i]["message"]["content"].IsString()) {
                     RETURN_IF_ERROR(append_parsed_text_result(
@@ -560,37 +612,31 @@ public:
         }
 
         // parse different response format
-        rapidjson::Value embedding;
         if (doc.HasMember("data") && doc["data"].IsArray()) {
             // "data":["object":"embedding", "embedding":[0.1, 0.2...], "index":0]
             const auto& data = doc["data"];
             results.reserve(data.Size());
             for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
-                if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
+                if (!data[i].IsObject() || !data[i].HasMember("embedding")) {
                     return Status::InternalError("Invalid {} response format",
                                                  _config.provider_type);
                 }
-
-                std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
-                               std::back_inserter(results.emplace_back()),
-                               [](const auto& val) { return val.GetFloat(); });
+                RETURN_IF_ERROR(append_parsed_embedding_result(data[i]["embedding"], results,
+                                                               response_body));
             }
         } else if (doc.HasMember("embeddings") && doc["embeddings"].IsArray()) {
             // "embeddings":[[0.1, 0.2, ...]]
-            results.reserve(1);
-            for (int i = 0; i < doc["embeddings"].Size(); i++) {
-                embedding = doc["embeddings"][i];
-                std::transform(embedding.Begin(), embedding.End(),
-                               std::back_inserter(results.emplace_back()),
-                               [](const auto& val) { return val.GetFloat(); });
+            const auto& embeddings = doc["embeddings"];
+            results.reserve(embeddings.Size());
+            for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
+                RETURN_IF_ERROR(
+                        append_parsed_embedding_result(embeddings[i], results, response_body));
             }
         } else if (doc.HasMember("embedding") && doc["embedding"].IsArray()) {
             // "embedding":[0.1, 0.2, ...]
             results.reserve(1);
-            embedding = doc["embedding"];
-            std::transform(embedding.Begin(), embedding.End(),
-                           std::back_inserter(results.emplace_back()),
-                           [](const auto& val) { return val.GetFloat(); });
+            RETURN_IF_ERROR(
+                    append_parsed_embedding_result(doc["embedding"], results, response_body));
         } else {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
@@ -746,7 +792,8 @@ public:
                 {"role": "user", "content": "xxx"}
               ],
               "temperature": 0.7,
-              "max_output_tokens": 150
+              "max_output_tokens": 150,
+              "reasoning": {"effort": "max"}
             }*/
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
@@ -757,6 +804,12 @@ public:
             }
             if (_config.max_tokens != -1) {
                 doc.AddMember("max_output_tokens", _config.max_tokens, allocator);
+            }
+            if (!_config.effort.empty()) {
+                rapidjson::Value reasoning(rapidjson::kObjectType);
+                reasoning.AddMember("effort", rapidjson::Value(_config.effort.c_str(), allocator),
+                                    allocator);
+                doc.AddMember("reasoning", reasoning, allocator);
             }
 
             // input
@@ -783,6 +836,7 @@ public:
               ],
               "temperature": x,
               "max_tokens": x,
+              "reasoning_effort": "low"
             }*/
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
@@ -793,6 +847,10 @@ public:
             }
             if (_config.max_tokens != -1) {
                 doc.AddMember("max_tokens", _config.max_tokens, allocator);
+            }
+            if (!_config.effort.empty()) {
+                doc.AddMember("reasoning_effort",
+                              rapidjson::Value(_config.effort.c_str(), allocator), allocator);
             }
 
             rapidjson::Value messages(rapidjson::kArrayType);
@@ -945,7 +1003,8 @@ public:
             results.reserve(choices.Size());
 
             for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
-                if (!choices[i].HasMember("message") ||
+                if (!choices[i].IsObject() || !choices[i].HasMember("message") ||
+                    !choices[i]["message"].IsObject() ||
                     !choices[i]["message"].HasMember("content") ||
                     !choices[i]["message"]["content"].IsString()) {
                     return Status::InternalError("Invalid choice format in {} response: {}",
@@ -1129,14 +1188,12 @@ public:
             const auto& embeddings = doc["output"]["embeddings"];
             results.reserve(embeddings.Size());
             for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
-                if (!embeddings[i].HasMember("embedding") ||
-                    !embeddings[i]["embedding"].IsArray()) {
+                if (!embeddings[i].IsObject() || !embeddings[i].HasMember("embedding")) {
                     return Status::InternalError("Invalid {} response format: {}",
                                                  _config.provider_type, response_body);
                 }
-                std::transform(embeddings[i]["embedding"].Begin(), embeddings[i]["embedding"].End(),
-                               std::back_inserter(results.emplace_back()),
-                               [](const auto& val) { return val.GetFloat(); });
+                RETURN_IF_ERROR(append_parsed_embedding_result(embeddings[i]["embedding"], results,
+                                                               response_body));
             }
             return Status::OK();
         }
@@ -1244,7 +1301,8 @@ public:
           ],
           "generationConfig": {
           "temperature": 0.7,
-          "maxOutputTokens": 1024
+          "maxOutputTokens": 1024,
+          "thinkingConfig": {"thinkingLevel": "high"}
           }
 
         }*/
@@ -1281,6 +1339,13 @@ public:
         }
         if (_config.max_tokens != -1) {
             generationConfig.AddMember("maxOutputTokens", _config.max_tokens, allocator);
+        }
+        if (!_config.effort.empty()) {
+            rapidjson::Value thinking_config(rapidjson::kObjectType);
+            thinking_config.AddMember("thinkingLevel",
+                                      rapidjson::Value(_config.effort.c_str(), allocator),
+                                      allocator);
+            generationConfig.AddMember("thinkingConfig", thinking_config, allocator);
         }
         doc.AddMember("generationConfig", generationConfig, allocator);
 
@@ -1323,10 +1388,12 @@ public:
         results.reserve(candidates.Size());
 
         for (rapidjson::SizeType i = 0; i < candidates.Size(); i++) {
-            if (!candidates[i].HasMember("content") ||
+            if (!candidates[i].IsObject() || !candidates[i].HasMember("content") ||
+                !candidates[i]["content"].IsObject() ||
                 !candidates[i]["content"].HasMember("parts") ||
                 !candidates[i]["content"]["parts"].IsArray() ||
                 candidates[i]["content"]["parts"].Empty() ||
+                !candidates[i]["content"]["parts"][0].IsObject() ||
                 !candidates[i]["content"]["parts"][0].HasMember("text") ||
                 !candidates[i]["content"]["parts"][0]["text"].IsString()) {
                 return Status::InternalError("Invalid candidate format in {} response",
@@ -1498,13 +1565,12 @@ public:
             const auto& embeddings = doc["embeddings"];
             results.reserve(embeddings.Size());
             for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
-                if (!embeddings[i].HasMember("values") || !embeddings[i]["values"].IsArray()) {
+                if (!embeddings[i].IsObject() || !embeddings[i].HasMember("values")) {
                     return Status::InternalError("Invalid {} response format: {}",
                                                  _config.provider_type, response_body);
                 }
-                std::transform(embeddings[i]["values"].Begin(), embeddings[i]["values"].End(),
-                               std::back_inserter(results.emplace_back()),
-                               [](const auto& val) { return val.GetFloat(); });
+                RETURN_IF_ERROR(append_parsed_embedding_result(embeddings[i]["values"], results,
+                                                               response_body));
             }
             return Status::OK();
         }
@@ -1519,13 +1585,12 @@ public:
           }
         }*/
         const auto& embedding = doc["embedding"];
-        if (!embedding.HasMember("values") || !embedding["values"].IsArray()) {
+        if (!embedding.HasMember("values")) {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
-        std::transform(embedding["values"].Begin(), embedding["values"].End(),
-                       std::back_inserter(results.emplace_back()),
-                       [](const auto& val) { return val.GetFloat(); });
+        RETURN_IF_ERROR(
+                append_parsed_embedding_result(embedding["values"], results, response_body));
 
         return Status::OK();
     }
@@ -1560,6 +1625,7 @@ public:
         /*
             "model": "claude-opus-4-1-20250805",
             "max_tokens": 1024,
+            "output_config": {"effort": "medium"},
             "system": "system_prompt here",
             "messages": [
               {"role": "user", "content": "xxx"}
@@ -1577,6 +1643,12 @@ public:
         } else {
             // Keep the default value, Anthropic requires this parameter
             doc.AddMember("max_tokens", 2048, allocator);
+        }
+        if (!_config.effort.empty()) {
+            rapidjson::Value output_config(rapidjson::kObjectType);
+            output_config.AddMember("effort", rapidjson::Value(_config.effort.c_str(), allocator),
+                                    allocator);
+            doc.AddMember("output_config", output_config, allocator);
         }
         if (system_prompt && *system_prompt) {
             doc.AddMember("system", rapidjson::Value(system_prompt, allocator), allocator);
@@ -1625,6 +1697,10 @@ public:
 
         std::string result;
         for (rapidjson::SizeType i = 0; i < content.Size(); i++) {
+            if (!content[i].IsObject()) {
+                return Status::InternalError("Invalid {} response format: {}",
+                                             _config.provider_type, response_body);
+            }
             if (!content[i].HasMember("type") || !content[i]["type"].IsString() ||
                 !content[i].HasMember("text") || !content[i]["text"].IsString()) {
                 continue;
@@ -1696,10 +1772,7 @@ public:
         }
 
         results.reserve(1);
-        std::transform(doc["embedding"].Begin(), doc["embedding"].End(),
-                       std::back_inserter(results.emplace_back()),
-                       [](const auto& val) { return val.GetFloat(); });
-        return Status::OK();
+        return append_parsed_embedding_result(doc["embedding"], results, response_body);
     }
 
 private:

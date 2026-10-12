@@ -72,6 +72,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_scan_common.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -1753,10 +1754,8 @@ TEST_F(IcebergReaderTest, v1_position_delete_consumes_delete_file_size) {
 
 // An inflated size must break the read, proving the v1 equality-delete path consumes the FE file_size.
 TEST_F(IcebergReaderTest, v1_equality_delete_consumes_delete_file_size) {
-    const auto test_dir = std::filesystem::temp_directory_path() / "doris_v1_eq_delete_size_test";
-    std::filesystem::remove_all(test_dir);
-    std::filesystem::create_directories(test_dir);
-    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    const doris::test::ScopedTempDirectory test_dir("doris_v1_eq_delete_size_test");
+    const auto delete_file_path = (test_dir.path() / "equality-delete.parquet").string();
     write_iceberg_int_equality_delete_parquet_file(delete_file_path, "id", 0, 2);
 
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());

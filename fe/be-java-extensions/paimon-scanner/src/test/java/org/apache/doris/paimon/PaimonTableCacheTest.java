@@ -18,9 +18,9 @@
 package org.apache.doris.paimon;
 
 import org.apache.paimon.table.Table;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
 import java.util.Collections;
@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class PaimonTableCacheTest {
-    @After
+    @AfterEach
     public void tearDown() {
         PaimonTableCache.clearForTest();
     }
@@ -43,24 +43,24 @@ public class PaimonTableCacheTest {
     public void testAcquireIncrementsAndReleaseRemovesAtZero() {
         String cacheKey = "reference-count";
         PaimonTableCache.TableCacheEntry publishedEntry = newEntry();
-        Assert.assertTrue(PaimonTableCache.publish(cacheKey, publishedEntry));
+        Assertions.assertTrue(PaimonTableCache.publish(cacheKey, publishedEntry));
 
         PaimonTableCache.TableCacheEntry acquiredEntry = PaimonTableCache.acquire(cacheKey);
-        Assert.assertSame(publishedEntry, acquiredEntry);
+        Assertions.assertSame(publishedEntry, acquiredEntry);
 
         PaimonTableCache.release(cacheKey, acquiredEntry);
-        Assert.assertEquals(1, PaimonTableCache.size());
+        Assertions.assertEquals(1, PaimonTableCache.size());
 
         PaimonTableCache.release(cacheKey, publishedEntry);
-        Assert.assertEquals(0, PaimonTableCache.size());
-        Assert.assertNull(PaimonTableCache.acquire(cacheKey));
+        Assertions.assertEquals(0, PaimonTableCache.size());
+        Assertions.assertNull(PaimonTableCache.acquire(cacheKey));
     }
 
     @Test
     public void testConcurrentAcquireAndReleaseKeepsEntryWhilePublisherUsesIt() throws Exception {
         String cacheKey = "concurrent-reference-count";
         PaimonTableCache.TableCacheEntry publishedEntry = newEntry();
-        Assert.assertTrue(PaimonTableCache.publish(cacheKey, publishedEntry));
+        Assertions.assertTrue(PaimonTableCache.publish(cacheKey, publishedEntry));
 
         int threadCount = 16;
         int iterations = 1000;
@@ -71,7 +71,7 @@ public class PaimonTableCacheTest {
                     start.await();
                     for (int i = 0; i < iterations; i++) {
                         PaimonTableCache.TableCacheEntry entry = PaimonTableCache.acquire(cacheKey);
-                        Assert.assertSame(publishedEntry, entry);
+                        Assertions.assertSame(publishedEntry, entry);
                         PaimonTableCache.release(cacheKey, entry);
                     }
                     return null;
@@ -87,9 +87,9 @@ public class PaimonTableCacheTest {
             executor.shutdownNow();
         }
 
-        Assert.assertEquals(1, PaimonTableCache.size());
+        Assertions.assertEquals(1, PaimonTableCache.size());
         PaimonTableCache.release(cacheKey, publishedEntry);
-        Assert.assertEquals(0, PaimonTableCache.size());
+        Assertions.assertEquals(0, PaimonTableCache.size());
     }
 
     @Test
@@ -98,14 +98,14 @@ public class PaimonTableCacheTest {
         PaimonTableCache.TableCacheEntry first = newEntry();
         PaimonTableCache.TableCacheEntry second = newEntry();
 
-        Assert.assertTrue(PaimonTableCache.publish(cacheKey, first));
-        Assert.assertFalse(PaimonTableCache.publish(cacheKey, second));
+        Assertions.assertTrue(PaimonTableCache.publish(cacheKey, first));
+        Assertions.assertFalse(PaimonTableCache.publish(cacheKey, second));
         PaimonTableCache.TableCacheEntry acquiredEntry = PaimonTableCache.acquire(cacheKey);
-        Assert.assertSame(first, acquiredEntry);
+        Assertions.assertSame(first, acquiredEntry);
 
         PaimonTableCache.release(cacheKey, acquiredEntry);
         PaimonTableCache.release(cacheKey, first);
-        Assert.assertEquals(0, PaimonTableCache.size());
+        Assertions.assertEquals(0, PaimonTableCache.size());
     }
 
     private PaimonTableCache.TableCacheEntry newEntry() {

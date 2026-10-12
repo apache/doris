@@ -36,7 +36,6 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import com.aliyun.odps.Column;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
-import com.aliyun.odps.Partition;
 import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.Table;
 import com.aliyun.odps.TableSchema;
@@ -260,11 +259,11 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     public List<String> listPartitionNames(ConnectorSession session,
             ConnectorTableHandle handle) {
         MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
-        List<Partition> partitions = partitionCache.getPartitions(
+        List<PartitionSpec> partitions = partitionCache.getPartitions(
                 mcHandle.getDbName(), mcHandle.getTableName());
         List<String> names = new ArrayList<>(partitions.size());
-        for (Partition partition : partitions) {
-            names.add(partition.getPartitionSpec().toString(false, true));
+        for (PartitionSpec partition : partitions) {
+            names.add(partition.toString(false, true));
         }
         return names;
     }
@@ -282,11 +281,10 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
             ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
         MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
-        List<Partition> partitions = partitionCache.getPartitions(
+        List<PartitionSpec> partitions = partitionCache.getPartitions(
                 mcHandle.getDbName(), mcHandle.getTableName());
         List<ConnectorPartitionInfo> result = new ArrayList<>(partitions.size());
-        for (Partition partition : partitions) {
-            PartitionSpec spec = partition.getPartitionSpec();
+        for (PartitionSpec spec : partitions) {
             Map<String, String> values = new LinkedHashMap<>();
             for (String key : spec.keys()) {
                 values.put(key, spec.get(key));

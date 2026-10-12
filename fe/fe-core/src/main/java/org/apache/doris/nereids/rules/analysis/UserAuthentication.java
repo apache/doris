@@ -47,10 +47,6 @@ public class UserAuthentication {
         if (table == null) {
             return;
         }
-        // do not check priv when replaying dump file
-        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
-            return;
-        }
         TableIf authTable = table;
         Set<String> authColumns = columns;
         if (table instanceof PluginDrivenSysExternalTable) {

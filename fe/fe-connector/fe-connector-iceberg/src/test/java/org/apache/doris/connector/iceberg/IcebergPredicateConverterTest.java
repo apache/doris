@@ -359,4 +359,23 @@ public class IcebergPredicateConverterTest {
         Object value = ((org.apache.iceberg.expressions.UnboundPredicate<?>) out.get(0)).literal().value();
         Assertions.assertEquals(1, ((Number) value).longValue(), op + " literal");
     }
+
+    @Test
+    public void uuidValuePredicatesDoNotPruneFilesUsingIncompatibleBounds() {
+        IcebergPredicateConverter converter = new IcebergPredicateConverter(new Schema(
+                Types.NestedField.optional(1, "u", Types.UUIDType.get())), ZoneOffset.UTC);
+        ConnectorType type = ConnectorType.of("UUID");
+        ConnectorColumnRef column = new ConnectorColumnRef("u", type);
+        ConnectorLiteral value = new ConnectorLiteral(type, "80000000-0000-0000-0000-000000000000");
+        for (ConnectorComparison.Operator op : ConnectorComparison.Operator.values()) {
+            Assertions.assertTrue(converter.convert(new ConnectorComparison(op, column, value)).isEmpty());
+        }
+        for (boolean negated : new boolean[] {false, true}) {
+            Assertions.assertTrue(converter.convert(new ConnectorIn(column,
+                    Collections.singletonList(value), negated)).isEmpty());
+        }
+        Assertions.assertFalse(converter.convert(new ConnectorComparison(ConnectorComparison.Operator.EQ_FOR_NULL,
+                column, ConnectorLiteral.ofNull(type))).isEmpty());
+    }
+
 }

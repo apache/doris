@@ -20,12 +20,17 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class CaseWhenToCompoundPredicateTest extends ExpressionRewriteTestHelper {
@@ -83,5 +88,31 @@ class CaseWhenToCompoundPredicateTest extends ExpressionRewriteTestHelper {
         } finally {
             context = oldContext;
         }
+    }
+
+    @Test
+    void testShortCircuitIfIsNotRewritten() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(CaseWhenToCompoundPredicate.INSTANCE)));
+        ShortCircuitIf guarded = new ShortCircuitIf(
+                BooleanLiteral.TRUE, BooleanLiteral.TRUE, BooleanLiteral.FALSE);
+        Assertions.assertInstanceOf(ShortCircuitIf.class, executor.rewrite(guarded, context));
+
+        setExpressionOnFilter();
+        Assertions.assertInstanceOf(ShortCircuitIf.class, executor.rewrite(guarded, context));
+    }
+
+    @Test
+    void testOuterIfCanBeRewrittenWithoutRewritingNestedShortCircuitIf() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(CaseWhenToCompoundPredicate.INSTANCE)));
+        ShortCircuitIf guarded = new ShortCircuitIf(
+                BooleanLiteral.TRUE, BooleanLiteral.TRUE, BooleanLiteral.FALSE);
+        If outer = new If(guarded, BooleanLiteral.TRUE, BooleanLiteral.FALSE);
+
+        Expression rewritten = executor.rewrite(outer, context);
+
+        Assertions.assertNotEquals(outer, rewritten);
+        Assertions.assertTrue(rewritten.anyMatch(ShortCircuitIf.class::isInstance));
     }
 }

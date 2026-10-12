@@ -45,6 +45,12 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPropertyUtil {
+    /** The properties a partition_sync_limit window is built from; see MTMV#alterMvProperties. */
+    private static final List<String> PARTITION_SYNC_WINDOW_KEYS = Lists.newArrayList(
+            PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
+            PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
+            PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT);
+
     public static final Set<String> MV_PROPERTY_KEYS = Sets.newHashSet(
             PropertyAnalyzer.PROPERTIES_GRACE_PERIOD,
             PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
@@ -216,6 +222,69 @@ public class MTMVPropertyUtil {
         }
         return parsePartitionWindowLimit(mvProperties.get(
                 PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT));
+    }
+
+    /**
+     * True when the MV keeps only a recent slice of each base table's partitions. This is the only
+     * property that can leave the MV without a partition the base table still has, so it is also
+     * the only case where the incremental delta has to be told which base partitions it may read.
+     */
+    public static boolean hasPartitionSyncLimit(Map<String, String> mvProperties) {
+        if (mvProperties == null) {
+            return false;
+        }
+        String value = mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT);
+        return !StringUtils.isEmpty(value) && Integer.parseInt(value) > 0;
+    }
+
+    /** Whether the given (altered) properties touch the partition_sync_limit window. */
+    public static boolean containsPartitionSyncWindow(Map<String, String> properties) {
+        for (String property : PARTITION_SYNC_WINDOW_KEYS) {
+            if (properties.containsKey(property)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the change from {@code oldWindowProperties} to {@code newWindowProperties} can bring base
+     * partitions back into the window the MV maintains: a limit that is removed, or a wider one. Those
+     * partitions' deltas were skipped while they were outside, so nothing incremental can repair them.
+     *
+     * <p>A window that starts applying is not such a change -- it only takes partitions out of what the MV
+     * maintains, and partition sync drops those before the refresh plans -- and neither is a narrower one.
+     * Windows in different units or date formats are not comparable without a clock, so a change to either
+     * is treated as one that may widen.
+     */
+    public static boolean partitionSyncWindowWidens(Map<String, String> oldWindowProperties,
+            Map<String, String> newWindowProperties) {
+        MTMVPartitionSyncConfig oldWindow = MTMVRelatedPartitionDescSyncLimitGenerator
+                .generateMTMVPartitionSyncConfigByProperties(oldWindowProperties);
+        if (oldWindow.getSyncLimit() <= 0) {
+            return false;
+        }
+        MTMVPartitionSyncConfig newWindow = MTMVRelatedPartitionDescSyncLimitGenerator
+                .generateMTMVPartitionSyncConfigByProperties(newWindowProperties);
+        if (newWindow.getSyncLimit() <= 0) {
+            return true;
+        }
+        return !oldWindow.getTimeUnit().equals(newWindow.getTimeUnit())
+                || !oldWindow.getDateFormat().equals(newWindow.getDateFormat())
+                || newWindow.getSyncLimit() > oldWindow.getSyncLimit();
+    }
+
+    /**
+     * The window the given properties describe, for comparing it across an ALTER. Only the properties the
+     * window is built from are read, and the values are compared as they are stored: setting the same
+     * window again changes nothing about which rows the MV owes and must not force a rebuild.
+     */
+    public static Map<String, String> partitionSyncWindowOf(Map<String, String> properties) {
+        Map<String, String> res = Maps.newHashMap();
+        for (String property : PARTITION_SYNC_WINDOW_KEYS) {
+            res.put(property, properties.get(property));
+        }
+        return res;
     }
 
     /**

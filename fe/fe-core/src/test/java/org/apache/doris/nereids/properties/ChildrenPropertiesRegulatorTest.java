@@ -19,6 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -63,7 +64,13 @@ public class ChildrenPropertiesRegulatorTest {
     @BeforeEach
     public void setUp() {
         mockedJobContext = Mockito.mock(JobContext.class);
-        Mockito.when(mockedJobContext.getCascadesContext()).thenReturn(Mockito.mock(CascadesContext.class));
+        ConnectContext connectContext = new ConnectContext();
+        StatementContext statementContext = new StatementContext(connectContext, null);
+        connectContext.setStatementContext(statementContext);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesContext.getConnectContext()).thenReturn(connectContext);
+        Mockito.when(cascadesContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(mockedJobContext.getCascadesContext()).thenReturn(cascadesContext);
     }
 
     @Test
@@ -91,10 +98,7 @@ public class ChildrenPropertiesRegulatorTest {
             boolean canMergeChildProject) {
         try (MockedStatic<CostCalculator> mockedCostCalculator = Mockito.mockStatic(CostCalculator.class)) {
             mockedCostCalculator.when(() -> CostCalculator.calculateCost(Mockito.any(), Mockito.any(),
-                    Mockito.anyList())).thenReturn(Cost.zero());
-            mockedCostCalculator.when(() -> CostCalculator.addChildCost(Mockito.any(), Mockito.any(), Mockito.any(),
-                    Mockito.any(), Mockito.anyInt())).thenReturn(Cost.zero());
-
+                    Mockito.anyList(), Mockito.any())).thenReturn(Cost.zero());
             // project, cannot merge
             Plan mockedChild = Mockito.mock(childClazz);
             Mockito.when(mockedChild.withGroupExpression(Mockito.any())).thenReturn(mockedChild);
@@ -180,10 +184,7 @@ public class ChildrenPropertiesRegulatorTest {
     private void testMustShuffleFilter(Class<? extends Plan> childClazz) {
         try (MockedStatic<CostCalculator> mockedCostCalculator = Mockito.mockStatic(CostCalculator.class)) {
             mockedCostCalculator.when(() -> CostCalculator.calculateCost(Mockito.any(), Mockito.any(),
-                    Mockito.anyList())).thenReturn(Cost.zero());
-            mockedCostCalculator.when(() -> CostCalculator.addChildCost(Mockito.any(), Mockito.any(), Mockito.any(),
-                    Mockito.any(), Mockito.anyInt())).thenReturn(Cost.zero());
-
+                    Mockito.anyList(), Mockito.any())).thenReturn(Cost.zero());
             // project, cannot merge
             Plan mockedChild = Mockito.mock(childClazz);
             Mockito.when(mockedChild.withGroupExpression(Mockito.any())).thenReturn(mockedChild);

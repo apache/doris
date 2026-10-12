@@ -51,6 +51,12 @@ class IvmAggAvgProcessor extends IvmAggSumLikeProcessor {
     }
 
     @Override
+    boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        // AVG is derived from the hidden SUM/COUNT states; the visible AVG value is not merged.
+        return false;
+    }
+
+    @Override
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext applyContext) {
         IvmAggExpressionBuilder ctx = applyContext.expressions();
         Expression newSum = new Add(

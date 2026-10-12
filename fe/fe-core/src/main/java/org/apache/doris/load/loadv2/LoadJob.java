@@ -857,13 +857,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
-        if (txnOperated) {
-            return;
-        }
         writeLock();
         try {
             isCommitting = false;
-            state = JobState.COMMITTED;
+            if (txnOperated) {
+                state = JobState.COMMITTED;
+            }
         } finally {
             writeUnlock();
         }

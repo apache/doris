@@ -24,6 +24,7 @@
 #include "core/arena.h"
 #include "core/column/column_array.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/value/vdatetime_value.h"
 
 namespace doris {
 namespace orc_serde_utils {
@@ -40,6 +41,10 @@ struct RoundedOrcTimestamp {
 
 Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
                                            RoundedOrcTimestamp* result);
+
+Status orc_timestamp_to_datetime(int64_t seconds, uint64_t microseconds,
+                                 const cctz::time_zone& timezone, bool carry_in_civil_time,
+                                 DateV2Value<DateTimeV2ValueType>* value);
 
 DecodedColumnView make_orc_decoded_view(const OrcDecodedColumnView& orc_view,
                                         DecodedValueKind value_kind);

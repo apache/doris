@@ -237,11 +237,13 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t current_block_
             _need_more_data = true;
             break;
         }
-        if (is_n_following_frame && _current_row_position == _partition_by_pose.start) {
-            _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
-                                  _partition_by_pose.start, current_row_end - 1);
-        }
-        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_end - 1,
+        // Initialize the first FOLLOWING frame in one call. LEAD derives the current row
+        // from frame_end, so a separate prefix call would read the previous row's default.
+        const int64_t current_row_start =
+                is_n_following_frame && _current_row_position == _partition_by_pose.start
+                        ? _partition_by_pose.start
+                        : current_row_end - 1;
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
                               current_row_end);
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);

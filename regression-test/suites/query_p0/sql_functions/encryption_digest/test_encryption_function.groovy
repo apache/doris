@@ -100,8 +100,27 @@ suite("test_encryption_function") {
     sql """ insert into aes_encrypt_decrypt_tbl values(2,'Spark','AAAAAAAAAAAAAAAAQiYi+sTLm7KD9UcZ2nlRdYDe/PX4','abcdefghijklmnop12345678ABCDEFGH',unhex('000000000000000000000000'),'aes_256_gcm','This is an AAD mixed into the input');"""
     sql """ sync """
 
-    qt_sql_gcm_5 "SELECT id,TO_BASE64(AES_ENCRYPT(plain_txt,k,iv,mode,aad)) from aes_encrypt_decrypt_tbl order by id;"
-    qt_sql_gcm_6 "SELECT id,AES_DECRYPT(FROM_BASE64(enc_txt),k,'',mode,aad) from aes_encrypt_decrypt_tbl order by id;"
+    test {
+        sql "SELECT AES_ENCRYPT(plain_txt, k, iv, mode, aad) FROM aes_encrypt_decrypt_tbl"
+        exception "Argument at index 3 for function aes_encrypt must be constant"
+    }
+
+    qt_sql_gcm_5 """
+        SELECT id, TO_BASE64(AES_ENCRYPT(plain_txt, k, iv, 'aes_128_gcm', aad))
+        FROM aes_encrypt_decrypt_tbl WHERE id = 1
+        UNION ALL
+        SELECT id, TO_BASE64(AES_ENCRYPT(plain_txt, k, iv, 'aes_256_gcm', aad))
+        FROM aes_encrypt_decrypt_tbl WHERE id = 2
+        ORDER BY id
+    """
+    qt_sql_gcm_6 """
+        SELECT id, AES_DECRYPT(FROM_BASE64(enc_txt), k, '', 'aes_128_gcm', aad)
+        FROM aes_encrypt_decrypt_tbl WHERE id = 1
+        UNION ALL
+        SELECT id, AES_DECRYPT(FROM_BASE64(enc_txt), k, '', 'aes_256_gcm', aad)
+        FROM aes_encrypt_decrypt_tbl WHERE id = 2
+        ORDER BY id
+    """
 
     // test for const opt branch, only first column is not const
     qt_sql_gcm_7 "SELECT id,TO_BASE64(AES_ENCRYPT(plain_txt, '1234567890abcdef', '123456789012', 'aes_128_gcm', 'Some AAD')) from aes_encrypt_decrypt_tbl where id=1"

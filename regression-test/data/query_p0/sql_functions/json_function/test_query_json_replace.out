@@ -80,3 +80,6 @@ null
 -- !replace8 --
 {"a":100}
 
+-- !replace_odd_arity_ok --
+{}	{}	{}
+

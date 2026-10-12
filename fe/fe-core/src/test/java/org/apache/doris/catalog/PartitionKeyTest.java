@@ -55,8 +55,24 @@ public class PartitionKeyTest {
     private static Column charString;
     private static Column varchar;
     private static Column bool;
+    private static Column uuid;
 
     private Env env;
+
+    @Test
+    public void binaryPartitionKeysRetainTrailingZeroBytes() throws AnalysisException {
+        PartitionKey first = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("0xff")), Arrays.asList(Type.VARBINARY), false);
+        PartitionKey second = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("0xff00")), Arrays.asList(Type.VARBINARY), false);
+        Assertions.assertArrayEquals(new byte[] {(byte) 0xff},
+                ((org.apache.doris.analysis.VarBinaryLiteral) first.getKeys().get(0)).getValue());
+        // Binary prefixes and their zero-extended values identify different partitions.
+        Assertions.assertTrue(first.compareTo(second) < 0);
+        Assertions.assertTrue(second.compareTo(first) > 0);
+        Assertions.assertThrows(AnalysisException.class, () -> PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("0xxyz")), Arrays.asList(Type.VARBINARY), false));
+    }
 
     @BeforeAll
     public static void setUp() {
@@ -74,6 +90,7 @@ public class PartitionKeyTest {
         charString = new Column("char", PrimitiveType.CHAR);
         varchar = new Column("varchar", PrimitiveType.VARCHAR);
         bool = new Column("bool", PrimitiveType.BOOLEAN);
+        uuid = new Column("uuid", PrimitiveType.UUID);
 
         allColumns = Arrays.asList(tinyInt, smallInt, int32, bigInt, largeInt, date, datetime);
     }
@@ -396,6 +413,27 @@ public class PartitionKeyTest {
         Assertions.assertTrue(infinityMin.compareTo(literalMin) < 0);
         Assertions.assertFalse(literalNext.isMinValue());
         Assertions.assertEquals(literalNext, literalMin.successor());
+    }
+
+    @Test
+    public void testUuidPartitionColumnRejected() {
+        AnalysisException rangeException = Assertions.assertThrows(AnalysisException.class,
+                () -> RangePartitionInfo.checkPartitionColumn(uuid));
+        Assertions.assertEquals("Column[uuid] type[UUID] cannot be a range partition key.",
+                rangeException.getDetailMessage());
+        AnalysisException listException = Assertions.assertThrows(AnalysisException.class,
+                () -> ListPartitionInfo.checkPartitionColumn(uuid));
+        Assertions.assertEquals("Column[uuid] type[UUID] cannot be a list partition key.",
+                listException.getDetailMessage());
+    }
+
+    @Test
+    public void testUuidDistributionKey() throws Exception {
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("00112233-4455-6677-8899-aabbccddeeff")),
+                Arrays.asList(uuid));
+        Assertions.assertEquals("(\"00112233-4455-6677-8899-aabbccddeeff\")", key.toSql());
+        Assertions.assertEquals(1460664532L, key.getHashValue());
     }
 
     @Test

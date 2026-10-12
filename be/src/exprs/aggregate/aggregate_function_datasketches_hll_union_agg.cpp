@@ -23,12 +23,14 @@
 #include "core/data_type/define_primitive_type.h"
 #include "exec/common/hash_table/hash.h" // IWYU pragma: keep
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 namespace doris {
 template <template <PrimitiveType> class Data>
 AggregateFunctionPtr create_aggregate_function_datasketches_hll_union_agg(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 1, 2);
     return creator_with_type_list<TYPE_STRING, TYPE_VARCHAR, TYPE_VARBINARY>::create<
             AggregateFunctionDataSketchesHllUnionAgg, Data>(argument_types, result_is_nullable,
                                                             attr);

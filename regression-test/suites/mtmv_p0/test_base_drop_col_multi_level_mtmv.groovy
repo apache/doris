@@ -136,6 +136,8 @@ suite("test_base_drop_col_multi_level_mtmv","mtmv") {
 
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
     mv_not_part_in(querySql, mvName1)
-    mv_not_part_in(querySql, mvName3)
+    // mv3 is the query being asked, and the column this change took away is not one it names: the MV it
+    // stands for is untouched, so it stays a candidate -- and it is the one the plan picks.
+    mv_rewrite_success(querySql, mvName3)
     mv_rewrite_fail(querySql, mvName4)
 }

@@ -241,8 +241,10 @@ protected:
                        Block* output) {
         auto read_schema = std::make_shared<ReadSchema>(schema->columns());
         RowsetReaderContext context;
-        context.tablet_schema = schema;
         context.read_schema = read_schema;
+        static_cast<void>(read_schema->init_from_tablet_schema(*schema,
+                                                               /*merge_by_sequence_mapping=*/false,
+                                                               /*map_row_binlog_columns=*/false));
         context.need_ordered_result = true;
         OlapReaderStatistics statistics;
         context.stats = &statistics;

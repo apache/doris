@@ -36,13 +36,11 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/string_buffer.hpp"
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_parquet_encoding.h"
-#include "exec/common/variant_util.h"
 #include "variant_test_utils.h"
 
 namespace doris {
@@ -670,27 +668,11 @@ TEST(VariantJsonTest, DISABLED_MB1Initial) {
                 return bytes;
             });
 
-    const auto [old_seconds, old_checksum] =
-            measure_mb1(workloads, [](const std::string& json, uint32_t count) {
-                auto strings = ColumnString::create();
-                for (uint32_t row = 0; row < count; ++row) {
-                    strings->insert_data(json.data(), json.size());
-                }
-                auto variant = ColumnVariant::create(0, true);
-                ParseConfig config;
-                config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-                variant_util::parse_json_to_variant(*variant, *strings, config);
-                return variant->rows();
-            });
-
     EXPECT_GT(new_checksum, 0);
     EXPECT_GT(jsonb_checksum, 0);
-    EXPECT_GT(old_checksum, 0);
     std::cout << "MB1 RELEASE rows=" << row_count << " new_seconds=" << new_seconds
               << " new_rows_per_second=" << rows / new_seconds << " jsonb_seconds=" << jsonb_seconds
-              << " new_throughput_over_jsonb=" << jsonb_seconds / new_seconds
-              << " old_parse_seconds=" << old_seconds
-              << " new_throughput_over_old_parse=" << old_seconds / new_seconds << std::endl;
+              << " new_throughput_over_jsonb=" << jsonb_seconds / new_seconds << std::endl;
 }
 
 } // namespace

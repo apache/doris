@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -81,6 +82,9 @@ private:
 
     Status do_merge_input_rowsets(const std::vector<RowsetReaderSharedPtr>& input_rs_readers,
                                   MergeInputRowsetsResult* result) override;
+
+    void record_compaction_success(std::chrono::steady_clock::time_point execution_start_time);
+    Status record_compaction_failure(Status status);
 
     void update_output_rowset_after_build(const MergeInputRowsetsResult& result) override;
 

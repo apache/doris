@@ -34,6 +34,18 @@ import java.util.Map;
  */
 public class PaimonCatalogPropertiesTest {
 
+    @Test
+    public void newUnknownWeightKeysFailButPersistedKeysDoNotBlockAlter() {
+        Map<String, String> current = props("warehouse", "/wh",
+                "meta.cache.paimon.future_entry.max-weight", "future-format");
+        PaimonConnectorProvider provider = new PaimonConnectorProvider();
+        Assertions.assertDoesNotThrow(() -> PaimonCatalogProperties.of(current));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(current));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(current, Map.of("comment", "new")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.paimon.partiton_view.max-weight", "1MB")));
+    }
+
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
         for (int i = 0; i < kv.length; i += 2) {
@@ -59,8 +71,8 @@ public class PaimonCatalogPropertiesTest {
         PaimonCatalogProperties p = PaimonCatalogProperties.of(props("warehouse", "/wh"));
 
         Assertions.assertEquals(PaimonCatalogProperties.FILESYSTEM, p.getFlavor());
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
     }
 
     /** The flavor drives a switch in four classes, so it is lower-cased once, here. */
@@ -81,8 +93,8 @@ public class PaimonCatalogPropertiesTest {
                 "enable_mapping_varbinary", "true",
                 "enable_mapping_timestamp_tz", "true"));
 
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
     }
 
     /**
@@ -134,7 +146,7 @@ public class PaimonCatalogPropertiesTest {
                 "warehouse", "/wh",
                 "hive.metastore.uris", "thrift://nn:9083"));
 
-        Assertions.assertDoesNotThrow(p::checkCreateTimeOnlyRules);
+        Assertions.assertDoesNotThrow(() -> p.checkCreateTimeOnlyRules());
     }
 
     /**

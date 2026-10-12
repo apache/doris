@@ -21,6 +21,7 @@ import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -117,12 +118,12 @@ public class ConnectProcessorForwardProtocolTest {
         }
 
         private TestContext(boolean clientDeprecatedEof) {
-            channel = new RecordingChannel(clientDeprecatedEof);
+            this(new RecordingChannel(clientDeprecatedEof));
         }
 
-        @Override
-        public RecordingChannel getMysqlChannel() {
-            return channel;
+        private TestContext(RecordingChannel channel) {
+            super(new MysqlProtocolAdapter(channel));
+            this.channel = channel;
         }
     }
 

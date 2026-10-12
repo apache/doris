@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.model.StatisticsBuilder;
 
@@ -39,6 +41,51 @@ import org.mockito.Mockito;
 import java.util.Optional;
 
 class CostModelV1Test extends SqlTestBase {
+
+    @Test
+    void testAddCostRecomputesWeightedValueFromComponents() {
+        CostWeight costWeight = new CostWeight(1, 1, 1.5, 1);
+        Cost planCost = Cost.of(costWeight, 0.1, 0.1, 0.1);
+        Cost childCost = Cost.of(costWeight, 0.1, 0.3, 0.7);
+
+        Cost totalCost = planCost.add(childCost, costWeight);
+        Cost expectedCost = Cost.of(costWeight,
+                planCost.getCpuCost() + childCost.getCpuCost(),
+                planCost.getMemoryCost() + childCost.getMemoryCost(),
+                planCost.getNetworkCost() + childCost.getNetworkCost());
+
+        Assertions.assertEquals(expectedCost.getValue(), totalCost.getValue());
+        Assertions.assertNotEquals(planCost.getValue() + childCost.getValue(), totalCost.getValue());
+        Assertions.assertEquals(expectedCost.getCpuCost(), totalCost.getCpuCost());
+        Assertions.assertEquals(expectedCost.getMemoryCost(), totalCost.getMemoryCost());
+        Assertions.assertEquals(expectedCost.getNetworkCost(), totalCost.getNetworkCost());
+    }
+
+    @Test
+    void testShareCostWeightInStatementContext() {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        double originalCpuWeight = sessionVariable.getCboCpuWeight();
+        StatementContext statementContext = new StatementContext(connectContext, null);
+        try {
+            sessionVariable.setCboCpuWeight(2);
+            CostWeight firstWeight = statementContext.getCostWeight();
+
+            Assertions.assertSame(firstWeight, statementContext.getCostWeight());
+            Assertions.assertEquals(2, Cost.ofCpu(firstWeight, 1).getValue());
+
+            sessionVariable.setCboCpuWeight(3);
+            Assertions.assertSame(firstWeight, statementContext.getCostWeight());
+            Assertions.assertEquals(2, Cost.ofCpu(firstWeight, 1).getValue());
+
+            statementContext.setConnectContext(connectContext);
+            CostWeight nextExecutionWeight = statementContext.getCostWeight();
+
+            Assertions.assertNotSame(firstWeight, nextExecutionWeight);
+            Assertions.assertEquals(3, Cost.ofCpu(nextExecutionWeight, 1).getValue());
+        } finally {
+            sessionVariable.setCboCpuWeight(originalCpuWeight);
+        }
+    }
 
     @Test
     void testMaterializingCost() {
@@ -74,6 +121,7 @@ class CostModelV1Test extends SqlTestBase {
             PlanContext context = Mockito.mock(PlanContext.class);
             Mockito.when(context.getChildStatistics(0)).thenReturn(childStats);
             Mockito.when(context.getSessionVariable()).thenReturn(connectContext.getSessionVariable());
+            Mockito.when(context.getCostWeight()).thenReturn(connectContext.getStatementContext().getCostWeight());
 
             Cost cost = new CostModel(connectContext).visitPhysicalHashAggregate(aggregate, context);
             Cost singlePointCost = new CostModel(connectContext).visitPhysicalHashAggregate(singlePointAggregate,

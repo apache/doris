@@ -25,7 +25,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -69,7 +68,7 @@ public class SetPassVarOp extends SetVarOp {
         }
 
         // 2. No user can set password for root expect for root user itself
-        if (userIdent.getQualifiedUser().equals(Auth.ROOT_USER)) {
+        if (userIdent.isRootUser()) {
             throw new AnalysisException("Can not set password for root user, except root itself");
         }
 

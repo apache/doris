@@ -200,8 +200,11 @@ public class PartitionCompensator {
                 // Base table partition maybe deleted, need not union
                 continue;
             }
-            Sets.intersection(baseTablePartitions, queryUsedBaseTablePartitionNameSet)
-                    .copyInto(baseTableNeedUnionPartitionNameSet);
+            if (!Sets.intersection(baseTablePartitions, queryUsedBaseTablePartitionNameSet).isEmpty()) {
+                // An MV partition is the atomic unit removed from the rewritten plan. If any base
+                // partition in its roll-up bucket is used by the query, compensate the whole bucket.
+                baseTableNeedUnionPartitionNameSet.addAll(baseTablePartitions);
+            }
         }
         // If related base table creates partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)

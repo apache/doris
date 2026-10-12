@@ -27,6 +27,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Delegation tests for {@link PluginDrivenTransactionManager} and its internal
@@ -107,6 +110,37 @@ public class PluginDrivenTransactionManagerTest {
         }
     }
 
+    private static final class BlockingCommitDataTransaction extends RecordingConnectorTransaction {
+        private final CountDownLatch addEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseAdd = new CountDownLatch(1);
+        private final CountDownLatch commitEntered = new CountDownLatch(1);
+
+        private BlockingCommitDataTransaction(long txnId) {
+            super(txnId);
+        }
+
+        @Override
+        public void addCommitData(byte[] commitFragment) {
+            addEntered.countDown();
+            await(releaseAdd);
+            super.addCommitData(commitFragment);
+        }
+
+        @Override
+        public void commit() {
+            commitEntered.countDown();
+        }
+
+        private static void await(CountDownLatch latch) {
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
     @Test
     public void addCommitDataIsDelegatedToConnectorTransaction() throws UserException {
         PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
@@ -116,7 +150,8 @@ public class PluginDrivenTransactionManagerTest {
         byte[] fragment = {1, 2, 3};
         manager.getTransaction(txnId).addCommitData(fragment);
 
-        Assertions.assertEquals(1, connectorTx.commitFragments.size());
+        Assertions.assertEquals(1,
+                ((RecordingConnectorTransaction) connectorTx).commitFragments.size());
         Assertions.assertSame(fragment, connectorTx.commitFragments.get(0));
     }
 
@@ -180,6 +215,46 @@ public class PluginDrivenTransactionManagerTest {
         txn.addCommitData(new byte[] {9});
         Assertions.assertEquals(0L, txn.getUpdateCnt());
         Assertions.assertFalse(txn instanceof WriteBlockAllocatingTransaction);
+    }
+
+    @Test
+    public void commitWaitsForInFlightCommitDataAndRejectsLateReports() throws Exception {
+        PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
+        BlockingCommitDataTransaction connectorTx = new BlockingCommitDataTransaction(90000L);
+        long txnId = manager.begin(connectorTx);
+        Transaction transaction = manager.getTransaction(txnId);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread reportThread = new Thread(() -> {
+            try {
+                transaction.addCommitData(new byte[] {1});
+            } catch (Throwable t) {
+                failure.compareAndSet(null, t);
+            }
+        });
+        Thread commitThread = new Thread(() -> {
+            try {
+                manager.commit(txnId);
+            } catch (Throwable t) {
+                failure.compareAndSet(null, t);
+            }
+        });
+
+        reportThread.start();
+        Assertions.assertTrue(connectorTx.addEntered.await(5, TimeUnit.SECONDS));
+        commitThread.start();
+        Assertions.assertFalse(connectorTx.commitEntered.await(100, TimeUnit.MILLISECONDS),
+                "commit must not overlap addCommitData on a connector transaction");
+        connectorTx.releaseAdd.countDown();
+        reportThread.join(5000);
+        commitThread.join(5000);
+
+        Assertions.assertFalse(reportThread.isAlive());
+        Assertions.assertFalse(commitThread.isAlive());
+        Assertions.assertNull(failure.get());
+        Assertions.assertEquals(1,
+                ((RecordingConnectorTransaction) connectorTx).commitFragments.size());
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> transaction.addCommitData(new byte[] {2}));
     }
 
     // ──────────── global registration (P4-T06a W-d / gap G3) ────────────

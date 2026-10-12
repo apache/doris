@@ -18,7 +18,7 @@ timestamp_col	datetime(6)	Yes	false	\N	NONE
 timestamptz_col	datetime(6)	Yes	false	\N	NONE
 interval_col	text	Yes	false	\N	NONE
 bytea_col	text	Yes	false	\N	NONE
-uuid_col	text	Yes	false	\N	NONE
+uuid_col	uuid	Yes	false	\N	NONE
 json_col	text	Yes	false	\N	NONE
 jsonb_col	text	Yes	false	\N	NONE
 inet_col	text	Yes	false	\N	NONE

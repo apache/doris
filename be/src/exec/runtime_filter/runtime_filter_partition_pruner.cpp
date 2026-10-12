@@ -629,6 +629,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         BUILD_PROJECTED_CVR(BOOLEAN)
         BUILD_PROJECTED_CVR(IPV4)
         BUILD_PROJECTED_CVR(IPV6)
+        BUILD_PROJECTED_CVR(UUID)
     default:
         break;
     }

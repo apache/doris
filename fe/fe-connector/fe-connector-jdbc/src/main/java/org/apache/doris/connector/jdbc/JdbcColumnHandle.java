@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.jdbc;
 
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import java.util.Objects;
@@ -29,12 +30,22 @@ public class JdbcColumnHandle implements ConnectorColumnHandle {
 
     private static final long serialVersionUID = 1L;
 
+    private final ConnectorType type;
     private final String localName;
     private final String remoteName;
 
     public JdbcColumnHandle(String localName, String remoteName) {
+        this(localName, remoteName, ConnectorType.of("UNSUPPORTED"));
+    }
+
+    public JdbcColumnHandle(String localName, String remoteName, ConnectorType type) {
+        this.type = type;
         this.localName = Objects.requireNonNull(localName, "localName");
         this.remoteName = Objects.requireNonNull(remoteName, "remoteName");
+    }
+
+    public ConnectorType getType() {
+        return type;
     }
 
     public String getLocalName() {

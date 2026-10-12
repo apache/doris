@@ -184,6 +184,14 @@ public final class HiveCatalogProperties {
      * @return this, so the provider's door reads as one statement
      */
     public HiveCatalogProperties checkCreateTimeOnlyRules() {
+        return checkCreateTimeOnlyRules(raw);
+    }
+
+    public HiveCatalogProperties checkCreateTimeOnlyRules(Map<String, String> submittedProperties) {
+        CacheSpec.checkWeightProperties(raw, submittedProperties, "hive",
+                "table", "partition_names", "partition", "column_stats", "file", "partition_view");
+        CacheSpec.checkWeightProperties(raw, submittedProperties, "iceberg",
+                "table", "partition", "manifest", "partition_view");
         // Restores the legacy HMSExternalCatalog.checkProperties fail-fast for the two meta-cache TTL
         // knobs: after the hms cutover an "hms" catalog is created via the SPI provider (not
         // HMSExternalCatalog), so the old per-property validation no longer ran and an invalid ttl (e.g.
@@ -252,11 +260,13 @@ public final class HiveCatalogProperties {
     }
 
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        // Legacy properties remain parseable, but binary values always retain their bytes.
+        return true;
     }
 
     public boolean isEnableMappingTimestampTz() {
-        return enableMappingTimestampTz;
+        // Instant types cannot be downgraded to session-local wall clocks.
+        return true;
     }
 
     /** The catalog property map verbatim. Callers that reach the HMS client want {@link #getHmsClientProperties()}. */

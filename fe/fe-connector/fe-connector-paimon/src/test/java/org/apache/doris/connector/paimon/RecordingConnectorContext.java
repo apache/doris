@@ -51,6 +51,7 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
     }
 
     int authCount;
+    int authDepth;
     boolean failAuth;
     int failAuthOnInvocation = -1;
 
@@ -134,7 +135,16 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
             // Deliberately do NOT call task -> the wrapped seam call must not run.
             throw new RuntimeException("auth failed");
         }
-        return task.call();
+        authDepth++;
+        try {
+            return task.call();
+        } finally {
+            authDepth--;
+        }
+    }
+
+    boolean isAuthenticated() {
+        return authDepth > 0;
     }
 
     // A distinguishable, non-null engine filesystem. The SPI default for getFileSystem is null, so a

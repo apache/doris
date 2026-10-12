@@ -57,8 +57,8 @@ suite("iceberg_and_internal_nested_namespace", "p0,external") {
                         owner.sql("""refresh catalog ${catalog_name}""")
                         sleep(500) // Sleep 500ms before retry
                     } else {
-                        // log but not throw exception
-                        logger.error("Query failed after ${maxRetries} attempts: ${errorMsg}")
+                        // Exhausted retries must fail the suite instead of hiding a namespace listing regression.
+                        throw e
                     }
                 } else {
                     throw e // Rethrow if it's a different exception

@@ -180,6 +180,8 @@ suite("test_adbc_cross_source", "p0,external") {
             CREATE CATALOG ${flightCatalog} PROPERTIES (
                 "type" = "adbc",
                 "driver_url" = "${flightDriverPath}",
+                -- The loopback source is Doris even when vendor detection is unavailable.
+                "sql_dialect" = "doris",
                 "uri" = "grpc://127.0.0.1:${arrowPort}",
                 "user" = "root",
                 "password" = "",

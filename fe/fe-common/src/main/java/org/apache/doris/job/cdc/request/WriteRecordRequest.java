@@ -29,6 +29,7 @@ public class WriteRecordRequest extends JobBaseRecordRequest {
     private long taskTimeoutMs;
     private String targetDb;
     private String token;
+    private String dorisUser;
     private String taskId;
     private Map<String, String> streamLoadProps;
     // previous task ended abnormally, rebuild reader instead of reusing
