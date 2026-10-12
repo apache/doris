@@ -93,8 +93,7 @@ public class Group {
      * Null means not computed yet; {@link GroupStructInfo#INVALID} means the group content is
      * not supported by the simplified struct info.
      */
-    private GroupStructInfo hboStructInfo;
-    private GroupStructInfo hboStructInfoNoLiteral;
+    private GroupStructInfo.HboStructParts hboStructParts;
     /** The mode independent structural summary of this group, computed on first hbo lookup. */
     private GroupStructInfo.HboStructSummary hboStructSummary;
 
@@ -184,7 +183,8 @@ public class Group {
     }
 
     /**
-     * Get the simplified HBO struct info of this group, computing and caching it on first use.
+     * Get the simplified HBO struct info of this group in the constant carrying literal mode,
+     * computing and caching it on first use.
      * <p>
      * NOTE: optimization is single threaded, so no synchronization is needed; the field is not
      * volatile by design (group objects never leave the planner thread).
@@ -194,35 +194,36 @@ public class Group {
     }
 
     /**
-     * Lazily compute and cache the simplified struct info of this group in the given literal mode.
-     * Both modes are cached separately (at most two computations per group per query), so the memo
-     * stays the single source of truth for the hbo fingerprints.
+     * The struct info of this group in the given literal mode, taken from the parts which are built
+     * once per query (see {@link #getOrComputeHboStructParts}).
+     */
+    public GroupStructInfo getOrComputeHboStructInfo(GroupStructInfo.LiteralMode mode) {
+        return GroupStructInfo.fromParts(getOrComputeHboStructParts(), mode);
+    }
+
+    /**
+     * Lazily compute and cache the canonical parts of this group, both literal modes at once. Every
+     * consumer (the read side lookups and the explain annotation) shares one description and one data
+     * state, and a group is never described twice: a parent composes the parts of its children
+     * instead of walking their sub trees again.
      *
      * <p>A failure which is a property of the plan ({@link GroupStructInfo#INVALID}) is cached: the
      * next lookup of the same group would fail the same way. A failure which came from reading the
-     * catalog ({@link GroupStructInfo#TRANSIENT_FAILURE}, e.g. a cloud rpc error) is <b>not</b>
-     * cached, so the next lookup retries instead of disabling hbo struct info for the whole query.
+     * catalog (a cloud rpc error) is <b>not</b> cached, so the next lookup retries instead of
+     * disabling hbo struct info for the whole query.
      */
-    public GroupStructInfo getOrComputeHboStructInfo(GroupStructInfo.LiteralMode mode) {
-        if (mode == GroupStructInfo.LiteralMode.NO_LITERAL) {
-            if (hboStructInfoNoLiteral != null) {
-                return hboStructInfoNoLiteral;
-            }
-            GroupStructInfo computed = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.NO_LITERAL);
-            hboStructInfoNoLiteral = cacheable(computed);
-            return computed;
-        }
-        if (hboStructInfo != null) {
-            return hboStructInfo;
-        }
-        GroupStructInfo computed = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.WITH_LITERAL);
-        hboStructInfo = cacheable(computed);
-        return computed;
+    public GroupStructInfo.HboStructParts getOrComputeHboStructParts() {
+        return GroupStructInfo.partsOf(this);
     }
 
-    /** The value to cache: null for a failure which a later lookup may survive. */
-    private static GroupStructInfo cacheable(GroupStructInfo structInfo) {
-        return structInfo == GroupStructInfo.TRANSIENT_FAILURE ? null : structInfo;
+    /** The cached parts of this group, or null when the group was not described yet. */
+    public GroupStructInfo.HboStructParts getHboStructPartsOrNull() {
+        return hboStructParts;
+    }
+
+    /** Cache the parts of this group; only called by the one build which describes it. */
+    public void setHboStructParts(GroupStructInfo.HboStructParts parts) {
+        hboStructParts = parts;
     }
 
     /**

@@ -82,7 +82,8 @@ public class HboJoinConditions {
         pairs.sort(String::compareTo);
         List<String> residuals = new ArrayList<>();
         for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            residuals.add(GroupStructInfo.toNoLiteral(GroupStructInfo.normalizeExpression(conjunct)));
+            residuals.add(GroupStructInfo.normalizeExpression(conjunct,
+                    GroupStructInfo.LiteralMode.NO_LITERAL));
         }
         residuals.sort(String::compareTo);
         StringBuilder canonical = new StringBuilder(PREFIX).append(join.getJoinType());

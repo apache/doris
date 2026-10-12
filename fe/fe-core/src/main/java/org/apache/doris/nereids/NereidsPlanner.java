@@ -729,13 +729,12 @@ public class NereidsPlanner extends Planner {
         GroupStructInfo.LiteralMode primaryMode = isFilter
                 ? GroupStructInfo.LiteralMode.WITH_LITERAL
                 : GroupStructInfo.LiteralMode.NO_LITERAL;
-        // the printed struct info is the data state a user records for an injection, so it is
-        // computed now instead of being taken from the per-group cache (whose baseline is a snapshot
-        // of the moment the first hbo lookup of that group happened)
-        Optional<GroupStructInfo> structInfo = GroupStructInfo.dataStateOfPlanNode(node, groupsById, primaryMode);
+        // the struct info of a group is built once per query, so the data state printed here is the
+        // same one the read side judged its entries against (see Group#getOrComputeHboStructParts)
+        Optional<GroupStructInfo> structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById, primaryMode);
         Optional<GroupStructInfo> noLiteralStructInfo = structInfo;
         if (isFilter) {
-            noLiteralStructInfo = GroupStructInfo.dataStateOfPlanNode(node, groupsById,
+            noLiteralStructInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById,
                     GroupStructInfo.LiteralMode.NO_LITERAL);
         }
         if (isJoinOrAgg && node instanceof AbstractPhysicalJoin) {

@@ -294,17 +294,14 @@ public class HboStatsCalculator extends StatsCalculator {
                 recordGuardSkip(fingerprint, delegateStats.getRowCount(), guardInputStats.getRowCount());
                 continue;
             }
-            // the entry is judged against a data state taken now, not against the one the memo cached
-            // when this group was looked up the first time: a load which committed while the query is
-            // being optimized would otherwise be invisible. The cached struct info stays the source of
-            // the fingerprint, which does not depend on any data state. An entry which records no data
-            // state at all is applied as it always was, so there is nothing to walk for.
+            // the entry is judged against the data state of the one description this query builds for
+            // the group (see Group#getOrComputeHboStructParts): the same state the explain annotation
+            // prints, so what a user copies is what the next queries judge against. An entry which
+            // records no data state at all is applied as it always was.
             HboStructFreshness freshness;
             if (HboStructFreshness.hasRecordedDataState(pinned.getStructCanonical())) {
-                Optional<GroupStructInfo> dataState = GroupStructInfo.dataStateOfPlanNode(planNode, null, mode);
-                // the live data state is read now on purpose: a cached baseline may be old, so
-                // falling back to it could report LIVE for an entry whose data moved. Nothing to
-                // compare means unknown, which keeps the entry applicable (soft strategy)
+                Optional<GroupStructInfo> dataState = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
+                // nothing to compare means unknown, which keeps the entry applicable (soft strategy)
                 freshness = dataState.isPresent()
                         ? HboStructFreshness.between(pinned.getStructCanonical(), dataState.get())
                         : HboStructFreshness.between(pinned.getStructCanonical(),
@@ -365,9 +362,9 @@ public class HboStatsCalculator extends StatsCalculator {
         // tables for that).
         String hash = planNodeAndHashOpt.get().getHash().get();
         if (planNode instanceof OlapScan) {
-            // the data state of a scan group is the scan itself, so asking for it now costs nothing
-            // (and a load during this planning pass is seen, unlike the cached state)
-            Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.dataStateOfPlanNode(planNode, null, mode);
+            // the data state of a scan group is the scan itself, and it is the one this query built
+            // for the group (a scan node's own description)
+            Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
             if (liveStructInfo.isPresent()) {
                 HboStructFreshness freshness = HboStructFreshness.ofLearnedEntry(
                         matchedEntry.getInputTableStatistics(), liveStructInfo.get());
