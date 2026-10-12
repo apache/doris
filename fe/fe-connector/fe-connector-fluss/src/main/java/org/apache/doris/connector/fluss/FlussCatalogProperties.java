@@ -138,20 +138,10 @@ public final class FlussCatalogProperties {
      */
     public static final String LAKE_OPTION_PREFIX = "fluss.lake.paimon.";
 
-    /**
-     * Optional. Whether a fluss BINARY/BYTES column reads as Doris VARBINARY instead of STRING.
-     *
-     * <p>Unprefixed on purpose: this is the engine-wide catalog property
-     * ({@code CatalogProperty.ENABLE_MAPPING_VARBINARY}) that the hive, paimon and iceberg catalogs
-     * already answer to, and a user should not have to learn a fluss-specific spelling for it. Being
-     * unprefixed also keeps it out of {@link #getFlussClientConfig()} for free.
-     */
+    /** Legacy catalog marker accepted for compatibility; binary columns always map to VARBINARY. */
     public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
 
-    /**
-     * Optional. Whether a fluss TIMESTAMP_LTZ column reads as Doris TIMESTAMPTZ instead of DATETIMEV2.
-     * Engine-wide catalog property, same reasoning as {@link #ENABLE_MAPPING_VARBINARY}.
-     */
+    /** Legacy catalog marker accepted for compatibility; TIMESTAMP_LTZ always maps to TIMESTAMPTZ. */
     public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
 
     /** Value set of {@link #UNION_READ_MODE}. */
@@ -187,11 +177,11 @@ public final class FlussCatalogProperties {
     private long maxTotalTailRows = DEFAULT_MAX_TOTAL_TAIL_ROWS;
 
     @ConnectorProperty(names = {ENABLE_MAPPING_VARBINARY}, required = false,
-            description = "map fluss BINARY/BYTES to Doris VARBINARY instead of STRING")
+            description = "deprecated; fluss BINARY/BYTES always map to Doris VARBINARY")
     private boolean enableMappingVarbinary;
 
     @ConnectorProperty(names = {ENABLE_MAPPING_TIMESTAMP_TZ}, required = false,
-            description = "map fluss TIMESTAMP_LTZ to Doris TIMESTAMPTZ instead of DATETIMEV2")
+            description = "deprecated; fluss TIMESTAMP_LTZ always maps to Doris TIMESTAMPTZ")
     private boolean enableMappingTimestampTz;
 
     private UnionReadMode unionReadMode;

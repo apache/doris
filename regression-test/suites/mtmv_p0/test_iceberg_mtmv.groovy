@@ -52,7 +52,9 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT * FROM ${catalog_name}.${icebergDb}.${icebergTable};
+                -- OLAP materialization needs an explicit representation for external binary values.
+                SELECT * EXCEPT(col_binary), hex(col_binary) AS col_binary
+                FROM ${catalog_name}.${icebergDb}.${icebergTable};
             """
 
         sql """
@@ -322,4 +324,3 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         sql """ drop catalog if exists ${catalog_name} """
     }
 }
-

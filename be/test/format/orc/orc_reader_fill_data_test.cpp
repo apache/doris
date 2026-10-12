@@ -28,17 +28,22 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_uuid.h"
 #include "core/types.h"
 #include "core/value/uuid_value.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/orc/vorc_reader.h"
 #include "orc/ColumnPrinter.hh"
+#include "util/timezone_utils.h"
 
 namespace doris {
 class OrcReaderFillDataTest : public ::testing::Test {
 protected:
-    void SetUp() override {}
+    void SetUp() override {
+        // Filtered runs must initialize the same timezone cache as BE startup.
+        TimezoneUtils::load_timezones_to_cache();
+    }
 
     void TearDown() override {}
 
@@ -187,6 +192,49 @@ TEST_F(OrcReaderFillDataTest, TimestampDecodeNormalizesCstTimezone) {
     const auto& timestamp_column = assert_cast<const ColumnDateTimeV2&>(*mutable_column);
     ASSERT_EQ(timestamp_column.size(), 1);
     EXPECT_EQ(data_type->to_string(timestamp_column.get_data()[0]), "2020-01-02 03:04:05.321000");
+}
+
+TEST_F(OrcReaderFillDataTest, TimestampTzV1RejectsOutOfRangeUtcYears) {
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4096, "UTC", nullptr);
+    for (int64_t seconds : {-62135596801LL, 253402300800LL}) {
+        auto batch = create_timestamp_batch(1, {seconds}, {0});
+        auto column = ColumnTimeStampTz::create();
+        MutableColumnPtr mutable_column = column->assert_mutable();
+        EXPECT_FALSE(
+                reader->_decode_timestamp_tz_column<false>("ts", mutable_column, batch.get(), 1)
+                        .ok());
+    }
+    auto batch = create_timestamp_batch(3, {-62135596800LL, 253402300799LL, 253402300800LL},
+                                        {0, 999999000, 0});
+    batch->hasNulls = true;
+    batch->notNull[2] = false;
+    auto column = ColumnTimeStampTz::create();
+    MutableColumnPtr mutable_column = column->assert_mutable();
+    ASSERT_TRUE(
+            reader->_decode_timestamp_tz_column<false>("ts", mutable_column, batch.get(), 3).ok());
+    EXPECT_EQ(column->get_data()[0].year(), 1);
+    EXPECT_EQ(column->get_data()[1].year(), 9999);
+    EXPECT_EQ(column->get_data()[1].microsecond(), 999999);
+}
+
+TEST_F(OrcReaderFillDataTest, TimestampTzV1RejectsOutOfRangeArrayElements) {
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4096, "UTC", nullptr);
+    auto type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeTimeStampTz>(6));
+    auto orc_type = orc::createListType(orc::createPrimitiveType(orc::TIMESTAMP_INSTANT));
+    orc::ListVectorBatch batch(1, *orc::getDefaultPool());
+    batch.numElements = 1;
+    batch.hasNulls = false;
+    batch.offsets[0] = 0;
+    batch.offsets[1] = 1;
+    batch.elements = create_timestamp_batch(1, {253402300800LL}, {0});
+    auto column = type->create_column();
+    EXPECT_FALSE(reader->_fill_doris_data_column<false>("events", column, type, const_node,
+                                                        orc_type.get(), &batch, 1)
+                         .ok());
 }
 
 TEST_F(OrcReaderFillDataTest, SchemaChangeNullableNullMapUsesAppendedSlice) {

@@ -232,6 +232,7 @@ suite("test_http_tvf", "p0") {
         );
     """
 
+    // INT96 has no timezone metadata, so its DATETIMEV2 values must not receive a session offset.
     // parquet/orc
     qt_sql08 """
         select * from

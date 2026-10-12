@@ -259,8 +259,8 @@ public class JdbcSQLServerConnectorClientTest {
 
         // the name based mapping is unchanged, the type code is only consulted for unknown names
         Assertions.assertEquals("SMALLINT", typeOf(client, column("tinyint", Types.TINYINT, 3, 0)));
-        Assertions.assertEquals("STRING", typeOf(client, column("varbinary", Types.VARBINARY, 20, 0)));
-        Assertions.assertEquals("STRING",
+        Assertions.assertEquals("VARBINARY", typeOf(client, column("varbinary", Types.VARBINARY, 20, 0)));
+        Assertions.assertEquals("TIMESTAMPTZ",
                 typeOf(client, column("datetimeoffset", SQL_SS_TIMESTAMPOFFSET, 34, 7)));
     }
 }

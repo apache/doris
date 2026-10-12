@@ -34,6 +34,25 @@ public class VarBinaryLiteralTest {
     }
 
     @Test
+    public void binaryPartitionLiteralsRoundTripIntoNereids() {
+        VarBinaryLiteral literal = new VarBinaryLiteral(new VarBinaryType(3), new byte[] {0, (byte) 0xff, 0});
+        LiteralExpr legacy = literal.toLegacyLiteral();
+        Literal converted = Literal.fromLegacyLiteral(legacy, legacy.getType());
+        Assertions.assertEquals(literal, converted);
+        Assertions.assertEquals(literal.getDataType(), converted.getDataType());
+    }
+
+    @Test
+    public void binaryPartitionValuesKeepZeroSuffixesAndContentHashes() {
+        VarBinaryLiteral prefix = new VarBinaryLiteral(new byte[] {(byte) 0xff});
+        VarBinaryLiteral extended = new VarBinaryLiteral(new byte[] {(byte) 0xff, 0});
+        Assertions.assertTrue(prefix.compareTo(extended) < 0);
+        Assertions.assertTrue(extended.compareTo(prefix) > 0);
+        Assertions.assertEquals(extended.hashCode(),
+                new VarBinaryLiteral(new byte[] {(byte) 0xff, 0}).hashCode());
+    }
+
+    @Test
     public void testBasicProperties() {
         byte[] data = bytes("hello");
         VarBinaryLiteral vb = new VarBinaryLiteral(data);
@@ -60,6 +79,7 @@ public class VarBinaryLiteralTest {
         VarBinaryLiteral c = new VarBinaryLiteral(bytes("abd"));
 
         Assertions.assertEquals(a, b);
+        Assertions.assertEquals(a.hashCode(), b.hashCode());
         Assertions.assertNotEquals(a, c);
     }
 

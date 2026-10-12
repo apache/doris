@@ -647,12 +647,8 @@ public class MTMVPlanUtil {
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
-            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation,
-                    properties);
-            if (isIvm) {
-                ivmRewriteResult.ifPresent(queryInfo::setIvmRewriteResult);
-            }
-            return queryInfo;
+            return new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation, properties,
+                    isIvm ? ivmRewriteResult.orElse(null) : null, planner.getAnalyzedPlan());
         }
     }
 
@@ -1023,7 +1019,7 @@ public class MTMVPlanUtil {
         }
     }
 
-    public static void ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {
+    public static MTMVAnalyzeQueryInfo ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {
         MTMVAnalyzeQueryInfo mtmvAnalyzedQueryInfo;
         try {
             mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx,
@@ -1033,6 +1029,7 @@ public class MTMVPlanUtil {
         }
         checkColumnIfChange(mtmv, mtmvAnalyzedQueryInfo.getColumnDefinitions());
         checkMTMVPartitionInfo(mtmv, mtmvAnalyzedQueryInfo.getMvPartitionInfo());
+        return mtmvAnalyzedQueryInfo;
     }
 
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)

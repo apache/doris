@@ -158,6 +158,11 @@ final class IcebergWriteSchemaContext {
             ConnectorColumn column = new ConnectorColumn(
                     field.name(), type, field.doc() == null ? "" : field.doc(),
                     field.isOptional(), null, true).withUniqueId(field.fieldId());
+            ConnectorType stringWriteType = stringWriteType(field.type(), type);
+            if (stringWriteType != null) {
+                // Nested UUID leaves need the same text normalization as top-level UUID columns.
+                column = column.withStringWriteType(stringWriteType);
+            }
             if (isTimestampWithZone(field.type())) {
                 column = column.withTimeZone();
             }
@@ -171,6 +176,48 @@ final class IcebergWriteSchemaContext {
             columnBuilder.add(column);
         }
         this.columns = columnBuilder.build();
+    }
+
+    private static ConnectorType stringWriteType(Type type, ConnectorType mapped) {
+        if (type.typeId() == Type.TypeID.UUID) {
+            return ConnectorType.of("UUID");
+        }
+        if (type.isPrimitiveType()) {
+            return null;
+        }
+        List<Types.NestedField> fields;
+        switch (type.typeId()) {
+            case LIST:
+                fields = type.asListType().fields();
+                break;
+            case MAP:
+                fields = type.asMapType().fields();
+                break;
+            case STRUCT:
+                fields = type.asStructType().fields();
+                break;
+            default:
+                return null;
+        }
+        List<ConnectorType> children = new java.util.ArrayList<>();
+        boolean hasUuid = false;
+        for (int i = 0; i < fields.size(); i++) {
+            ConnectorType semantic = stringWriteType(fields.get(i).type(), mapped.getChildren().get(i));
+            hasUuid |= semantic != null;
+            children.add(semantic == null ? mapped.getChildren().get(i) : semantic);
+        }
+        if (!hasUuid) {
+            return null;
+        }
+        switch (type.typeId()) {
+            case LIST:
+                return ConnectorType.arrayOf(children.get(0), type.asListType().isElementOptional());
+            case MAP:
+                // Both map sides may contain UUID leaves, including nested collections.
+                return ConnectorType.mapOf(children.get(0), children.get(1));
+            default:
+                return ConnectorType.structOf(mapped.getFieldNames(), children);
+        }
     }
 
     private static PartitionSpec bindPartitionSpec(
@@ -386,7 +433,7 @@ final class IcebergWriteSchemaContext {
             case STRING:
                 return quote((String) value);
             case UUID:
-                return binarySql(uuidBytes((UUID) value), enableMappingVarbinary);
+                return quote(value.toString());
             case FIXED:
             case BINARY:
                 return binarySql(byteBufferBytes((ByteBuffer) value), enableMappingVarbinary);
@@ -394,9 +441,7 @@ final class IcebergWriteSchemaContext {
                 return quote(LocalDate.ofEpochDay(((Integer) value).longValue()).toString());
             case TIMESTAMP:
                 String timestamp = Transforms.identity(type).toHumanString(type, value).replace('T', ' ');
-                if (((Types.TimestampType) type).shouldAdjustToUTC() && !enableMappingTimestampTz) {
-                    timestamp = timestamp.replaceFirst("(Z|[+-]\\d{2}:\\d{2})$", "");
-                }
+                // Zoned defaults retain their offset regardless of the legacy catalog flag.
                 return quote(timestamp);
             case LIST:
                 Types.ListType listType = (Types.ListType) type;
@@ -434,25 +479,20 @@ final class IcebergWriteSchemaContext {
 
     private static String binarySql(byte[] bytes, boolean enableMappingVarbinary) {
         String hex = BaseEncoding.base16().encode(bytes);
-        return enableMappingVarbinary ? "X'" + hex + "'" : "UNHEX('" + hex + "')";
+        // Binary defaults must never pass through the string character set.
+        return "X'" + hex + "'";
     }
 
     private static String quote(String value) {
         if (value.indexOf('\\') >= 0) {
-            return binarySql(value.getBytes(StandardCharsets.UTF_8), false);
+            // Escape backslashes without changing the string default into a VARBINARY literal.
+            return "UNHEX('" + BaseEncoding.base16().encode(value.getBytes(StandardCharsets.UTF_8)) + "')";
         }
         return quoteStructFieldName(value);
     }
 
     private static String quoteStructFieldName(String value) {
         return "'" + value.replace("'", "''") + "'";
-    }
-
-    private static byte[] uuidBytes(UUID value) {
-        return ByteBuffer.allocate(16)
-                .putLong(value.getMostSignificantBits())
-                .putLong(value.getLeastSignificantBits())
-                .array();
     }
 
     private static byte[] byteBufferBytes(ByteBuffer value) {

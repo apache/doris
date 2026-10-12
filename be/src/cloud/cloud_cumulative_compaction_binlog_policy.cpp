@@ -52,6 +52,11 @@ int64_t CloudBinlogCumulativeCompactionPolicy::get_compaction_level(
         CloudTablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
         RowsetSharedPtr output_rowset) {
     DCHECK(!input_rowsets.empty()) << "tablet=" << tablet->tablet_id();
+    // TTL can coalesce expired rowsets and empty version carriers from different levels.
+    // An empty output has no data to promote through the compaction levels.
+    if (output_rowset->num_segments() == 0) {
+        return 0;
+    }
     int64_t first_level = input_rowsets.front()->rowset_meta()->compaction_level();
     for (size_t i = 1; i < input_rowsets.size(); ++i) {
         DCHECK_EQ(first_level, input_rowsets[i]->rowset_meta()->compaction_level())

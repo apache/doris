@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
@@ -758,6 +759,15 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
             @Override
             public PreAggStatus visitSum(Sum sum, AggregateType aggregateType) {
+                return checkSumLike(sum, aggregateType);
+            }
+
+            @Override
+            public PreAggStatus visitSum0(Sum0 sum0, AggregateType aggregateType) {
+                return checkSumLike(sum0, aggregateType);
+            }
+
+            private PreAggStatus checkSumLike(AggregateFunction sum, AggregateType aggregateType) {
                 if (aggregateType == AggregateType.SUM && !sum.isDistinct()) {
                     return PreAggStatus.on();
                 } else {
@@ -860,6 +870,16 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
             @Override
             public PreAggStatus visitSum(Sum sum, List<Expression> returnValues) {
+                return checkSumLike(sum, returnValues);
+            }
+
+            @Override
+            public PreAggStatus visitSum0(Sum0 sum0, List<Expression> returnValues) {
+                // sum0 differs from sum only on an empty input, which pre-aggregation cannot produce
+                return checkSumLike(sum0, returnValues);
+            }
+
+            private PreAggStatus checkSumLike(AggregateFunction sum, List<Expression> returnValues) {
                 // DISTINCT breaks pre-agg: storage SUM merges duplicate full keys
                 // first (e.g. two rowsets with v7=1 become 2), so sum(DISTINCT ...)
                 // over the merged value differs from DISTINCT over the raw rows.

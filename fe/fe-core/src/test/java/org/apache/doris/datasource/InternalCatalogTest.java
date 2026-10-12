@@ -121,6 +121,27 @@ public class InternalCatalogTest {
         Assertions.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, partitionInfo.getReplicaAllocation(newPartitionId));
     }
 
+    @Test
+    public void testAddPartitionRejectsAnObsoleteRetentionSnapshot() throws Exception {
+        OlapTable table = db.getOlapTableOrDdlException(TABLE_NAME);
+        table.setBinlogConfig(new BinlogConfig(true, 60, 1024, 10, BinlogConfig.BinlogFormat.ROW, false));
+        catalog.afterTabletCreation = () -> {
+            table.writeLock();
+            try {
+                BinlogConfig extended = new BinlogConfig(table.getBinlogConfig());
+                extended.setTtlSeconds(3600);
+                extended.setConfigVersion(1);
+                table.setBinlogConfig(extended);
+            } finally {
+                table.writeUnlock();
+            }
+        };
+        DdlException error = Assertions.assertThrows(DdlException.class,
+                () -> catalog.addPartition(db, TABLE_NAME, createAddPartitionOp(), false, 0, true, null));
+        Assertions.assertTrue(error.getMessage().contains("meta has been changed"), error.getMessage());
+        Assertions.assertNull(table.getPartition(NEW_PARTITION_NAME));
+    }
+
     private AddPartitionOp createAddPartitionOp() {
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(false, NEW_PARTITION_NAME,
                 PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("20"))), Maps.newHashMap());
@@ -185,6 +206,7 @@ public class InternalCatalogTest {
 
     private static class FailingCommitInternalCatalog extends InternalCatalog {
         private long committedPartitionId;
+        private Runnable afterTabletCreation = () -> { };
 
         @Override
         protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
@@ -200,6 +222,7 @@ public class InternalCatalogTest {
                 partition.updateVisibleVersion(versionInfo);
                 partition.setNextVersion(versionInfo + 1);
             }
+            afterTabletCreation.run();
             return partition;
         }
 

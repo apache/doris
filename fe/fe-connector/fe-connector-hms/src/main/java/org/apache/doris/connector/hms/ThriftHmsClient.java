@@ -824,7 +824,7 @@ public class ThriftHmsClient implements HmsClient {
         List<ConnectorColumn> columns = convertFieldSchemas(
                 sd != null ? sd.getCols() : Collections.emptyList());
         List<ConnectorColumn> partKeys = convertFieldSchemas(
-                table.getPartitionKeys());
+                table.getPartitionKeys(), true);
 
         HmsTableInfo.Builder builder = HmsTableInfo.builder()
                 .dbName(table.getDbName())
@@ -858,6 +858,10 @@ public class ThriftHmsClient implements HmsClient {
 
     private List<ConnectorColumn> convertFieldSchemas(
             List<FieldSchema> schemas) {
+        return convertFieldSchemas(schemas, false);
+    }
+
+    private List<ConnectorColumn> convertFieldSchemas(List<FieldSchema> schemas, boolean partitionKeys) {
         if (schemas == null || schemas.isEmpty()) {
             return Collections.emptyList();
         }
@@ -865,6 +869,10 @@ public class ThriftHmsClient implements HmsClient {
         for (FieldSchema fs : schemas) {
             ConnectorType type = HmsTypeMapping.toConnectorType(
                     fs.getType(), typeMappingOptions);
+            if (partitionKeys && "binary".equalsIgnoreCase(fs.getType())) {
+                // Hive partition values are text from directory names, not binary file payloads.
+                type = ConnectorType.of("STRING");
+            }
             // isKey=true: external-table semantics (legacy HMSExternalTable and the iceberg connector both
             // mark external columns as key so DESC shows Key=true). The 5-arg ctor defaults isKey=false.
             result.add(new ConnectorColumn(

@@ -135,15 +135,9 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
         // Handle TIMESTAMP variants with parenthesized precision, e.g. "TIMESTAMP(6)",
         // "TIMESTAMP(6) WITH LOCAL TIME ZONE", "TIMESTAMP(6) WITH TIME ZONE"
         if (oracleType.startsWith("TIMESTAMP")) {
-            if (oracleType.contains("TIME ZONE") && !oracleType.contains("LOCAL TIME ZONE")) {
-                // TIMESTAMP WITH TIME ZONE has no direct Doris equivalent; map to STRING
-                // so the value is at least readable (the old path used Type.UNSUPPORTED and
-                // relied on legacy planner fallback, which no longer exists for plugin-driven tables).
-                return ConnectorType.of("STRING");
-            }
             int scale = fieldInfo.getDecimalDigits().orElse(0);
             scale = Math.min(scale, JDBC_DATETIME_SCALE);
-            if (enableMappingTimestampTz && oracleType.contains("LOCAL TIME ZONE")) {
+            if (oracleType.contains("TIME ZONE")) {
                 return ConnectorType.of("TIMESTAMPTZ", scale, -1);
             }
             return ConnectorType.of("DATETIMEV2", scale, -1);
