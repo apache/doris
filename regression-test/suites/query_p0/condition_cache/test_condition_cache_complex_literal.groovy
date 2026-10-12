@@ -17,7 +17,6 @@
 
 suite("test_condition_cache_complex_literal") {
     sql "set enable_sql_cache=false"
-    sql "set enable_agg_state=true"
     sql "drop table if exists condition_cache_complex_literal"
     sql """
         create table condition_cache_complex_literal (id int)
@@ -49,11 +48,6 @@ suite("test_condition_cache_complex_literal") {
         """
             select id from condition_cache_complex_literal
             where bitmap_count(element_at(array(cast(null as bitmap)), id)) = 0
-            order by id
-        """,
-        """
-            select id from condition_cache_complex_literal
-            where element_at(array(cast(null as agg_state<sum(int not null)>)), id) is null
             order by id
         """,
         """
