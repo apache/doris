@@ -367,6 +367,19 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void zonedAndNestedBinaryWriteDefaultsIgnoreLegacyMappingFlags() {
+        // A zoned default keeps its instant, and a nested binary leaf stays bytes, with the old flags off.
+        Assertions.assertEquals("'2025-01-18 01:02:03.654321+00:00'", IcebergWriteSchemaContext.toDorisSql(
+                Types.TimestampType.withZone(), 1_737_162_123_654_321L, false, false));
+        Types.StructType structType = Types.StructType.of(
+                Types.NestedField.required(101, "payload", Types.BinaryType.get()));
+        GenericRecord structDefault = GenericRecord.create(structType);
+        structDefault.setField("payload", ByteBuffer.wrap(new byte[] {(byte) 0x80, 0x00, (byte) 0xff}));
+        Assertions.assertEquals("named_struct('payload', X'8000FF')",
+                IcebergWriteSchemaContext.toDorisSql(structType, structDefault, false, false));
+    }
+
+    @Test
     public void branchWritePinsBranchHeadSchema() {
         InMemoryCatalog catalog = freshCatalog();
         Table table = unpartitionedUnsortedTable(catalog);
@@ -995,6 +1008,41 @@ public class IcebergWritePlanProviderTest {
 
         Assertions.assertEquals(Collections.singleton("id"), sink.getStaticPartitionNullKeys());
         Assertions.assertEquals("null", sink.getStaticPartitionValues().get("id"));
+    }
+
+    @Test
+    public void planWriteKeepsNullBinaryKeysDistinctFromBytesForFullAndHybridSpecs() {
+        String bytes = "0x00112233445566778899aabbccddeeff";
+        for (org.apache.iceberg.types.Type keyType : Arrays.asList(
+                Types.BinaryType.get(), Types.FixedType.ofLength(16), Types.UUIDType.get())) {
+            for (boolean hybrid : new boolean[] {false, true}) {
+                Schema schema = new Schema(Types.NestedField.optional(1, "key", keyType),
+                        Types.NestedField.optional(2, "region", Types.StringType.get()));
+                PartitionSpec.Builder spec = PartitionSpec.builderFor(schema).identity("key");
+                if (hybrid) {
+                    spec.identity("region");
+                }
+                Table table = freshCatalog().createTable(TableIdentifier.of("db1", "t1"), schema, spec.build(),
+                        Collections.singletonMap("write.format.default", "parquet"));
+                String message = keyType + " hybrid=" + hybrid;
+
+                Map<String, String> nullValues = new HashMap<>(Collections.singletonMap("key", "NULL"));
+                WriteHandle nullHandle = new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .overwrite(true).writeContext(nullValues);
+                nullHandle.staticPartitionNullKeys = Collections.singleton("key");
+                TIcebergTableSink nullSink = planSink(table, contextWithStorage(), nullHandle);
+                Assertions.assertEquals(Collections.singleton("key"), nullSink.getStaticPartitionNullKeys(), message);
+                Assertions.assertEquals("null", nullSink.getStaticPartitionValues().get("key"), message);
+                // Encoding the wire marker must not rewrite the engine's static partition spec.
+                Assertions.assertEquals("NULL", nullValues.get("key"), message);
+
+                TIcebergTableSink bytesSink = planSink(table, contextWithStorage(),
+                        new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                                .overwrite(true).writeContext(Collections.singletonMap("key", bytes)));
+                Assertions.assertTrue(bytesSink.getStaticPartitionNullKeys().isEmpty(), message);
+                Assertions.assertEquals(bytes, bytesSink.getStaticPartitionValues().get("key"), message);
+            }
+        }
     }
 
     @Test

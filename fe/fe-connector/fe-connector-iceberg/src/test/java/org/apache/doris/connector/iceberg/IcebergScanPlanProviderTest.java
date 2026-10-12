@@ -311,6 +311,13 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void doesNotUseHiveParquetInt96TimeZone() {
+        // Iceberg INT96 values are UTC instants; Hive's session-zone rule would shift them.
+        Assertions.assertFalse(new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()),
+                new RecordingIcebergCatalogOps()).usesHiveParquetInt96TimeZone());
+    }
+
+    @Test
     public void supportsSystemTableTimeTravelIsTrue() {
         IcebergScanPlanProvider provider =
                 new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingIcebergCatalogOps());

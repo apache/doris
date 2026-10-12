@@ -43,17 +43,26 @@ class IcebergTimestampMappingTest {
                 org.apache.iceberg.types.Types.NestedField.optional(1, "ts",
                         org.apache.iceberg.types.Types.TimestampType.withZone()));
         ConnectorType type = ConnectorType.of("TIMESTAMPTZ", 6, 0);
-        java.time.LocalDateTime utc = java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000);
-        org.apache.doris.connector.spi.pushdown.ConnectorComparison filter =
-                new org.apache.doris.connector.spi.pushdown.ConnectorComparison(
-                        org.apache.doris.connector.spi.pushdown.ConnectorComparison.Operator.GE,
-                        new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("ts", type),
-                        new org.apache.doris.connector.spi.pushdown.ConnectorLiteral(type, utc));
-        for (IcebergPredicateConverter.Mode mode : IcebergPredicateConverter.Mode.values()) {
-            org.apache.iceberg.expressions.Expression expression = new IcebergPredicateConverter(
-                    schema, java.time.ZoneId.of("Asia/Shanghai"), mode).convert(filter).get(0);
-            Assertions.assertEquals(-1L,
-                    ((org.apache.iceberg.expressions.UnboundPredicate<?>) expression).literal().value());
+        // TIMESTAMPTZ literals already carry UTC fields, including both instants of a New York DST overlap.
+        for (java.time.LocalDateTime utc : java.util.Arrays.asList(
+                java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                java.time.LocalDateTime.of(2021, 11, 7, 5, 30, 0, 123456000),
+                java.time.LocalDateTime.of(2021, 11, 7, 6, 30, 0, 123456000))) {
+            long micros = utc.toEpochSecond(java.time.ZoneOffset.UTC) * 1_000_000L + utc.getNano() / 1000;
+            org.apache.doris.connector.spi.pushdown.ConnectorComparison filter =
+                    new org.apache.doris.connector.spi.pushdown.ConnectorComparison(
+                            org.apache.doris.connector.spi.pushdown.ConnectorComparison.Operator.GE,
+                            new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("ts", type),
+                            new org.apache.doris.connector.spi.pushdown.ConnectorLiteral(type, utc));
+            for (String zone : java.util.Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                for (IcebergPredicateConverter.Mode mode : IcebergPredicateConverter.Mode.values()) {
+                    org.apache.iceberg.expressions.Expression expression = new IcebergPredicateConverter(
+                            schema, java.time.ZoneId.of(zone), mode).convert(filter).get(0);
+                    Assertions.assertEquals(micros,
+                            ((org.apache.iceberg.expressions.UnboundPredicate<?>) expression).literal().value(),
+                            utc + " " + zone + " " + mode);
+                }
+            }
         }
     }
 
