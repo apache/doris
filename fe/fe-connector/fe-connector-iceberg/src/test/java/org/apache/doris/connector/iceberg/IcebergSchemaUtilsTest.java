@@ -399,6 +399,15 @@ public class IcebergSchemaUtilsTest {
     }
 
     @Test
+    public void timestamptzInitialDefaultKeepsUtcOffsetWithoutLegacyFlag() {
+        // The offset lets BE read a missing column's default as an instant in every session zone.
+        for (boolean flag : new boolean[] {false, true}) {
+            Assertions.assertEquals("2025-01-18 01:02:03.654321+00:00", IcebergSchemaUtils.serializeInitialDefault(
+                    Types.TimestampType.withZone(), 1_737_162_123_654_321L, flag));
+        }
+    }
+
+    @Test
     public void fieldsWithoutInitialDefaultOmitTheCarrier() {
         // A field with no initial default must NOT set initial_default_value (BE then backfills NULL, the legacy
         // behaviour). MUTATION: unconditionally setting a default -> isSet true -> red.

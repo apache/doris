@@ -18,9 +18,24 @@
 package org.apache.doris.connector.jdbc;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
 class JdbcTimestampProjectionTest {
     @Test
@@ -199,6 +214,102 @@ class JdbcTimestampProjectionTest {
             String escaped = builder.wrapPassthroughQuery(escapedBody + ";", columns, false);
             Assertions.assertTrue(escaped.endsWith("FROM (" + escapedBody + "\n) doris_jdbc_query"), escaped);
         }
+    }
+
+    private static final ConnectorType INSTANT = ConnectorType.of("TIMESTAMPTZ", 6, 0);
+    private static final ConnectorType LOCAL = ConnectorType.of("DATETIMEV2", 6, 0);
+    private static final ConnectorType BYTES = ConnectorType.of("VARBINARY", 16, 0);
+    private static final List<ConnectorColumnHandle> FILTER_COLUMNS = Arrays.asList(
+            new JdbcColumnHandle("ts", "ts", INSTANT), new JdbcColumnHandle("other_ts", "other_ts", INSTANT),
+            new JdbcColumnHandle("dt", "dt", LOCAL), new JdbcColumnHandle("payload", "payload", BYTES),
+            new JdbcColumnHandle("id", "id", ConnectorType.of("INT")));
+
+    private static boolean pushedDown(JdbcQueryBuilder builder, ConnectorExpression filter) {
+        return builder.buildQuery("db", "tbl", FILTER_COLUMNS, Optional.of(filter), -1).contains("WHERE");
+    }
+
+    private static ConnectorExpression idIsOne() {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")), new ConnectorLiteral(ConnectorType.of("INT"), 1));
+    }
+
+    @Test
+    void calendarFunctionsOnInstantsStayLocal() {
+        JdbcQueryBuilder mysql = new JdbcQueryBuilder(JdbcDbType.MYSQL,
+                JdbcFunctionPushdownConfig.create(JdbcDbType.MYSQL, null, true), Collections.emptyMap());
+        // year() of an instant depends on the zone; the remote UTC session differs from the Doris session.
+        Assertions.assertFalse(pushedDown(mysql, new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorFunctionCall("year", ConnectorType.of("INT"),
+                        Collections.singletonList(new ConnectorColumnRef("ts", INSTANT))),
+                new ConnectorLiteral(ConnectorType.of("INT"), 2020))));
+        Assertions.assertTrue(pushedDown(mysql, new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorFunctionCall("year", ConnectorType.of("INT"),
+                        Collections.singletonList(new ConnectorColumnRef("dt", LOCAL))),
+                new ConnectorLiteral(ConnectorType.of("INT"), 2020))));
+        // A direct null check is zone-independent.
+        Assertions.assertTrue(pushedDown(mysql, new ConnectorIsNull(new ConnectorColumnRef("ts", INSTANT), false)));
+    }
+
+    @Test
+    void instantLiteralsStayLocalInEveryDialect() {
+        ConnectorLiteral literal = new ConnectorLiteral(INSTANT, LocalDateTime.of(2020, 1, 2, 4, 1, 0, 111333000));
+        for (JdbcDbType dialect : JdbcDbType.values()) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(dialect);
+            Assertions.assertFalse(pushedDown(builder, new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("ts", INSTANT), literal)), dialect.name());
+            Assertions.assertFalse(pushedDown(builder, new ConnectorIn(new ConnectorColumnRef("ts", INSTANT),
+                    Collections.singletonList(literal), false)), dialect.name());
+        }
+    }
+
+    @Test
+    void postgresInstantPredicatesObserveDecodedNulls() {
+        // Out-of-range PostgreSQL instants become NULL only after JDBC decoding.
+        JdbcQueryBuilder postgres = new JdbcQueryBuilder(JdbcDbType.POSTGRESQL);
+        ConnectorColumnRef ts = new ConnectorColumnRef("ts", INSTANT);
+        ConnectorColumnRef other = new ConnectorColumnRef("other_ts", INSTANT);
+        for (ConnectorExpression predicate : Arrays.asList(new ConnectorIsNull(ts, false),
+                new ConnectorIsNull(ts, true),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, ts, other),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ_FOR_NULL, ts, other),
+                new ConnectorOr(Arrays.asList(new ConnectorIsNull(ts, false), idIsOne())))) {
+            Assertions.assertFalse(pushedDown(postgres, predicate), predicate.toString());
+        }
+        Assertions.assertTrue(pushedDown(new JdbcQueryBuilder(JdbcDbType.MYSQL), new ConnectorIsNull(ts, false)));
+        Assertions.assertTrue(pushedDown(postgres, new ConnectorIsNull(new ConnectorColumnRef("dt", LOCAL), false)));
+        Assertions.assertTrue(pushedDown(postgres, idIsOne()));
+    }
+
+    @Test
+    void binaryLiteralsStayLocalWhereTheDialectReadsThemDifferently() {
+        ConnectorColumnRef payload = new ConnectorColumnRef("payload", BYTES);
+        for (JdbcDbType dialect : Arrays.asList(JdbcDbType.POSTGRESQL, JdbcDbType.ORACLE, JdbcDbType.SQLSERVER,
+                JdbcDbType.DB2, JdbcDbType.OCEANBASE_ORACLE)) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(dialect);
+            for (ConnectorComparison.Operator operator : Arrays.asList(ConnectorComparison.Operator.EQ,
+                    ConnectorComparison.Operator.NE, ConnectorComparison.Operator.LT)) {
+                Assertions.assertFalse(pushedDown(builder, new ConnectorComparison(operator, payload,
+                        binaryLiteral((byte) 0, (byte) 0xff))), dialect + " " + operator);
+            }
+            for (boolean notIn : new boolean[] {false, true}) {
+                ConnectorExpression in = new ConnectorIn(payload, Arrays.asList(
+                        binaryLiteral((byte) 0xde, (byte) 0, (byte) 0xff), binaryLiteral()), notIn);
+                Assertions.assertFalse(pushedDown(builder, in), dialect + " notIn=" + notIn);
+                Assertions.assertFalse(pushedDown(builder, new ConnectorOr(Arrays.asList(in, idIsOne()))),
+                        dialect + " notIn=" + notIn);
+            }
+            Assertions.assertTrue(pushedDown(builder, new ConnectorIn(new ConnectorColumnRef("id",
+                    ConnectorType.of("INT")), Collections.singletonList(
+                            new ConnectorLiteral(ConnectorType.of("INT"), 1)), false)), dialect.name());
+        }
+        String mysql = new JdbcQueryBuilder(JdbcDbType.MYSQL).buildQuery("db", "tbl", FILTER_COLUMNS, Optional.of(
+                new ConnectorIn(payload, Collections.singletonList(binaryLiteral((byte) 0, (byte) 0xff)), false)), -1);
+        Assertions.assertTrue(mysql.contains("IN (X'00ff')"), mysql);
+    }
+
+    // VARBINARY literals cross the SPI as a lossless Latin-1 string carrier.
+    private static ConnectorLiteral binaryLiteral(byte... bytes) {
+        return new ConnectorLiteral(BYTES, new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1));
     }
 
 }

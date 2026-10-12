@@ -111,6 +111,27 @@ public class PaimonWritePlanProviderTest {
     }
 
     @Test
+    public void writeColumnsKeepInstantSemanticsInsideContainersRegardlessOfLegacyFlags() {
+        // A civil DATETIMEV2 write boundary would collapse both instants of a DST fold.
+        List<DataField> fields = Arrays.asList(
+                DataTypes.FIELD(0, "instant", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)),
+                DataTypes.FIELD(1, "local_time", DataTypes.TIMESTAMP(6)),
+                DataTypes.FIELD(2, "items", DataTypes.ARRAY(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3))),
+                DataTypes.FIELD(3, "record", DataTypes.ROW(
+                        DataTypes.FIELD(4, "instant", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)))));
+        for (boolean flag : new boolean[] {false, true}) {
+            List<ConnectorColumn> columns = PaimonWritePlanProvider.mapWriteColumns(
+                    fields, Collections.emptyList(), new PaimonTypeMapping.Options(flag, flag));
+            Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0), columns.get(0).getType());
+            Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, 0), columns.get(1).getType());
+            Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 3, 0),
+                    columns.get(2).getType().getChildren().get(0));
+            Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0),
+                    columns.get(3).getType().getChildren().get(0));
+        }
+    }
+
+    @Test
     public void writeColumnsConvertPaimonDefaultsToDorisSqlAndPreserveSchemaProperties() {
         List<ConnectorColumn> columns = PaimonWritePlanProvider.mapWriteColumns(
                 Arrays.asList(
@@ -160,19 +181,105 @@ public class PaimonWritePlanProviderTest {
                 BucketMode.BUCKET_UNAWARE));
     }
 
+    @Test
+    public void hashDynamicTableIgnoresAssignerParallelismAndStaysSingleWriter() {
+        // HASH_DYNAMIC has no concurrent route: its bucket assigner keeps the key-to-bucket index in
+        // writer state. Paimon's own assigner-parallelism option must not be read as permission to
+        // spread the write across Doris writers, which would each assign buckets from a partial index.
+        Map<String, String> options = new HashMap<>(dynamicBucketOptions());
+        options.put(CoreOptions.DYNAMIC_BUCKET_ASSIGNER_PARALLELISM.key(), "4");
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(
+                Collections.emptyList(), Collections.singletonList("id"), options,
+                BucketMode.HASH_DYNAMIC));
+    }
+
+    @Test
+    public void routableFixedBucketTableUsesPaimonBucketRoute() {
+        // Every route field has a natively routable type and the table uses Paimon's default bucket
+        // function, so the BE exchange can reproduce Paimon's stateless fixed-bucket route. The route
+        // lists the partition fields first and then the bucket fields, and IDENTITY keeps each
+        // (partition, bucket) on one writer. This compacting append table would otherwise be
+        // gathered to a single writer.
+        ConnectorWriteDistribution distribution = fixedBucketDistribution(Arrays.asList(
+                new DataField(0, "id", DataTypes.INT()),
+                new DataField(1, "part", DataTypes.STRING())),
+                Collections.singletonList("part"), Collections.emptyMap());
+
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.EXTERNAL_HASH, distribution.getMode());
+        Assertions.assertEquals(Arrays.asList("part", "id"), distribution.getRouteColumns());
+        Assertions.assertEquals("paimon_fixed_bucket", distribution.getPartitionFunction());
+        Map<String, String> functionOptions = new HashMap<>();
+        functionOptions.put("num_buckets", "4");
+        functionOptions.put("partition_field_indexes", "0");
+        functionOptions.put("bucket_field_indexes", "1");
+        Assertions.assertEquals(functionOptions, distribution.getPartitionFunctionOptions());
+        Assertions.assertEquals(ConnectorWriteDistribution.WriterAssignment.IDENTITY,
+                distribution.getWriterAssignment());
+    }
+
+    @Test
+    public void unroutableFixedBucketTablesFallBackToSingleWriter() {
+        // The BE route only implements Paimon's default bucket function. A table that buckets by
+        // another function would have its rows of one bucket spread across writers.
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, fixedBucketDistribution(
+                Collections.singletonList(new DataField(0, "id", DataTypes.INT())),
+                Collections.emptyList(),
+                Collections.singletonMap(CoreOptions.BUCKET_FUNCTION_TYPE.key(), "mod")).getMode());
+        // The partition fields are part of the route, so a partition key the BE cannot hash the way
+        // Paimon does disables the route as well, not only an unroutable bucket key.
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, fixedBucketDistribution(
+                Arrays.asList(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "dt", DataTypes.DATE())),
+                Collections.singletonList("dt"), Collections.emptyMap()).getMode());
+    }
+
+    @Test
+    public void defaultedFixedBucketRouteFieldsFallBackToSingleWriter() {
+        // Paimon's writer fills a schema default before it computes the bucket, while the BE exchange
+        // routes the value it receives, including an explicit NULL. A defaulted route field can
+        // therefore send rows of one bucket to two writers, so it must disable the native route.
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, fixedBucketDistribution(
+                Collections.singletonList(new DataField(0, "id", DataTypes.INT(), null, "1")),
+                Collections.emptyList(), Collections.emptyMap()).getMode());
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, fixedBucketDistribution(
+                Arrays.asList(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "part", DataTypes.STRING(), null, "default-partition")),
+                Collections.singletonList("part"), Collections.emptyMap()).getMode());
+    }
+
     private static ConnectorWriteDistribution.Mode writeDistribution(List<String> partitionKeys,
             List<String> primaryKeys, Map<String, String> options, BucketMode expectedBucketMode) {
         List<DataField> fields = Arrays.asList(
                 new DataField(0, "id", DataTypes.INT().notNull()),
                 new DataField(1, "dt", DataTypes.DATE().notNull()),
                 new DataField(2, "region", DataTypes.STRING().notNull()));
+        return writeDistribution(fields, partitionKeys, primaryKeys, options, expectedBucketMode)
+                .getMode();
+    }
+
+    private static ConnectorWriteDistribution writeDistribution(List<DataField> fields,
+            List<String> partitionKeys, List<String> primaryKeys, Map<String, String> options,
+            BucketMode expectedBucketMode) {
+        int highestFieldId = fields.stream().mapToInt(DataField::id).max().getAsInt();
         FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
                 new Path("file:///tmp/paimon-write-distribution/tbl"),
-                new TableSchema(0L, fields, 2, partitionKeys, primaryKeys, options, ""));
+                new TableSchema(0L, fields, highestFieldId, partitionKeys, primaryKeys, options, ""));
         Assertions.assertEquals(expectedBucketMode, table.bucketMode(), "fixture bucket mode");
         PaimonTableHandle handle = new PaimonTableHandle("db", "tbl", partitionKeys, primaryKeys);
         handle.setPaimonTable(table);
-        return new PaimonWritePlanProvider(null, null, null).getWriteDistribution(null, handle).getMode();
+        return new PaimonWritePlanProvider(null, null, null).getWriteDistribution(null, handle);
+    }
+
+    /** A compacting append table with 4 fixed buckets keyed by {@code id}. */
+    private static ConnectorWriteDistribution fixedBucketDistribution(List<DataField> fields,
+            List<String> partitionKeys, Map<String, String> extraOptions) {
+        Map<String, String> options = new HashMap<>(extraOptions);
+        options.put(CoreOptions.BUCKET.key(), "4");
+        options.put(CoreOptions.BUCKET_KEY.key(), "id");
+        return writeDistribution(fields, partitionKeys, Collections.emptyList(), options,
+                BucketMode.HASH_FIXED);
     }
 
     private static Map<String, String> fixedBucketOptions(boolean writeOnly) {
