@@ -904,7 +904,7 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
 
     if (is_column_nullable(*column_ptr)) {
         nullable_column = assert_cast<ColumnNullable*>(column_ptr);
-        data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
+        data_column_ptr = &nullable_column->get_nested_column();
         if (type_desc->is_nullable()) {
             data_serde = serde->get_nested_serdes()[0];
         }
@@ -1007,12 +1007,13 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
         size_t field_count = 0;
         simdjson::ondemand::object object_value = value.get_object();
         for (auto member_value : object_value) {
-            auto* key_column = map_column_ptr->get_keys_ptr()->assert_mutable()->get_ptr().get();
+            auto mutable_keys = map_column_ptr->get_keys_ptr()->assert_mutable();
+            auto* key_column = mutable_keys.get();
             auto key_serde = sub_serdes[0];
             if (is_column_nullable(*key_column)) {
                 auto* nullable_key = assert_cast<ColumnNullable*>(key_column);
                 nullable_key->get_null_map_data().push_back(0);
-                key_column = nullable_key->get_nested_column().get_ptr().get();
+                key_column = &nullable_key->get_nested_column();
                 if (map_type->get_key_type()->is_nullable()) {
                     key_serde = key_serde->get_nested_serdes()[0];
                 }
@@ -1022,9 +1023,9 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
             RETURN_IF_ERROR(key_serde->deserialize_one_cell_from_json(*key_column, key_slice,
                                                                       _serde_options));
             simdjson::ondemand::value field_value = member_value.value().value();
+            auto mutable_values = map_column_ptr->get_values_ptr()->assert_mutable();
             RETURN_IF_ERROR(_write_data_to_column<use_string_cache>(
-                    field_value, map_type->get_value_type(),
-                    map_column_ptr->get_values_ptr()->assert_mutable()->get_ptr().get(),
+                    field_value, map_type->get_value_type(), mutable_values.get(),
                     column_name + ".value", sub_serdes[1], valid));
             ++field_count;
         }
@@ -1043,9 +1044,8 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
         simdjson::ondemand::array array_value = value.get_array();
         for (simdjson::ondemand::value sub_value : array_value) {
             RETURN_IF_ERROR(_write_data_to_column<use_string_cache>(
-                    sub_value, array_type->get_nested_type(),
-                    array_column_ptr->get_data().get_ptr().get(), column_name + ".element",
-                    sub_serdes[0], valid));
+                    sub_value, array_type->get_nested_type(), &array_column_ptr->get_data(),
+                    column_name + ".element", sub_serdes[0], valid));
             ++field_count;
         }
         auto& offsets = array_column_ptr->get_offsets();

@@ -1125,7 +1125,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     if (is_column_nullable(*column_ptr)) {
         nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
 
-        data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
+        data_column_ptr = &nullable_column->get_nested_column();
         data_serde = serde->get_nested_serdes()[0];
 
         // kNullType will put 1 into the Null map, so there is no need to push 0 for kNullType.
@@ -1265,7 +1265,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                     auto* nullable_column = static_cast<ColumnNullable*>(column_ptr);
 
                     nullable_column->get_null_map_data().push_back(0);
-                    data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
+                    data_column_ptr = &nullable_column->get_nested_column();
                     data_serde = serde->get_nested_serdes()[0];
                 }
                 Slice slice(key_view.data(), key_view.length());
@@ -1275,19 +1275,19 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                 return Status::OK();
             };
 
+            auto mutable_keys = map_column_ptr->get_keys_ptr()->assert_mutable();
             RETURN_IF_ERROR(f(member_value.unescaped_key(),
                               assert_cast<const DataTypeMap*>(remove_nullable(type_desc).get())
                                       ->get_key_type(),
-                              map_column_ptr->get_keys_ptr()->assert_mutable()->get_ptr().get(),
-                              sub_serdes[0], _serde_options, valid));
+                              mutable_keys.get(), sub_serdes[0], _serde_options, valid));
 
             simdjson::ondemand::value field_value = member_value.value();
+            auto mutable_values = map_column_ptr->get_values_ptr()->assert_mutable();
             RETURN_IF_ERROR(_simdjson_write_data_to_column<use_string_cache>(
                     field_value,
                     assert_cast<const DataTypeMap*>(remove_nullable(type_desc).get())
                             ->get_value_type(),
-                    map_column_ptr->get_values_ptr()->assert_mutable()->get_ptr().get(),
-                    column_name + ".value", sub_serdes[1], valid));
+                    mutable_values.get(), column_name + ".value", sub_serdes[1], valid));
             field_count++;
         }
 
@@ -1311,8 +1311,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                     sub_value,
                     assert_cast<const DataTypeArray*>(remove_nullable(type_desc).get())
                             ->get_nested_type(),
-                    array_column_ptr->get_data().get_ptr().get(), column_name + ".element",
-                    sub_serdes[0], valid));
+                    &array_column_ptr->get_data(), column_name + ".element", sub_serdes[0], valid));
             field_count++;
         }
         auto& offsets = array_column_ptr->get_offsets();

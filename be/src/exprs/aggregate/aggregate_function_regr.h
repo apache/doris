@@ -471,7 +471,7 @@ private:
             return assert_cast<const InputCol*, TypeCheckOnRelease::DISABLE>(
                     nullable_column.get_nested_column_ptr().get());
         } else {
-            return assert_cast<const InputCol*, TypeCheckOnRelease::DISABLE>(col->get_ptr().get());
+            return assert_cast<const InputCol*, TypeCheckOnRelease::DISABLE>(col);
         }
     }
 };
