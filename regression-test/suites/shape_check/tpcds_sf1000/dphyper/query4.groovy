@@ -38,6 +38,10 @@ suite("query4") {
     sql "SET enable_dphyp_optimizer = true"
     sql "set max_table_count_use_cascades_join_reorder = 1"
     sql "set dphyper_limit=2600"
+    // Keep CTE materialized here: inlining this CTE (cte_inline_mode >= 0) enlarges the join
+    // graph, so DPhyp's bounded enumeration (dphyper_limit / join_order_time_limit) stops at a
+    // different point on every run and the resulting shape plan is not stable.
+    sql "set cte_inline_mode=-1"
 
     def ds = """with year_total as (
  select c_customer_id customer_id
