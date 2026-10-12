@@ -180,7 +180,14 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
             }
             case TIMESTAMPTZ: {
                 if (usesMySqlTimestampProtocol(config)) {
-                    return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
+                    // Read the server's UTC text projection to bypass cached driver time zones.
+                    String text = resultSet.getString(columnIndex + 1);
+                    if (text != null && text.startsWith("0000-00-00 ")) {
+                        // The date decoder preserves zeroDateTimeBehavior even for VARCHAR projections.
+                        java.sql.Date date = resultSet.getDate(columnIndex + 1);
+                        return date == null ? null : date.toLocalDate().atStartOfDay();
+                    }
+                    return text == null ? null : LocalDateTime.parse(text.replace(' ', 'T'));
                 }
                 Timestamp value = resultSet.getTimestamp(columnIndex + 1);
                 return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);

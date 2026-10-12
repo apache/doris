@@ -32,13 +32,15 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Clob;
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
+    private static final java.time.format.DateTimeFormatter TIMESTAMP_TZ_FORMATTER =
+            java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
     private final CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();
     private final boolean isNewJdbcVersion;
@@ -50,8 +52,27 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
-        // An unzoned TIMESTAMP bind is session-local for both Oracle TZ and LOCAL TIME ZONE columns.
-        preparedStatement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE);
+        // Older Oracle drivers reject JDBC type 2014; the sink SQL parses an explicit UTC offset.
+        preparedStatement.setString(parameterIndex, value.format(TIMESTAMP_TZ_FORMATTER) + " +00:00");
+    }
+
+    @Override
+    protected void setTimestampTzNull(int parameterIndex) throws SQLException {
+        preparedStatement.setNull(parameterIndex, Types.VARCHAR);
+    }
+
+    @Override
+    protected void initializeStatement(Connection conn, JdbcDataSourceConfig config, String sql) throws SQLException {
+        // ALTER SESSION alone leaves the driver's TSLTZ zone unset; initialize every borrowed connection.
+        try {
+            Connection physical = conn.unwrap(Connection.class);
+            Class<?> oracleConnection = Class.forName("oracle.jdbc.OracleConnection", true,
+                    physical.getClass().getClassLoader());
+            oracleConnection.getMethod("setSessionTimeZone", String.class).invoke(conn.unwrap(oracleConnection), "UTC");
+        } catch (ReflectiveOperationException e) {
+            throw new SQLException("Failed to initialize Oracle session time zone", e);
+        }
+        super.initializeStatement(conn, config, sql);
     }
 
     @Override

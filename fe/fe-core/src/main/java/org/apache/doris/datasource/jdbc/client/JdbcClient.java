@@ -196,6 +196,32 @@ public abstract class JdbcClient {
         dataSource = null;
     }
 
+    public static Set<String> readSessionSqlMode(JdbcClientConfig config) {
+        // Mode lookup needs only one MySQL-protocol session, not metadata discovery or dialect-specific clients.
+        JdbcClient client = new JdbcMySQLClient(config, parseDbType(config.getJdbcUrl()));
+        try {
+            return client.getSessionSqlMode();
+        } finally {
+            client.closeClient();
+        }
+    }
+
+    public Set<String> getSessionSqlMode() {
+        // Read the connected session so URL sessionVariables and server SQL mode are both honored.
+        try (Connection connection = getConnection();
+                java.sql.Statement statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("SELECT @@SESSION.sql_mode")) {
+            if (!result.next()) {
+                throw new JdbcClientException("MySQL did not return its session SQL mode");
+            }
+            return java.util.Arrays.stream(result.getString(1).split(","))
+                    .map(mode -> mode.trim().toUpperCase(java.util.Locale.ROOT))
+                    .collect(java.util.stream.Collectors.toSet());
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to read MySQL session SQL mode", e);
+        }
+    }
+
     public Connection getConnection() throws JdbcClientException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         Connection conn;

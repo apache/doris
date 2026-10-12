@@ -131,6 +131,7 @@ private:
 
     std::vector<IcebergPartitionColumn> _to_iceberg_partition_columns();
 
+    std::string _partition_to_writer_key(const doris::iceberg::StructLike& data);
     std::string _partition_to_path(const doris::iceberg::StructLike& data);
     std::string _escape(const std::string& path);
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);

@@ -78,7 +78,9 @@ public class VarBinaryLiteralParserTest extends TestWithFeService {
     public void testComparison() {
         VarBinaryLiteral v1 = extract("SELECT X'AB'");
         VarBinaryLiteral v2 = extract("SELECT X'AB00'");
-        Assertions.assertEquals(0, v1.compareTo(v2)); // trailing 00 considered equal
+        // Trailing zero bytes are part of the binary value, not padding.
+        Assertions.assertTrue(v1.compareTo(v2) < 0);
+        Assertions.assertTrue(v2.compareTo(v1) > 0);
         VarBinaryLiteral v3 = extract("SELECT X'AC'");
         Assertions.assertTrue(v3.compareTo(v1) > 0);
     }

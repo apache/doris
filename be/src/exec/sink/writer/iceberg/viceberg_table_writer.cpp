@@ -481,7 +481,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             }
             std::string partition_name;
             try {
-                partition_name = _partition_to_path(partition_data.value());
+                partition_name = _partition_to_writer_key(partition_data.value());
             } catch (doris::Exception& e) {
                 return e.to_status();
             }
@@ -654,6 +654,21 @@ std::string VIcebergTableWriter::_partition_value_to_human_string(size_t index,
     std::string encoded;
     base64_encode(bytes, &encoded);
     return encoded;
+}
+
+std::string VIcebergTableWriter::_partition_to_writer_key(const doris::iceberg::StructLike& data) {
+    std::string key = _partition_to_path(data);
+    // Iceberg paths encode both NULL and binary 0x9ee965 as "null". Keep their writers and
+    // commit metadata separate without changing the standard, externally visible path.
+    key.push_back('\0');
+    for (size_t i = 0; i < _iceberg_partition_columns.size(); ++i) {
+        // Static fields are constant for this writer; only dynamic fields can collide.
+        key.push_back((_has_static_partition && _partition_column_is_static[i]) ||
+                                      data.get(i).has_value()
+                              ? '1'
+                              : '0');
+    }
+    return key;
 }
 
 std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::StructLike& data) {

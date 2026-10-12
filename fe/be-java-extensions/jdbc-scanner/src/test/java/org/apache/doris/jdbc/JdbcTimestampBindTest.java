@@ -87,6 +87,9 @@ class JdbcTimestampBindTest {
                         Mockito.verify(executor.preparedStatement).setObject(1,
                                 utc.format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS")) + " UTC",
                                 Types.TIMESTAMP_WITH_TIMEZONE);
+                    } else if (dialect == OracleJdbcExecutor.class) {
+                        Mockito.verify(executor.preparedStatement).setString(1,
+                                utc.format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS")) + " +00:00");
                     } else if (dialect == ClickHouseJdbcExecutor.class) {
                         Mockito.verify(executor.preparedStatement).setObject(1, utc.atOffset(ZoneOffset.UTC));
                     } else {
@@ -99,7 +102,8 @@ class JdbcTimestampBindTest {
                 column.appendTimeStampTz(new LocalDateTime[] {null}, true);
                 insert.invoke(executor, 0, 0, column);
                 Mockito.verify(executor.preparedStatement).setNull(1,
-                        dialect == TrinoJdbcExecutor.class ? Types.NULL : Types.TIMESTAMP_WITH_TIMEZONE);
+                        dialect == TrinoJdbcExecutor.class ? Types.NULL
+                                : dialect == OracleJdbcExecutor.class ? Types.VARCHAR : Types.TIMESTAMP_WITH_TIMEZONE);
                 Mockito.clearInvocations(executor.preparedStatement);
             }
         } finally {

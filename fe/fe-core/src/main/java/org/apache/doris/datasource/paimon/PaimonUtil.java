@@ -812,9 +812,10 @@ public class PaimonUtil {
                     return null;
                 }
                 return Double.toString((Double) value);
-            // case binary:
-            // case varbinary: should not supported, because if return string with utf8,
-            // the data maybe be corrupted
+            case BINARY:
+            case VARBINARY:
+                // Native readers reconstruct omitted partition columns from lossless hex literals.
+                return value == null ? null : "0x" + com.google.common.io.BaseEncoding.base16().encode((byte[]) value);
             case DATE:
                 if (value == null) {
                     return null;

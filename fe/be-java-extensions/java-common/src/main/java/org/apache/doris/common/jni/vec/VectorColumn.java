@@ -1187,6 +1187,15 @@ public class VectorColumn {
     }
 
     private void putTimeStampTz(int rowId, LocalDateTime v) {
+        // SQL NULL uses an out-of-range sentinel; only real values need range validation.
+        if (isNullAt(rowId)) {
+            OffHeap.putLong(null, data + rowId * 8L, 0L);
+            return;
+        }
+        // Validate UTC components before bit packing, including values from nested containers.
+        if (v.getYear() < 0 || v.getYear() > 9999) {
+            throw new IllegalArgumentException("TIMESTAMPTZ year must be between 0 and 9999: " + v);
+        }
         // TimeStampTz use the same storage format as DateTimeV2
         long time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
                     v.getMinute(), v.getSecond(), v.getNano() / 1000);

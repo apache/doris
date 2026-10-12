@@ -95,8 +95,9 @@ class JdbcTimestampProjectionTest {
         setField(node, "query", query);
         Method tvfQuery = JdbcScanNode.class.getDeclaredMethod("getTvfQuery");
         tvfQuery.setAccessible(true);
+        // The newline prevents a trailing source comment from swallowing the derived-table closing parenthesis.
         Assertions.assertEquals(type.isDatetimeV2() ? query : "SELECT " + expected
-                + " FROM (SELECT event_time FROM event_stream) doris_jdbc_source", tvfQuery.invoke(node));
+                + " FROM (SELECT event_time FROM event_stream\n) doris_jdbc_source", tvfQuery.invoke(node));
     }
 
     @Test
@@ -123,7 +124,7 @@ class JdbcTimestampProjectionTest {
         Method tvfQuery = JdbcScanNode.class.getDeclaredMethod("getTvfQuery");
         tvfQuery.setAccessible(true);
         Assertions.assertEquals("SELECT " + columns.get(0)
-                + " FROM (SELECT event_time FROM event_stream) doris_jdbc_source", tvfQuery.invoke(node));
+                + " FROM (SELECT event_time FROM event_stream\n) doris_jdbc_source", tvfQuery.invoke(node));
     }
 
     @Test
@@ -152,7 +153,7 @@ class JdbcTimestampProjectionTest {
         Method tvfQuery = JdbcScanNode.class.getDeclaredMethod("getTvfQuery");
         tvfQuery.setAccessible(true);
         Assertions.assertEquals("SELECT " + columns.get(0)
-                + " FROM (SELECT events FROM event_stream) doris_jdbc_source", tvfQuery.invoke(node));
+                + " FROM (SELECT events FROM event_stream\n) doris_jdbc_source", tvfQuery.invoke(node));
     }
 
     private static void setField(JdbcScanNode node, String name, Object value) throws Exception {
