@@ -60,6 +60,7 @@
 #include "recycler/hdfs_accessor.h"
 #endif
 #include "recycler/s3_accessor.h"
+#include "recycler/skip_delete_accessor.h"
 #include "recycler/storage_vault_accessor.h"
 #ifdef UNIT_TEST
 #include "../test/mock_accessor.h"
@@ -653,6 +654,14 @@ int InstanceRecycler::init_storage_vault_accessors() {
         if (!vault.ParseFromArray(v.data(), v.size())) {
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
+        }
+        if (std::find(config::recycler_storage_vault_black_list.begin(),
+                      config::recycler_storage_vault_black_list.end(),
+                      vault.name()) != config::recycler_storage_vault_black_list.end()) {
+            accessor_map_.insert_or_assign(
+                    vault.id(),
+                    std::make_shared<SkipDeleteAccessor>(instance_id_, vault.id(), vault.name()));
+            continue;
         }
         std::string recycler_storage_vault_white_list = accumulate(
                 config::recycler_storage_vault_white_list.begin(),
