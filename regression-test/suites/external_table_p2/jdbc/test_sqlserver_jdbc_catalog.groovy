@@ -23,6 +23,7 @@ suite("test_sqlserver_jdbc_catalog", "p2,external") {
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
     // String driver_url = "mssql-jdbc-11.2.3.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        sql """ set time_zone = 'Asia/Shanghai' """
         String catalog_name = "sqlserver_catalog";
         String internal_db_name = "sqlserver_jdbc_catalog_p0";
         String ex_db_name = "dbo";
