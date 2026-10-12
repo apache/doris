@@ -174,8 +174,7 @@ private:
         }
 #endif
 
-        return _request_executor->execute(request_body, response, _ai_config, *_ai_adapter, _ctx,
-                                          true /* fail_on_http_error */);
+        return _request_executor->execute(request_body, response, _ai_config, *_ai_adapter, _ctx);
     }
 
     // Treat the context window as a soft batching trigger instead of a hard reject.

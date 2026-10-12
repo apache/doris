@@ -23,8 +23,10 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <ctime>
 #include <functional>
 #include <future>
+#include <limits>
 #include <mutex>
 #include <set>
 #include <string>
@@ -56,6 +58,7 @@ public:
     void set_responses(std::vector<std::pair<HttpStatus, std::string>> values) {
         std::lock_guard lock(mutex);
         responses = std::move(values);
+        response_index = 0;
     }
 
     void handle(HttpRequest* request) override {
@@ -78,13 +81,27 @@ public:
             evhttp_add_header(evhttp_request_get_output_headers(request->get_evhttp_request()),
                               "Connection", "close");
         }
-        const auto& [status, body] = responses[std::min(bodies.size(), responses.size()) - 1];
+        if (!retry_after.empty()) {
+            evhttp_add_header(evhttp_request_get_output_headers(request->get_evhttp_request()),
+                              "Retry-After", retry_after.c_str());
+        }
+        const auto& [status, body] = responses[std::min(response_index++, responses.size() - 1)];
+        if (truncate_response || (truncate_first_response && bodies.size() == 1)) {
+            evhttp_add_header(evhttp_request_get_output_headers(request->get_evhttp_request()),
+                              "Content-Length", std::to_string(body.size() + 10).c_str());
+            evhttp_add_header(evhttp_request_get_output_headers(request->get_evhttp_request()),
+                              "Connection", "close");
+        }
         HttpChannel::send_reply(request, status, body);
     }
 
     std::function<void()> on_request;
+    bool truncate_response = false;
+    bool truncate_first_response = false;
+    std::string retry_after;
     bool close_first_connection = false;
     std::mutex mutex;
+    size_t response_index = 0;
     std::vector<std::pair<HttpStatus, std::string>> responses;
     std::vector<uint16_t> peer_ports;
     std::vector<std::string> bodies;
@@ -98,6 +115,7 @@ protected:
     void SetUp() override {
         auto options = create_fake_query_options();
         options.__set_query_timeout(10);
+        options.__set_execution_timeout(10);
         options.__set_ai_context_window_size(1);
         options.__set_embed_max_batch_size(1);
         query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), options);
@@ -118,6 +136,28 @@ protected:
         adapter = std::make_shared<OpenAIAdapter>();
         adapter->init(config);
     }
+
+    void use_fake_clock() {
+        fake_now = std::chrono::steady_clock::now();
+        executor._now = [&] { return fake_now; };
+        executor._sleep = [&](auto duration) { fake_now += duration; };
+    }
+
+    void replay_legacy_authentication_retry_policy() {
+        HttpClient legacy_client;
+        for (int attempt = 0; attempt <= config.max_retries; ++attempt) {
+            ASSERT_TRUE(legacy_client.init(config.endpoint, false).ok());
+            ASSERT_TRUE(adapter->set_authentication(&legacy_client).ok());
+            std::string body;
+            ASSERT_TRUE(legacy_client.execute_post_request("{}", &body).ok());
+            ASSERT_EQ(legacy_client.get_http_status(), 401);
+            if (attempt != config.max_retries) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        }
+    }
+
+    std::chrono::steady_clock::time_point fake_now;
 
     Status execute(const std::string& body, std::string& response) {
         return executor.execute(body, response, config, *adapter, query_ctx.get());
@@ -208,6 +248,40 @@ TEST_F(AIRequestExecutorTest, ReusesConnectionAcrossTenRequests) {
     std::lock_guard lock(handler.mutex);
     ASSERT_EQ(handler.peer_ports.size(), 10);
     EXPECT_EQ(std::set<uint16_t>(handler.peer_ports.begin(), handler.peer_ports.end()).size(), 1);
+}
+
+TEST_F(AIRequestExecutorTest, CachedClientsDiscardRequestOptionsAfterSuccessAndFailure) {
+    class InspectingAdapter : public OpenAIAdapter {
+    public:
+        Status set_authentication(HttpClient* client) const override {
+            saved_client = client;
+            RETURN_IF_ERROR(OpenAIAdapter::set_authentication(client));
+            curl_easy_setopt(client->_curl, CURLOPT_PRIVATE, "request state");
+            return Status::OK();
+        }
+        mutable HttpClient* saved_client = nullptr;
+    } inspecting_adapter;
+    inspecting_adapter.init(config);
+    config.max_retries = 1;
+    for (const auto code :
+         {HttpStatus::OK, HttpStatus::UNAUTHORIZED, HttpStatus::SERVICE_UNAVAILABLE}) {
+        handler.set_responses({{code, "response"}});
+        std::string response;
+        const auto status = executor.execute("request body", response, config, inspecting_adapter,
+                                             query_ctx.get());
+        EXPECT_EQ(status.ok(), code == HttpStatus::OK);
+        ASSERT_NE(inspecting_adapter.saved_client, nullptr);
+        char* request_state = nullptr;
+        ASSERT_EQ(curl_easy_getinfo(inspecting_adapter.saved_client->_curl, CURLINFO_PRIVATE,
+                                    &request_state),
+                  CURLE_OK);
+        EXPECT_EQ(request_state, nullptr);
+        EXPECT_EQ(inspecting_adapter.saved_client->_header_list, nullptr);
+    }
+    EXPECT_EQ(connection_count(), 1);
+    for (const auto& body : handler.bodies) {
+        EXPECT_EQ(body, "request body");
+    }
 }
 
 TEST_F(AIRequestExecutorTest, ScalarReusesConnectionAcrossBatchesAndBlocksWithNulls) {
@@ -608,12 +682,332 @@ TEST_F(AIRequestExecutorTest, MaxRetriesCountsRetriesAfterInitialAttempt) {
     EXPECT_EQ(handler.bodies.size(), 4);
 }
 
-TEST_F(AIRequestExecutorTest, KeepsExistingRetryBehaviorForAuthenticationErrors) {
+TEST_F(AIRequestExecutorTest, AuthenticationErrorsFailWithoutRetry) {
     handler.set_responses({{HttpStatus::UNAUTHORIZED, R"({"error":"invalid key"})"}});
     std::string response;
     EXPECT_FALSE(execute("{}", response).ok());
     std::lock_guard lock(handler.mutex);
+    EXPECT_EQ(handler.bodies.size(), 1);
+}
+
+TEST_F(AIRequestExecutorTest, AuthenticationSetupFailureDoesNotReadResponseOrRetry) {
+    class FailedAuthenticationAdapter : public OpenAIAdapter {
+    public:
+        Status set_authentication(HttpClient*) const override {
+            return Status::InternalError("authentication setup failed");
+        }
+    } failed_adapter;
+    std::string response;
+    AIRequestStats stats;
+    const auto status =
+            executor.execute("{}", response, config, failed_adapter, query_ctx.get(), &stats);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("authentication setup failed"), std::string::npos);
+    EXPECT_EQ(stats.attempts, 0);
+    EXPECT_TRUE(handler.bodies.empty());
+}
+
+TEST_F(AIRequestExecutorTest, PermanentHttpErrorsFailWithoutRetry) {
+    for (auto code : {400, 401, 403, 404, 422}) {
+        handler.set_responses({{static_cast<HttpStatus>(code), "invalid request"}});
+        const auto before = handler.bodies.size();
+        std::string response;
+        EXPECT_FALSE(execute("{}", response).ok());
+        EXPECT_EQ(handler.bodies.size(), before + 1) << code;
+    }
+}
+
+TEST_F(AIRequestExecutorTest, RetryAfterExceedingQueryBudgetDoesNotSendAgain) {
+    handler.retry_after = "60";
+    handler.set_responses({{HttpStatus::TOO_MANY_REQUESTS, "rate limited"}});
+    const auto started = std::chrono::steady_clock::now();
+    std::string response;
+    const auto status = execute("{}", response);
+    EXPECT_TRUE(status.is<ErrorCode::TIMEOUT>()) << status;
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(2));
+    EXPECT_EQ(handler.bodies.size(), 1);
+}
+
+TEST_F(AIRequestExecutorTest, TruncatedAuthenticationResponseDoesNotRetry) {
+    handler.truncate_response = true;
+    handler.set_responses({{HttpStatus::UNAUTHORIZED, "invalid key"}});
+    std::string response;
+    AIRequestStats stats;
+    EXPECT_FALSE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(stats.attempts, 1);
+    EXPECT_EQ(handler.bodies.size(), 1);
+}
+
+TEST_F(AIRequestExecutorTest, TruncatedRateLimitResponsesUseConfiguredRetryBudget) {
+    query_ctx->_timeout_second = 60;
+    handler.truncate_response = true;
+    config.max_retries = 5;
+    handler.set_responses({{HttpStatus::TOO_MANY_REQUESTS, "throttled"}});
+    std::string response;
+    AIRequestStats stats;
+    EXPECT_FALSE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(stats.attempts, 6);
+    EXPECT_EQ(handler.bodies.size(), 6);
+}
+
+TEST_F(AIRequestExecutorTest, TruncatedSuccessfulResponseCanRecover) {
+    query_ctx->_timeout_second = 60;
+    handler.truncate_first_response = true;
+    handler.set_responses({{HttpStatus::OK, "partial"}, {HttpStatus::OK, "success"}});
+    std::string response;
+    AIRequestStats stats;
+    EXPECT_TRUE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(stats.attempts, 2);
+    EXPECT_EQ(response, "success");
+    EXPECT_EQ(handler.bodies.size(), 2);
+}
+
+TEST_F(AIRequestExecutorTest, TransientHttpStatusPolicy) {
+    for (auto code : {408, 500, 502, 503, 504, 529, 429}) {
+        const auto before = handler.bodies.size();
+        config.max_retries = 1;
+        handler.set_responses({{static_cast<HttpStatus>(code), "busy"}});
+        AIRequestStats stats;
+        std::string response;
+        EXPECT_FALSE(
+                executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+        EXPECT_EQ(handler.bodies.size(), before + 2) << code;
+        EXPECT_EQ(stats.attempts, 2);
+    }
+}
+
+TEST_F(AIRequestExecutorTest, StructuredProviderErrorsDoNotOverrideHttpStatus) {
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"OPENAI", R"({"error":{"code":"rate_limit_exceeded"}})"},
+            {"OPENAI", R"({"error":{"type":"server_error"}})"},
+            {"ANTHROPIC", R"({"error":{"type":"overloaded_error"}})"},
+            {"GEMINI", R"({"error":{"status":"UNAVAILABLE"}})"},
+            {"GEMINI", R"({"error":{"status":"RESOURCE_EXHAUSTED"}})"}};
+    for (const auto& [provider, body] : cases) {
+        config.provider_type = provider;
+        adapter = AIAdapterFactory::create_adapter(provider);
+        adapter->init(config);
+        config.max_retries = 1;
+        handler.set_responses({{HttpStatus::BAD_REQUEST, body}});
+        const auto before = handler.bodies.size();
+        std::string response;
+        EXPECT_FALSE(execute("{}", response).ok());
+        EXPECT_EQ(handler.bodies.size(), before + 1) << provider << body;
+    }
+}
+
+TEST_F(AIRequestExecutorTest, AccountQuota429UsesRateLimitBudget) {
+    handler.set_responses(
+            {{HttpStatus::TOO_MANY_REQUESTS,
+              R"({"error":{"code":"insufficient_quota","type":"rate_limit_error"}})"}});
+    std::string response;
+    EXPECT_FALSE(execute("{}", response).ok());
     EXPECT_EQ(handler.bodies.size(), 4);
+}
+
+TEST_F(AIRequestExecutorTest, ErrorMessageTextDoesNotControlRetryPolicy) {
+    handler.set_responses({{HttpStatus::BAD_REQUEST,
+                            R"({"error":{"message":"rate_limit_exceeded server_error"}})"}});
+    std::string response;
+    EXPECT_FALSE(execute("{}", response).ok());
+    EXPECT_EQ(handler.bodies.size(), 1);
+}
+
+TEST_F(AIRequestExecutorTest, PermanentFailureLatencyAndAttemptsComparedWithLegacyPolicy) {
+    handler.set_responses({{HttpStatus::UNAUTHORIZED, "invalid key"}});
+    // Replay the previous executor policy: retry every error, with a fixed one-second wait.
+    const auto legacy_start = std::chrono::steady_clock::now();
+    replay_legacy_authentication_retry_policy();
+    const auto legacy_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::steady_clock::now() - legacy_start)
+                                   .count();
+    const auto legacy_attempts = handler.bodies.size();
+    config.retry_delay_second = 1;
+    const auto current_start = std::chrono::steady_clock::now();
+    std::string response;
+    AIRequestStats stats;
+    EXPECT_FALSE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    const auto current_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - current_start)
+                                    .count();
+    EXPECT_EQ(legacy_attempts, 4);
+    EXPECT_EQ(stats.attempts, 1);
+    EXPECT_EQ(stats.retry_wait_ms, 0);
+    EXPECT_GE(legacy_ms, 3000);
+    EXPECT_LT(current_ms, legacy_ms);
+    RecordProperty("legacy_auth_attempts", static_cast<int>(legacy_attempts));
+    RecordProperty("current_auth_attempts", static_cast<int>(stats.attempts));
+    RecordProperty("legacy_auth_ms", static_cast<int>(legacy_ms));
+    RecordProperty("current_auth_ms", static_cast<int>(current_ms));
+}
+
+TEST_F(AIRequestExecutorTest, FixedRetryDelayDoesNotGrowAcrossAttempts) {
+    use_fake_clock();
+    config.retry_delay_second = 1;
+    handler.set_responses({{HttpStatus::SERVICE_UNAVAILABLE, "busy"},
+                           {HttpStatus::SERVICE_UNAVAILABLE, "busy"},
+                           {HttpStatus::SERVICE_UNAVAILABLE, "busy"},
+                           {HttpStatus::OK, "success"}});
+    AIRequestStats stats;
+    std::string response;
+    EXPECT_TRUE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(stats.attempts, 4);
+    EXPECT_EQ(stats.retry_wait_ms, 3000);
+    EXPECT_EQ(response, "success");
+    EXPECT_EQ(connection_count(), 1);
+}
+
+TEST_F(AIRequestExecutorTest, MixedFailuresKeepTheConfiguredRetryInterval) {
+    use_fake_clock();
+    config.retry_delay_second = 1;
+    handler.set_responses({{HttpStatus::SERVICE_UNAVAILABLE, "busy"},
+                           {HttpStatus::TOO_MANY_REQUESTS, "throttled"},
+                           {HttpStatus::SERVICE_UNAVAILABLE, "busy"},
+                           {HttpStatus::TOO_MANY_REQUESTS, "throttled"}});
+    AIRequestStats stats;
+    std::string response;
+    EXPECT_FALSE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(stats.attempts, 4);
+    EXPECT_EQ(stats.retry_wait_ms, 3000);
+    EXPECT_EQ(handler.bodies.size(), 4);
+}
+
+TEST_F(AIRequestExecutorTest, RateLimitAndServerErrorsShareConfiguredRetryBudget) {
+    config.max_retries = 5;
+    handler.set_responses({{HttpStatus::TOO_MANY_REQUESTS, "throttled"}});
+    AIRequestStats stats;
+    std::string response;
+    EXPECT_FALSE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(stats.attempts, 6);
+    handler.set_responses({{HttpStatus::SERVICE_UNAVAILABLE, "busy"}});
+    EXPECT_FALSE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(stats.attempts, 6);
+}
+
+TEST_F(AIRequestExecutorTest, ScalarEmbedAndAggregateShareTheErrorPolicy) {
+    set_resource();
+    AggregateFunctionAIAggData data;
+    data.set_query_context(query_ctx.get(), std::make_shared<AIRequestExecutor>());
+    data.prepare(StringRef("resource", 8), StringRef("summarize", 9));
+    std::string response;
+    for (auto code : {400, 401, 403, 429, 503}) {
+        handler.set_responses({{static_cast<HttpStatus>(code), "error"}});
+        const auto expected = code == 429 || code == 503 ? 4 : 1;
+        auto before = handler.bodies.size();
+        EXPECT_FALSE(FunctionAISummarize()
+                             .send_request_to_llm("{}", response, config, adapter, context.get())
+                             .ok());
+        EXPECT_EQ(handler.bodies.size(), before + expected) << "scalar " << code;
+        before = handler.bodies.size();
+        EXPECT_FALSE(FunctionEmbed()
+                             .send_request_to_llm("{}", response, config, adapter, context.get())
+                             .ok());
+        EXPECT_EQ(handler.bodies.size(), before + expected) << "embed " << code;
+        before = handler.bodies.size();
+        EXPECT_FALSE(data.send_request_to_ai("{}", response).ok());
+        EXPECT_EQ(handler.bodies.size(), before + expected) << "aggregate " << code;
+    }
+}
+
+TEST_F(AIRequestExecutorTest, ParseFailuresDoNotResendSuccessfulHttpRequests) {
+    handler.set_responses({{HttpStatus::OK, "malformed json"}});
+    std::vector<std::vector<float>> results;
+    EXPECT_FALSE(FunctionEmbed()
+                         ._execute_prebuilt_embedding_request("{}", results, 1, config, adapter,
+                                                              context.get())
+                         .ok());
+    EXPECT_EQ(handler.bodies.size(), 1);
+    set_resource();
+    AggregateFunctionAIAggData data;
+    data.set_query_context(query_ctx.get(), std::make_shared<AIRequestExecutor>());
+    data.prepare(StringRef("resource", 8), StringRef("summarize", 9));
+    data.add(StringRef("hello", 5));
+    EXPECT_THROW(data._execute_task(), Exception);
+    EXPECT_EQ(handler.bodies.size(), 2);
+}
+
+TEST_F(AIRequestExecutorTest, RetryAfterSetsWaitFloorEvenWithExplicitZeroDelay) {
+    use_fake_clock();
+    config.max_retries = 1;
+    handler.retry_after = "2";
+    handler.set_responses(
+            {{HttpStatus::TOO_MANY_REQUESTS, "throttled"}, {HttpStatus::OK, "success"}});
+    AIRequestStats stats;
+    std::string response;
+    EXPECT_TRUE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(stats.attempts, 2);
+    EXPECT_EQ(stats.retry_wait_ms, 2000);
+}
+
+TEST_F(AIRequestExecutorTest, RetryAfterHttpDateSetsWaitFloor) {
+    use_fake_clock();
+    config.max_retries = 1;
+    const auto unix_now = std::time(nullptr);
+    const auto date = unix_now + 3;
+    std::tm utc {};
+    gmtime_r(&date, &utc);
+    char header[64];
+    std::strftime(header, sizeof(header), "%a, %d %b %Y %H:%M:%S GMT", &utc);
+    handler.retry_after = header;
+    handler.set_responses(
+            {{HttpStatus::TOO_MANY_REQUESTS, "throttled"}, {HttpStatus::OK, "success"}});
+    AIRequestStats stats;
+    std::string response;
+    EXPECT_TRUE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_GE(stats.retry_wait_ms, 2000);
+    EXPECT_LE(stats.retry_wait_ms, 3000);
+}
+
+TEST_F(AIRequestExecutorTest, OneDeadlineCoversEveryAttemptAndWait) {
+    use_fake_clock();
+    config.retry_delay_second = 4;
+    handler.set_responses({{HttpStatus::SERVICE_UNAVAILABLE, "busy"}});
+    AIRequestStats stats;
+    std::string response;
+    const auto status = executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats);
+    EXPECT_TRUE(status.is<ErrorCode::TIMEOUT>()) << status;
+    EXPECT_EQ(stats.attempts, 3);
+    EXPECT_EQ(stats.retry_wait_ms, 8000);
+    EXPECT_EQ(handler.bodies.size(), 3);
+}
+
+TEST_F(AIRequestExecutorTest, OversleptRetryWaitDoesNotSendAfterDeadline) {
+    use_fake_clock();
+    config.retry_delay_second = 1;
+    executor._sleep = [&](auto) { fake_now += std::chrono::seconds(20); };
+    handler.set_responses({{HttpStatus::SERVICE_UNAVAILABLE, "busy"}});
+    std::string response;
+    AIRequestStats stats;
+    const auto status = executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats);
+    EXPECT_TRUE(status.is<ErrorCode::TIMEOUT>()) << status;
+    EXPECT_EQ(stats.attempts, 1);
+    EXPECT_EQ(handler.bodies.size(), 1);
+}
+
+TEST_F(AIRequestExecutorTest, RetryAfterParsingIsDeterministic) {
+    EXPECT_EQ(AIRequestExecutor::parse_retry_after_ms(" 2 ", 0), 2000);
+    EXPECT_EQ(AIRequestExecutor::parse_retry_after_ms("0", 0), 0);
+    EXPECT_EQ(AIRequestExecutor::parse_retry_after_ms("-1", 0), 0);
+    EXPECT_EQ(AIRequestExecutor::parse_retry_after_ms("1.5", 0), 0);
+    EXPECT_EQ(AIRequestExecutor::parse_retry_after_ms("invalid", 0), 0);
+    EXPECT_EQ(AIRequestExecutor::parse_retry_after_ms("Wed, 21 Oct 2015 07:28:00 GMT", 1445412479),
+              1000);
+    EXPECT_EQ(AIRequestExecutor::parse_retry_after_ms("Wed, 21 Oct 2015 07:28:00 GMT", 1445412481),
+              0);
+    EXPECT_EQ(AIRequestExecutor::parse_retry_after_ms("9999999999999999999999999", 0),
+              std::numeric_limits<int64_t>::max());
+}
+
+TEST_F(AIRequestExecutorTest, TransportFailuresUseCodesRatherThanStatusStrings) {
+    for (auto code :
+         {CURLE_COULDNT_RESOLVE_HOST, CURLE_COULDNT_CONNECT, CURLE_SEND_ERROR, CURLE_RECV_ERROR,
+          CURLE_GOT_NOTHING, CURLE_PARTIAL_FILE, CURLE_HTTP2_STREAM}) {
+        EXPECT_EQ(AIRequestExecutor::classify_curl_error(code), AIErrorType::RETRYABLE);
+    }
+    for (auto code : {CURLE_OPERATION_TIMEDOUT, CURLE_ABORTED_BY_CALLBACK, CURLE_OUT_OF_MEMORY,
+                      CURLE_WRITE_ERROR, CURLE_PEER_FAILED_VERIFICATION, CURLE_URL_MALFORMAT}) {
+        EXPECT_EQ(AIRequestExecutor::classify_curl_error(code), AIErrorType::NON_RETRYABLE);
+    }
 }
 
 TEST_F(AIRequestExecutorTest, ExpiredQueryDoesNotSend) {
@@ -641,8 +1035,7 @@ TEST_F(AIRequestExecutorTest, LocalProviderSetsJsonHeadersWithoutAnApiKey) {
 TEST_F(AIRequestExecutorTest, AggregateHttpModeRejectsNon200WithoutAddingRetries) {
     handler.set_responses({{HttpStatus::CREATED, R"({"result":"created"})"}});
     std::string response;
-    const auto status = executor.execute("{}", response, config, *adapter, query_ctx.get(),
-                                         true /* fail_on_http_error */);
+    const auto status = executor.execute("{}", response, config, *adapter, query_ctx.get());
     EXPECT_FALSE(status.ok());
     std::lock_guard lock(handler.mutex);
     EXPECT_EQ(handler.bodies.size(), 1);
