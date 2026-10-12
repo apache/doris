@@ -44,6 +44,7 @@ TARGETS=(
     "be/src/common/logging.h"
     "be/src/util/pretty_printer.h"
     "be/src/pch/pch.h"
+    "be/src/storage/index/inverted/query/spi/index_source.h"
 )
 for t in "${TARGETS[@]}"; do
     mkdir -p "${BACKUP}/$(dirname "${t}")"
@@ -75,6 +76,17 @@ echo "${OUT}" | grep -q "core/types.h must not reach storage/olap_common.h" \
 echo "${OUT}" | grep -q "chain:" || fail "rule failure lacks the include chain"
 echo "${OUT}" | grep -q "fix:" || fail "rule failure lacks a fix path"
 cp "${BACKUP}/be/src/core/types.h" "${ROOT}/be/src/core/types.h"
+
+# ---- RED: the shared query SPI must not include a storage format ----
+printf '#include "storage/index/inverted/clucene/inverted_index_searcher.h"\n' \
+    >> "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "query-format rule injection expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "query/spi/index_source.h must not reach storage/index/inverted/clucene/" \
+    || fail "query-format rule violation not reported"
+echo "${OUT}" | grep -q "fix:" || fail "query-format rule lacks a fix path"
+cp "${BACKUP}/be/src/storage/index/inverted/query/spi/index_source.h" \
+    "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
 
 # ---- RED: third-party ban (uint24.h must not include fmt) ----
 printf '#include <fmt/format.h>\n' >> "${ROOT}/be/src/core/uint24.h"

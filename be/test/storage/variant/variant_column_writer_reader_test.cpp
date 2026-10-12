@@ -52,7 +52,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_reader.h"

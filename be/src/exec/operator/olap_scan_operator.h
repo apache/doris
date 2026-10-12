@@ -29,7 +29,7 @@
 #include "exec/operator/scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 #include "runtime/runtime_profile.h"
-#include "storage/index/snii/snii_prx_profile.h"
+#include "storage/index/inverted/snii/snii_prx_profile.h"
 #include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 

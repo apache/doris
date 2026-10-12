@@ -29,14 +29,16 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/analyzer/analyzer_provider.h"
-#include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/snii/snii_index_reader.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
+#include "storage/index/inverted/snii/searcher_cache_value.h"
+#include "storage/index/inverted/snii/snii_index_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
 #include "util/time.h"
@@ -196,7 +198,7 @@ protected:
         const InvertedIndexSearcherCache::CacheKey snii_key(
                 _snii_file_reader->get_index_file_cache_key(&_meta));
         _searcher_cache->insert(
-                snii_key, new InvertedIndexSearcherCache::CacheValue(
+                snii_key, new SniiLogicalReaderCacheValue(
                                   std::make_unique<doris::snii::reader::LogicalIndexReader>(), 1,
                                   UnixMillis(), _snii_file_reader));
     }

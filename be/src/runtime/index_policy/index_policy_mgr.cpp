@@ -24,7 +24,7 @@
 #include <unordered_set>
 #include <utility>
 
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
 
 namespace doris {
 namespace {

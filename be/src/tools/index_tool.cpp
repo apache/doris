@@ -46,13 +46,13 @@
 #endif
 #include "io/fs/local_file_system.h"
 #include "runtime/thread_context.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/query/logical/node.h"
+#include "storage/index/inverted/query/logical/node.h"
 #include "storage/tablet/tablet_schema.h"
 
 using doris::segment_v2::DorisCompoundReader;

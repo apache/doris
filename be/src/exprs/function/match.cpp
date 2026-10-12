@@ -29,7 +29,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "util/debug_points.h"
 #include "util/hyperscan_util.h"
 

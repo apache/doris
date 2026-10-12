@@ -42,6 +42,7 @@
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/scan_node.h"
+#include "exprs/function/search/search_predicate_collector.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache_profile.h"
@@ -54,8 +55,8 @@
 #include "service/backend_options.h"
 #include "storage/binlog.h"
 #include "storage/id_manager.h"
-#include "storage/index/inverted/inverted_index_profile.h"
-#include "storage/index/inverted/similarity/collection_statistics.h"
+#include "storage/index/inverted/common/inverted_index_profile.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
@@ -278,7 +279,8 @@ Status OlapScanner::_prepare_impl() {
 
     if (_tablet_reader_params.score_runtime) {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
-        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>(
+                std::make_unique<SearchPredicateCollector>());
 
         auto io_ctx = build_score_runtime_collection_io_context(
                 _state, _tablet_reader_params.reader_type, tablet->file_cache_ttl_expiration_time(),

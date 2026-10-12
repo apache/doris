@@ -18,10 +18,22 @@
 #pragma once
 
 #include <memory>
-#include <roaring/roaring.hh>
 
-#include "storage/index/collection_similarity.h"
-#include "storage/index/inverted/similarity/collection_statistics.h"
+namespace roaring {
+class Roaring;
+}
+
+namespace doris {
+class CollectionStatistics;
+using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
+class CollectionSimilarity;
+using CollectionSimilarityPtr = std::shared_ptr<CollectionSimilarity>;
+class RuntimeState;
+struct OlapReaderStatistics;
+namespace io {
+struct IOContext;
+}
+} // namespace doris
 
 namespace doris::segment_v2 {
 

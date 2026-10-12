@@ -71,25 +71,70 @@ INCLUDE_ROOT = "be/src"
 # one should be a deliberate decision, which is exactly why they are listed here
 # instead of being inferred. A hub ending in "/" names every header under it.
 RULES = [
+    *[
+        (
+            "storage/index/inverted/common/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "common vocabulary cannot depend on a processing stage or a storage format",
+        )
+        for module in ("analysis", "query", "reader", "clucene", "snii")
+    ],
+    *[
+        (
+            "storage/index/inverted/analysis/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "text analysis cannot depend on query execution, readers or storage formats",
+        )
+        for module in ("query", "reader", "clucene", "snii")
+    ],
     (
-        "storage/index/query/",
-        "storage/index/snii/",
+        "storage/index/inverted/query/",
+        "storage/index/inverted/analysis/",
+        {
+            "storage/index/inverted/analysis/gram/gram_density.h",
+            "storage/index/inverted/analysis/gram/gram_extractor.h",
+            "storage/index/inverted/analysis/gram/gram_family.h",
+            "storage/index/inverted/analysis/gram/gram_scheme.h",
+        },
+        "query lowering uses gram schemes but cannot depend on text analysis machinery",
+    ),
+    *[
+        (
+            "storage/index/inverted/query/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "the shared query engine cannot depend on a reader or storage format",
+        )
+        for module in ("reader", "clucene", "snii")
+    ],
+    *[
+        (
+            "storage/index/inverted/reader/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "shared reader execution cannot depend on a storage format",
+        )
+        for module in ("clucene", "snii")
+    ],
+    (
+        "storage/index/inverted/clucene/",
+        "storage/index/inverted/snii/",
         set(),
-        "the shared query layer (logical IR, executors, phrase and boolean kernels, "
-        "SPI) serves both index formats and names neither; a format header here "
-        "would make the other format depend on it",
+        "storage formats cannot include each other",
     ),
     (
-        "storage/index/query/",
-        "storage/index/inverted/",
-        {
-            # Shared vocabulary that still lives under inverted/: the query type enum
-            # and the term-info carrier, which pull no CLucene header in.
-            "storage/index/inverted/inverted_index_query_type.h",
-            "storage/index/inverted/query/query_info.h",
-        },
-        "the shared query layer names neither index format; only the query type "
-        "and term-info vocabulary is allowed until it moves",
+        "storage/index/inverted/snii/",
+        "storage/index/inverted/clucene/",
+        set(),
+        "storage formats cannot include each other",
+    ),
+    (
+        "storage/index/inverted/snii/",
+        "storage/index/inverted/query/engine/",
+        set(),
+        "the SNII format implements the query SPI without including the engine",
     ),
     (
         "runtime/exec_env.h",
@@ -97,8 +142,8 @@ RULES = [
         {
             # A leaf statistics struct with no project includes of its own, which
             # storage/olap_common.h carries as a plain data type.
-            "storage/index/inverted/inverted_index_stats.h",
-            "storage/index/snii/snii_query_stats.h",
+            "storage/index/inverted/common/inverted_index_stats.h",
+            "storage/index/inverted/common/snii_query_stats.h",
         },
         "ExecEnv only ever names index types as pointers and already forward-declares "
         "them; reaching the index implementation headers from here puts the whole "
@@ -421,16 +466,9 @@ RULES = [
 # every header under it; a banned spelling ending in "/" bans the whole subtree.
 ANGLE_BANS = [
     (
-        "storage/index/inverted/query_v2/",
-        "storage/index/snii/",
-        "query_v2 is the DAAT engine both formats share; it reaches a format only "
-        "through the shared SPI under storage/index/query/",
-    ),
-    (
-        "storage/index/snii/",
-        "storage/index/inverted/query_v2/",
-        "the SNII format answers leaves through the shared executor and SPI, not "
-        "through the CLucene engine",
+        "storage/index/inverted/query/",
+        "CLucene/",
+        "query algorithms use the format SPI and do not include CLucene headers",
     ),
     (
         "core/uint24.h",
@@ -483,13 +521,13 @@ ANGLE_BANS = [
         "-fno-access-control UT build on libc++",
     ),
     (
-        "storage/index/inverted/query_v2/collect/top_k_collector.h",
+        "storage/index/inverted/query/engine/collect/top_k_collector.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "
         "the -fno-access-control UT build on libc++",
     ),
     (
-        "storage/index/inverted/query_v2/wand/block_wand.h",
+        "storage/index/inverted/query/engine/wand/block_wand.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "
         "the -fno-access-control UT build on libc++",
@@ -523,15 +561,7 @@ FORWARD_CLOSURE_BUDGETS = {
     "core/field.h": 60,
     "core/column/column.h": 66,
     "exprs/function/function.h": 106,
-    # +1 (was 357): storage/index/snii/format/core_metadata.h now carries an
-    # optional gram::GramScheme member (SNII core metadata gram_scheme field,
-    # regex sparse-gram-index P0 Task 12), reachable via
-    # inverted_index_reader.h -> inverted_index_cache.h ->
-    # snii/reader/logical_index_reader.h -> snii/format/core_metadata.h ->
-    # inverted/gram/gram_scheme.h. gram_scheme.h itself is a leaf (cstdint,
-    # map, string, common/status.h -- the last already on this hub), so this
-    # is exactly +1 project header, not a chain.
-    # The shared read SPI adds its metrics declarations to this include closure.
+    # This dependency hub includes the shared read SPI and SNII gram metadata.
     "exec/pipeline/dependency.h": 359,
     "pch/pch.h": 8,
 }

@@ -28,8 +28,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/normalizer/custom_normalizer.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/analysis/normalizer/custom_normalizer.h"
 
 namespace doris {
 

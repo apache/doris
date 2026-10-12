@@ -24,7 +24,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 
 namespace lucene {
 namespace analysis {

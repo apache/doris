@@ -38,15 +38,16 @@
 #include "core/value/vdatetime_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
-#include "storage/index/inverted/inverted_index_writer.h"
-#include "storage/index/inverted/similarity/collection_statistics.h"
-#include "storage/index/query/term_pattern.h"
+#include "storage/index/inverted/query/exec/term_pattern.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -450,7 +451,7 @@ public:
 
         // Read NULL bitmap
         InvertedIndexQueryCacheHandle cache_handle;
-        status = str_reader->read_null_bitmap(context, &cache_handle, nullptr);
+        status = str_reader->read_null_bitmap(context, &cache_handle);
         EXPECT_TRUE(status.ok()) << status;
 
         // Get NULL bitmap
@@ -3862,7 +3863,7 @@ public:
                 /*threshold=*/uint8_t(0));
     }
     void test_bkd_range_float() {
-        // FLOAT real values: ~-100.5 (negative offset), -1.25, 0.0, π
+        // FLOAT real values: ~-100.5 (negative offset), -1.25, 0.0, U+03C0
         // approximated, 100.25, 1234.5 (mid-positive).
         verify_bkd_range_queries<TYPE_FLOAT, float>(
                 /*col_id=*/15, "bkd_range_float", "c_float",
@@ -3871,7 +3872,7 @@ public:
     }
     void test_bkd_range_double() {
         // DOUBLE real values across magnitudes from -1e10 to +1e10, including
-        // negative scientific, π, and large positive.
+        // negative scientific, U+03C0, and large positive.
         verify_bkd_range_queries<TYPE_DOUBLE, double>(
                 /*col_id=*/16, "bkd_range_double", "c_double",
                 {-9.87654321e10, -1.5, 0.0, 3.14159265358979, 1.0e6, 1.0e10},

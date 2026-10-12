@@ -43,7 +43,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"

@@ -46,8 +46,8 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_column_object_pool.h"
