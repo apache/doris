@@ -61,4 +61,12 @@ class ObsFileSystemProviderTest {
         Assertions.assertFalse(provider.supportsGuess(aws));
         Assertions.assertFalse(provider.supports(aws));
     }
+
+    @Test
+    void supportsGuess_ignoresObsMarkerInsideTheObjectKey() {
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "uri", "s3://bucket/archive/OBS.CN-NORTH-4.MYHUAWEICLOUD.COM/data")));
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "uri", "s3://bucket/archive/obs.cn-north-4.myhuaweicloud.com/data")));
+    }
 }

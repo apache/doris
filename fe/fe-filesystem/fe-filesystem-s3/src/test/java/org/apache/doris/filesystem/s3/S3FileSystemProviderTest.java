@@ -195,6 +195,15 @@ class S3FileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_ignoresAwsMarkerInsideTheObjectKey() {
+        // The marker identifies the endpoint host; the same text in the object key does not.
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "uri", "s3://bucket/archive/AMAZONAWS.COM/data")));
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "uri", "s3://bucket/archive/amazonaws.com/data")));
+    }
+
+    @Test
     void supportsGuess_isCaseInsensitiveForAwsUri() {
         Map<String, String> lower = new HashMap<>();
         lower.put("uri", "s3://bucket.s3.us-east-1.amazonaws.com/key");

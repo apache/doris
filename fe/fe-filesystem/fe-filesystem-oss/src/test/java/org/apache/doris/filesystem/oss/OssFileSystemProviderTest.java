@@ -108,4 +108,13 @@ class OssFileSystemProviderTest {
         Assertions.assertTrue(provider.supports(mixedCasePlain), mixedCasePlain.toString());
         Assertions.assertTrue(provider.supportsGuess(mixedCasePlain), mixedCasePlain.toString());
     }
+
+    @Test
+    void supportsGuess_ignoresOssMarkerInsideTheObjectKey() {
+        // The marker identifies the endpoint host; the same text in the object key does not.
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "uri", "s3://bucket/archive/OSS-CN-BEIJING.ALIYUNCS.COM/data")));
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "uri", "s3://bucket/archive/oss-cn-beijing.aliyuncs.com/data")));
+    }
 }

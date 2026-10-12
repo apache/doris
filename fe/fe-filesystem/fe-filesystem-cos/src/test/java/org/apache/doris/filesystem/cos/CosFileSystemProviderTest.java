@@ -61,4 +61,12 @@ class CosFileSystemProviderTest {
         Assertions.assertFalse(provider.supportsGuess(aws));
         Assertions.assertFalse(provider.supports(aws));
     }
+
+    @Test
+    void supportsGuess_ignoresCosMarkerInsideTheObjectKey() {
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "uri", "s3://bucket/archive/COS.AP-SHANGHAI.MYQCLOUD.COM/data")));
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "uri", "s3://bucket/archive/cos.ap-shanghai.myqcloud.com/data")));
+    }
 }

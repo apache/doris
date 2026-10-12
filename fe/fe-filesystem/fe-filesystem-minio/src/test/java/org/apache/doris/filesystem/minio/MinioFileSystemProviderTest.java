@@ -119,6 +119,16 @@ class MinioFileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_keepsMinioUriWhoseKeyContainsAwsMarker() {
+        // Only the host may exclude MinIO; AWS text inside the object key must not.
+        Map<String, String> props = new HashMap<>();
+        props.put("minio.access_key", "ak");
+        props.put("uri", "https://bucket.minio.internal/archive/AMAZONAWS.COM/file");
+
+        Assertions.assertTrue(provider.supportsGuess(props), props.toString());
+    }
+
+    @Test
     void supports_rejectsForeignDialects() {
         Map<String, String> gcs = new HashMap<>();
         gcs.put("gs.access_key", "ak");

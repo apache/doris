@@ -200,7 +200,9 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
 
     static Optional<String> extractRegion(String endpoint) {
         for (Pattern pattern : ENDPOINT_PATTERN) {
-            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
+            // Locale-independent folding: under e.g. tr_TR a default-locale toLowerCase turns the
+            // 'I' of "ALIYUNCS" into a dotless 'ı', which the ASCII endpoint pattern cannot match.
+            Matcher matcher = pattern.matcher(endpoint.toLowerCase(Locale.ROOT));
             if (matcher.matches()) {
                 return Optional.ofNullable(matcher.group(1));
             }

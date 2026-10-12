@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.spi.EndpointHosts;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -132,7 +133,8 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
         }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
-                return StringUtils.containsIgnoreCase(entry.getValue(), "amazonaws.com");
+                // The marker is a host name: a uri whose object key merely contains it is not AWS.
+                return StringUtils.containsIgnoreCase(EndpointHosts.hostOf(entry.getValue()), "amazonaws.com");
             }
         }
         for (String name : GUESS_REGION_NAMES) {

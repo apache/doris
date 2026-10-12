@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.obs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.spi.EndpointHosts;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -86,7 +87,8 @@ public class ObsFileSystemProvider implements FileSystemProvider<ObsFileSystemPr
         }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
-                return StringUtils.containsIgnoreCase(entry.getValue(), "myhuaweicloud.com");
+                // The marker is a host name: a uri whose object key merely contains it is not OBS.
+                return StringUtils.containsIgnoreCase(EndpointHosts.hostOf(entry.getValue()), "myhuaweicloud.com");
             }
         }
         return false;

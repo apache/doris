@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 class OssHdfsPropertiesTest {
@@ -214,6 +215,25 @@ class OssHdfsPropertiesTest {
         raw.put("oss.hdfs.endpoint", "CN-SHANGHAI.OSS-DLS.ALIYUNCS.COM");
 
         Assertions.assertEquals("cn-shanghai", resolve(raw).get("fs.oss.region"));
+    }
+
+    /**
+     * "ALIYUNCS" contains an 'I'. A default-locale {@code toLowerCase()} under tr_TR folds it to a
+     * dotless 'ı', which the ASCII endpoint pattern cannot match, so the mixed case spelling used to
+     * fail while the lowercase one worked.
+     */
+    @Test
+    void mixedCaseDlsEndpointBindsUnderTurkishLocale() {
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(new Locale("tr", "TR"));
+            Map<String, String> raw = baseProps();
+            raw.put("oss.hdfs.endpoint", "CN-BEIJING.OSS-DLS.ALIYUNCS.COM");
+
+            Assertions.assertEquals("cn-beijing", resolve(raw).get("fs.oss.region"));
+        } finally {
+            Locale.setDefault(original);
+        }
     }
 
     @Test

@@ -165,6 +165,18 @@ public class LocationPathTest {
     }
 
     @Test
+    public void testIsHdfsOnOssEndpointMatchesTheHostOnly() {
+        // Marker text inside an object key must not turn a plain S3 location into OSS-HDFS.
+        Assertions.assertFalse(LocationPath.isHdfsOnOssEndpoint(
+                "s3://bucket/archive/oss-dls.aliyuncs.com/file.parquet"));
+        Assertions.assertFalse(LocationPath.isHdfsOnOssEndpoint(
+                "s3://bucket/archive/OSS-DLS.ALIYUNCS.COM/file.parquet"));
+        // The host part still matches, in any case.
+        Assertions.assertTrue(LocationPath.isHdfsOnOssEndpoint(
+                "oss://bucket.CN-HANGZHOU.OSS-DLS.ALIYUNCS.COM/path"));
+    }
+
+    @Test
     public void testCOSLocationConvert() {
         LocationPath locationPath = LocationPath.of("cos://test.com");
         // FE

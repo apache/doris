@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.oss;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.spi.EndpointHosts;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -137,14 +138,20 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
     }
 
     private static boolean isKnownOssLocation(String value) {
-        if (value == null || StringUtils.containsIgnoreCase(value, "oss-dls.aliyuncs")) {
+        if (value == null) {
+            return false;
+        }
+        // Markers are host names: match them in the host only, so marker text inside an object key
+        // cannot claim the map for OSS.
+        String host = EndpointHosts.hostOf(value);
+        if (StringUtils.containsIgnoreCase(host, "oss-dls.aliyuncs")) {
             return false;
         }
         if (StringUtils.startsWithIgnoreCase(value, "oss://")) {
             return true;
         }
-        return StringUtils.containsIgnoreCase(value, "aliyuncs.com")
-                && (StringUtils.containsIgnoreCase(value, "oss-") || StringUtils.containsIgnoreCase(value, "s3."));
+        return StringUtils.containsIgnoreCase(host, "aliyuncs.com")
+                && (StringUtils.containsIgnoreCase(host, "oss-") || StringUtils.containsIgnoreCase(host, "s3."));
     }
 
     @Override

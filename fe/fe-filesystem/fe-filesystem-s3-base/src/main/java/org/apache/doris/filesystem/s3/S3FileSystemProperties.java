@@ -36,6 +36,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -415,7 +416,9 @@ public final class S3FileSystemProperties
     }
 
     private static Optional<String> extractRegion(String endpoint) {
-        String lowerEndpoint = endpoint.toLowerCase();
+        // Locale-independent folding: under e.g. tr_TR a default-locale toLowerCase turns 'I' into a
+        // dotless 'ı', so an ASCII region such as IL-CENTRAL-1 would no longer match the pattern.
+        String lowerEndpoint = endpoint.toLowerCase(Locale.ROOT);
         for (Pattern pattern : ENDPOINT_PATTERNS) {
             Matcher matcher = pattern.matcher(lowerEndpoint);
             if (!matcher.matches()) {

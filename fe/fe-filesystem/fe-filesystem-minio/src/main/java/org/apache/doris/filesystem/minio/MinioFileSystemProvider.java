@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3FileSystemProperties;
 import org.apache.doris.filesystem.s3.S3ObjStorage;
 import org.apache.doris.filesystem.spi.AzureBlobEndpointSignals;
+import org.apache.doris.filesystem.spi.EndpointHosts;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -131,11 +132,12 @@ public class MinioFileSystemProvider implements FileSystemProvider<MinioFileSyst
             // region keys — replicate both exclusion legs.
             for (Map.Entry<String, String> entry : properties.entrySet()) {
                 if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
-                    // The uri host is a DNS name: match case-insensitively, deliberately deviating
-                    // from legacy S3Properties.guessIsMe's case-sensitive contains. With the legacy
-                    // behaviour an upper-case AWS uri was not excluded here, so MinIO silently
-                    // claimed a map that belongs to S3.
-                    if (entry.getValue().toLowerCase(java.util.Locale.ROOT).contains("amazonaws.com")) {
+                    // The AWS marker is a host name: match it in the uri host only and
+                    // case-insensitively. Legacy compared the whole uri case-sensitively, so AWS
+                    // text inside an object key either excluded a genuine MinIO uri (upper case) or
+                    // let MinIO claim a map that belongs to S3 (lower case).
+                    if (EndpointHosts.hostOf(entry.getValue())
+                            .toLowerCase(java.util.Locale.ROOT).contains("amazonaws.com")) {
                         return false;
                     }
                     break;

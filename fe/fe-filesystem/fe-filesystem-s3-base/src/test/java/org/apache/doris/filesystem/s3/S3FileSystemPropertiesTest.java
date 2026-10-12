@@ -28,6 +28,7 @@ import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsPro
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 class S3FileSystemPropertiesTest {
@@ -416,6 +417,25 @@ class S3FileSystemPropertiesTest {
         IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> S3FileSystemProperties.of(uriProps("s3://mybucket/data/file.csv")));
         Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"), exception.getMessage());
+    }
+
+    /**
+     * A default-locale {@code toLowerCase()} under tr_TR folds the 'I' of "IL-CENTRAL-1" to a dotless
+     * 'ı', which the ASCII region pattern cannot match, so the mixed case endpoint failed to bind
+     * while the lowercase spelling worked.
+     */
+    @Test
+    void extractRegion_isLocaleIndependentForMixedCaseEndpoints() {
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(new Locale("tr", "TR"));
+            S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                    "s3.endpoint", "HTTPS://S3.IL-CENTRAL-1.AMAZONAWS.COM"));
+
+            Assertions.assertEquals("il-central-1", properties.getRegion());
+        } finally {
+            Locale.setDefault(original);
+        }
     }
 
     @Test

@@ -24,6 +24,7 @@ import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.datasource.storage.StorageUriUtils;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.EndpointHosts;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.thrift.TFileType;
 
@@ -354,8 +355,10 @@ public class LocationPath {
     public static boolean isHdfsOnOssEndpoint(String location) {
         // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
         // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
-        // The marker is a DNS hostname, so the match is case-insensitive.
-        return StringUtils.containsIgnoreCase(location, "oss-dls.aliyuncs");
+        // The marker is a DNS host name, so the match is case-insensitive and belongs to the URI
+        // host only: marker text inside the object key (e.g. .../archive/OSS-DLS.ALIYUNCS.COM/file)
+        // does not make the location an OSS-HDFS location.
+        return StringUtils.containsIgnoreCase(EndpointHosts.hostOf(location), "oss-dls.aliyuncs");
     }
 
     /**
