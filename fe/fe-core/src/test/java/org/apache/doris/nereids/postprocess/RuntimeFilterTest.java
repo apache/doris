@@ -685,19 +685,7 @@ public class RuntimeFilterTest extends SSBTestBase {
             org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
         }
 
-    @Test
-    public void testDecoupledRuntimeFilter() {
-        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
-        // join1(c_custkey=s_suppkey) probe=join2(lo_custkey=c_custkey)
-        // Standard RFs: c_custkey→lo_custkey (join2), s_suppkey→c_custkey (join1)
-        // Decoupled RF: c_custkey→s_suppkey (builder=join2, pushed to supplier scan).
-        // Add a visible filter on customer so the decoupled RF is not pruned by the
-        // "unknown stats + no filter on builder right side" heuristic.
-        String sql = "select * "
-                + "from lineorder join customer on lo_custkey = c_custkey "
-                + "join supplier on c_custkey = s_suppkey "
-                + "where customer.c_region = 'ASIA'";
-
+    private List<RuntimeFilter> processSqlAndGetRuntimeFilters(String sql) {
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
@@ -705,27 +693,70 @@ public class RuntimeFilterTest extends SSBTestBase {
         PhysicalPlan plan = checker.getPhysicalPlan();
         plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
-        RuntimeFilterContext rfCtx = checker.getCascadesContext().getRuntimeFilterContext();
-        List<RuntimeFilter> filters = rfCtx.getNereidsRuntimeFilter();
+        return checker.getCascadesContext().getRuntimeFilterContext().getNereidsRuntimeFilter();
+    }
 
-        List<RuntimeFilter> decoupledRFs = filters.stream()
-                .filter(f -> f.getExprOrder() == -1)
-                .collect(Collectors.toList());
-        Assertions.assertFalse(decoupledRFs.isEmpty(),
-                "Expected at least one decoupled RF with exprOrder == -1");
+    private static RuntimeFilter findRuntimeFilterBySrcColumn(List<RuntimeFilter> filters, String columnName) {
+        return filters.stream()
+                .filter(f -> f.getSrcExpr().getInputSlots().stream()
+                        .anyMatch(s -> s.getName().equals(columnName)))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "no runtime filter whose source expression contains " + columnName));
+    }
 
-        RuntimeFilter decoupled = decoupledRFs.get(0);
-        // Decoupled RF should target the build side of the condition join
-        Assertions.assertTrue(decoupled.getTargetSlots().stream()
-                        .anyMatch(s -> s.getName().equals("s_suppkey")),
-                "Decoupled RF target should include s_suppkey");
+    private static boolean hasTargetColumn(RuntimeFilter filter, String columnName) {
+        return filter.getTargetSlots().stream().anyMatch(s -> s.getName().equals(columnName));
+    }
 
-        // Standard RF s_suppkey→c_custkey should still exist (not removed)
-        List<RuntimeFilter> standardRFs = filters.stream()
-                .filter(f -> f.getExprOrder() >= 0)
-                .collect(Collectors.toList());
-        Assertions.assertFalse(standardRFs.isEmpty(),
-                "Standard RFs should still be present alongside non-blocking decoupled RF");
+    @Test
+    public void testDecoupledRuntimeFilter() {
+        // join1(c_custkey=s_suppkey) probe=join2(lo_custkey=c_custkey)
+        // Standard RFs: c_custkey->lo_custkey (join2), s_suppkey->c_custkey (join1)
+        // Decoupled RF: c_custkey->s_suppkey (builder=join2, pushed to supplier scan).
+        // Add a visible filter on customer so the decoupled RF is not pruned by the
+        // "unknown stats + no filter on builder right side" heuristic.
+        String sql = "select * "
+                + "from lineorder join customer on lo_custkey = c_custkey "
+                + "join supplier on c_custkey = s_suppkey "
+                + "where customer.c_region = 'ASIA'";
+
+        // Branch-4.2 keeps the decoupled RF inside the standard RF of the builder join instead of
+        // creating a separate `exprOrder == -1` filter: RuntimeFilterContext#getRuntimeFilterBySrcAndType
+        // identifies a filter by (srcExpr, type, builderNode) only, so a decoupled RF whose source
+        // expression is the standard RF source of the same builder join (the usual case: the source
+        // is the build-side slot of that join) is merged into that filter. Upstream master dedups
+        // per target scan including exprOrder and therefore keeps the two filters apart.
+        // The observable branch-4.2 behaviour pinned down here is:
+        //   1. the RF built by join2 additionally targets supplier.s_suppkey, i.e. the decoupled RF
+        //      does reach the build-side scan of join1, and
+        //   2. the RF built by join1 is marked non-blocking, because the decoupled RF is preferred
+        //      (unknown stats: filter on the decoupled source side, none on the standard one).
+        // With the feature disabled neither of the two happens.
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
+        List<RuntimeFilter> baselineFilters = processSqlAndGetRuntimeFilters(sql);
+        RuntimeFilter baselineRfBuiltByJoin2 = findRuntimeFilterBySrcColumn(baselineFilters, "c_custkey");
+        Assertions.assertFalse(hasTargetColumn(baselineRfBuiltByJoin2, "s_suppkey"),
+                "Without the decoupled RF the join2 RF must not reach the supplier scan");
+        Assertions.assertFalse(findRuntimeFilterBySrcColumn(baselineFilters, "s_suppkey").isNonBlocking(),
+                "Without the decoupled RF the join1 RF stays blocking");
+
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
+        List<RuntimeFilter> filters = processSqlAndGetRuntimeFilters(sql);
+
+        // The decoupled RF is pushed into the build side of the condition join (supplier.s_suppkey).
+        RuntimeFilter rfBuiltByJoin2 = findRuntimeFilterBySrcColumn(filters, "c_custkey");
+        Assertions.assertTrue(hasTargetColumn(rfBuiltByJoin2, "s_suppkey"),
+                "Decoupled RF should be applied on the supplier scan (target s_suppkey)");
+
+        // The standard RF of the condition join (s_suppkey->c_custkey) is kept, and it becomes
+        // non-blocking so that the decoupled RF is the blocking one.
+        RuntimeFilter rfBuiltByJoin1 = findRuntimeFilterBySrcColumn(filters, "s_suppkey");
+        Assertions.assertTrue(rfBuiltByJoin1.isNonBlocking(),
+                "Standard RF s_suppkey->c_custkey should become non-blocking when the decoupled RF "
+                        + "is preferred");
+        Assertions.assertTrue(hasTargetColumn(rfBuiltByJoin1, "c_custkey"),
+                "Standard RF s_suppkey->c_custkey should still target c_custkey");
 
         connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
     }
