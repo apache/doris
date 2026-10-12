@@ -33,6 +33,16 @@ import java.util.List;
 import java.util.Map;
 
 public class TablePropertyTest {
+    @Test
+    public void testSkipAnnIndexOnLoad() {
+        TableProperty property = new TableProperty(Maps.newHashMap());
+        property.modifyTableProperties(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD, "true");
+        Assertions.assertTrue(property.buildSkipAnnIndexOnLoad().skipAnnIndexOnLoad());
+
+        property.modifyTableProperties(PropertyAnalyzer.PROPERTIES_SKIP_ANN_INDEX_ON_LOAD, "false");
+        Assertions.assertFalse(property.buildSkipAnnIndexOnLoad().skipAnnIndexOnLoad());
+    }
+
     private static final String DEFAULT_REPLICATION_NUM =
             "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
     private static final String DEFAULT_REPLICATION_ALLOCATION =

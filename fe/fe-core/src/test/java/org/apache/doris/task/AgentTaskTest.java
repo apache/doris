@@ -121,7 +121,7 @@ public class AgentTaskTest {
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
-                TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
+                TCompressionType.LZ4F, false, "", false, false, true, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
                 storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
 
         // drop
@@ -173,13 +173,14 @@ public class AgentTaskTest {
         Assertions.assertEquals(TTaskType.CREATE, request.getTaskType());
         Assertions.assertEquals(createReplicaTask.getSignature(), request.getSignature());
         Assertions.assertNotNull(request.getCreateTabletReq());
+        Assertions.assertTrue(request.getCreateTabletReq().getTabletSchema().isSkipAnnIndexOnLoad());
 
         // create with row binlog tablet
         BinlogConfig binlogConfig = BinlogTestUtils.newTestRowBinlogConfig(true, false);
         CreateReplicaTask createWithRowBinlog = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
-                TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false,
+                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false,
                 binlogConfig, null, objectPool, rowStorePageSize, false, storagePageSize,
                 TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
         createWithRowBinlog.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
@@ -194,7 +195,7 @@ public class AgentTaskTest {
         AgentTask createWithBfIndex = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, bfIndexes, false,
-                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0,
                 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
                 TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
         TAgentTaskRequest requestWithBfIndex =
@@ -217,7 +218,7 @@ public class AgentTaskTest {
         AgentTask createWithBfColumns = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, bfColumns, 0.02, latch, null, false,
-                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0,
                 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
                 TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
         TAgentTaskRequest requestWithBfColumns =
@@ -235,7 +236,7 @@ public class AgentTaskTest {
         AgentTask createWithShadowBfIndex = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, shadowColumns, null, 0, latch, bfIndexes, false,
-                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0,
                 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
                 TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
         TAgentTaskRequest requestWithShadowBfIndex =
@@ -250,7 +251,7 @@ public class AgentTaskTest {
                 TStorageMedium.SSD, shadowColumns, null, 0, latch,
                 Arrays.asList(new Index(2L, "bf_shadow_k1", Arrays.asList("k1"),
                         IndexType.BLOOMFILTER, Map.of("bloom_filter_fpp", "0.03"), "")), false,
-                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0,
+                TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0,
                 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false, storagePageSize,
                 TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
         TAgentTaskRequest requestWithFoldedBfIndex =
@@ -272,7 +273,7 @@ public class AgentTaskTest {
                 partitionId, indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS,
                 storageType, TStorageMedium.SSD, columns, emptyBfColumns, 0, latch,
                 bfIndexes, false, TTabletType.TABLET_TYPE_DISK, null, TCompressionType.LZ4F, false,
-                "", false, false, "", 0, 0, 0, 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false,
+                "", false, false, false, "", 0, 0, 0, 0, 0, false, null, null, new HashMap<>(), rowStorePageSize, false,
                 storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
         TAgentTaskRequest requestWithEmptyBfColumnsAndBfIndex =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask,
