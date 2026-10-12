@@ -31,6 +31,7 @@
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/field.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "storage/segment/column_meta_accessor.h"
@@ -227,6 +228,97 @@ TEST_F(ColumnReaderCacheTest, BasicCacheOperations) {
     readers = _cache->get_available_readers(false);
     EXPECT_EQ(readers.size(), 1);
     EXPECT_EQ(readers[1], reader);
+}
+
+// A caller asking for a constant-backed reader must get one even when a caller that passed no
+// constant cached the on-disk reader for that column first.
+TEST_F(ColumnReaderCacheTest, ConstValueIsNotDroppedOnCacheHit) {
+    setup_column_uid_mapping(1, 0);
+
+    ColumnMetaPB col_meta;
+    col_meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_BIGINT));
+    col_meta.set_unique_id(1);
+    col_meta.set_encoding(get_v2_default_encoding(static_cast<FieldType>(col_meta.type())));
+    col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    setup_segment_footer({col_meta});
+
+    // The placeholder reader lands in the cache first, as build_segment_zonemap_context does.
+    std::shared_ptr<ColumnReader> on_disk_reader;
+    Status status = _cache->get_column_reader(1, &on_disk_reader, &_stats);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(on_disk_reader, nullptr);
+    EXPECT_FALSE(on_disk_reader->is_constant());
+
+    std::shared_ptr<ColumnReader> const_reader;
+    status = _cache->get_column_reader(1, &const_reader, &_stats, nullptr,
+                                       Field::create_field<TYPE_BIGINT>(Int64 {42}));
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(const_reader, nullptr);
+    EXPECT_TRUE(const_reader->is_constant());
+    EXPECT_NE(const_reader, on_disk_reader);
+    EXPECT_EQ(const_reader->get_meta_type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
+
+    // The summary it reports is the constant, which is what makes zone-map pruning agree with the
+    // rows this reader hands back. Iterator output has its own coverage in
+    // constant_column_iterator_test.cpp.
+    segment_v2::ZoneMap zone_map;
+    ASSERT_TRUE(const_reader->get_segment_zone_map(&zone_map).ok());
+    EXPECT_TRUE(zone_map.has_not_null);
+    EXPECT_FALSE(zone_map.has_null);
+    EXPECT_FALSE(zone_map.pass_all);
+    EXPECT_EQ(zone_map.min_value.get<TYPE_BIGINT>(), 42);
+    EXPECT_EQ(zone_map.max_value.get<TYPE_BIGINT>(), 42);
+
+    // The entry was replaced rather than duplicated, so a later caller that cannot supply the
+    // constant also stops seeing the placeholder.
+    std::shared_ptr<ColumnReader> after_replace;
+    status = _cache->get_column_reader(1, &after_replace, &_stats);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(after_replace, const_reader);
+
+    auto readers = _cache->get_available_readers(false);
+    EXPECT_EQ(readers.size(), 1);
+    EXPECT_EQ(readers[1], const_reader);
+
+    // Asking again with a constant is a plain cache hit now.
+    std::shared_ptr<ColumnReader> second_const;
+    status = _cache->get_column_reader(1, &second_const, &_stats, nullptr,
+                                       Field::create_field<TYPE_BIGINT>(Int64 {42}));
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(second_const, const_reader);
+}
+
+// Replacing an entry must update its node rather than push a second one for the same key.
+TEST_F(ColumnReaderCacheTest, SameKeyReplacementDoesNotLeaveAStaleLruNode) {
+    config::max_segment_partial_column_cache_size = 3;
+    ColumnMetaPB metas[4];
+    for (int uid = 1; uid <= 4; ++uid) {
+        setup_column_uid_mapping(uid, uid - 1);
+        metas[uid - 1].set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_BIGINT));
+        metas[uid - 1].set_unique_id(uid);
+        metas[uid - 1].set_encoding(
+                get_v2_default_encoding(static_cast<FieldType>(metas[uid - 1].type())));
+        metas[uid - 1].mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    }
+    setup_segment_footer({metas[0], metas[1], metas[2], metas[3]});
+
+    // Replace uid 1's entry, then fill the cache so that eviction has to pick a victim.
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(_cache->get_column_reader(1, &reader, &_stats).ok());
+    ASSERT_TRUE(_cache->get_column_reader(1, &reader, &_stats, nullptr,
+                                          Field::create_field<TYPE_BIGINT>(Int64 {42}))
+                        .ok());
+    ASSERT_TRUE(reader->is_constant());
+    for (int uid = 2; uid <= 4; ++uid) {
+        std::shared_ptr<ColumnReader> other;
+        ASSERT_TRUE(_cache->get_column_reader(uid, &other, &_stats).ok());
+    }
+
+    // A second node for uid 1 would still be reachable through the LRU list while eviction erased
+    // uid 1's map entry, leaving the two views disagreeing about what is cached.
+    auto readers = _cache->get_available_readers(false);
+    EXPECT_EQ(readers.count(1), 0);
+    EXPECT_EQ(readers.size(), 3);
 }
 
 // Test LRU eviction
