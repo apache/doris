@@ -303,8 +303,9 @@ TEST(DataTypeVariantV2SerdeInputTest, PbAndArrowReadKeepExplicitGuards) {
     EXPECT_EQ(serde.write_column_to_pb(*column, values, 0, 0).code(),
               ErrorCode::NOT_IMPLEMENTED_ERROR);
     EXPECT_EQ(serde.read_column_from_pb(*column, values).code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
+    // Native Arrow reads are supported; a missing array is an invalid request, not a missing codec.
     EXPECT_EQ(serde.read_column_from_arrow(*column, nullptr, 0, 0, cctz::utc_time_zone()).code(),
-              ErrorCode::NOT_IMPLEMENTED_ERROR);
+              ErrorCode::INVALID_ARGUMENT);
 }
 
 } // namespace doris
