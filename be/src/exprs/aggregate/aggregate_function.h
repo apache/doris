@@ -89,6 +89,10 @@ using ConstAggregateDataPtr = const char*;
   */
 class IAggregateFunction {
 public:
+    // Preserve whether an input contributed to the intermediate state,
+    // independently of the final result's nullability. Opt in per function.
+    static constexpr bool needs_input_validity = false;
+
     IAggregateFunction(DataTypes argument_types_) : argument_types(std::move(argument_types_)) {}
 
     /// Get main function name.

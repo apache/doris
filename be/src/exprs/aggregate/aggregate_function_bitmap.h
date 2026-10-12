@@ -100,6 +100,10 @@ struct AggregateFunctionBitmapIntersectOp {
     }
 };
 
+struct AggregateFunctionBitmapIntersectOpV2 : AggregateFunctionBitmapIntersectOp {
+    static constexpr auto name = "bitmap_intersect_v2";
+};
+
 struct AggregateFunctionGroupBitmapXorOp {
     static constexpr auto name = "group_bitmap_xor";
 
@@ -138,7 +142,12 @@ struct AggregateFunctionBitmapData {
 
     void write(BufferWritable& buf) const { DataTypeBitMap::serialize_as_stream(value, buf); }
 
-    void read(BufferReadable& buf) { DataTypeBitMap::deserialize_as_stream(value, buf); }
+    void read(BufferReadable& buf) {
+        DataTypeBitMap::deserialize_as_stream(value, buf);
+        // The nullable wrapper only restores a bitmap when the source is valid.
+        // A restored empty bitmap is an initialized value, too.
+        is_first = false;
+    }
 
     void reset() {
         is_first = true;
@@ -256,6 +265,9 @@ class AggregateFunctionBitmapOp final
           UnaryExpression,
           NullableAggregateFunction {
 public:
+    static constexpr bool needs_input_validity =
+            std::is_same_v<Op, AggregateFunctionBitmapIntersectOpV2>;
+
     using ResultDataType = BitmapValue;
     using ColVecType = ColumnBitmap;
     using ColVecResult = ColumnBitmap;

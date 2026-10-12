@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AvgMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersectV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
@@ -136,7 +137,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(AvgMap.class, "avg_map"),
                 agg(AvgWeighted.class, "avg_weighted"),
                 agg(BitmapAgg.class, "bitmap_agg"),
-                agg(BitmapIntersect.class, "bitmap_intersect"),
+                agg(BitmapIntersect.class, "bitmap_intersect_v1"),
+                agg(BitmapIntersectV2.class, "bitmap_intersect_v2", "bitmap_intersect"),
                 agg(BitmapUnion.class, "bitmap_union"),
                 agg(BitmapUnionCount.class, "bitmap_union_count"),
                 agg(BitmapUnionInt.class, "bitmap_union_int"),
