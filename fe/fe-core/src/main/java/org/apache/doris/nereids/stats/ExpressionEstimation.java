@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
@@ -425,6 +426,12 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitSum(Sum sum, Statistics context) {
         // estimate size as BIGINT
         return ColumnStatistic.UNKNOWN.withAvgSizeByte(sum.getDataType().width());
+    }
+
+    // TODO: return a proper estimated stat after supports histogram
+    @Override
+    public ColumnStatistic visitSum0(Sum0 sum0, Statistics context) {
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(sum0.getDataType().width());
     }
 
     // TODO: return a proper estimated stat after supports histogram
