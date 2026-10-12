@@ -804,6 +804,68 @@ TEST(BitmapValueTest, FakeBitsetCardinality) {
     EXPECT_EQ(0u, out.size());
 }
 
+// A BITMAP64 map payload advances per-segment by the bytes the ORIGINAL encoding
+// occupies, not by the reserialized getSizeInBytes: a portable hasrun-cookie bitmap
+// without run containers re-serializes with the no-run cookie (4 more bytes), so the
+// old advance logic rejected a perfectly valid 17-byte map (bitmap_from_binary NULL)
+// and mis-parsed multi-segment maps. The input below is a hand-crafted hasrun
+// encoding equivalent to bitmap {42} under map key 0.
+TEST(BitmapValueTest, valid_and_deserialize_hasrun_bitmap64) {
+    std::string bytes;
+    bytes += static_cast<char>(BitmapTypeCode::BITMAP64);
+    bytes += static_cast<char>(1); // varint map size = 1
+    uint32_t map_key = 0;
+    bytes.append(reinterpret_cast<const char*>(&map_key), 4);
+    uint32_t cookie = 12347; // SERIAL_COOKIE (hasrun), size-1 = 0
+    bytes.append(reinterpret_cast<const char*>(&cookie), 4);
+    bytes += '\0';                        // run bitmap: container 0 is not a run container
+    uint16_t key = 0, card_minus_one = 0; // one array container holding {42}
+    bytes.append(reinterpret_cast<const char*>(&key), 2);
+    bytes.append(reinterpret_cast<const char*>(&card_minus_one), 2);
+    uint16_t value = 42;
+    bytes.append(reinterpret_cast<const char*>(&value), 2);
+
+    BitmapValue deserialized;
+    EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    EXPECT_EQ(1u, deserialized.cardinality());
+    EXPECT_TRUE(deserialized.contains(42));
+
+    // trailing bytes after the last map segment must be rejected (misaligned payload)
+    std::string trailing = bytes;
+    trailing += '\0';
+    BitmapValue rejected;
+    EXPECT_FALSE(rejected.valid_and_deserialize(trailing.data(), trailing.size()));
+}
+
+TEST(BitmapValueTest, valid_and_deserialize_bitmap32_trailing_bytes) {
+    // read_safe now reports the consumed byte count, so a BITMAP32 payload with trailing
+    // bytes is a corrupted value rather than a valid bitmap with padding.
+    //
+    // Two ambient globals decide which encoding serialize_for_valid_and_deserialize produces:
+    // a 2-element bitmap is serialized as SET while enable_set_in_bitmap_value is on (the
+    // process default), and bitmap_serialize_version selects the V1 vs V2 type code. Pin both
+    // and restore them afterwards, so the case passes whatever order gtest runs it in (other
+    // tests in this binary leave both globals modified).
+    const bool old_enable_set = config::enable_set_in_bitmap_value;
+    const int16_t old_serialize_version = config::bitmap_serialize_version;
+    config::enable_set_in_bitmap_value = false;
+    config::bitmap_serialize_version = 1;
+    BitmapValue bitmap32({1, 9999999});
+    std::string bytes = serialize_for_valid_and_deserialize(bitmap32);
+    EXPECT_EQ(BitmapTypeCode::BITMAP32, static_cast<int>(bytes[0]));
+
+    BitmapValue deserialized;
+    EXPECT_TRUE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()));
+    check_bitmap_equal(deserialized, bitmap32);
+
+    bytes += '\x7f';
+    BitmapValue rejected;
+    EXPECT_FALSE(rejected.valid_and_deserialize(bytes.data(), bytes.size()));
+    EXPECT_EQ(rejected.cardinality(), 0);
+    config::enable_set_in_bitmap_value = old_enable_set;
+    config::bitmap_serialize_version = old_serialize_version;
+}
+
 TEST(BitmapValueTest, valid_and_deserialize) {
     config::enable_set_in_bitmap_value = false;
 

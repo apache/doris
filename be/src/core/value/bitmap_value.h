@@ -862,8 +862,17 @@ private:
                                            bool* is_valid_ptr) {
         Roaring64Map result;
         bool valid = false;
-        roaring::Roaring read = read_single_roaring_safe(buf + 1, max_bytes - 1, is_v1, &valid);
+        size_t consumed = 0;
+        roaring::Roaring read =
+                read_single_roaring_safe(buf + 1, max_bytes - 1, is_v1, &valid, &consumed);
         if (!valid) {
+            *is_valid_ptr = false;
+            return result;
+        }
+        // bitmap32 holds exactly one Roaring, so the payload must be consumed exactly.
+        // Trailing bytes mean the value is corrupted (or a fixed-width column was padded);
+        // accepting them would silently turn damaged input into a valid bitmap.
+        if (consumed + 1 != max_bytes) {
             *is_valid_ptr = false;
             return result;
         }
@@ -912,13 +921,18 @@ private:
 
             // read map value Roaring
             bool valid = false;
-            roaring::Roaring read_var = read_single_roaring_safe(buf, max_bytes, is_v1, &valid);
+            size_t consumed = 0;
+            roaring::Roaring read_var =
+                    read_single_roaring_safe(buf, max_bytes, is_v1, &valid, &consumed);
             if (!valid) {
                 *is_valid_ptr = false;
                 return result;
             }
-            // forward buffer past the last Roaring Bitmap
-            size_t consumed = read_var.getSizeInBytes(is_v1);
+            // forward buffer past the last Roaring Bitmap, by the bytes the ORIGINAL
+            // encoding actually occupies (see read_single_roaring_safe: the reserialized
+            // size can differ from the input length, e.g. a portable hasrun-cookie
+            // bitmap without run containers re-serializes with the no-run cookie and
+            // 4 extra offset bytes).
             if (consumed > max_bytes) {
                 *is_valid_ptr = false;
                 return result;
@@ -933,7 +947,12 @@ private:
                 return result;
             }
         }
-        // the whole payload parsed cleanly
+        // the whole payload parsed cleanly: a bitmap64 map must consume the buffer
+        // exactly, otherwise the segments were misaligned
+        if (max_bytes != 0) {
+            *is_valid_ptr = false;
+            return result;
+        }
         *is_valid_ptr = true;
         return result;
     }
@@ -949,8 +968,18 @@ private:
     // iterates the actual bits, i.e. a heap out-of-bounds write. roaring_bitmap_internal_validate
     // cross-checks the declared and actual cardinalities (plus key order and container
     // consistency) and rejects such payloads.
+    //
+    // consumed_bytes reports how many bytes the ORIGINAL encoding occupies, which can
+    // differ from the reserialized getSizeInBytes() (a portable hasrun-cookie bitmap
+    // without run containers re-serializes with the no-run cookie plus a 4-byte offset
+    // table; a V2 ARRAY_UINT32 payload with duplicate values shrinks on reserialize).
+    // The caller advances its buffer by consumed_bytes; using the reserialized size
+    // there would mis-parse a bitmap64 map (rejecting valid payloads or reading a
+    // segment at the wrong offset).
     static roaring::Roaring read_single_roaring_safe(const char* buf, size_t max_bytes,
-                                                     bool portable, bool* is_valid_ptr) {
+                                                     bool portable, bool* is_valid_ptr,
+                                                     size_t* consumed_bytes) {
+        *consumed_bytes = 0;
         auto* r = portable ? roaring::api::roaring_bitmap_portable_deserialize_safe(buf, max_bytes)
                            : roaring::api::roaring_bitmap_deserialize_safe(buf, max_bytes);
         if (r == nullptr) {
@@ -968,6 +997,24 @@ private:
             return {};
         }
         *is_valid_ptr = true;
+        // the bytes the deserializer actually consumed, computed from the ORIGINAL
+        // encoding (never from the reserialized size)
+        if (portable) {
+            *consumed_bytes =
+                    roaring::api::roaring_bitmap_portable_deserialize_size(buf, max_bytes);
+        } else {
+            // V2 non-portable: 1-byte tag then either uint32 count + count uint32
+            // elements, or a portable bitmap - mirror roaring_bitmap_deserialize_safe.
+            if (static_cast<uint8_t>(buf[0]) == 1) { // CROARING_SERIALIZATION_ARRAY_UINT32
+                uint32_t card = decode_fixed32_le(reinterpret_cast<const uint8_t*>(buf + 1));
+                *consumed_bytes =
+                        1 + sizeof(uint32_t) + static_cast<size_t>(card) * sizeof(uint32_t);
+            } else { // CROARING_SERIALIZATION_CONTAINER
+                *consumed_bytes = 1 + roaring::api::roaring_bitmap_portable_deserialize_size(
+                                              buf + 1, max_bytes - 1);
+            }
+        }
+        DCHECK(*consumed_bytes > 0 && *consumed_bytes <= max_bytes);
         return roaring::Roaring(r);
     }
 
