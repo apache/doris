@@ -33,8 +33,9 @@ namespace doris {
 namespace {
 bool contains_nanosecond_timestamp(const iceberg::Type& type) {
     switch (type.type_id()) {
-    case iceberg::TypeID::TIMESTAMP:
-        return static_cast<const iceberg::TimestampType&>(type).is_nanosecond();
+    case iceberg::TypeID::TIMESTAMP_NS:
+    case iceberg::TypeID::TIMESTAMPTZ_NS:
+        return true;
     case iceberg::TypeID::STRUCT:
         for (const auto& field : static_cast<const iceberg::StructType&>(type).fields()) {
             if (contains_nanosecond_timestamp(*field.field_type())) {
