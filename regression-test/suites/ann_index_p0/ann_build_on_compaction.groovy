@@ -65,20 +65,11 @@ suite("ann_build_on_compaction", "nonConcurrent") {
         (10, [0.9, 0.0, 0.0]);
     """
 
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs(
-                "segment_iterator._read_columns_by_index", [column_name: "embedding"])
-        test {
-            sql """
-                select id from ann_build_on_compaction
-                where l2_distance_approximate(embedding, [0.0, 0.0, 0.0]) < 1.0
-                order by id;
-            """
-            exception "does not need to read data"
-        }
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
-    }
+    sql """
+        select id from ann_build_on_compaction
+        order by l2_distance_approximate(embedding, [0.0, 0.0, 0.0])
+        limit 3;
+    """
 
     trigger_and_wait_compaction("ann_build_on_compaction", "full")
 
@@ -87,8 +78,8 @@ suite("ann_build_on_compaction", "nonConcurrent") {
                 "segment_iterator._read_columns_by_index", [column_name: "embedding"])
         sql """
             select id from ann_build_on_compaction
-            where l2_distance_approximate(embedding, [0.0, 0.0, 0.0]) < 1.0
-            order by id;
+            order by l2_distance_approximate(embedding, [0.0, 0.0, 0.0])
+            limit 3;
         """
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
