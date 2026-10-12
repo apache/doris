@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.sql.Types;
 import java.util.Collections;
 import java.util.Optional;
@@ -45,6 +46,19 @@ class JdbcLogicalTypeMappingTest {
             assertVarbinary(sqlServer(flag), "binary", "varbinary", "image");
             assertVarbinary(new JdbcDB2ConnectorClient("test", JdbcDbType.DB2, "jdbc:db2://localhost/test",
                     false, Collections.emptyMap(), Collections.emptyMap(), flag, flag), "BLOB", "BINARY", "VARBINARY");
+        }
+    }
+
+    @Test
+    void remoteDorisVarbinaryKeepsBytesAndDeclaredLength() throws ReflectiveOperationException {
+        for (boolean flag : new boolean[] {false, true}) {
+            JdbcMySQLConnectorClient doris = new JdbcMySQLConnectorClient("test", JdbcDbType.MYSQL,
+                    "jdbc:mysql://localhost/test", false, Collections.emptyMap(), Collections.emptyMap(), flag, flag);
+            // A remote Doris is detected through the connection, which a unit test does not have.
+            Field isDoris = JdbcMySQLConnectorClient.class.getDeclaredField("isDoris");
+            isDoris.setAccessible(true);
+            isDoris.setBoolean(doris, true);
+            assertVarbinary(doris, "VARBINARY");
         }
     }
 
