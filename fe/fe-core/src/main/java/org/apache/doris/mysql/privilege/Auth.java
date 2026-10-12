@@ -240,9 +240,7 @@ public class Auth implements Writable {
 
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
-        if (getAuthenticationBinding(remoteUser, remoteHost) != null
-                || (hasAuthenticationBinding(remoteUser)
-                && userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost).isEmpty())) {
+        if (getAuthenticationBinding(remoteUser, remoteHost) != null) {
             throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost, "YES");
         }
         // Check the LDAP password when the user exists in the LDAP service.
@@ -392,16 +390,6 @@ public class Auth implements Writable {
             snapshot.setAuthenticationBinding(user.getAuthIntegration(), user.getAuthIdentity());
             snapshot.setComment(user.getComment());
             return Pair.of(snapshot, passwdPolicyManager.getPolicyInfo(identity));
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public boolean hasAuthenticationBinding(String userName) {
-        readLock();
-        try {
-            return userManager.getUserByName(userName).stream()
-                    .filter(user -> !user.isSetByDomainResolver()).anyMatch(User::isAuthenticationBound);
         } finally {
             readUnlock();
         }
@@ -749,9 +737,6 @@ public class Auth implements Writable {
 
             // 5. update password policy
             passwdPolicyManager.updatePolicy(userIdent, authIntegration == null ? password : null, passwordOptions);
-            if (authIntegration != null) {
-                passwdPolicyManager.setBoundAuthentication(userIdent, true);
-            }
 
             if (!isReplay) {
                 PrivInfo privInfo = new PrivInfo(userIdent, null, password,
@@ -1213,10 +1198,12 @@ public class Auth implements Writable {
         writeLock();
         try {
             User user = userManager.getUserByUserIdentity(userIdent);
-            boolean wasBound = user != null && user.isAuthenticationBound();
             if (!isReplay && !replaceBinding && user != null && user.isAuthenticationBound()) {
                 throw new DdlException("SET PASSWORD is not supported for authentication-bound users; "
                         + "use ALTER USER ... IDENTIFIED BY");
+            }
+            if (!isReplay && authIntegration != null) {
+                userManager.checkDomainAuthenticationBinding(userIdent);
             }
             if (!isReplay && authIntegration == null) {
                 if (!passwdPolicyManager.checkPasswordHistory(userIdent, password)) {
@@ -1230,9 +1217,6 @@ public class Auth implements Writable {
             }
             if (authIntegration != null) {
                 passwdPolicyManager.clearPasswordPolicy(userIdent);
-                passwdPolicyManager.setBoundAuthentication(userIdent, true);
-            } else if (replaceBinding) {
-                passwdPolicyManager.setBoundAuthentication(userIdent, false);
             }
             if (password != null && authIntegration == null) {
                 // save password to password history
@@ -1244,10 +1228,8 @@ public class Auth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, null, password, null, null);
+                info.setAuthenticationBinding(authIntegration, authIdentity);
                 Env.getCurrentEnv().getEditLog().logSetPassword(info);
-                if (replaceBinding && wasBound) {
-                    journalManualAccountLock(userIdent);
-                }
             }
         } finally {
             writeUnlock();
@@ -2123,105 +2105,20 @@ public class Auth implements Writable {
             String integration = info.getAuthIntegration();
             String identity = integration == null ? null : normalizeAuthenticationBinding(info.getUserIdent(),
                     integration, info.getAuthIdentity(), info.getPasswordOptions());
-            if (integration != null) {
-                alterUserBinding(info, integration, identity);
-            } else {
-                alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), info.getPassword(), null,
-                        info.getPasswordOptions(), info.getComment(), false, null, null);
-            }
+            byte[] password = integration == null ? info.getPassword() : newBoundPassword();
+            alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), password, null,
+                    info.getPasswordOptions(), info.getComment(), false, integration, identity);
         } finally {
             integrations.readUnlock();
         }
     }
 
-    private void alterUserBinding(AlterUserInfo info, String integration, String identity) throws DdlException {
-        UserIdentity userIdent = info.getUserIdent();
-        writeLock();
-        try {
-            if (!doesUserExist(userIdent)) {
-                if (info.isIfExist()) {
-                    return;
-                }
-                throw new DdlException("User " + userIdent + " does not exist");
-            }
-            userManager.checkDomainAuthenticationBinding(userIdent);
-            byte[] password = newBoundPassword();
-            setPasswordInternal(userIdent, password, null, true, false, true, true, integration, identity);
-            for (AlterUserOpType operation : info.getOps()) {
-                if (operation != AlterUserOpType.SET_PASSWORD) {
-                    alterUserInternal(false, operation, userIdent, null, null, info.getPasswordOptions(),
-                            info.getComment(), true);
-                }
-            }
-            PasswordOptions journalOptions = new PasswordOptions(PasswordOptions.UNSET, PasswordOptions.UNSET,
-                    PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, -1);
-            AlterUserOperationLog log = new AlterUserOperationLog(AlterUserOpType.SET_PASSWORD_POLICY,
-                    userIdent, password, null, journalOptions, info.getComment());
-            log.setOps(info.getOps());
-            log.setAuthenticationBinding(integration, identity, passwdPolicyManager.isAccountLocked(userIdent));
-            Env.getCurrentEnv().getEditLog().logAlterUser(log);
-            // The atomic record already applied these operations on new FEs. Old FEs only
-            // applied its lock guard, so repeat the idempotent metadata operations while
-            // that guard remains in place, before they install the random password hash.
-            for (AlterUserOpType operation : info.getOps()) {
-                if (operation == AlterUserOpType.SET_TLS_REQUIRE || operation == AlterUserOpType.MODIFY_COMMENT) {
-                    Env.getCurrentEnv().getEditLog().logAlterUser(new AlterUserOperationLog(operation,
-                            userIdent, null, null, PasswordOptions.UNSET_OPTION, info.getComment()));
-                }
-            }
-            // A legacy SET_PASSWORD_POLICY replay locks the account but does not install the hash.
-            PrivInfo passwordLog = new PrivInfo(userIdent, null, password, null, null);
-            passwordLog.setAuthenticationBinding(integration, identity);
-            Env.getCurrentEnv().getEditLog().logSetPassword(passwordLog);
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().getState().setOk(0, 1, "Local password policies and password history cleared");
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    private void journalManualAccountLock(UserIdentity identity) {
-        AlterUserOpType operation = passwdPolicyManager.isAccountLocked(identity)
-                ? AlterUserOpType.LOCK_ACCOUNT : AlterUserOpType.UNLOCK_ACCOUNT;
-        Env.getCurrentEnv().getEditLog().logAlterUser(new AlterUserOperationLog(operation, identity,
-                null, null, PasswordOptions.UNSET_OPTION, null));
-    }
-
     public void replayAlterUser(AlterUserOperationLog log) {
-        writeLock();
         try {
-            if (log.getOps() != null) {
-                alterUserInternal(true, AlterUserOpType.SET_PASSWORD, log.getUserIdent(), log.getPassword(),
-                        null, PasswordOptions.UNSET_OPTION, null, true,
-                        log.getAuthIntegration(), log.getAuthIdentity());
-                for (AlterUserOpType operation : log.getOps()) {
-                    if (operation != AlterUserOpType.SET_PASSWORD && operation != AlterUserOpType.LOCK_ACCOUNT
-                            && operation != AlterUserOpType.UNLOCK_ACCOUNT) {
-                        alterUserInternal(true, operation, log.getUserIdent(), null, log.getRole(),
-                                log.getPasswordOptions(), log.getComment(), true);
-                    }
-                }
-                if (log.getAuthIntegration() != null) {
-                    passwdPolicyManager.setBoundAuthentication(log.getUserIdent(), true, log.isBoundAccountLocked());
-                } else {
-                    if (log.getOps().contains(AlterUserOpType.LOCK_ACCOUNT)) {
-                        passwdPolicyManager.lockUser(log.getUserIdent());
-                    } else if (log.getOps().contains(AlterUserOpType.UNLOCK_ACCOUNT)) {
-                        passwdPolicyManager.unlockUser(log.getUserIdent());
-                    }
-                }
-                if (log.getUserIdent().isDomain()) {
-                    userManager.refreshAuthenticationBinding(log.getUserIdent());
-                }
-                return;
-            }
             alterUserInternal(true, log.getOp(), log.getUserIdent(), log.getPassword(), log.getRole(),
                     log.getPasswordOptions(), log.getComment(), true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
-        } finally {
-            writeUnlock();
         }
     }
 
@@ -2246,6 +2143,10 @@ public class Auth implements Writable {
                 case SET_PASSWORD:
                     setPasswordInternal(userIdent, password, null, false, false, isReplay, true,
                             authIntegration, authIdentity);
+                    if (!isReplay && authIntegration != null && ConnectContext.get() != null) {
+                        ConnectContext.get().getState().setOk(0, 1,
+                                "Local password policies and password history cleared");
+                    }
                     break;
                 case SET_ROLE:
                     setRoleToUser(userIdent, role);
@@ -2281,20 +2182,8 @@ public class Auth implements Writable {
             if (opType != AlterUserOpType.SET_PASSWORD && !isReplay) {
                 // For SET_PASSWORD:
                 //      the edit log is wrote in "setPasswordInternal"
-                User user = userManager.getUserByUserIdentity(userIdent);
-                AlterUserOperationLog log;
-                if (user.isAuthenticationBound() && (opType == AlterUserOpType.LOCK_ACCOUNT
-                        || opType == AlterUserOpType.UNLOCK_ACCOUNT)) {
-                    PasswordOptions guard = new PasswordOptions(PasswordOptions.UNSET, PasswordOptions.UNSET,
-                            PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, -1);
-                    log = new AlterUserOperationLog(AlterUserOpType.SET_PASSWORD_POLICY, userIdent,
-                            user.getPassword().getPassword(), null, guard, null);
-                    log.setOps(Collections.singleton(opType));
-                    log.setAuthenticationBinding(user.getAuthIntegration(), user.getAuthIdentity(),
-                            passwdPolicyManager.isAccountLocked(userIdent));
-                } else {
-                    log = new AlterUserOperationLog(opType, userIdent, password, role, passwordOptions, comment);
-                }
+                AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,
+                        passwordOptions, comment);
                 Env.getCurrentEnv().getEditLog().logAlterUser(log);
             }
         } finally {

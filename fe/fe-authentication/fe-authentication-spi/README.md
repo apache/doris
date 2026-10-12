@@ -183,10 +183,10 @@ ACCOUNT_LOCK. ACCOUNT_LOCK and ACCOUNT_UNLOCK remain effective. An ALTER without
 IDENTIFIED preserves the binding; a new binding without AS clears the old identity.
 An integration with bound users cannot be dropped.
 
-Local-password ALTER statements keep the existing one-operation restriction.
-Binding ALTER statements may combine identification with account lock, TLS and
-comment changes. Their atomic journal is followed by legacy-readable TLS/comment
-records while the legacy account-lock guard is still set.
+ALTER USER keeps the existing one-operation restriction for both password and
+binding statements. Change identification, account lock, TLS and comment in
+separate statements. Binding changes reuse the existing SET_PASSWORD journal,
+carrying the normalized integration and identity alongside the password hash.
 
 Legacy serving-FE image dumps may contain resolved IP aliases without recording
 whether they were created by the domain resolver. Binding a domain account is
@@ -201,13 +201,17 @@ AuthIntegration after RequireSan and reports Password as No. The mysql.user
 compatibility table exposes the integration in plugin and the identity in
 authentication_string.
 
-Bound accounts also retain a random, undisclosed local password hash and a
-compatibility account-lock flag. Current FEs distinguish that flag from the
-manual lock. Older FEs that support ACCOUNT_LOCK and enforce it for all
-authentication paths ignore the new fields and refuse the account. Before rolling
-back, disable JIT users and any external/certificate path that bypasses that lock.
-Both images
-and binding journal records retain that lock. An old-version checkpoint discards
-the binding and the distinction between the two locks; after upgrading again,
-an administrator must rebuild the binding and explicitly unlock the account.
-No FE metadata-version bump is needed.
+Bound accounts retain a password hash derived from a fresh, undisclosed random
+secret. Older FEs ignore the binding fields and cannot use the previous local
+password to authenticate the original account. ACCOUNT_LOCK and ACCOUNT_UNLOCK
+keep their ordinary manual meaning; binding does not add a compatibility lock.
+Legacy external authentication, JIT, chains and certificate paths preserve their
+previous behavior on rollback. In particular, an older FE may admit a same-name
+temporary identity at another host. Exclusive binding is enforced by the current
+FE, not retroactively by older binaries. This is an accepted rollback limitation.
+
+No FE metadata-version bump is needed. Rollback targets must already include the
+authentication-integration framework. Save binding DDL before rollback: older FEs
+ignore the fields on image/journal load and omit them when writing a checkpoint.
+After re-upgrading, reapply the saved bindings if that metadata was lost. Manual
+account-lock states are preserved without a separate compatibility-lock state.

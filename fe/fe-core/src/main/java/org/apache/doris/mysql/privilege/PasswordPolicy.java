@@ -68,11 +68,6 @@ public class PasswordPolicy {
     private HistoryPolicy historyPolicy = new HistoryPolicy();
     @SerializedName(value = "failedLoginPolicy")
     private FailedLoginPolicy failedLoginPolicy = new FailedLoginPolicy();
-    // Old FEs ignore these fields and enforce failedLoginPolicy.manuallyLocked instead.
-    @SerializedName(value = "boundAuthentication")
-    private boolean boundAuthentication;
-    @SerializedName(value = "boundAccountLocked")
-    private boolean boundAccountLocked;
 
     public PasswordPolicy() {
     }
@@ -87,7 +82,7 @@ public class PasswordPolicy {
             // MySQL-compatible ACCOUNT_LOCK: an administrative lock refuses authentication outright.
             // As in MySQL it is an AUTHENTICATION check only: sessions that already authenticated
             // are not terminated, and a proxying session is judged by the proxy's own account.
-            if (boundAuthentication ? boundAccountLocked : failedLoginPolicy.isManuallyLocked()) {
+            if (failedLoginPolicy.isManuallyLocked()) {
                 throw new AuthenticationException(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
                         curUser.getQualifiedUser(), curUser.getHost());
             }
@@ -164,8 +159,6 @@ public class PasswordPolicy {
             expirePolicy.getInfo(rows);
             historyPolicy.getInfo(rows);
             failedLoginPolicy.getInfo(rows);
-            rows.get(8).set(1, String.valueOf(boundAuthentication
-                    ? boundAccountLocked : failedLoginPolicy.isManuallyLocked()));
             return rows;
         } finally {
             lock.readLock().unlock();
@@ -175,11 +168,7 @@ public class PasswordPolicy {
     public void unlockAccount() {
         lock.writeLock().lock();
         try {
-            if (boundAuthentication) {
-                boundAccountLocked = false;
-            } else {
-                failedLoginPolicy.unlockAccount();
-            }
+            failedLoginPolicy.unlockAccount();
         } finally {
             lock.writeLock().unlock();
         }
@@ -188,7 +177,6 @@ public class PasswordPolicy {
     public void lockAccount() {
         lock.writeLock().lock();
         try {
-            boundAccountLocked = true;
             failedLoginPolicy.lockAccount();
         } finally {
             lock.writeLock().unlock();
@@ -198,24 +186,9 @@ public class PasswordPolicy {
     public boolean isAccountLocked() {
         lock.readLock().lock();
         try {
-            return boundAuthentication ? boundAccountLocked : failedLoginPolicy.isManuallyLocked();
+            return failedLoginPolicy.isManuallyLocked();
         } finally {
             lock.readLock().unlock();
-        }
-    }
-
-    public void setBoundAuthentication(boolean bound, boolean manuallyLocked) {
-        lock.writeLock().lock();
-        try {
-            boundAuthentication = bound;
-            boundAccountLocked = manuallyLocked;
-            if (bound || manuallyLocked) {
-                failedLoginPolicy.lockAccount();
-            } else {
-                failedLoginPolicy.unlockAccount();
-            }
-        } finally {
-            lock.writeLock().unlock();
         }
     }
 

@@ -88,15 +88,8 @@ public class AlterUserInfo {
     }
 
     public AlterUserOpType getOpType() {
-        if (ops.contains(AlterUserOpType.SET_PASSWORD)) {
-            return AlterUserOpType.SET_PASSWORD;
-        }
         Preconditions.checkState(ops.size() == 1, "AlterUserInfo should only carry one operation");
         return ops.iterator().next();
-    }
-
-    public Set<AlterUserOpType> getOps() {
-        return java.util.Collections.unmodifiableSet(ops);
     }
 
     public String getComment() {
@@ -144,9 +137,7 @@ public class AlterUserInfo {
             ops.add(AlterUserOpType.SET_PASSWORD_POLICY);
         }
 
-        // Preserve the existing one-operation rule for local-password statements. Only binding
-        // statements have an atomic multi-operation journal with a legacy account-lock guard.
-        if (ops.isEmpty() || (ops.size() != 1 && userDesc.getAuthIntegration() == null)) {
+        if (ops.size() != 1) {
             throw new org.apache.doris.common.AnalysisException("Only support doing one type of operation at one time,"
                 + "actual number of type is " + ops.size());
         }

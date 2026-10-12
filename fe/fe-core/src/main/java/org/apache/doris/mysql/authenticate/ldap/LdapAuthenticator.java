@@ -58,10 +58,6 @@ public class LdapAuthenticator implements Authenticator {
      */
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
-        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(request.getUserName(), request.getRemoteIp())
-                != null) {
-            return AuthenticateResponse.failedResponse;
-        }
         long start = System.currentTimeMillis();
         if (LOG.isDebugEnabled()) {
             LOG.debug("user:{} start to ldap authenticate.", request.getUserName());
@@ -130,9 +126,6 @@ public class LdapAuthenticator implements Authenticator {
                 .getUserIdentityForLdap(qualifiedUser, remoteIp);
         AuthenticateResponse response = new AuthenticateResponse(true);
         if (userIdentities.isEmpty()) {
-            if (Env.getCurrentEnv().getAuth().hasAuthenticationBinding(qualifiedUser)) {
-                return AuthenticateResponse.failedResponse;
-            }
             response.setUserIdentity(tempUserIdentity);
             response.setTemp(true);
             if (LOG.isDebugEnabled()) {

@@ -162,10 +162,6 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
                     integration.getType(), qualifiedUser);
             return AuthenticateResponse.failedResponse;
         }
-        if (Env.getCurrentEnv().getAuth().hasAuthenticationBinding(qualifiedUser)
-                || Env.getCurrentEnv().getAuth().hasAuthenticationBinding(principal.getName())) {
-            return AuthenticateResponse.failedResponse;
-        }
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);
         return withCredentialExpiration(new AuthenticateResponse(true, tempUserIdentity, true,
                 principal, result.getGrantedRoles()), result);

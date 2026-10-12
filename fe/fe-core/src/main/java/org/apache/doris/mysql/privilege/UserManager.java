@@ -380,7 +380,7 @@ public class UserManager implements Writable {
         user.setPassword(password);
     }
 
-    /** Keep already resolved domain entries consistent with the account's binding and downgrade guard. */
+    /** Keep already resolved domain entries consistent with the account's binding, TLS and manual lock. */
     public void refreshAuthenticationBinding(UserIdentity identity) {
         wlock.lock();
         try {
@@ -393,8 +393,11 @@ public class UserManager implements Writable {
                     user.setUserIdentity(createResolvedUserIdentity(identity.getQualifiedUser(),
                             user.getUserIdentity().getHost(), domain.getUserIdentity()));
                     user.setDomainUserIdentity(domain.getUserIdentity());
-                    policies.setBoundAuthentication(user.getUserIdentity(), domain.isAuthenticationBound(),
-                            policies.isAccountLocked(identity));
+                    if (policies.isAccountLocked(identity)) {
+                        policies.lockUser(user.getUserIdentity());
+                    } else {
+                        policies.unlockUser(user.getUserIdentity());
+                    }
                 }
             }
         } finally {
@@ -463,8 +466,11 @@ public class UserManager implements Writable {
                                 if (domainUser.isAuthenticationBound()) {
                                     PasswordPolicyManager policies = Env.getCurrentEnv().getAuth()
                                             .getPasswdPolicyManager();
-                                    policies.setBoundAuthentication(userIdent, true,
-                                            policies.isAccountLocked(domainUserIdent));
+                                    if (policies.isAccountLocked(domainUserIdent)) {
+                                        policies.lockUser(userIdent);
+                                    } else {
+                                        policies.unlockUser(userIdent);
+                                    }
                                 }
                             }
                         } catch (PatternMatcherException e) {

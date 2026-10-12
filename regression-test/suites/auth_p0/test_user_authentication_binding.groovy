@@ -51,6 +51,13 @@ suite("test_user_authentication_binding", "p0,auth") {
         return
     }
     order_qt_created "SHOW CREATE USER 'binding_regression'"
+    for (String option : ['ACCOUNT_LOCK', "REQUIRE SAN 'DNS:binding.example'", "COMMENT 'changed'"]) {
+        test {
+            sql """ALTER USER 'binding_regression' IDENTIFIED WITH AUTHENTICATION INTEGRATION
+                binding_regression_backup ${option}"""
+            exception "Only support doing one type of operation at one time"
+        }
+    }
     test {
         sql "DROP AUTHENTICATION INTEGRATION binding_regression_primary"
         exception "still has bound users"

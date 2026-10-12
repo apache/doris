@@ -29,7 +29,6 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Set;
 
 public class AlterUserOperationLog implements Writable {
     @SerializedName(value = "userIdent")
@@ -45,40 +44,6 @@ public class AlterUserOperationLog implements Writable {
 
     @SerializedName(value = "comment")
     private String comment;
-    @SerializedName(value = "authIntegration")
-    private String authIntegration;
-    @SerializedName(value = "authIdentity")
-    private String authIdentity;
-    @SerializedName(value = "boundAccountLocked")
-    private boolean boundAccountLocked;
-    @SerializedName(value = "ops")
-    private Set<AlterUserOpType> ops;
-
-    public void setOps(Set<AlterUserOpType> ops) {
-        this.ops = ops;
-    }
-
-    public Set<AlterUserOpType> getOps() {
-        return ops;
-    }
-
-    public void setAuthenticationBinding(String integration, String identity, boolean manuallyLocked) {
-        authIntegration = integration;
-        authIdentity = identity;
-        boundAccountLocked = manuallyLocked;
-    }
-
-    public String getAuthIntegration() {
-        return authIntegration;
-    }
-
-    public String getAuthIdentity() {
-        return authIdentity;
-    }
-
-    public boolean isBoundAccountLocked() {
-        return boundAccountLocked;
-    }
 
     public AlterUserOperationLog(AlterUserOpType opType, UserIdentity userIdent, byte[] password,
                                  String role, PasswordOptions passwordOptions, String comment) {

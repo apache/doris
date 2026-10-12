@@ -31,6 +31,8 @@ import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegrationAuthenticator;
+import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
+import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
@@ -186,9 +188,9 @@ class UserAuthenticationBindingTest {
     @Test
     void testRebindUnbindAndManualLock() throws Exception {
         execute("CREATE USER 'alice' IDENTIFIED BY 'old' PASSWORD_HISTORY 3 ACCOUNT_LOCK");
-        execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS ' External ' "
-                + "COMMENT 'bound account'");
+        execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS ' External '");
         Assertions.assertEquals(1, context.getState().getWarningRows());
+        execute("ALTER USER 'alice' COMMENT 'bound account'");
         Assertions.assertEquals("bound account", user("alice").getComment());
         Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
                 () -> auth.checkAccountLocked(user("alice").getUserIdentity()));
@@ -248,9 +250,8 @@ class UserAuthenticationBindingTest {
         Auth checkpoint = loadImage(auth, false);
         Assertions.assertNotNull(checkpoint.getAuthenticationBinding("domain_user", "10.1.2.3"));
         Auth downgraded = loadImage(auth, true);
-        Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
-                () -> downgraded.checkAccountLocked(
-                        UserIdentity.createAnalyzedUserIdentWithIp("domain_user", "10.1.2.3")));
+        Assertions.assertDoesNotThrow(() -> downgraded.checkAccountLocked(
+                UserIdentity.createAnalyzedUserIdentWithIp("domain_user", "10.1.2.3")));
     }
 
     @Test
@@ -270,8 +271,8 @@ class UserAuthenticationBindingTest {
         execute("CREATE USER 'domain_user'@('example.test') IDENTIFIED BY 'old'");
         auth.getUserManager().addUserPrivEntriesByResolvedIPs(Collections.singletonMap("example.test",
                 Collections.singleton("10.1.2.3")));
-        execute("ALTER USER 'domain_user'@('example.test') IDENTIFIED WITH AUTHENTICATION "
-                + "INTEGRATION bound REQUIRE SAN 'DNS:bound.example'");
+        execute("ALTER USER 'domain_user'@('example.test') IDENTIFIED WITH AUTHENTICATION INTEGRATION bound");
+        execute("ALTER USER 'domain_user'@('example.test') REQUIRE SAN 'DNS:bound.example'");
         UserIdentity ip = UserIdentity.createAnalyzedUserIdentWithIp("domain_user", "10.1.2.3");
         User alias = auth.getUserManager().getUserByUserIdentity(ip);
         Assertions.assertEquals("DNS:bound.example", alias.getUserIdentity().getSanRequirementSql());
@@ -303,8 +304,10 @@ class UserAuthenticationBindingTest {
     @Test
     void testShowCreateSnapshotSurvivesRebind() throws Exception {
         assertShowCreateSnapshotSurvivesAlter("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION "
-                + "INTEGRATION required AS 'replacement' ACCOUNT_UNLOCK REQUIRE SAN 'DNS:after.example' "
-                + "COMMENT 'after'");
+                + "INTEGRATION required AS 'replacement'");
+        execute("ALTER USER 'alice' ACCOUNT_UNLOCK");
+        execute("ALTER USER 'alice' REQUIRE SAN 'DNS:after.example'");
+        execute("ALTER USER 'alice' COMMENT 'after'");
         Assertions.assertEquals("required", user("alice").getAuthIntegration());
         Assertions.assertEquals("replacement", user("alice").getAuthIdentity());
         Assertions.assertEquals("after", user("alice").getComment());
@@ -362,30 +365,27 @@ class UserAuthenticationBindingTest {
     @Test
     void testBindingMetadataAlsoReplaysOnLegacyFes() throws Exception {
         execute("CREATE USER 'alice' IDENTIFIED BY 'old'");
-        execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'external' "
-                + "REQUIRE SAN 'DNS:bound.example' COMMENT 'replayed'");
+        execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'external'");
+        execute("ALTER USER 'alice' REQUIRE SAN 'DNS:bound.example'");
+        execute("ALTER USER 'alice' COMMENT 'replayed'");
         InOrder journalOrder = Mockito.inOrder(editLog);
         journalOrder.verify(editLog).logCreateUser(Mockito.any());
-        journalOrder.verify(editLog).logAlterUser(Mockito.argThat(log -> log.getAuthIntegration() != null
-                && log.getOp() == org.apache.doris.alter.AlterUserOpType.SET_PASSWORD_POLICY
-                && log.getPasswordOptions().getAccountUnlocked() == -1));
-        journalOrder.verify(editLog, Mockito.times(2)).logAlterUser(Mockito.argThat(log ->
-                log.getOp() == org.apache.doris.alter.AlterUserOpType.SET_TLS_REQUIRE
-                        || log.getOp() == org.apache.doris.alter.AlterUserOpType.MODIFY_COMMENT));
         journalOrder.verify(editLog).logSetPassword(Mockito.any());
+        journalOrder.verify(editLog, Mockito.times(2)).logAlterUser(Mockito.any());
+        journalOrder.verifyNoMoreInteractions();
         Auth legacy = replayLegacyJournal();
         UserIdentity identity = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
         User restored = legacy.getUserManager().getUserByUserIdentity(identity);
-        Assertions.assertEquals("replayed", restored.getComment());
         Assertions.assertEquals("DNS:bound.example", restored.getUserIdentity().getSanRequirementSql());
-        Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
-                () -> legacy.checkAccountLocked(identity));
+        Assertions.assertEquals("replayed", restored.getComment());
+        Assertions.assertDoesNotThrow(() -> legacy.checkAccountLocked(identity));
+        Mockito.when(env.getAuth()).thenReturn(legacy);
+        Assertions.assertFalse(legacy.checkPlainPasswordForTest("alice", "10.1.2.3", "old", null));
+        Mockito.when(env.getAuth()).thenReturn(auth);
         execute("ALTER USER 'alice' IDENTIFIED BY 'new'");
         Auth unbound = replayLegacyJournal();
         Mockito.when(env.getAuth()).thenReturn(unbound);
-        Assertions.assertEquals("DNS:bound.example", unbound.getUserManager()
-                .getUserByUserIdentity(identity).getUserIdentity().getSanRequirementSql());
-        Assertions.assertDoesNotThrow(() -> unbound.checkAccountLocked(identity));
+        Assertions.assertTrue(unbound.checkPlainPasswordForTest("alice", "10.1.2.3", "new", null));
     }
 
     @Test
@@ -438,66 +438,108 @@ class UserAuthenticationBindingTest {
     }
 
     @Test
-    void testJournalReplayWithoutPluginsAndDowngradeGuard() throws Exception {
+    void testJournalReplayWithoutPluginsAndRandomPasswordRollback() throws Exception {
         execute("CREATE USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'external'");
         ArgumentCaptor<PrivInfo> creates = ArgumentCaptor.forClass(PrivInfo.class);
         Mockito.verify(editLog).logCreateUser(creates.capture());
-        PrivInfo createLog = creates.getValue();
-        execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'second' "
-                + "COMMENT 'replayed'");
-        ArgumentCaptor<AlterUserOperationLog> alters = ArgumentCaptor.forClass(AlterUserOperationLog.class);
-        Mockito.verify(editLog, Mockito.times(2)).logAlterUser(alters.capture());
-        AlterUserOperationLog alterLog = alters.getAllValues().get(0);
+        execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'second'");
         ArgumentCaptor<PrivInfo> passwords = ArgumentCaptor.forClass(PrivInfo.class);
         Mockito.verify(editLog).logSetPassword(passwords.capture());
-        PrivInfo passwordLog = passwords.getValue();
+        execute("ALTER USER 'alice' COMMENT 'replayed'");
+        ArgumentCaptor<AlterUserOperationLog> alters = ArgumentCaptor.forClass(AlterUserOperationLog.class);
+        Mockito.verify(editLog).logAlterUser(alters.capture());
         AuthenticationIntegrationRuntime unloaded = Mockito.mock(AuthenticationIntegrationRuntime.class);
         Mockito.when(env.getAuthenticationIntegrationRuntime()).thenReturn(unloaded);
         Auth replay = new Auth();
         Mockito.when(env.getAuth()).thenReturn(replay);
-        replay.replayCreateUser(createLog);
-        replay.replayAlterUser(alterLog);
-        replay.replaySetPassword(passwordLog);
-        User restored = replay.getUserManager().getUserByUserIdentity(user("alice").getUserIdentity());
+        replay.replayCreateUser(creates.getValue());
+        replay.replaySetPassword(passwords.getValue());
+        replay.replayAlterUser(alters.getValue());
+        UserIdentity identity = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+        User restored = replay.getUserManager().getUserByUserIdentity(identity);
         Assertions.assertEquals("second", restored.getAuthIdentity());
         Assertions.assertEquals("replayed", restored.getComment());
-        Assertions.assertDoesNotThrow(() -> replay.checkAccountLocked(restored.getUserIdentity()));
+        Assertions.assertDoesNotThrow(() -> replay.checkAccountLocked(identity));
         Mockito.verifyNoInteractions(unloaded);
         Auth checkpoint = loadImage(replay, false);
         Assertions.assertEquals("second", checkpoint.getAuthenticationBinding("alice", "10.1.2.3").getAuthIdentity());
         Auth downgraded = loadImage(replay, true);
+        Mockito.when(env.getAuth()).thenReturn(downgraded);
         Assertions.assertNull(downgraded.getAuthenticationBinding("alice", "10.1.2.3"));
-        Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
-                () -> downgraded.checkAccountLocked(restored.getUserIdentity()));
-        Auth legacyReplay = new Auth();
-        JsonElement legacyCreate = GsonUtils.GSON.toJsonTree(createLog);
-        removeBindingFields(legacyCreate);
-        legacyReplay.replayCreateUser(GsonUtils.GSON.fromJson(legacyCreate, PrivInfo.class));
-        JsonElement legacyAlter = GsonUtils.GSON.toJsonTree(alterLog);
-        removeBindingFields(legacyAlter);
-        legacyReplay.replayAlterUser(GsonUtils.GSON.fromJson(legacyAlter, AlterUserOperationLog.class));
-        JsonElement legacyPassword = GsonUtils.GSON.toJsonTree(passwordLog);
-        removeBindingFields(legacyPassword);
-        legacyReplay.replaySetPassword(GsonUtils.GSON.fromJson(legacyPassword, PrivInfo.class));
-        Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
-                () -> legacyReplay.checkAccountLocked(restored.getUserIdentity()));
+        Assertions.assertDoesNotThrow(() -> downgraded.checkAccountLocked(identity));
+        Assertions.assertArrayEquals(restored.getPassword().getPassword(), downgraded.getUserManager()
+                .getUserByUserIdentity(identity).getPassword().getPassword());
+        Assertions.assertFalse(downgraded.checkPlainPasswordForTest("alice", "10.1.2.3", "external", null));
     }
 
     @Test
-    void testLegacyJournalKeepsGuardAfterUnlockAndRestoresLocalLoginAfterUnbind() throws Exception {
+    void testLegacyJournalPreservesManualLocksAndLocalLoginAfterUnbind() throws Exception {
         execute("CREATE USER 'alice' IDENTIFIED BY 'old'");
         execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound");
         execute("ALTER USER 'alice' ACCOUNT_LOCK");
+        Auth locked = replayLegacyJournal();
+        Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
+                () -> locked.checkAccountLocked(user("alice").getUserIdentity()));
         execute("ALTER USER 'alice' ACCOUNT_UNLOCK");
         Auth legacy = replayLegacyJournal();
-        Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
-                () -> legacy.checkAccountLocked(user("alice").getUserIdentity()));
+        Assertions.assertDoesNotThrow(() -> legacy.checkAccountLocked(user("alice").getUserIdentity()));
         Assertions.assertArrayEquals(user("alice").getPassword().getPassword(), legacy.getUserManager()
                 .getUserByUserIdentity(user("alice").getUserIdentity()).getPassword().getPassword());
+        Mockito.when(env.getAuth()).thenReturn(legacy);
+        Assertions.assertFalse(legacy.checkPlainPasswordForTest("alice", "10.1.2.3", "old", null));
+        Mockito.when(env.getAuth()).thenReturn(auth);
         execute("ALTER USER 'alice' IDENTIFIED BY 'new'");
         Auth unbound = replayLegacyJournal();
         Mockito.when(env.getAuth()).thenReturn(unbound);
         Assertions.assertTrue(unbound.checkPlainPasswordForTest("alice", "10.1.2.3", "new", null));
+    }
+
+    @Test
+    void testBindingAlterKeepsLegacySingleOperationRule() throws Exception {
+        execute("CREATE USER 'alice' IDENTIFIED BY 'old'");
+        Mockito.clearInvocations(editLog);
+        for (String option : Arrays.asList("ACCOUNT_LOCK", "REQUIRE SAN 'DNS:bound.example'", "COMMENT 'changed'")) {
+            Assertions.assertThrows(org.apache.doris.common.AnalysisException.class, () -> execute(
+                    "ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound " + option));
+        }
+        Mockito.verifyNoInteractions(editLog);
+        Assertions.assertNull(user("alice").getAuthIntegration());
+        Assertions.assertTrue(auth.checkPlainPasswordForTest("alice", "10.1.2.3", "old", null));
+    }
+
+    @Test
+    void testJitForDifferentHostKeepsExistingSemantics() throws Exception {
+        execute("CREATE USER 'alice'@'10.%' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound");
+        java.util.Map<String, String> properties = new java.util.HashMap<>();
+        properties.put("type", "binding_test");
+        properties.put("enable_jit_user", "true");
+        integrations.createAuthenticationIntegration("jit", false, properties, "", "root");
+        AuthenticationIntegrationAuthenticator authenticator =
+                new AuthenticationIntegrationAuthenticator("jit", "authentication_chain");
+        AuthenticateResponse temporary = authenticator.authenticate(
+                new AuthenticateRequest("alice", new ClearPassword("external"), "192.168.1.2"));
+        Assertions.assertTrue(temporary.isSuccess());
+        Assertions.assertTrue(temporary.isTemp());
+        Assertions.assertEquals(UserIdentity.createAnalyzedUserIdentWithIp("alice", "192.168.1.2"),
+                temporary.getUserIdentity());
+        Assertions.assertFalse(authenticator.authenticate(request("alice", "external")).isSuccess());
+    }
+
+    @Test
+    void testLegacyLdapTemporaryUserForDifferentHostKeepsExistingSemantics() throws Exception {
+        execute("CREATE USER 'alice'@'10.%' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound");
+        LdapManager ldap = Mockito.mock(LdapManager.class);
+        Mockito.when(ldap.checkUserPasswd("alice", "external")).thenReturn(true);
+        Auth observed = Mockito.spy(auth);
+        Mockito.doReturn(ldap).when(observed).getLdapManager();
+        Mockito.when(env.getAuth()).thenReturn(observed);
+        AuthenticateResponse response = new LdapAuthenticator().authenticate(
+                new AuthenticateRequest("alice", new ClearPassword("external"), "192.168.1.2"));
+        Assertions.assertTrue(response.isSuccess());
+        Assertions.assertTrue(response.isTemp());
+        Assertions.assertEquals(UserIdentity.createAnalyzedUserIdentWithIp("alice", "192.168.1.2"),
+                response.getUserIdentity());
+        Assertions.assertNotNull(observed.getAuthenticationBinding("alice", "10.1.2.3"));
     }
 
     private Auth replayLegacyJournal() {
@@ -555,8 +597,7 @@ class UserAuthenticationBindingTest {
     private void removeBindingFields(JsonElement element) {
         if (element.isJsonObject()) {
             JsonObject object = element.getAsJsonObject();
-            for (String field : Arrays.asList("authIntegration", "authIdentity", "boundAuthentication",
-                    "boundAccountLocked", "ops", "domainUserIdentity", "isSetByDomainResolver")) {
+            for (String field : Arrays.asList("authIntegration", "authIdentity", "domainUserIdentity", "isSetByDomainResolver")) {
                 object.remove(field);
             }
             object.entrySet().forEach(entry -> removeBindingFields(entry.getValue()));
