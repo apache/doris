@@ -17,6 +17,7 @@
 
 suite("test_condition_cache_complex_literal") {
     sql "set enable_sql_cache=false"
+    sql "set enable_agg_state=true"
     sql "drop table if exists condition_cache_complex_literal"
     sql """
         create table condition_cache_complex_literal (id int)
@@ -26,24 +27,54 @@ suite("test_condition_cache_complex_literal") {
     """
     sql "insert into condition_cache_complex_literal values (1), (2)"
 
-    // This is an execution regression: computing the scan digest must not throw
-    // merely because a predicate contains a typed NULL bitmap literal.
-    for (boolean enabled : [true, false, true]) {
-        sql "set enable_condition_cache=${enabled}"
-        sql """
+    def queries = [
+        """
             select id from condition_cache_complex_literal
             where bitmap_count(if(id=1, to_bitmap(1), cast(null as bitmap))) > 0
             order by id
+        """,
         """
-        sql """
             select id from condition_cache_complex_literal
             where bitmap_count(case when id=1 then to_bitmap(1)
                               else cast(null as bitmap) end) > 0
             order by id
+        """,
         """
+            select id from condition_cache_complex_literal
+            where md5sum(X'61', to_binary(cast(id as string))) <> ''
+            order by id
+        """,
+        // FE folds this array into a literal, while the row-dependent index
+        // keeps it in the scan predicate. Even its NULL bitmap element lacks xxHash.
+        """
+            select id from condition_cache_complex_literal
+            where bitmap_count(element_at(array(cast(null as bitmap)), id)) = 0
+            order by id
+        """,
+        """
+            select id from condition_cache_complex_literal
+            where element_at(array(cast(null as agg_state<sum(int not null)>)), id) is null
+            order by id
+        """,
+        """
+            select id from condition_cache_complex_literal
+            where element_at(array(1, 2), id) = id
+            order by id
+        """,
+        """
+            select id, bitmap_count(if(id=1, to_bitmap(1), cast(null as bitmap)))
+            from condition_cache_complex_literal order by id
+        """
+    ]
+
+    // Compare each query with uncached execution to verify that cache transitions
+    // and repeated enabled execution preserve the row results.
+    sql "set enable_condition_cache=false"
+    def uncachedResults = queries.collect { query -> sql(query) }
+    for (boolean enabled : [true, true, false, true]) {
+        sql "set enable_condition_cache=${enabled}"
+        queries.eachWithIndex { query, index ->
+            assertEquals(uncachedResults[index], sql(query))
+        }
     }
-    sql """
-        select id, bitmap_count(if(id=1, to_bitmap(1), cast(null as bitmap)))
-        from condition_cache_complex_literal order by id
-    """
 }
