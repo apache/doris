@@ -74,7 +74,7 @@ TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetWithPaimonCommitDat
     paimon_message.__set_payload(std::string(300, 'y'));
 
     Status first_status = iceberg_state.add_iceberg_commit_datas(iceberg_data);
-    size_t paimon_reservation = 0;
+    ExternalFileReportReservation paimon_reservation;
     Status second_status =
             paimon_state.reserve_paimon_commit_messages({paimon_message}, &paimon_reservation);
 
@@ -86,24 +86,25 @@ TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetWithPaimonCommitDat
     EXPECT_TRUE(collected.empty());
 }
 
-TEST(RuntimeStateIcebergCommitDataTest, ReleasesUnpublishedPaimonReservation) {
+TEST(RuntimeStateIcebergCommitDataTest, ReleasesUnpublishedPaimonReservationOnScopeExit) {
     RuntimeState state;
     const int32_t saved_limit = config::thrift_max_message_size;
     config::thrift_max_message_size = 1024 * 1024 + 512;
     TPaimonCommitMessage first_message;
     first_message.__set_payload(std::string(300, 'x'));
-    size_t first_reservation = 0;
-    ASSERT_TRUE(state.reserve_paimon_commit_messages({first_message}, &first_reservation).ok());
+    {
+        ExternalFileReportReservation first_reservation;
+        ASSERT_TRUE(state.reserve_paimon_commit_messages({first_message}, &first_reservation).ok());
+    }
 
-    state.release_paimon_commit_message_reservation(first_reservation);
     TPaimonCommitMessage second_message;
     second_message.__set_payload(std::string(300, 'y'));
-    size_t second_reservation = 0;
+    ExternalFileReportReservation second_reservation;
     Status second_status =
             state.reserve_paimon_commit_messages({second_message}, &second_reservation);
     config::thrift_max_message_size = saved_limit;
     ASSERT_TRUE(second_status.ok()) << second_status;
-    state.publish_reserved_paimon_commit_messages({std::move(second_message)});
+    state.publish_reserved_paimon_commit_messages({std::move(second_message)}, &second_reservation);
     std::vector<TPaimonCommitMessage> collected;
     state.append_paimon_commit_messages(&collected);
     ASSERT_EQ(1, collected.size());
@@ -143,9 +144,9 @@ TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
     state.add_mc_commit_datas(mc_data);
     TPaimonCommitMessage paimon_message;
     paimon_message.__set_payload("paimon-fragment");
-    size_t paimon_reservation = 0;
+    ExternalFileReportReservation paimon_reservation;
     ASSERT_TRUE(state.reserve_paimon_commit_messages({paimon_message}, &paimon_reservation).ok());
-    state.publish_reserved_paimon_commit_messages({std::move(paimon_message)});
+    state.publish_reserved_paimon_commit_messages({std::move(paimon_message)}, &paimon_reservation);
     TReportExecStatusParams periodic_params;
 
     state.append_external_file_commit_data(&periodic_params, false);

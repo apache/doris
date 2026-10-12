@@ -78,6 +78,24 @@ class TaskExecutionContext;
 
 // Keep RuntimeState self-contained without importing the full frontend Thrift service header.
 class TReportExecStatusParams;
+class RuntimeState;
+
+// Owns a share of the external-file report budget until the prepared commit messages are
+// published. Destruction releases an unpublished reservation automatically.
+class ExternalFileReportReservation {
+public:
+    ExternalFileReportReservation() = default;
+    ~ExternalFileReportReservation();
+
+    ExternalFileReportReservation(const ExternalFileReportReservation&) = delete;
+    ExternalFileReportReservation& operator=(const ExternalFileReportReservation&) = delete;
+
+private:
+    friend class RuntimeState;
+
+    RuntimeState* _state = nullptr;
+    size_t _reserved_bytes = 0;
+};
 
 class ExternalFileReportState {
     friend class RuntimeState;
@@ -548,13 +566,12 @@ public:
     Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
 
     // Reserve report space before closing the Paimon writer, then either publish the prepared
-    // messages after a clean close or release the reservation while aborting the writer.
+    // messages after a clean close or let the reservation release itself while aborting the writer.
     Status reserve_paimon_commit_messages(const std::vector<TPaimonCommitMessage>& commit_messages,
-                                          size_t* reserved_bytes);
+                                          ExternalFileReportReservation* reservation);
 
-    void publish_reserved_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages);
-
-    void release_paimon_commit_message_reservation(size_t reserved_bytes);
+    void publish_reserved_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages,
+                                                 ExternalFileReportReservation* reservation);
 
     void append_paimon_commit_messages(std::vector<TPaimonCommitMessage>* output) const {
         std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
@@ -921,6 +938,10 @@ public:
     void merge_register_runtime_filter(const std::set<int>& runtime_filter_ids);
 
 private:
+    friend class ExternalFileReportReservation;
+
+    void release_external_file_report_reservation(size_t reserved_bytes);
+
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 4062;

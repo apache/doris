@@ -57,6 +57,13 @@
 #include "util/uid_util.h"
 
 namespace doris {
+
+ExternalFileReportReservation::~ExternalFileReportReservation() {
+    if (_state != nullptr) {
+        _state->release_external_file_report_reservation(_reserved_bytes);
+    }
+}
+
 using namespace ErrorCode;
 
 Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data) {
@@ -85,9 +92,10 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
 }
 
 Status RuntimeState::reserve_paimon_commit_messages(
-        const std::vector<TPaimonCommitMessage>& commit_messages, size_t* reserved_bytes) {
-    DORIS_CHECK(reserved_bytes != nullptr);
-    *reserved_bytes = 0;
+        const std::vector<TPaimonCommitMessage>& commit_messages,
+        ExternalFileReportReservation* reservation) {
+    DORIS_CHECK(reservation != nullptr);
+    DORIS_CHECK(reservation->_state == nullptr);
     size_t serialized_bytes = 0;
     ThriftSerializer serializer(false, 256);
     for (const auto& commit_message : commit_messages) {
@@ -109,19 +117,25 @@ Status RuntimeState::reserve_paimon_commit_messages(
                 "count");
     }
     _external_file_report_state->serialized_commit_bytes += serialized_bytes;
-    *reserved_bytes = serialized_bytes;
+    reservation->_state = this;
+    reservation->_reserved_bytes = serialized_bytes;
     return Status::OK();
 }
 
 void RuntimeState::publish_reserved_paimon_commit_messages(
-        std::vector<TPaimonCommitMessage> commit_messages) {
+        std::vector<TPaimonCommitMessage> commit_messages,
+        ExternalFileReportReservation* reservation) {
+    DORIS_CHECK(reservation != nullptr);
+    DORIS_CHECK(reservation->_state == this);
     std::lock_guard<std::mutex> data_lock(_paimon_commit_messages_mutex);
     for (auto& commit_message : commit_messages) {
         _paimon_commit_messages.emplace_back(std::move(commit_message));
     }
+    reservation->_state = nullptr;
+    reservation->_reserved_bytes = 0;
 }
 
-void RuntimeState::release_paimon_commit_message_reservation(size_t reserved_bytes) {
+void RuntimeState::release_external_file_report_reservation(size_t reserved_bytes) {
     std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
     DORIS_CHECK_GE(_external_file_report_state->serialized_commit_bytes, reserved_bytes);
     _external_file_report_state->serialized_commit_bytes -= reserved_bytes;

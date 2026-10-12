@@ -115,7 +115,7 @@ Status PaimonTableWriter::close(Status status) {
     }
 
     // Reserve the shared report budget while the writer can still abort its prepared files.
-    size_t commit_message_reservation = 0;
+    ExternalFileReportReservation commit_message_reservation;
     if (status.ok()) {
         Status reserve_st =
                 _state->reserve_paimon_commit_messages(messages, &commit_message_reservation);
@@ -161,13 +161,12 @@ Status PaimonTableWriter::close(Status status) {
             COUNTER_UPDATE(_commit_payload_bytes_counter, static_cast<int64_t>(msg.payload.size()));
         }
         const size_t message_count = messages.size();
-        _state->publish_reserved_paimon_commit_messages(std::move(messages));
+        _state->publish_reserved_paimon_commit_messages(std::move(messages),
+                                                        &commit_message_reservation);
         if (message_count > 0) {
             LOG(INFO) << "Paimon writer closed: " << message_count
                       << " commit messages, total rows=" << _written_rows;
         }
-    } else {
-        _state->release_paimon_commit_message_reservation(commit_message_reservation);
     }
 
     _backend.reset();
