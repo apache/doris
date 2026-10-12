@@ -115,7 +115,8 @@ public class FunctionRegistry {
                 return containsAggregateFunction(functionBuilders);
             }
             if (isBuiltinAggStateCombinator(name)) {
-                return !name.endsWith(AggCombinerFunctionBuilder.STATE_SUFFIX);
+                return !name.endsWith(AggCombinerFunctionBuilder.STATE_SUFFIX)
+                        && !name.endsWith(AggCombinerFunctionBuilder.FINALIZE_SUFFIX);
             }
         }
 

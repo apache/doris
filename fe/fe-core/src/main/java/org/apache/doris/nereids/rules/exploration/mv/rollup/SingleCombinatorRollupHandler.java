@@ -56,7 +56,7 @@ public class SingleCombinatorRollupHandler extends AggFunctionRollUpHandler {
         if (!(queryAggregateFunction instanceof Combinator)
                 && (viewFunction instanceof UnionCombinator || viewFunction instanceof StateCombinator
                         || viewFunction instanceof CombineCombinator)) {
-            Combinator viewCombinator = extractLastExpression(viewFunction, Combinator.class);
+            Combinator viewCombinator = extractRollupCombinator((Combinator) viewFunction);
             return Objects.equals(queryAggregateFunction,
                     viewCombinator.getNestedFunction().withChildren(viewCombinator.getArguments()));
         }
