@@ -1246,6 +1246,10 @@ static bool rewrite_in_struct_literal_predicate(
     return true;
 }
 
+// Defined with the other mapping-shape helpers below; needed when rewriting table expressions to
+// file-local expressions (a slot with unmapped children cannot stand in for the table value).
+static bool mapping_slot_has_unmapped_child(const ColumnMapping& mapping);
+
 static VExprSPtr rewrite_struct_or_slot_expr_to_file_expr(
         const VExprSPtr& expr,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
@@ -1288,6 +1292,15 @@ static VExprSPtr rewrite_struct_or_slot_expr_to_file_expr(
         return expr;
     }
     const auto& rewrite_info = rewrite_it->second;
+    DORIS_CHECK(rewrite_info.root_mapping != nullptr);
+    if (mapping_slot_has_unmapped_child(*rewrite_info.root_mapping)) {
+        // Final materialization substitutes a default/NULL for every child the projection left
+        // unmapped, so the file slot carries only a partial value: any file-local evaluation under
+        // this slot (whole-root casts included) would use a different value than the user sees.
+        // Keep such predicates above TableReader instead of filtering on the physical row.
+        *can_localize = false;
+        return expr;
+    }
     auto file_slot = create_file_slot_ref(*slot_ref, rewrite_info, rewrite_context);
     if (rewrite_info.file_type->equals(*rewrite_info.table_type)) {
         return file_slot;
@@ -1500,6 +1513,16 @@ static bool needs_complex_rematerialize(const ColumnMapping& mapping) {
     return false;
 }
 
+// The physical slot is only a partial carrier of the table value when the projection left at least
+// one descendant without a file mapping: final materialization substitutes a default/NULL for that
+// child, so a predicate rooted at this slot must not be evaluated on the file value (DORIS-29685).
+// Scalar type promotion and struct renaming keep their existing localization paths.
+static bool mapping_slot_has_unmapped_child(const ColumnMapping& mapping) {
+    return std::ranges::any_of(mapping.child_mappings, [](const ColumnMapping& child) {
+        return !child.file_local_id.has_value() || mapping_slot_has_unmapped_child(child);
+    });
+}
+
 static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     if (mapping.table_type == nullptr || mapping.file_type == nullptr) {
         return false;
@@ -1510,6 +1533,9 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
             table_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
             file_type->get_primitive_type() == TYPE_TIMESTAMPTZ;
     if (!mapping.table_type->equals(*mapping.file_type) && !same_timestamptz_with_different_scale) {
+        return false;
+    }
+    if (mapping_slot_has_unmapped_child(mapping)) {
         return false;
     }
     return !needs_complex_rematerialize(mapping);
