@@ -30,6 +30,9 @@
 //      and any read or write failure leaves no sealed container behind.
 //   5. The copy runs through a fixed-size buffer, so its memory does not grow
 //      with the source file.
+//   6. A declaration the copied bytes depend on travels with them: an inherited gram index
+//      whose dictionary holds locator-less shortened entries keeps its own dropped-posting
+//      declaration, and an index appended beside it does not acquire one.
 
 #include <gtest/gtest.h>
 
@@ -41,8 +44,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/snii/format/bootstrap_header.h"
 #include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/metadata_directory.h"
 #include "storage/index/snii/format/tail_pointer.h"
 #include "storage/index/snii/io/file_reader.h"
 #include "storage/index/snii/io/file_writer.h"
@@ -253,6 +258,48 @@ std::vector<uint32_t> QueryTerm(const std::vector<uint8_t>& image, uint64_t inde
     return docids;
 }
 
+// Decodes an image's own metadata directory, which is where each entry's dropped-posting
+// declaration lives.
+MetadataDirectory ReadDirectory(const std::vector<uint8_t>& image) {
+    const TailPointer tail = ReadTail(image);
+    MetadataDirectory directory;
+    EXPECT_LE(tail.directory_offset + tail.directory_length, image.size());
+    EXPECT_TRUE(MetadataDirectory::decode(Slice(image.data() + tail.directory_offset,
+                                                static_cast<size_t>(tail.directory_length)),
+                                          &directory)
+                        .ok());
+    return directory;
+}
+
+// The only entry for (index_id, suffix) in a decoded directory.
+const LogicalIndexMetadataRef& EntryOf(const MetadataDirectory& directory, uint64_t index_id,
+                                       const char* suffix) {
+    for (const auto& entry : directory.entries()) {
+        if (entry.index_id == index_id && entry.index_suffix == suffix) {
+            return entry;
+        }
+    }
+    ADD_FAILURE() << "no entry for index " << index_id << " suffix " << suffix;
+    static const LogicalIndexMetadataRef kMissing {};
+    return kMissing;
+}
+
+// A gram index whose commonest term is over the stop-gram threshold, so the writer keeps the
+// dictionary entry and drops its posting. That shortened entry is what an old reader misparses
+// and what the dropped-posting feature exists to fence off.
+SniiIndexInput MakeStoppedGramInput(uint64_t index_id, const char* suffix, uint32_t doc_count) {
+    SniiIndexInput in = MakeInput(index_id, suffix, SingleTermCorpus(kTermA, doc_count), doc_count);
+    in.config = IndexConfig::kDocsOnly;
+    in.stop_gram_df_threshold = 1;
+    doris::segment_v2::gram::GramScheme scheme;
+    scheme.mode = doris::segment_v2::gram::GramMode::SPARSE;
+    scheme.min_len = 3;
+    scheme.max_len = 4;
+    scheme.density_permille = 250;
+    in.gram_scheme = scheme;
+    return in;
+}
+
 } // namespace
 
 TEST(SniiCompoundWriterInherit, CarriesInheritedIndexesAndAppendsANewOne) {
@@ -279,6 +326,50 @@ TEST(SniiCompoundWriterInherit, CarriesInheritedIndexesAndAppendsANewOne) {
     EXPECT_EQ(expected_docids, QueryTerm(output, kIndexIdA, kSuffixA, kTermA));
     EXPECT_EQ(expected_docids, QueryTerm(output, kIndexIdB, kSuffixB, kTermB));
     EXPECT_EQ(expected_docids, QueryTerm(output, kIndexIdC, kSuffixC, kTermC));
+}
+
+// BUILD INDEX can hand an unchanged gram index to inherit_keys. Its dictionary is copied
+// verbatim -- locator-less shortened entries included -- so the replacement container has to go
+// on declaring dropped postings for THAT index. Without it, a reader that expects every entry to
+// carry a locator reads the copied bytes as a slim POD reference and reports the container
+// truncated, which is precisely the misparse the feature exists to prevent. The declaration is
+// per index rather than per container for the other direction: an index appended beside it that
+// dropped nothing must not acquire one, or a rewrite keeping only such indexes would fence an
+// old reader off a container it could read in full.
+TEST(SniiCompoundWriterInherit, InheritedIndexKeepsTheDroppedPostingDeclaration) {
+    // A production segment only drops postings above kHighDfDigestDivisor rows, so the source
+    // here is that size: below it the writer keeps every posting and the test would pass for
+    // the wrong reason.
+    const uint32_t stopped_doc_count = static_cast<uint32_t>(kHighDfDigestDivisor);
+    SniiIndexInput stopped = MakeStoppedGramInput(kIndexIdA, kSuffixA, stopped_doc_count);
+    const std::vector<uint8_t> source = WriteContainer({&stopped});
+
+    const MetadataDirectory source_directory = ReadDirectory(source);
+    ASSERT_TRUE(EntryOf(source_directory, kIndexIdA, kSuffixA).dropped_postings)
+            << "the source must really drop a posting, or this test proves nothing";
+
+    ImageFileReader source_reader(source);
+    SniiSegmentReader source_segment;
+    ASSERT_TRUE(SniiSegmentReader::open(&source_reader, &source_segment).ok());
+    SniiRewriteSnapshot snapshot;
+    ASSERT_TRUE(source_segment
+                        .prepare_rewrite_snapshot(KeysOf({{kIndexIdA, kSuffixA}}),
+                                                  stopped_doc_count, &snapshot)
+                        .ok());
+
+    MemoryFileWriter sink;
+    SniiCompoundWriter compound(&sink);
+    ASSERT_TRUE(compound.inherit(snapshot, &source_reader).ok());
+    SniiIndexInput fresh =
+            MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount), kDocCount);
+    ASSERT_TRUE(compound.add_logical_index(fresh).ok());
+    ASSERT_TRUE(compound.finish().ok());
+
+    const MetadataDirectory output_directory = ReadDirectory(sink.bytes());
+    EXPECT_TRUE(EntryOf(output_directory, kIndexIdA, kSuffixA).dropped_postings)
+            << "the inherited entry lost the declaration its copied bytes depend on";
+    // The index appended alongside it drops nothing, and inheritance must not claim it does.
+    EXPECT_FALSE(EntryOf(output_directory, kIndexIdC, kSuffixC).dropped_postings);
 }
 
 TEST(SniiCompoundWriterInherit, CopiesThePhysicalPrefixByteForByte) {

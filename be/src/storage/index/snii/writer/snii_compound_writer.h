@@ -256,6 +256,7 @@ private:
         size_t core_length = 0;
         size_t sampled_term_index_length = 0;
         size_t dict_block_directory_length = 0;
+        bool dropped_postings = false;
     };
 
     // One registered blob logical index awaiting finish(). cold/hot refs are

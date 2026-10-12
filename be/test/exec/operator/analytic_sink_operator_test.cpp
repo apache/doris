@@ -494,6 +494,68 @@ TEST_F(AnalyticSinkOperatorTest, UnboundedRowsRetainsNextUnreadRowDuringEviction
     EXPECT_TRUE(eos);
 }
 
+TEST_F(AnalyticSinkOperatorTest, LeadBeyondPartitionUsesDefaultFromCurrentRow) {
+    Initialize(3);
+    const auto string_type = std::make_shared<DataTypeString>();
+    const DataTypes argument_types {string_type, std::make_shared<DataTypeInt64>(), string_type};
+    create_operator(true, 1, "lead", argument_types, string_type);
+    sink->_num_agg_input[0] = argument_types.size();
+    sink->_agg_expr_ctxs = {MockSlotRef::create_mock_contexts(argument_types)};
+
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::FOLLOWING;
+    window_end.__set_rows_offset_value(100);
+    window.__set_window_end(window_end);
+    create_window_type(false, true, window);
+    create_local_state();
+
+    const auto defaults = ColumnHelper::create_column<DataTypeString>({"first", "second", "third"});
+    Block input {{ColumnHelper::create_column<DataTypeString>({"a", "b", "c"}), string_type, "v"},
+                 {ColumnHelper::create_column<DataTypeInt64>({100, 100, 100}), argument_types[1],
+                  "offset"},
+                 {defaults, string_type, "default"}};
+    ASSERT_TRUE(sink->sink(state.get(), &input, true).ok());
+
+    Block result;
+    bool eos = false;
+    ASSERT_TRUE(source->get_block(state.get(), &result, &eos).ok());
+    ASSERT_EQ(result.columns(), 4);
+    EXPECT_TRUE(ColumnHelper::column_equal(result.get_by_position(3).column, defaults));
+}
+
+TEST_F(AnalyticSinkOperatorTest, FirstFollowingFrameIncludesPrefixAcrossBlocks) {
+    Initialize(2);
+    const auto type = std::make_shared<DataTypeInt64>();
+    create_operator(true, 1, "sum", {type}, type);
+    sink->_agg_expr_ctxs = {MockSlotRef::create_mock_contexts(type)};
+
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::FOLLOWING;
+    window_end.__set_rows_offset_value(1);
+    window.__set_window_end(window_end);
+    create_window_type(false, true, window);
+    create_local_state();
+
+    Block first = ColumnHelper::create_block<DataTypeInt64>({1, 2});
+    ASSERT_TRUE(sink->sink(state.get(), &first, false).ok());
+    Block second = ColumnHelper::create_block<DataTypeInt64>({3, 4});
+    ASSERT_TRUE(sink->sink(state.get(), &second, true).ok());
+
+    Block result;
+    bool eos = false;
+    ASSERT_TRUE(source->get_block(state.get(), &result, &eos).ok());
+    EXPECT_TRUE(ColumnHelper::block_equal(
+            result, ColumnHelper::create_block<DataTypeInt64>({1, 2}, {3, 6})));
+    result.clear();
+    ASSERT_TRUE(source->get_block(state.get(), &result, &eos).ok());
+    EXPECT_TRUE(ColumnHelper::block_equal(
+            result, ColumnHelper::create_block<DataTypeInt64>({3, 4}, {10, 10})));
+}
+
 TEST_F(AnalyticSinkOperatorTest, SlidingRowsSumRetainsOutgoingRowDuringEviction) {
     int batch_size = 2;
     Initialize(batch_size);

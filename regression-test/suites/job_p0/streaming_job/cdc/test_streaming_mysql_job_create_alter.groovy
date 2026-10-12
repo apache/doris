@@ -181,7 +181,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                   "table.create.properties.replication_num" = "1"
                 )
             """
-            exception "No tables found in database"
+            exception "No source tables found in database"
         }
 
         // no match table

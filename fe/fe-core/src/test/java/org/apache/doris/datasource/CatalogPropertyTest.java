@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -99,5 +100,33 @@ public class CatalogPropertyTest {
             Thread.currentThread().interrupt();
             throw new AssertionError("Interrupted while initializing storage adapters", e);
         }
+    }
+
+    @Test
+    public void testTimestampMappingCannotBeDisabled() {
+        CatalogProperty properties = new CatalogProperty(null,
+                new HashMap<>(Collections.singletonMap(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "false")));
+        Assertions.assertTrue(properties.getEnableMappingTimestampTz());
+        properties.setEnableMappingTimestampTz(false);
+        Assertions.assertEquals("true", properties.getProperties().get(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ));
+    }
+
+    @Test
+    public void testVarbinaryMappingCannotBeDisabled() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false");
+        CatalogProperty catalogProperty = new CatalogProperty(null, properties);
+
+        Assertions.assertTrue(catalogProperty.getEnableMappingVarbinary());
+        catalogProperty.setEnableMappingVarbinary(false);
+        Assertions.assertEquals("true",
+                catalogProperty.getProperties().get(CatalogProperty.ENABLE_MAPPING_VARBINARY));
+
+        catalogProperty.modifyCatalogProps(
+                Collections.singletonMap(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false"));
+        // Replayed metadata remains detectable for migration; effective mapping stays binary.
+        Assertions.assertTrue(catalogProperty.getEnableMappingVarbinary());
+        Assertions.assertEquals("false",
+                catalogProperty.getProperties().get(CatalogProperty.ENABLE_MAPPING_VARBINARY));
     }
 }

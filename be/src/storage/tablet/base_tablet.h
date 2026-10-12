@@ -165,6 +165,8 @@ public:
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
                                             bool cloud_get_rowset_meta) const;
 
+    bool scan_expired_row_binlog_rowsets();
+
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
 
     static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
@@ -244,10 +246,10 @@ public:
     static const signed char* get_delete_sign_column_data(const Block& block,
                                                           size_t rows_at_least = 0);
 
-    static Status generate_default_value_block(const TabletSchema& schema,
-                                               const std::vector<uint32_t>& cids,
-                                               const std::vector<std::string>& default_values,
-                                               const Block& ref_block, Block& default_value_block);
+    static Status generate_default_value_block(
+            const TabletSchema& schema, const std::vector<uint32_t>& cids,
+            const PartialUpdateInfo& partial_update_info, const Block& row_block,
+            Block& default_value_block, const std::map<uint32_t, uint32_t>* row_indices = nullptr);
 
     static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
@@ -381,6 +383,9 @@ protected:
                             const segment_v2::SegmentSharedPtr* segment, RowsetSharedPtr rowset,
                             OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
                             const io::IOContext* io_ctx) const;
+
+    // Protected by the tablet header lock; discovery resumes after this version.
+    Version _row_binlog_ttl_scan_cursor {-1, -1};
 
     // Find the missed versions until the spec_version.
     //

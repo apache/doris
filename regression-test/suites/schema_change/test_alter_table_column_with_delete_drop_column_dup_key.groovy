@@ -19,9 +19,19 @@ import org.awaitility.Awaitility
 
 suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change") {
     def tbName1 = "alter_table_column_dup_with_delete_drop_column_dup_key"
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        return jobStateResult[0][9]
+    int maxTrySeconds = 1200
+    def waitForColumnState = { String tableName, String columnName, boolean shouldExist ->
+        Awaitility.with().pollInSameThread().await()
+                .atMost(maxTrySeconds, TimeUnit.SECONDS)
+                .pollDelay(100, TimeUnit.MILLISECONDS)
+                .pollInterval(100, TimeUnit.MILLISECONDS)
+                .until {
+                    def columns = sql "DESC `${tableName}`"
+                    boolean exists = columns.any { row ->
+                        row[0].toString().equalsIgnoreCase(columnName)
+                    }
+                    return exists == shouldExist
+                }
     }
 //=========================Test Normal Schema Change
     sql "DROP TABLE IF EXISTS ${tbName1}"
@@ -48,16 +58,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             DROP COLUMN value3;
         """
-    int max_try_secs = 1200
-    String res = "NOT_FINISHED"
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "value3", false)
     qt_sql "select * from ${tbName1} order by k1;"
 
      // drop value3
@@ -65,15 +66,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
         """
-    max_try_secs = 1200
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "value3", true)
     qt_sql "select * from ${tbName1} order by k1;"
 
     sql "insert into ${tbName1} values(5,5,5,'B');"
@@ -113,14 +106,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             DROP COLUMN value3;
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "value3", false)
     qt_sql "select * from ${tbName1} where value1=3 order by k1;"
 
     // re-add value3 with a different type and unique ID
@@ -128,14 +114,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "value3", true)
     qt_sql "select * from ${tbName1} where value1=4 order by k1;"
 
     order_qt_project_other_after_delete_drop_readd """
@@ -153,14 +132,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1}
             DROP COLUMN value3;
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "value3", false)
     order_qt_project_other_after_delete_drop_readd_drop_again """
         SELECT value1
         FROM ${tbName1}
@@ -172,14 +144,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             ADD COLUMN k2 CHAR(10) KEY DEFAULT 'A';
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "k2", true)
     qt_sql "select * from ${tbName1} where value1=4 order by k1;"
     order_qt_project_other_after_delete_drop_readd_drop_again_full_schema_change """
         SELECT value1
@@ -222,14 +187,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1} 
             DROP COLUMN value3;
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "value3", false)
     qt_sql "select * from ${tbName1} order by k1;"
 
      // drop value3
@@ -238,14 +196,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ADD COLUMN value3 CHAR(100) DEFAULT 'A';
         """
 
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "value3", true)
     qt_sql "select * from ${tbName1} order by k1;"
 
     sql "insert into ${tbName1} values(5,5,5,'B');"

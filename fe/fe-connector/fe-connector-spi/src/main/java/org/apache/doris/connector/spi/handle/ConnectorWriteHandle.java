@@ -20,9 +20,11 @@ package org.apache.doris.connector.spi.handle;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.thrift.TSortInfo;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A bound write request passed to
@@ -67,6 +69,11 @@ public interface ConnectorWriteHandle {
      * name was corrected rather than the contract widened. A future free-form channel would be a new method.
      */
     Map<String, String> getStaticPartitionSpec();
+
+    /** Keys whose static partition expression was SQL NULL, not the string literal {@code 'NULL'}. */
+    default Set<String> getStaticPartitionNullKeys() {
+        return Collections.emptySet();
+    }
 
     /**
      * The kind of DML write (INSERT / OVERWRITE / DELETE / UPDATE / MERGE). A single

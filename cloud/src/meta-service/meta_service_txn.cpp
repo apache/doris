@@ -337,7 +337,10 @@ private:
         txn_->put(table_stream_offset_key(key_info), value);
         if (metadata_reader_.writes_versioned_metadata()) {
             DCHECK(offset_gc != nullptr);
-            versioned_put(txn_, versioned::table_stream_offset_key(key_info), value);
+            versioned_put(txn_,
+                          versioned::table_stream_offset_key(
+                                  versioned::TableStreamOffsetKeyInfo(key_info)),
+                          value);
             offset_gc->add_partition_ids(update.partition_id());
         }
         return true;

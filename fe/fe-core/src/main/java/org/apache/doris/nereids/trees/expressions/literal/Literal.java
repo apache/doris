@@ -46,6 +46,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.SessionVariable;
@@ -374,6 +375,11 @@ public abstract class Literal extends Expression implements LeafExpression {
             case STRING: {
                 return new StringLiteral(literalExpr.getStringValue());
             }
+            case VARBINARY: {
+                // Partition pruning must retain raw bytes instead of passing through a text encoding.
+                return new VarBinaryLiteral((VarBinaryType) dataType,
+                        ((org.apache.doris.analysis.VarBinaryLiteral) literalExpr).getValue());
+            }
             case FLOAT: {
                 org.apache.doris.analysis.FloatLiteral floatLiteral
                         = (org.apache.doris.analysis.FloatLiteral) literalExpr;
@@ -402,6 +408,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             case JSONB: return new JsonLiteral(literalExpr.getStringValue());
             case IPV4: return new IPv4Literal(literalExpr.getStringValue());
             case IPV6: return new IPv6Literal(literalExpr.getStringValue());
+            case UUID: return new UuidLiteral(literalExpr.getStringValue());
             case TIMEV2: return new TimeV2Literal((TimeV2Type) dataType, literalExpr.getStringValue());
             default: {
                 throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
@@ -573,6 +580,10 @@ public abstract class Literal extends Expression implements LeafExpression {
             case MYSQL_TYPE_TIMESTAMP2:
                 literal = handleDateTimeLiteral(data);
                 break;
+            case MYSQL_TYPE_TIME:
+            case MYSQL_TYPE_TIME2:
+                literal = handleTimeLiteral(data);
+                break;
             case MYSQL_TYPE_STRING:
             case MYSQL_TYPE_VARSTRING:
                 literal = handleStringLiteral(data);
@@ -648,6 +659,38 @@ public abstract class Literal extends Expression implements LeafExpression {
                 return new DateTimeV2Literal(0, 1, 1, 0, 0, 0);
             }
             return new DateTimeLiteral(0, 1, 1, 0, 0, 0);
+        }
+    }
+
+    // Protocol::MYSQL_TYPE_TIME: length 0 is 00:00:00; 8 carries is_negative, days, hours,
+    // minutes, seconds; 12 adds microseconds.
+    private static Literal handleTimeLiteral(ByteBuffer data) throws AnalysisException {
+        if (!data.hasRemaining()) {
+            throw new AnalysisException("Missing binary TIME parameter length");
+        }
+        int len = MysqlProto.readInt1(data);
+        if (len != 0 && len != 8 && len != 12) {
+            throw new AnalysisException("Invalid binary TIME parameter length: " + len);
+        }
+        if (data.remaining() < len) {
+            throw new AnalysisException("Truncated binary TIME parameter");
+        }
+        if (len == 0) {
+            return new TimeV2Literal(0, 0, 0, 0, 6, false);
+        }
+        int sign = MysqlProto.readInt1(data);
+        if (sign != 0 && sign != 1) {
+            throw new AnalysisException("Invalid binary TIME parameter sign: " + sign);
+        }
+        long days = Integer.toUnsignedLong(data.getInt());
+        long hours = days * 24 + MysqlProto.readInt1(data);
+        int minute = MysqlProto.readInt1(data);
+        int second = MysqlProto.readInt1(data);
+        int microsecond = len == 12 ? data.getInt() : 0;
+        try {
+            return new TimeV2Literal(Math.toIntExact(hours), minute, second, microsecond, 6, sign == 1);
+        } catch (ArithmeticException e) {
+            throw new AnalysisException("Binary TIME parameter is out of range", e);
         }
     }
 

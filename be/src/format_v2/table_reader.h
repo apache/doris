@@ -415,6 +415,8 @@ protected:
     // concrete reader. Subclasses should not duplicate this loop.
     Status create_next_reader(bool* eos);
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
+    // Some table formats expose UUID as raw bytes rather than the native Doris UUID type.
+    virtual bool preserve_binary_uuid() const { return false; }
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual void configure_mapper_options(TableColumnMapperOptions*) const {}
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
@@ -2261,6 +2263,9 @@ protected:
     TableColumnMapperOptions _mapper_options;
 
 private:
+    static std::optional<std::string> _get_int96_timezone_override(
+            const TFileScanRangeParams* params);
+
     static const ColumnDefinition* _find_column_definition(
             const std::vector<ColumnDefinition>& schema, LocalColumnId column_id) {
         for (const auto& field : schema) {

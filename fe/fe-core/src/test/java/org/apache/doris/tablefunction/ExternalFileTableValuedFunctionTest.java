@@ -106,6 +106,21 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
+    public void testCsvSchemaUuid() throws Exception {
+        List<Column> columns = Lists.newArrayList();
+        FileFormatUtils.parseCsvSchema(columns, "id:int;u: UUID ;v:uuid");
+        Assertions.assertEquals(3, columns.size());
+        Assertions.assertEquals(Type.UUID, columns.get(1).getType());
+        Assertions.assertEquals(Type.UUID, columns.get(2).getType());
+        Assertions.assertTrue(columns.get(1).isAllowNull());
+        Assertions.assertEquals("u", columns.get(1).getName());
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> FileFormatUtils.parseCsvSchema(Lists.newArrayList(), "u:uuid(16)"));
+        Assertions.assertTrue(exception.getMessage().contains("unsupported column type: uuid(16)"));
+    }
+
+    @Test
     public void testCsvSchemaParse() {
         Config.enable_date_conversion = true;
         Map<String, String> properties = Maps.newHashMap();
@@ -186,6 +201,25 @@ public class ExternalFileTableValuedFunctionTest {
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assertions.fail();
+        }
+    }
+
+    @Test
+    public void testLogicalTypeMappingCannotBeDisabled() throws AnalysisException {
+        for (String legacyFlag : Arrays.asList(null, "false", "true")) {
+            ExternalFileTableValuedFunction tvf = Mockito.mock(
+                    ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+            if (legacyFlag != null) {
+                properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, legacyFlag);
+                properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, legacyFlag);
+            }
+            Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
+            Assertions.assertTrue(tvf.fileFormatProperties.enableMappingTimestampTz);
+            Assertions.assertTrue(tvf.fileFormatProperties.enableMappingVarbinary);
+            Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY));
+            Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ));
         }
     }
 }

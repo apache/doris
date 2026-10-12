@@ -54,6 +54,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -91,6 +92,8 @@ final class IcebergCacheSizeEstimator {
     private static final long HASH_MAP_NODE_SHALLOW_BYTES = classSize("java.util.HashMap$Node");
     private static final long LINKED_HASH_MAP_ENTRY_SHALLOW_BYTES = classSize("java.util.LinkedHashMap$Entry");
     private static final long CONTENT_FILE_SCHEMA_BYTES = estimateContentFileSchema();
+    // TableMetadata does not expose whether a lazily supplied snapshot list has been fetched yet.
+    private static final Field TABLE_METADATA_SNAPSHOTS_LOADED = tableMetadataField("snapshotsLoaded");
 
     private IcebergCacheSizeEstimator() {
     }
@@ -113,6 +116,24 @@ final class IcebergCacheSizeEstimator {
         TableOperations operations = ((HasTableOperations) table).operations();
         bytes = add(bytes, JvmSizeUtils.instanceSize(operations.getClass()));
         return add(bytes, estimateTableMetadata(operations.current()));
+    }
+
+    /**
+     * Whether the table's snapshot list is materialized, so serializing or weighing its metadata does no catalog IO.
+     * A REST catalog with {@code snapshot-loading-mode=refs} returns metadata holding only the referenced snapshots
+     * plus a supplier that loads the complete list remotely on the first {@code snapshots()} call. A table without
+     * {@link TableOperations} has no {@link TableMetadata}, so nothing of it is loaded lazily.
+     */
+    static boolean areSnapshotsLoaded(Table table) {
+        if (!(table instanceof HasTableOperations)) {
+            return true;
+        }
+        TableMetadata metadata = ((HasTableOperations) table).operations().current();
+        try {
+            return TABLE_METADATA_SNAPSHOTS_LOADED.getBoolean(metadata);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Can not read the snapshot state of Iceberg table metadata", e);
+        }
     }
 
     static long estimateSerializedTableMetadata(String metadataJson) {
@@ -725,6 +746,16 @@ final class IcebergCacheSizeEstimator {
             return JvmSizeUtils.instanceSize(Class.forName(className));
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException("Required JVM collection class is missing: " + className, e);
+        }
+    }
+
+    private static Field tableMetadataField(String name) {
+        try {
+            Field field = TableMetadata.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return field;
+        } catch (NoSuchFieldException e) {
+            throw new IllegalStateException("Required Iceberg TableMetadata field is missing: " + name, e);
         }
     }
 

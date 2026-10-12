@@ -28,6 +28,7 @@ import org.apache.paimon.partition.Partition;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
@@ -55,8 +56,8 @@ import java.util.OptionalLong;
  * recording fake (no Mockito) — mirroring the maxcompute connector's
  * {@link org.apache.doris.connector.maxcompute.McStructureHelper McStructureHelper} pattern.
  *
- * <p>The read methods landed in B0. B3 added the four DDL methods
- * ({@link #createDatabase}, {@link #dropDatabase}, {@link #createTable}, {@link #dropTable}),
+ * <p>The read methods landed in B0. The DDL seam covers database/table lifecycle plus
+ * {@link #alterTable},
  * whose signatures (and checked exceptions) mirror the real Paimon {@code Catalog} exactly.
  * Existence is probed via the existing {@link #getTable} / {@link #getDatabase} read methods
  * (plus the caught not-exist exceptions); the seam intentionally has no separate probe methods.
@@ -84,6 +85,10 @@ public interface PaimonCatalogOps {
 
     void dropTable(Identifier identifier, boolean ignoreIfNotExists)
             throws Catalog.TableNotExistException;
+
+    void alterTable(Identifier identifier, List<SchemaChange> changes)
+            throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
+            Catalog.ColumnNotExistException;
 
     // ---- E5: MVCC snapshot lookups (T20) ----
     // These return plain {@code long}s (not paimon {@code Snapshot} objects) so the metadata
@@ -303,6 +308,9 @@ public interface PaimonCatalogOps {
          */
         @Override
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
+            // Every metadata, scan and write lookup lands here, several times per statement. The wrapped
+            // catalog is the Doris table cache (PaimonMetaCacheCatalog; the SDK CachingCatalog is disabled),
+            // so this must not invalidate: REFRESH, Doris writes and DDL invalidate through CatalogMetaCache.
             Table table = catalog.getTable(identifier);
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
             return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
@@ -350,6 +358,13 @@ public interface PaimonCatalogOps {
         public void dropTable(Identifier identifier, boolean ignoreIfNotExists)
                 throws Catalog.TableNotExistException {
             catalog.dropTable(identifier, ignoreIfNotExists);
+        }
+
+        @Override
+        public void alterTable(Identifier identifier, List<SchemaChange> changes)
+                throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
+                Catalog.ColumnNotExistException {
+            catalog.alterTable(identifier, changes, false);
         }
 
         @Override
@@ -468,9 +483,8 @@ public interface PaimonCatalogOps {
                 fileStoreTable.catalogEnvironment().tableQueryAuth(options).auth(null);
             }
             Snapshot snapshot = TimeTravelUtil.tryTravelOrLatest(fileStoreTable);
-            // Old snapshot versions can omit totalRecordCount; an empty table has no snapshot.
-            return snapshot == null || snapshot.totalRecordCount() == null
-                    ? -1 : snapshot.totalRecordCount();
+            // An empty table has no snapshot. Paimon 1.4 exposes totalRecordCount as a primitive long.
+            return snapshot == null ? -1 : snapshot.totalRecordCount();
         }
 
         @Override

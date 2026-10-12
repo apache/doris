@@ -28,6 +28,7 @@
 #include <parquet/types.h>
 
 #include <cstdint>
+#include <optional>
 
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/transformer/vfile_format_transformer.h"
@@ -71,6 +72,17 @@ private:
 
 class ParquetBuildHelper {
 public:
+    // Maps the Doris file-level compression codec onto the Parquet codec to write with, so the
+    // Iceberg/Hive writers share one definition instead of repeating the switch:
+    //   PLAIN -> UNCOMPRESSED, SNAPPYBLOCK -> SNAPPY, ZSTD -> ZSTD,
+    //   GZ -> GZIP, LZ4BLOCK -> LZ4_HADOOP.
+    // GZ is what Iceberg's `write.parquet.compression-codec=gzip` (the table default before
+    // Iceberg 1.4) and Hive's `parquet.compression=GZIP` resolve to, and GZIP is the codec
+    // Spark/Trino write for those properties. LZ4_HADOOP is the Hadoop-framed LZ4 codec, which
+    // keeps the file readable by engines that do not support LZ4_RAW.
+    static Result<TParquetCompressionType::type> to_parquet_compression_type(
+            TFileCompressType::type compression_type);
+
     static void build_compression_type(::parquet::WriterProperties::Builder& builder,
                                        const TParquetCompressionType::type& compression_type);
 
@@ -83,6 +95,8 @@ struct ParquetFileOptions {
     TParquetVersion::type parquet_version;
     bool parquet_disable_dictionary = false;
     bool enable_int96_timestamps = false;
+    // Overrides only INT96 normalization; UTC preserves a wall-clock carrier.
+    std::optional<std::string> int96_timezone = std::nullopt;
 };
 
 // Writes Doris blocks as Parquet files, including schema and Arrow conversion.
@@ -112,7 +126,7 @@ protected:
     // Construct the schema and column bindings together for each writer instance.
     virtual std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
             DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
-            const cctz::time_zone& timezone) const;
+            const cctz::time_zone& timezone, bool enable_int96_timestamps) const;
     std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
 private:

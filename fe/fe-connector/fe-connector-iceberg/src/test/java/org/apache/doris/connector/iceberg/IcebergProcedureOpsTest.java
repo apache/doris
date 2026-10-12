@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -296,6 +297,27 @@ public class IcebergProcedureOpsTest {
                 result.getRows().get(0));
         Assertions.assertEquals(snap1, catalog.loadTable(id).currentSnapshot().snapshotId());
         Assertions.assertEquals(1, ops.tableCleanupCount, "procedure execution releases its operation-owned table");
+    }
+
+    @Test
+    public void commitsTheProcedureInsideTheAuthScope() {
+        // On a Kerberized catalog the metadata commit must run under the catalog's identity, so the procedure has
+        // committed before the auth scope ends, not after the scope hands the loaded table back.
+        // MUTATION: loading the table inside executeAuthenticated but running the body outside it -> red.
+        InMemoryCatalog catalog = catalogWithTwoSnapshots();
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        long snap1 = catalog.loadTable(id).history().get(0).snapshotId();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(id);
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        AtomicLong snapshotAtScopeExit = new AtomicLong();
+        ctx.beforeScopeExit = () -> snapshotAtScopeExit.set(catalog.loadTable(id).currentSnapshot().snapshotId());
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, ctx);
+
+        procOps.execute(SESSION, new IcebergTableHandle("db1", "t"), "rollback_to_snapshot",
+                ImmutableMap.of("snapshot_id", String.valueOf(snap1)), null, Collections.emptyList());
+
+        Assertions.assertEquals(snap1, snapshotAtScopeExit.get(), "the rollback is committed inside the auth scope");
     }
 
     @Test

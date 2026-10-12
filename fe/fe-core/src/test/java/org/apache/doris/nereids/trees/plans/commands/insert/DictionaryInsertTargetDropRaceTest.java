@@ -22,13 +22,17 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -37,6 +41,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Answers;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -138,6 +144,23 @@ class DictionaryInsertTargetDropRaceTest extends TestWithFeService {
                 dictionary.getLastUpdateResult());
         Env.getCurrentInternalCatalog().dropDb(dbName, false, true);
         Env.getCurrentInternalCatalog().dropDb(sourceDbName, false, true);
+    }
+
+    @Test
+    void reportsCoordinatorCancellationWithoutAssumingDdlException() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setQueryId(new TUniqueId(3, 4));
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(coordinator.getTrackingUrl()).thenReturn("");
+        DictionaryInsertExecutor executor = Mockito.mock(DictionaryInsertExecutor.class, Answers.CALLS_REAL_METHODS);
+        Deencapsulation.setField(executor, "ctx", ctx);
+        Deencapsulation.setField(executor, "coordinator", coordinator);
+        Deencapsulation.setField(executor, "labelName", "dictionary_cancel_test");
+
+        Assertions.assertDoesNotThrow(() -> executor.onFail(new UserException("dictionary insert timeout")));
+
+        Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assertions.assertTrue(ctx.getState().getErrorMessage().contains("dictionary insert timeout"));
     }
 
     private void createSourceTable() throws Exception {

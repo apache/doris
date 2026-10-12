@@ -530,7 +530,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long fileCount = 0;
         try (CloseableIterable<ManifestFile> matching = getMatchingManifest(
                 snapshot.dataManifests(table.io()),
-                SchemaAwareDataTableScan.specsFor(table, scan.schema()), scan.filter())) {
+                SchemaAwareDataTableScan.specsFor(scan), scan.filter())) {
             for (ManifestFile manifest : matching) {
                 // Manifest metadata counts (cheap — no per-file read). Null guard for ancient manifests that
                 // omit the counts (legacy summed them unguarded; 0 is the safe under-count, never over-streams).
@@ -2811,7 +2811,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         Schema scanSchema = scan.schema();
         Expression filterExpr = combineFilter(filter, scanSchema, session);
-        Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(table, scanSchema);
+        Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(scan);
         boolean caseSensitive = true;
 
         Map<Integer, ResidualEvaluator> residualEvaluators = new HashMap<>();

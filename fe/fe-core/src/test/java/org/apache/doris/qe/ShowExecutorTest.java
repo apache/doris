@@ -35,7 +35,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.systable.NativeSysTable;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -59,6 +63,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.net.URL;
+import java.util.Optional;
 
 public class ShowExecutorTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -282,6 +287,46 @@ public class ShowExecutorTest {
             e.printStackTrace();
             Assertions.fail();
         }
+    }
+
+    /**
+     * DESC of a native (data-shaped) system table lists its BASE schema, the way DESC of the table it is
+     * derived from does. Such a sys table may forward invisible columns of that table -- fluss's
+     * {@code tbl$lake} carries paimon's {@code __paimon_file_path} / {@code __paimon_row_index} -- and those
+     * must stay hidden unless show_hidden_columns is set, exactly as on the table itself. MUTATION: listing
+     * {@code getFullSchema()} instead makes the invisible column appear -> red.
+     */
+    @Test
+    public void testDescribeNativeSysTableListsBaseSchemaOnly() throws Exception {
+        Column visible = new Column("id", PrimitiveType.INT);
+        Column invisible = new Column("__paimon_file_path", PrimitiveType.STRING);
+        invisible.setIsVisible(false);
+        ExternalTable sysTable = Mockito.mock(ExternalTable.class);
+        Mockito.doReturn(Lists.newArrayList(visible, invisible)).when(sysTable).getFullSchema();
+        Mockito.doReturn(Lists.newArrayList(visible)).when(sysTable).getBaseSchema();
+        NativeSysTable lake = new NativeSysTable("lake") {
+            @Override
+            public ExternalTable createSysExternalTable(ExternalTable sourceTable) {
+                return sysTable;
+            }
+        };
+        ExternalTable baseTable = Mockito.mock(ExternalTable.class);
+        Mockito.doReturn(Optional.of(lake)).when(baseTable).findSysTable("testTbl$lake");
+        ExternalDatabase<?> extDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(null).when(extDb).getTableNullable("testTbl$lake");
+        Mockito.doReturn(baseTable).when(extDb).getTableOrDdlException("testTbl");
+        ExternalCatalog extCatalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.doReturn(extDb).when(extCatalog).getDbOrAnalysisException("testDb");
+        CatalogMgr catalogMgr = env.getCatalogMgr();
+        Mockito.doReturn(extCatalog).when(catalogMgr).getCatalogOrAnalysisException("extCtl");
+
+        DescribeCommand command = new DescribeCommand(new TableNameInfo("extCtl", "testDb", "testTbl$lake"),
+                false, null);
+        ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("id", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next(), "the invisible column leaked into DESC");
     }
 
     @Test

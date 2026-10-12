@@ -17,13 +17,15 @@
 
 import java.net.URLEncoder
 
+import org.apache.doris.regression.util.Http
+
 suite("test_packed_file_stream_load_case8", "p0,nonConcurrent") {
     if (!isCloudMode()) {
         log.info("skip packed_file cases in non cloud mode")
         return
     }
 
-    final String dataFile = "cloud_p0/packed_file/merge_file_stream_load.csv"
+    final String dataFile = "${context.config.dataPath}/cloud_p0/packed_file/merge_file_stream_load.csv"
     final int rowsPerLoad = 200
     final String tablePrefix = "packed_file_case8_"
 
@@ -110,13 +112,8 @@ suite("test_packed_file_stream_load_case8", "p0,nonConcurrent") {
                 }.join("&"))
             }
             String url = urlBuilder.toString()
-            log.info("execute inject cmd: curl -sS ${url}")
-            def process = ["curl", "-sS", url].execute()
-            def exit = process.waitFor()
-            def err = process.getErrorStream().getText()
-            def out = process.getText()
+            def out = Http.GET(url, false, false)
             log.info("inject output: ${out}")
-            assertEquals(0, exit, "failed to execute injection command, err: ${err}")
         }
     }
 

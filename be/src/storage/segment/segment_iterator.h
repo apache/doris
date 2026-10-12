@@ -160,6 +160,8 @@ private:
     // below the configured engage ratio; refreshed at conjunct boundaries as
     // earlier index conjuncts shrink the bitmap. No-op once engaged.
     void _refresh_candidate_pushdown();
+    // Intersect an approximate result and keep its expression for row evaluation.
+    bool _apply_approx_index_result(VExprContext* expr_ctx);
     // G02: true iff answering the single pushed-down MATCH predicate by its
     // match COUNT alone is indistinguishable from the row-accurate bitmap for
     // this COUNT_ON_INDEX scan (no deletes, no other filters, full row bitmap,

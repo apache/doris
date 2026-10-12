@@ -27,7 +27,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PasswordPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -118,7 +117,7 @@ public class AlterUserInfo {
         // ACCOUNT_LOCK / ACCOUNT_UNLOCK and the password-policy options are independent operations, so a
         // statement carrying both hits the one-operation rule below instead of silently dropping one side.
         if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.LOCK_ACCOUNT) {
-            if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)) {
+            if (userDesc.getUserIdent().isRootUser()) {
                 // like CREATE USER root / DROP USER root: a locked root has no way back
                 throw new AnalysisException("Can not lock root user");
             }
@@ -138,9 +137,7 @@ public class AlterUserInfo {
                 + "actual number of type is " + ops.size());
         }
 
-        if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)
-                && !ConnectContext.get().getQualifiedUser()
-                .equals(Auth.ROOT_USER)) {
+        if (userDesc.getUserIdent().isRootUser() && !ConnectContext.get().getCurrentUserIdentity().isRootUser()) {
             throw new AnalysisException("Only root user can modify root user");
         }
 
