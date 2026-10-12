@@ -214,6 +214,20 @@ public class PaimonColumnValueTest {
     }
 
     @Test
+    public void testAlignedTimestampReusesOriginalValue() {
+        for (int precision : new int[] {0, 4, 6, 9}) {
+            int nano = precision == 0 ? 0 : 123_400_000;
+            Timestamp timestamp = Timestamp.fromLocalDateTime(
+                    LocalDateTime.of(1969, 12, 31, 23, 59, 59, nano));
+            for (DataType type : new DataType[] {new TimestampType(9), new LocalZonedTimestampType(9)}) {
+                PaimonColumnValue value = new PaimonColumnValue(GenericRow.of(timestamp), 0,
+                        ColumnType.parseType("t", "datetimev2(" + precision + ")"), type, "UTC");
+                Assertions.assertSame(timestamp, value.truncateTimestampPrecision(timestamp));
+            }
+        }
+    }
+
+    @Test
     public void testTimestampConversionsPreserveBoundaryValues() {
         Timestamp timestamp = Timestamp.fromEpochMillis(-1, 999_999);
         ColumnType dorisTimestampType = ColumnType.parseType("t", "datetimev2(9)");

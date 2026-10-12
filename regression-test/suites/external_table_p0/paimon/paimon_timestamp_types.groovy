@@ -167,6 +167,31 @@ suite("paimon_timestamp_types", "p0,external") {
         }
 
         sql """set enable_file_scanner_v2=true"""
+        // Historical ORC p9 fractions must be truncated before native microsecond rounding.
+        // The FE routes only these affected files to JNI, including filter-only timestamps.
+        def nanosecondEvolutionQuery = """
+            select id, cast(ts as string), cast(ltz as string), microsecond(ts), microsecond(ltz)
+            from timestamp_nanosecond_evolution_orc order by id
+        """
+        def nanosecondEvolutionPredicate = """
+            select id from timestamp_nanosecond_evolution_orc
+            where ts = '2025-01-01 00:00:01' order by id
+        """
+        sql """set force_jni_scanner=false"""
+        order_qt_nanosecond_evolution_v2 nanosecondEvolutionQuery
+        order_qt_nanosecond_evolution_v2_predicate nanosecondEvolutionPredicate
+        order_qt_nanosecond_evolution_ltz_predicate """
+            select id from timestamp_nanosecond_evolution_orc
+            where ltz = '2025-01-01 08:00:01' order by id
+        """
+        sql """set enable_file_scanner_v2=false"""
+        order_qt_nanosecond_evolution_v1 nanosecondEvolutionQuery
+        order_qt_nanosecond_evolution_v1_predicate nanosecondEvolutionPredicate
+        sql """set force_jni_scanner=true"""
+        order_qt_nanosecond_evolution_jni nanosecondEvolutionQuery
+        order_qt_nanosecond_evolution_jni_predicate nanosecondEvolutionPredicate
+        sql """set force_jni_scanner=false"""
+        sql """set enable_file_scanner_v2=true"""
         order_qt_precision_evolution_v2_parquet precisionEvolutionQuery(
                 "timestamp_precision_evolution_parquet")
         order_qt_precision_evolution_v2_orc precisionEvolutionQuery(

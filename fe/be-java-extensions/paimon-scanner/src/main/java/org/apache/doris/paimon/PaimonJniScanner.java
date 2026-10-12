@@ -93,6 +93,7 @@ public class PaimonJniScanner extends JniScanner {
             "doris.scan.manifest.parallelism-cap";
     static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
     static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
+    static final String DORIS_TIMESTAMP_PRECISION_REPAIR = "doris.timestamp-precision-repair";
     private static final String SERIALIZED_SYSTEM_SOURCE =
             PAIMON_OPTION_PREFIX + DORIS_SERIALIZED_SYSTEM_SOURCE;
     static final String ENABLE_JNI_IO_MANAGER = "paimon.jni.enable_jni_io_manager";
@@ -420,8 +421,10 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void resetDatetimeV2Precision() {
+        boolean repairHistoricalPrecision = Boolean.parseBoolean(
+                params.getOrDefault(PAIMON_OPTION_PREFIX + DORIS_TIMESTAMP_PRECISION_REPAIR, "true"));
         for (int i = 0; i < types.length; i++) {
-            if (containsTimestampType(types[i])) {
+            if (repairHistoricalPrecision && containsTimestampType(types[i])) {
                 requiresDatetimeV2PrecisionRepair = true;
             }
             if (types[i].isDateTimeV2() || types[i].getType() == ColumnType.Type.TIMESTAMPTZ) {
@@ -431,7 +434,6 @@ public class PaimonJniScanner extends JniScanner {
                 if (index != -1) {
                     DataType dataType = table.rowType().getTypeAt(index);
                     if (dataType instanceof TimestampType || dataType instanceof LocalZonedTimestampType) {
-                        requiresDatetimeV2PrecisionRepair = true;
                         int paimonPrecision = dataType instanceof TimestampType
                                 ? ((TimestampType) dataType).getPrecision()
                                 : ((LocalZonedTimestampType) dataType).getPrecision();

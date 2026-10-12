@@ -54,22 +54,22 @@ class PaimonLegacyOrcTimestampTest {
             FileStoreTable original = (FileStoreTable) catalog.getTable(id);
             Optional<List<RawFile>> oldFiles = Optional.of(Collections.singletonList(
                     new RawFile("part.orc", 0L, 100L, 1L, "orc", original.schema().id(), 0L)));
-            Assertions.assertTrue(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+            Assertions.assertTrue(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     original, oldFiles, Collections.singleton(1), new HashMap<>()));
             new SchemaManager(original.fileIO(), original.location())
                     .commitChanges(SchemaChange.dropColumn("events"));
             FileStoreTable evolved = (FileStoreTable) catalog.getTable(id);
             Map<Long, Boolean> schemaCache = new HashMap<>();
             // Historical field IDs, rather than all file columns, determine whether LTZ is decoded.
-            Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+            Assertions.assertFalse(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     evolved, oldFiles, Collections.singleton(0), new HashMap<>()));
-            Assertions.assertTrue(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+            Assertions.assertTrue(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     evolved, oldFiles, Collections.singleton(1), schemaCache));
             Assertions.assertEquals(Collections.singletonMap(original.schema().id(), true), schemaCache);
-            Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+            Assertions.assertFalse(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     evolved.copy(Collections.singletonMap(OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key(), "false")),
                     oldFiles, Collections.singleton(1), new HashMap<>()));
-            Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(evolved,
+            Assertions.assertFalse(PaimonScanPlanProvider.requiresOrcTimestampReader(evolved,
                     Optional.of(Collections.singletonList(
                             new RawFile("part.parquet", 0L, 100L, 1L, "parquet", original.schema().id(), 0L))),
                     Collections.singleton(1), new HashMap<>()));

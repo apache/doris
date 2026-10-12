@@ -203,7 +203,7 @@ public class PaimonColumnValue implements ColumnValue {
         return ts.toLocalDateTime();
     }
 
-    private Timestamp truncateTimestampPrecision(Timestamp timestamp) {
+    Timestamp truncateTimestampPrecision(Timestamp timestamp) {
         if (!(dataType instanceof TimestampType) && !(dataType instanceof LocalZonedTimestampType)) {
             return timestamp;
         }
@@ -212,8 +212,13 @@ public class PaimonColumnValue implements ColumnValue {
         for (int i = precision; i < 9; ++i) {
             divisor *= 10;
         }
+        long nano = Math.floorMod(timestamp.getMillisecond(), 1000L) * 1_000_000L
+                + timestamp.getNanoOfMillisecond();
+        if (nano % divisor == 0) {
+            return timestamp;
+        }
         LocalDateTime value = timestamp.toLocalDateTime();
-        int truncatedNano = (int) (value.getNano() / divisor * divisor);
+        int truncatedNano = (int) (nano / divisor * divisor);
         return Timestamp.fromLocalDateTime(value.withNano(truncatedNano));
     }
 
