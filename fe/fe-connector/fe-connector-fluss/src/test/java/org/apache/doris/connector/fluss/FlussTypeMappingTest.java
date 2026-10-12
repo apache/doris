@@ -55,13 +55,30 @@ public class FlussTypeMappingTest {
     }
 
     @Test
+    public void legacyMappingFlagsCannotChangeBinaryOrTimestampTypes() {
+        for (boolean binary : new boolean[] {false, true}) {
+            for (boolean timestamp : new boolean[] {false, true}) {
+                Assertions.assertEquals(ConnectorType.of("VARBINARY", 16, 0),
+                        map(DataTypes.BINARY(16), binary, timestamp));
+                Assertions.assertEquals(ConnectorType.of("VARBINARY"), map(DataTypes.BYTES(), binary, timestamp));
+                Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0),
+                        map(DataTypes.TIMESTAMP_LTZ(9), binary, timestamp));
+                Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, 0),
+                        map(DataTypes.TIMESTAMP(9), binary, timestamp));
+                Assertions.assertEquals(ConnectorType.arrayOf(ConnectorType.of("VARBINARY")),
+                        map(DataTypes.ARRAY(DataTypes.BYTES()), binary, timestamp));
+            }
+        }
+    }
+
+    @Test
     public void everyFlussTypeRootIsMapped() {
         Map<DataType, ConnectorType> expected = new LinkedHashMap<>();
         expected.put(DataTypes.CHAR(10), ConnectorType.of("CHAR", 10, 0));
         expected.put(DataTypes.STRING(), ConnectorType.of("STRING"));
         expected.put(DataTypes.BOOLEAN(), ConnectorType.of("BOOLEAN"));
-        expected.put(DataTypes.BINARY(16), ConnectorType.of("STRING"));
-        expected.put(DataTypes.BYTES(), ConnectorType.of("STRING"));
+        expected.put(DataTypes.BINARY(16), ConnectorType.of("VARBINARY", 16, 0));
+        expected.put(DataTypes.BYTES(), ConnectorType.of("VARBINARY"));
         expected.put(DataTypes.DECIMAL(20, 4), ConnectorType.of("DECIMALV3", 20, 4));
         expected.put(DataTypes.TINYINT(), ConnectorType.of("TINYINT"));
         expected.put(DataTypes.SMALLINT(), ConnectorType.of("SMALLINT"));
@@ -72,7 +89,7 @@ public class FlussTypeMappingTest {
         expected.put(DataTypes.DATE(), ConnectorType.of("DATEV2"));
         expected.put(DataTypes.TIME(3), ConnectorType.of("UNSUPPORTED"));
         expected.put(DataTypes.TIMESTAMP(6), ConnectorType.of("DATETIMEV2", 6, 0));
-        expected.put(DataTypes.TIMESTAMP_LTZ(6), ConnectorType.of("DATETIMEV2", 6, 0));
+        expected.put(DataTypes.TIMESTAMP_LTZ(6), ConnectorType.of("TIMESTAMPTZ", 6, 0));
         expected.put(DataTypes.ARRAY(DataTypes.INT()), ConnectorType.arrayOf(ConnectorType.of("INT")));
         expected.put(DataTypes.MAP(DataTypes.STRING(), DataTypes.INT()),
                 ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT")));
@@ -108,7 +125,7 @@ public class FlussTypeMappingTest {
         Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 0, 0), map(DataTypes.TIMESTAMP(0)));
         Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 3, 0), map(DataTypes.TIMESTAMP(3)));
         Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, 0), map(DataTypes.TIMESTAMP(9)));
-        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, 0), map(DataTypes.TIMESTAMP_LTZ(9)));
+        Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0), map(DataTypes.TIMESTAMP_LTZ(9)));
         Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0),
                 map(DataTypes.TIMESTAMP_LTZ(9), false, true));
     }
@@ -137,36 +154,9 @@ public class FlussTypeMappingTest {
     }
 
     @Test
-    public void theBinaryFamilyFollowsTheVarbinarySwitch() {
-        // Off by default (STRING), because that is what every other Doris catalog does with binary
-        // columns and flipping the default would change what existing queries return.
-        Assertions.assertEquals(ConnectorType.of("STRING"), map(DataTypes.BINARY(16)));
-        Assertions.assertEquals(ConnectorType.of("STRING"), map(DataTypes.BYTES()));
-
-        // On: fixed-length BINARY(n) keeps n as the VARBINARY bound; unbounded BYTES declares no length
-        // so fe-core fills in the Doris VARBINARY maximum.
-        Assertions.assertEquals(ConnectorType.of("VARBINARY", 16, 0), map(DataTypes.BINARY(16), true, false));
-        Assertions.assertEquals(ConnectorType.of("VARBINARY"), map(DataTypes.BYTES(), true, false));
-    }
-
-    @Test
-    public void timestampLtzFollowsTheTimestampTzSwitch() {
-        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 3, 0), map(DataTypes.TIMESTAMP_LTZ(3)));
-        Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 3, 0),
-                map(DataTypes.TIMESTAMP_LTZ(3), false, true));
-
-        // The two switches are independent: neither reads the other's property.
-        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 3, 0),
-                map(DataTypes.TIMESTAMP_LTZ(3), true, false));
-        Assertions.assertEquals(ConnectorType.of("VARBINARY", 4, 0),
-                map(DataTypes.BINARY(4), true, true));
-    }
-
-    @Test
-    public void nestedTypesRecurseWithTheSameRulesAndSwitches() {
+    public void nestedTypesRecurseWithTheSameRules() {
         // ARRAY<ROW<...>> and MAP<STRING, ARRAY<INT>>: the rules that apply to a top-level column apply
-        // at any depth, switches included - a BINARY buried three levels down must not quietly ignore
-        // enable.mapping.varbinary while the top-level one honours it.
+        // at any depth, so a BINARY buried three levels down retains its bytes as well.
         ConnectorType arrayOfStruct = map(DataTypes.ARRAY(DataTypes.ROW(
                 DataTypes.FIELD("k", DataTypes.CHAR(300)),
                 DataTypes.FIELD("v", DataTypes.BINARY(8)))), true, false);

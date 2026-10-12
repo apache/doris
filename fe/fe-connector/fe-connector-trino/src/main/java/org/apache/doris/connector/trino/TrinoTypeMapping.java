@@ -74,8 +74,11 @@ public final class TrinoTypeMapping {
             return new ConnectorType("CHAR");
         } else if (type instanceof VarcharType) {
             return new ConnectorType("STRING");
+        } else if (type instanceof io.trino.spi.type.UuidType) {
+            // Preserve the logical type instead of exposing its physical 16-byte storage.
+            return ConnectorType.of("UUID");
         } else if (type instanceof VarbinaryType) {
-            return new ConnectorType("STRING");
+            return new ConnectorType("VARBINARY");
         } else if (type instanceof DecimalType) {
             DecimalType decimal = (DecimalType) type;
             return new ConnectorType("DECIMALV3", decimal.getPrecision(), decimal.getScale());
@@ -88,7 +91,7 @@ public final class TrinoTypeMapping {
             return new ConnectorType("DATETIMEV2", precision, -1);
         } else if (type instanceof TimestampWithTimeZoneType) {
             int precision = Math.min(((TimestampWithTimeZoneType) type).getPrecision(), 6);
-            return new ConnectorType("DATETIMEV2", precision, -1);
+            return new ConnectorType("TIMESTAMPTZ", precision, -1);
         } else if (type instanceof io.trino.spi.type.ArrayType) {
             return ConnectorType.arrayOf(toConnectorType(
                     ((io.trino.spi.type.ArrayType) type).getElementType()));

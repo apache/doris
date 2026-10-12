@@ -24,13 +24,15 @@ import org.awaitility.Awaitility
 
 suite("flink_connector_type") {
 
+    def inputTable = "test_types_input"
     def tableName1 = "test_types_source"
     def tableName2 = "test_types_sink"
+    sql """DROP TABLE IF EXISTS ${inputTable}"""
     sql """DROP TABLE IF EXISTS ${tableName1}"""
     sql """DROP TABLE IF EXISTS ${tableName2}"""
 
     sql """
-        CREATE TABLE `test_types_source` (
+        CREATE TABLE `${inputTable}` (
             `id` int,
             `c1` boolean,
             `c2` tinyint,
@@ -59,9 +61,9 @@ PROPERTIES (
 );
     """;
 
-    sql """CREATE TABLE `test_types_sink` like `test_types_source` """
+    sql """CREATE TABLE `${tableName2}` like `${inputTable}` """
 
-    sql """ INSERT INTO `test_types_source`
+    sql """ INSERT INTO `${inputTable}`
 VALUES 
 (
     1,  
@@ -106,6 +108,17 @@ VALUES
     '{"B":"variant_value1"}' 
 );"""
 
+    // The connector declares c18 as STRING and cannot decode native Arrow Variant.
+    // Materialize an explicit text projection while retaining Variant ingestion in the sink.
+    sql """
+        CREATE TABLE `${tableName1}`
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+        AS SELECT id, c1, c2, c3, c4, c5, c6, c7, c8, c9,
+                  c10, c11, c12, c13, c14, c15, c16, c17, CAST(c18 AS STRING) AS c18
+        FROM `${inputTable}`
+    """
+
     def thisDb = sql """select database()""";
     thisDb = thisDb[0][0];
     logger.info("current database is ${thisDb}");
@@ -143,19 +156,21 @@ VALUES
     run_cmd.addAll(addOpens.tokenize())
     run_cmd.addAll(["-cp", jarName, "org.apache.doris.FlinkConnectorTypeCase",
             "--doris-fe-address", context.config.feHttpAddress,
-            "--doris-database", "regression_test_flink_connector_p0",
+            "--doris-database", thisDb,
             "--doris-user", context.config.feHttpUser,
             "--doris-password", context.config.feHttpPassword])
     run_cmd.addAll(getDorisConnectorTlsArgs())
     logger.info("run_cmd : ${run_cmd.join(' ')}")
-    def run_flink_jar = run_cmd.execute().getText()
-    logger.info("result: $run_flink_jar")
+    // Drain both streams and check the exit code so a failed Flink job cannot look successful.
+    def flinkProcess = new ProcessBuilder(run_cmd.collect { it.toString() }).redirectErrorStream(true).start()
+    logger.info("result: ${flinkProcess.text}")
+    assertEquals(0, flinkProcess.waitFor())
     // The publish in the commit phase is asynchronous
     Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).await().until(
             {
                 def resultTbl = sql """ select count(1) from test_types_sink"""
                 logger.info("retry test_types_sink  count: $resultTbl")
-                resultTbl.size() >= 1
+                resultTbl[0][0] == 2
             })
 
     logger.info("flink job execute finished.");

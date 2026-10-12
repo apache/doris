@@ -23,4 +23,25 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
  */
 public abstract class InsertCommandContext {
 
+    /**
+     * Set when the insert's transaction has committed: what it wrote -- its rows, and any table stream offset
+     * update it carried -- is durable. That is not the same as the insert having succeeded. A load whose
+     * publication times out after its commit is committed, while the session's visibility-timeout mode reports
+     * it to the client as an error; and a load whose plan folded to an empty relation commits nothing at all,
+     * since it runs no transaction unless it has an offset to commit.
+     *
+     * <p>Whoever owns a transaction records it where that commit happens; see
+     * {@code AbstractInsertExecutor#markCommitted()}. A caller that owns what happens next -- an overwrite
+     * publishing its temporary partitions -- decides by it: what is durable has to be published, and where
+     * nothing is durable a failure or a cancellation still has everything to take back.
+     */
+    private boolean committed = false;
+
+    public boolean hasCommitted() {
+        return committed;
+    }
+
+    public void setCommitted(boolean committed) {
+        this.committed = committed;
+    }
 }

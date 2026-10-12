@@ -22,6 +22,8 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 
+import java.util.HexFormat;
+
 public class LiteralExprUtils {
 
     public static LiteralExpr createLiteral(String value, Type type) throws AnalysisException {
@@ -63,6 +65,18 @@ public class LiteralExprUtils {
                 break;
             case JSONB:
                 literalExpr = new JsonLiteral(value);
+                break;
+            case VARBINARY:
+                // External partition metadata uses hex so NULs and non-UTF-8 bytes survive transport.
+                try {
+                    if (!value.startsWith("0x")) {
+                        throw new IllegalArgumentException("Binary partition values require a 0x prefix");
+                    }
+                    literalExpr = new VarBinaryLiteral(HexFormat.of().parseHex(value.substring(2)));
+                    literalExpr.setType(type);
+                } catch (IllegalArgumentException e) {
+                    throw new AnalysisException("Invalid binary partition value: " + value, e);
+                }
                 break;
             case DATE:
             case DATETIME:

@@ -31,9 +31,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
 import java.util.List;
@@ -124,8 +127,23 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
                 byte[] data = rs.getBytes(columnIndex);
                 return rs.wasNull() ? null : data;
             }
-            case TIMESTAMPTZ:
-                return rs.getObject(columnIndex, LocalDateTime.class);
+            case TIMESTAMPTZ: {
+                if (usesMySqlTimestampProtocol()) {
+                    // The SQL session is UTC, but older drivers retain a cached server zone and
+                    // can shift or truncate getTimestamp()/getObject(LocalDateTime.class) results.
+                    String value = rs.getString(columnIndex);
+                    if (value != null && value.startsWith("0000-00-00 ")) {
+                        // The text projection bypasses zeroDateTimeBehavior. The date decoder honors
+                        // it even with Connector/J 5.1 binary-protocol VARCHAR timestamps, where the
+                        // timestamp decoder incorrectly normalizes zero fields into a nonzero year.
+                        java.sql.Date date = rs.getDate(columnIndex);
+                        return date == null ? null : date.toLocalDate().atStartOfDay();
+                    }
+                    return value == null ? null : LocalDateTime.parse(value.replace(' ', 'T'));
+                }
+                Timestamp value = rs.getTimestamp(columnIndex);
+                return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+            }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
@@ -192,6 +210,7 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
     @Override
     public PreparedStatement initializeStatement(Connection conn, String sql,
                                                  int fetchSize) throws SQLException {
+        initializeWriteConnection(conn);
         conn.setAutoCommit(false);
         PreparedStatement stmt = conn.prepareStatement(sql,
                 ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
@@ -334,4 +353,31 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
                 throw new IllegalArgumentException("Unsupported array child type: " + type.getType());
         }
     }
+
+    @Override
+    public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        if (usesMySqlTimestampProtocol()) {
+            // Connector/J 5.x can ignore Calendar during timestamp conversion. Bind the UTC
+            // session's civil fields directly so neither driver nor JVM applies another offset.
+            statement.setString(parameterIndex, value.toString().replace('T', ' '));
+        } else {
+            statement.setObject(parameterIndex, java.sql.Timestamp.from(value.toInstant(ZoneOffset.UTC)));
+        }
+    }
+
+    private boolean usesMySqlTimestampProtocol() {
+        return "MYSQL".equals(tableType) || "OCEANBASE".equals(tableType);
+    }
+
+    @Override
+    public void initializeWriteConnection(Connection connection) throws SQLException {
+        if (usesMySqlTimestampProtocol()) {
+            // Reset every pool checkout: TIMESTAMP travels as session-local fields on the wire.
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("SET SESSION time_zone = '+00:00'");
+            }
+        }
+    }
+
 }

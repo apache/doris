@@ -237,7 +237,13 @@ public class MTMV extends OlapTable {
      * lock and moves all three, but nothing here is journaled. It is what {@code Alter#processAlterMTMV}
      * calls for an {@code ALTER_STATUS} op, both live and on replay; a live caller reaches it through
      * {@link #invalidateWholeMv}, which goes the journaled way round. A new invalidation belongs there:
-     * calling this directly would leave the MV in a state a restart forgets.
+     * calling this directly would leave the MV in a state a restart forgets. The one caller that goes
+     * direct is {@link #processBaseViewChange}, and it is not new: the alter or the drop of the view is
+     * journaled, and a replay runs that hook along with it.
+     *
+     * <p>An image that is loaded and turns out to be unusable sets the state on its own, see
+     * {@link #compatible} and {@link #gsonPostProcess}: there is no change behind it to record, and nothing
+     * a replay could apply it against.
      */
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
@@ -251,16 +257,19 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * Invalidates the whole MV for a change to one of the base views it reads.
+     *
+     * <p>Applied through {@link #alterStatus}, so that the three things an invalidation moves are moved in
+     * one place whatever carried it: the state the refresh reads, the version that discards a task result
+     * computed against it, and the snapshot drop that stops the transparent rewrite serving rows from it.
+     *
+     * <p>It records nothing, and that is not an omission: what is journaled is the change to the view, and
+     * a replay re-runs this hook along with it. A record here would apply the invalidation a second time on
+     * a follower -- including the version bump, which the leader moved once.
+     */
     public void processBaseViewChange(String schemaChangeDetail) {
-        writeMvLock();
-        try {
-            this.schemaChangeVersion++;
-            this.status.setState(MTMVState.SCHEMA_CHANGE);
-            this.status.setSchemaChangeDetail(schemaChangeDetail);
-            this.refreshSnapshot = new MTMVRefreshSnapshot();
-        } finally {
-            writeMvUnlock();
-        }
+        alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, schemaChangeDetail));
     }
 
     public boolean isIvm() {

@@ -65,12 +65,12 @@ jobs:
           archive="$RUNNER_TEMP/codex-exec-goal.tar.gz"
           package="$RUNNER_TEMP/codex-exec-goal"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.156.1-a310d33f7ebb-x86_64-unknown-linux-gnu.tar.gz "$archive"
-          echo "2ee3073479bc8c94436684b55a13d7a3f299e768d04436d90e0427814a3954bc  $archive" | sha256sum --check
+            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.162.1-3547e9086675-x86_64-unknown-linux-gnu.tar.gz "$archive"
+          echo "51304e4f9c343ae84e00a304344df41c2fd32821c83bdbf5be68b0f0c25ddae1  $archive" | sha256sum --check
           mkdir -p "$package"
           tar -xzf "$archive" -C "$package"
           (cd "$package" && sha256sum --check SHA256SUMS)
-          test "$(jq -r .version "$package/codex-package.json")" = 0.156.1
+          test "$(jq -r .version "$package/codex-package.json")" = 0.162.1
           "$package/bin/codex" --version
           "$package/bin/codex" exec --help | grep -q -- '--goal'
           echo "CODEX_CANARY_BIN=$package/bin/codex" >> "$GITHUB_ENV"

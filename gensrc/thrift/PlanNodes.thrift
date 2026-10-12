@@ -1809,6 +1809,9 @@ struct TPlanNode {
 
   106: optional list<i32> topn_filter_source_node_ids
   107: optional i32 nereids_id
+  // FE expression eligibility, independent of the session switch. An old FE has not checked
+  // volatility, so absence must disable condition cache on a new BE.
+  108: optional bool enable_condition_cache = false
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

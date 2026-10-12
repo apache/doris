@@ -3312,7 +3312,7 @@ public:
     // Locks in:
     //  * the typed-param interface (TypedInvertedIndexQueryParam<PT>)
     //  * the +/-infinity sentinels routed through type_limit<compute_t> +
-    //    PrimitiveTypeConvertor<PT>
+    //    StorageLayout<FT>::to_storage
     //  * BKD's writer/reader/visitor agreement on KeyCoder-encoded bytes
     template <PrimitiveType PT, typename T>
     void verify_bkd_range_queries(int col_id, std::string_view rowset_id,
@@ -4398,7 +4398,7 @@ TEST_F(InvertedIndexReaderTest, BkdIndexRead) {
 //    cardinalities derived from the values via std::count_if.
 //
 // Locks in the typed-param interface, the +/-infinity sentinels routed
-// through type_limit<compute_t> + PrimitiveTypeConvertor<PT>, and BKD
+// through type_limit<compute_t> + StorageLayout<FT>::to_storage, and BKD
 // writer/reader/visitor agreement.
 TEST_F(InvertedIndexReaderTest, BkdRangeIntRangeQuery) {
     test_bkd_range_int();

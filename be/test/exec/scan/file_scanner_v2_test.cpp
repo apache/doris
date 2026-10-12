@@ -374,20 +374,22 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
-TEST(FileScannerV2Test, ArrowRejectsVariantBeforeReaderMaterialization) {
-    EXPECT_TRUE(
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, false)
-                    .ok());
-    EXPECT_TRUE(
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET, true)
-                    .ok());
+TEST(FileScannerV2Test, ArrowVariantRequiresNativeCarrier) {
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true,
+                                                                "adbc")
+                        .ok());
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW,
+                                                                false, "remote_doris")
+                        .ok());
+    EXPECT_TRUE(FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET,
+                                                                true, "iceberg")
+                        .ok());
 
-    const auto status =
-            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true);
+    const auto status = FileScannerV2::TEST_validate_variant_projection(
+            TFileFormatType::FORMAT_ARROW, true, "remote_doris");
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
     EXPECT_NE(status.to_string().find(
-                      "External Variant is supported only for Parquet files in FileScannerV2; "
-                      "file format ARROW is not supported"),
+                      "External Variant Arrow reads require an ADBC native Variant carrier"),
               std::string::npos)
             << status;
 }

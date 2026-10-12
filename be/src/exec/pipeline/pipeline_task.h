@@ -157,9 +157,15 @@ public:
 
     bool is_running() { return _running.load(); }
     virtual bool set_running(bool running) {
-        bool old_value = !running;
-        _running.compare_exchange_weak(old_value, running);
-        return old_value;
+        // This is a mutual-exclusion gate: TaskScheduler::_do_work skips a task when
+        // set_running(true) returns true, and RevokableTask delegates here so an
+        // in-flight revocation excludes its underlying task. It must be an
+        // unconditional exchange: compare_exchange_weak may fail spuriously on LL/SC
+        // architectures (aarch64), and a spurious failure with _running == false
+        // returns "was not running" WITHOUT setting the flag — two workers then
+        // execute the same task concurrently and race on its local state
+        // (shared hash table / _places).
+        return _running.exchange(running);
     }
 
     virtual RuntimeState* runtime_state() const { return _state; }

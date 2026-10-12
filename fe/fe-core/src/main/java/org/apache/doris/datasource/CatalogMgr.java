@@ -437,6 +437,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 readUnlock();
             }
 
+            if (catalog instanceof ExternalCatalog) {
+                // Validate and journal the effective mapping policy so older followers replay it verbatim.
+                for (String marker : new String[] {CatalogProperty.ENABLE_MAPPING_VARBINARY,
+                        CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ}) {
+                    if (updates.containsKey(marker)) {
+                        updates.put(marker, "true");
+                    }
+                }
+            }
+
             // Filesystem binding may read Hadoop XML files. Validate the detached snapshot before
             // taking the global catalog write lock, then retry if another ALTER changed the snapshot.
             boolean validatedWithoutMutation = catalog instanceof ExternalCatalog
@@ -472,6 +482,47 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             throw new DdlException("Invalid catalog properties: "
                     + validationException.getMessage(), validationException);
+        }
+    }
+
+    /**
+     * Migrate legacy markers after fenced master replay, before accepting queries or starting checkpoints.
+     */
+    public void migrateVarbinaryMappingProperties() throws DdlException {
+        List<Runnable> cleanups = Lists.newArrayList();
+        writeLock();
+        try {
+            for (CatalogIf catalog : idToCatalog.values()) {
+                if (!(catalog instanceof ExternalCatalog)) {
+                    continue;
+                }
+                ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+                Map<String, String> migratedProperties = Maps.newHashMap();
+                for (String marker : new String[] {CatalogProperty.ENABLE_MAPPING_VARBINARY,
+                        CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ}) {
+                    if (!Boolean.parseBoolean(externalCatalog.getProperties().get(marker))) {
+                        migratedProperties.put(marker, "true");
+                    }
+                }
+                if (migratedProperties.isEmpty()) {
+                    continue;
+                }
+                CatalogLog log = new CatalogLog();
+                log.setCatalogId(catalog.getId());
+                log.setNewProps(migratedProperties);
+                // Use the existing ALTER format so running older followers can replay the change.
+                // Journal first: a failed write must leave the marker eligible for a retry.
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+                // Migration must not revalidate unrelated legacy connection properties or contact
+                // the external system while the master is still becoming ready.
+                cleanups.add(applyAlterCatalogProps(log, null, true, true, false));
+            }
+        } finally {
+            writeUnlock();
+            // Reentrant replay would close plugins while the outer migration write lock is still held.
+            for (Runnable cleanup : cleanups) {
+                cleanup.run();
+            }
         }
     }
 

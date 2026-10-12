@@ -222,15 +222,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
 
-        // Parse enable_mapping_varbinary property
-        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
-        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
-
-        // Parse enable_mapping_timestamp_tz property
-        String enableMappingTimestampTzStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
-        fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
+        // Logical file types retain binary bytes and instant semantics regardless of legacy flags.
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY);
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ);
+        fileFormatProperties.enableMappingVarbinary = true;
+        fileFormatProperties.enableMappingTimestampTz = true;
 
         String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
                 FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");

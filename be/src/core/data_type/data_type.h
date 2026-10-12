@@ -38,11 +38,11 @@
 #include "core/cow.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
-#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 
 namespace doris {
+enum class FieldType;
 class PColumnMeta;
 class PTypeDesc;
 class PTypeNode;

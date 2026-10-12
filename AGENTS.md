@@ -18,6 +18,10 @@ Every consumer of the **jdbc-flavored** `driver_url` (the jdbc / iceberg-jdbc / 
 
 Separately, any new outbound HTTP request the FE or BE issues to a host named by a non-SUPER user is an SSRF surface. Call it out explicitly in the PR description together with the privilege required to reach it.
 
+## Thrift and Protobuf Field Ids
+
+Every change under `gensrc/thrift` and `gensrc/proto` must keep every upgrade compatible (branch-3.1 → 4.0 → 4.1 → 4.2 → master): a field id or enum value means the same thing on every branch, an id is never reused, and a new field is optional. The rule and how to review against it are in `gensrc/AGENTS.md`; read it before touching those directories.
+
 ## When running in a WORKTREE directory
 
 To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly.

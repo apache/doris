@@ -56,6 +56,18 @@ class DoubleLiteralTest {
         f1 = new DoubleLiteral(Double.POSITIVE_INFINITY);
         Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
 
+        // nonzero doubles that round to zero when narrowed to float must still be TRUE
+        f1 = new DoubleLiteral(Double.MIN_VALUE);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new DoubleLiteral(-Double.MIN_VALUE);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new DoubleLiteral(1e-300);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new DoubleLiteral(1e-46);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new DoubleLiteral(5e-324);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+
         // To integral
         f1 = new DoubleLiteral(12.999);
         Expression expression = f1.uncheckedCastTo(TinyIntType.INSTANCE);

@@ -1447,8 +1447,6 @@ public:
     ~GzipBlockCompressionByLibdeflate() override = default;
 
     Status decompress(const Slice& input, Slice* output) override {
-        // Parquet page headers give the exact uncompressed size, so the page must fill the
-        // output buffer. Without actual_out_nbytes_ret, libdeflate rejects shorter output.
         if (input.empty() && output->size == 0) {
             return Status::OK();
         }
@@ -1457,12 +1455,30 @@ public:
         if (!decompressor) {
             return Status::InternalError("libdeflate_alloc_decompressor error.");
         }
-        auto result = libdeflate_gzip_decompress(decompressor.get(), input.data, input.size,
-                                                 output->data, output->size, nullptr);
-        if (result != LIBDEFLATE_SUCCESS) {
+        // A Parquet GZIP page may contain concatenated members. libdeflate decodes only
+        // one member per call; the page header's exact size applies to their combined output.
+        size_t input_offset = 0;
+        size_t output_offset = 0;
+        while (input_offset < input.size) {
+            size_t consumed = 0;
+            size_t produced = 0;
+            auto result = libdeflate_gzip_decompress_ex(
+                    decompressor.get(), input.data + input_offset, input.size - input_offset,
+                    output->data + output_offset, output->size - output_offset, &consumed,
+                    &produced);
+            if (result != LIBDEFLATE_SUCCESS) {
+                return Status::InternalError(
+                        "libdeflate_gzip_decompress_ex error, res={}, input size={}, output "
+                        "size={}",
+                        result, input.size, output->size);
+            }
+            input_offset += consumed;
+            output_offset += produced;
+        }
+        if (output_offset != output->size) {
             return Status::InternalError(
-                    "libdeflate_gzip_decompress error, res={}, input size={}, output size={}",
-                    result, input.size, output->size);
+                    "GZIP page decompressed size mismatch, actual={}, expected={}", output_offset,
+                    output->size);
         }
         return Status::OK();
     }

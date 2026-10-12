@@ -111,6 +111,13 @@ public final class JdbcIdentifierQuoter {
     public static String buildInsertSql(JdbcDbType dbType, String remoteDbName,
             String remoteTableName, Map<String, String> remoteColumnNames,
             List<String> insertCols) {
+        return buildInsertSql(dbType, remoteDbName, remoteTableName, remoteColumnNames, insertCols,
+                Collections.nCopies(insertCols.size(), "?"));
+    }
+
+    static String buildInsertSql(JdbcDbType dbType, String remoteDbName,
+            String remoteTableName, Map<String, String> remoteColumnNames,
+            List<String> insertCols, List<String> parameters) {
         StringBuilder sb = new StringBuilder("INSERT INTO ");
         sb.append(quoteFullTableName(dbType, remoteDbName, remoteTableName));
         sb.append("(");
@@ -124,7 +131,7 @@ public final class JdbcIdentifierQuoter {
         sb.append(String.join(",", quotedCols));
         sb.append(")");
         sb.append(" VALUES (");
-        sb.append(String.join(", ", Collections.nCopies(insertCols.size(), "?")));
+        sb.append(String.join(", ", parameters));
         sb.append(")");
         return sb.toString();
     }

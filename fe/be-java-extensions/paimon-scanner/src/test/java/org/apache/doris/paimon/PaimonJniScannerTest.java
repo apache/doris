@@ -86,6 +86,66 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void legacyOrcTimestampAndFileMetadataShareOneRead() throws Exception {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        try (org.apache.paimon.catalog.Catalog catalog = new org.apache.paimon.catalog.FileSystemCatalog(
+                org.apache.paimon.fs.local.LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(temporaryFolder.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "events");
+            catalog.createTable(id, org.apache.paimon.schema.Schema.newBuilder()
+                    .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
+                    .option("file.format", "orc").option("orc.timestamp-ltz.legacy-type", "true")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            org.apache.paimon.table.sink.BatchWriteBuilder writer = table.newBatchWriteBuilder();
+            try (org.apache.paimon.table.sink.BatchTableWrite write = writer.newWrite()) {
+                write.write(org.apache.paimon.data.GenericRow.of(
+                        org.apache.paimon.data.Timestamp.fromEpochMillis(1000, 123000)));
+                write.write(org.apache.paimon.data.GenericRow.of((Object) null));
+                try (org.apache.paimon.table.sink.BatchTableCommit commit = writer.newCommit()) {
+                    commit.commit(write.prepareCommit());
+                }
+            }
+            org.apache.paimon.table.source.Split split = table.newReadBuilder().newScan().plan().splits().get(0);
+            Map<String, String> params = createBaseParams();
+            params.put("required_fields", "__paimon_file_path,event_time,__paimon_row_index");
+            params.put("columns_types", "string#timestamptz(6)#bigint");
+            params.put(SERIALIZED_TABLE, Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    InstantiationUtil.serializeObject(table)));
+            params.put("paimon_split", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    InstantiationUtil.serializeObject(split)));
+            for (boolean filtered : new boolean[] {false, true}) {
+                java.util.List<org.apache.paimon.predicate.Predicate> predicates = filtered
+                        ? Collections.singletonList(new org.apache.paimon.predicate.PredicateBuilder(
+                                table.rowType()).isNull(0)) : Collections.emptyList();
+                params.put("paimon_predicate", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                        InstantiationUtil.serializeObject(predicates)));
+                PaimonJniScanner scanner = new PaimonJniScanner(16, new HashMap<>(params));
+                try {
+                    scanner.open();
+                    Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+                    int count = filtered ? 1 : 2;
+                    Assertions.assertEquals(count, scanner.getTable().getNumRows());
+                    Object[] paths = scanner.getTable().getColumn(0).getObjectColumn(0, count);
+                    Assertions.assertTrue(paths[0].toString().endsWith(".orc"));
+                    if (!filtered) {
+                        Assertions.assertEquals(paths[0], paths[1]);
+                    }
+                    // A pushed filter removes row zero, but the surviving row keeps its physical index.
+                    Assertions.assertArrayEquals(filtered ? new Object[] {1L} : new Object[] {0L, 1L},
+                            scanner.getTable().getColumn(2).getObjectColumn(0, count));
+                    Assertions.assertArrayEquals(filtered ? new Object[] {null} : new Object[] {
+                            java.time.LocalDateTime.of(1970, 1, 1, 0, 0, 1, 123000), null},
+                            scanner.getTable().getColumn(1).getObjectColumn(0, count));
+                } finally {
+                    scanner.close();
+                }
+            }
+        }
+    }
+
+    @Test
     public void testConstructorAcceptsEmptyProjection() {
         new PaimonJniScanner(128, createBaseParams());
     }

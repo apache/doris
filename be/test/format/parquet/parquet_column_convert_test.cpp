@@ -480,4 +480,34 @@ TEST(ParquetColumnConvertTest, UuidTextAndBinaryCarriersPreserveNullsAcrossBatch
     }
 }
 
+TEST(ParquetColumnConvertTest, NativeUuidPreservesNetworkByteOrderAndNulls) {
+    FieldSchema field;
+    field.parquet_schema.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    field.parquet_schema.__set_type_length(16);
+    tparquet::LogicalType logical_type;
+    logical_type.__set_UUID(tparquet::UUIDType());
+    field.parquet_schema.__set_logicalType(logical_type);
+    field.data_type = DataTypeFactory::instance().create_data_type(TYPE_UUID, true);
+    auto converter = PhysicalToLogicalConverter::get_converter(&field, field.data_type,
+                                                               field.data_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+    auto values = ColumnFixedLengthObject::create(16);
+    const std::string bytes = "0123456789abcdef";
+    values->insert_data(bytes.data(), 16);
+    values->insert_data(bytes.data(), 16);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    nulls->insert_value(1);
+    ColumnPtr src = ColumnNullable::create(std::move(values), std::move(nulls));
+    ColumnPtr dst = field.data_type->create_column();
+    ASSERT_TRUE(converter->convert(src, field.data_type, field.data_type, dst, false).ok());
+    EXPECT_EQ(field.data_type->to_string(*dst, 0), "30313233-3435-3637-3839-616263646566");
+    EXPECT_TRUE(dst->is_null_at(1));
+    // A UUID annotation cannot make malformed fixed-width storage a valid UUID.
+    field.parquet_schema.__set_type_length(15);
+    EXPECT_FALSE(PhysicalToLogicalConverter::get_converter(&field, field.data_type, field.data_type,
+                                                           nullptr)
+                         ->support());
+}
+
 } // namespace doris::parquet

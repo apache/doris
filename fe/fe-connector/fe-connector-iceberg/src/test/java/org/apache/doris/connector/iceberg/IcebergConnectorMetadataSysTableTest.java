@@ -378,9 +378,7 @@ public class IcebergConnectorMetadataSysTableTest {
 
     @Test
     public void getTableSchemaForSysHandleThreadsMappingFlags() {
-        // committed_at is a TIMESTAMP-with-zone column of the snapshots metadata table, so its mapped
-        // Doris type depends on enable.mapping.timestamp_tz -- a clean probe that the connector's
-        // properties flags thread into the SYS-table schema parse (deviation 5).
+        // Metadata-table timestamps follow the same unconditional mapping as data-table timestamps.
         IcebergConnectorMetadata mdDefault = metadataWith(seamWith(inMemoryBaseTable()));
 
         Map<String, String> tzProps = new HashMap<>();
@@ -392,13 +390,8 @@ public class IcebergConnectorMetadataSysTableTest {
         ConnectorColumn committedDefault = committedAtColumn(mdDefault);
         ConnectorColumn committedTz = committedAtColumn(mdTz);
 
-        // WHY: deviation 5 -- the sys branch must reuse parseSchema so the per-catalog enable.mapping.*
-        // flags (read from the connector properties) reach the metadata-table schema. With the flag ON,
-        // committed_at maps to TIMESTAMPTZ; OFF (default) it does not. A sys branch that parsed the schema
-        // WITHOUT threading the flags would yield identical types. MUTATION: building the sys schema from
-        // a flag-less parse -> equal types -> red.
-        Assertions.assertNotEquals(committedDefault.getType(), committedTz.getType(),
-                "enable.mapping.timestamp_tz must change the sys-table committed_at mapping");
+        Assertions.assertEquals(committedDefault.getType(), committedTz.getType(),
+                "legacy options cannot change the sys-table committed_at mapping");
         Assertions.assertEquals("TIMESTAMPTZ", committedTz.getType().getTypeName(),
                 "with the flag on, the sys-table committed_at must map to TIMESTAMPTZ");
     }

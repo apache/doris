@@ -123,6 +123,7 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
             "format" = "parquet"
         )"""
     }
+    // Variant metadata and residual values are binary even when nested inside shredded structs.
     def rawPayloadType = { String path ->
         def columns = sql """DESC FUNCTION ${rawParquetSource(path)}"""
         def payloadColumn = columns.find { it[0].toString().equalsIgnoreCase("payload") }
@@ -167,8 +168,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         def physicalRows = []
         shreddedFiles.each { filePath ->
             String payloadType = rawPayloadType(filePath)
-            assertTrue(payloadType.contains("metadata:text"))
-            assertTrue(payloadType.contains("value:text"))
+            assertTrue(payloadType.contains("metadata:varbinary(65533)"))
+            assertTrue(payloadType.contains("value:varbinary(65533)"))
             assertTrue(payloadType.contains("typed_value:struct"))
             assertTrue(payloadType.contains("age:struct"))
             assertTrue(payloadType.contains("profile:struct"))
@@ -208,8 +209,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         assertTrue(!unshreddedFiles.isEmpty())
         unshreddedFiles.each { filePath ->
             String payloadType = rawPayloadType(filePath)
-            assertTrue(payloadType.contains("value:text"))
-            assertTrue(payloadType.contains("metadata:text"))
+            assertTrue(payloadType.contains("value:varbinary(65533)"))
+            assertTrue(payloadType.contains("metadata:varbinary(65533)"))
             assertFalse(payloadType.contains("typed_value"))
         }
 
@@ -255,8 +256,8 @@ suite("test_paimon_write_variant_shredding", "p0,external,paimon,nonConcurrent")
         assertTrue(!firstInferredFiles.isEmpty())
         firstInferredFiles.each { filePath ->
             String payloadType = rawPayloadType(filePath)
-            assertTrue(payloadType.contains("metadata:text"))
-            assertTrue(payloadType.contains("value:text"))
+            assertTrue(payloadType.contains("metadata:varbinary(65533)"))
+            assertTrue(payloadType.contains("value:varbinary(65533)"))
             assertTrue(payloadType.contains("typed_value:struct"))
             assertTrue(payloadType.contains("age:struct"))
             assertTrue(payloadType.contains("profile:struct"))

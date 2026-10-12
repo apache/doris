@@ -211,6 +211,57 @@ TEST_F(BlockCompressionTest, parquet_gzip) {
     EXPECT_FALSE(codec->decompress(Slice("not a gzip stream"), &output).ok());
 }
 
+static void check_concatenated_gzip_decompression(BlockCompressionCodec* codec,
+                                                  const std::string& compressed,
+                                                  const std::string& original) {
+    std::string restored(original.size(), '\0');
+    Slice output(restored);
+    auto status = codec->decompress(Slice(compressed), &output);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(original, restored);
+    EXPECT_EQ(original.size(), output.size);
+
+    if (!original.empty()) {
+        Slice short_output(restored.data(), original.size() - 1);
+        EXPECT_FALSE(codec->decompress(Slice(compressed), &short_output).ok());
+    }
+    std::string larger(original.size() + 1, '\0');
+    Slice long_output(larger);
+    EXPECT_FALSE(codec->decompress(Slice(compressed), &long_output).ok());
+
+    // Validate the final member even when previous members already filled the output.
+    EXPECT_FALSE(codec->decompress(Slice(compressed.data(), compressed.size() - 1), &output).ok());
+    std::string corrupted = compressed;
+    corrupted[corrupted.size() - 8] ^= 1;
+    EXPECT_FALSE(codec->decompress(Slice(corrupted), &output).ok());
+    std::string trailing = compressed + "trailing junk";
+    EXPECT_FALSE(codec->decompress(Slice(trailing), &output).ok());
+}
+
+TEST_F(BlockCompressionTest, parquet_gzip_concatenated_members) {
+    BlockCompressionCodec* codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(tparquet::CompressionCodec::GZIP, &codec).ok());
+    BlockCompressionCodec* zlib_codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(TFileCompressType::GZ, &zlib_codec).ok());
+
+    // A Parquet page's uncompressed size covers all members, including empty members.
+    for (const std::vector<std::string>& members :
+         {std::vector<std::string> {"first", std::string(4099, 'x')},
+          std::vector<std::string> {"", "first", "", std::string(4099, 'x'), ""},
+          std::vector<std::string> {"", ""}}) {
+        std::string compressed;
+        std::string original;
+        for (const auto& member : members) {
+            faststring encoded;
+            ASSERT_TRUE(zlib_codec->compress(Slice(member), &encoded).ok());
+            compressed.append(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+            original.append(member);
+        }
+        SCOPED_TRACE(original.size());
+        check_concatenated_gzip_decompression(codec, compressed, original);
+    }
+}
+
 static void check_snappy_decompression(BlockCompressionCodec* codec, const faststring& compressed,
                                        const std::string& original) {
     std::string restored(original.size(), '\0');

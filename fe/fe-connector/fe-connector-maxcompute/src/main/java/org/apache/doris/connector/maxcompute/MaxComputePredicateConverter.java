@@ -277,7 +277,8 @@ public class MaxComputePredicateConverter {
             case TIMESTAMP:
                 if (dateTimePushDown) {
                     return " \"" + formatDateTimeLiteral(
-                            literal.getValue(), DATETIME_6_FORMATTER, true) + "\" ";
+                            literal.getValue(), DATETIME_6_FORMATTER,
+                            !"TIMESTAMPTZ".equalsIgnoreCase(literal.getType().getTypeName())) + "\" ";
                 }
                 break;
 

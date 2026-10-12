@@ -16,10 +16,9 @@
 // under the License.
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
-#include <time.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <random>
@@ -64,21 +63,40 @@ public:
         return arguments[0];
     }
 
+    // Shuffle a constant array on each row too, so every row gets its own order.
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        // The rows of a block draw from one random sequence that starts from the seed, so a
+        // per-row seed would be ignored. Reject a non-constant seed instead.
+        if (scope == FunctionContext::THREAD_LOCAL && context->get_num_args() == 2 &&
+            !context->is_col_constant(1)) {
+            return Status::InvalidArgument("The seed of {} must be a constant", get_name());
+        }
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = assert_cast<const ColumnArray&>(*src_column);
 
-        size_t seed = time(nullptr);
+        uint64_t seed = 0;
         if (arguments.size() == 2) {
+            // open() makes sure the seed is a constant, so read it from the first row.
             ColumnPtr seed_column =
                     block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-            seed = assert_cast<const ColumnInt64*>(seed_column.get())->get_element(0);
+            // Use all 64 bits, so any BIGINT works, a negative one too.
+            seed = static_cast<uint64_t>(
+                    assert_cast<const ColumnInt64*>(seed_column.get())->get_element(0));
+        } else {
+            // Give each block its own random seed, so blocks do not repeat the same orders.
+            std::random_device random_device;
+            seed = (static_cast<uint64_t>(random_device()) << 32) | random_device();
         }
 
-        // time() and seed will not exceed the range of uint32.
-        std::mt19937 g(cast_set<uint32_t>(seed));
+        std::mt19937_64 g(seed);
         auto dest_column_ptr = _execute(src_column_array, g);
         if (!dest_column_ptr) {
             return Status::RuntimeError(
@@ -91,7 +109,7 @@ public:
     }
 
 private:
-    ColumnPtr _execute(const ColumnArray& src_column_array, std::mt19937& g) const {
+    ColumnPtr _execute(const ColumnArray& src_column_array, std::mt19937_64& g) const {
         const auto& src_offsets = src_column_array.get_offsets();
         const auto src_nested_column = src_column_array.get_data_ptr();
 
