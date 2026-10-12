@@ -420,6 +420,39 @@ public class PhysicalConnectorTableSinkTest {
                 "a storage-natural distribution must not bypass the sink's execution hash shuffle");
     }
 
+    /**
+     * Positional-write connector (one returning {@code true} from {@code requiresFullSchemaWriteOrder()}, e.g.
+     * Paimon) with a reordered explicit column list ({@code INSERT INTO t (part, data) ...}, schema [data, part]):
+     * the bind layer projects the child to bound-target-schema order, so child output = [dataSlot, partSlot] while
+     * cols keeps the user's order [part, data]. The connector's route columns must be resolved against the bound
+     * target schema; a cols-based lookup would route by the wrong slots and split one Paimon bucket across writers.
+     * {@link #nameMappedDistributionUsesExplicitColumnOrder} pins the opposite, name-mapped case.
+     */
+    @Test
+    public void fullSchemaOrderDistributionResolvesRouteColumnsByBoundSchema() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PluginDrivenExternalTable table = table(false, false, ImmutableList.of(PART),
+                ImmutableList.of(DATA, PART));
+        Mockito.when(table.resolveWritePlanContext().requiresFullSchemaWriteOrder()).thenReturn(true);
+        Mockito.when(table.resolveWritePlanContext().getDistribution()).thenReturn(Optional.of(
+                ConnectorWriteDistribution.externalHash(ImmutableList.of("part", "data"),
+                        "paimon_fixed_bucket", java.util.Collections.emptyMap(),
+                        ConnectorWriteDistribution.WriterAssignment.IDENTITY)));
+        PhysicalConnectorTableSink<Plan> sink = sink(table, Arrays.asList(PART, DATA),
+                ImmutableList.of(dataSlot, partSlot));
+
+        DistributionSpecExternalTableSinkHashPartitioned distribution
+                = (DistributionSpecExternalTableSinkHashPartitioned)
+                sink.getRequirePhysicalProperties().getDistributionSpec();
+
+        // 'part' at bound-schema index 1 -> child[1] = partSlot; 'data' at index 0 -> child[0] = dataSlot.
+        // A cols-position lookup would yield [dataSlot, partSlot].
+        Assertions.assertEquals(ImmutableList.of(partSlot.getExprId(), dataSlot.getExprId()),
+                distribution.getOutputColumnExprIds(),
+                "route columns must be taken at their bound-schema positions, not their cols positions");
+    }
+
     @Test
     public void writePlanContextStaysPinnedAcrossPhysicalPlanCopies() {
         SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);

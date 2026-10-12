@@ -146,6 +146,58 @@ public class CheckCastTest {
     }
 
     @Test
+    public void testCastToConnectorComputeVariantMatrix() {
+        // A connector Variant column (e.g. a Paimon VARIANT) is written through the V2 compute
+        // carrier, which encodes scalar, JSON and Variant values and arrays of them. CheckCast is the
+        // analysis-time gate of that contract in both cast modes, so an unsupported source is
+        // rejected at analysis instead of being handed to the BE.
+        List<DataType> supportedSources = Lists.newArrayList(
+                NullType.INSTANCE, BooleanType.INSTANCE, TinyIntType.INSTANCE, SmallIntType.INSTANCE,
+                IntegerType.INSTANCE, BigIntType.INSTANCE, LargeIntType.INSTANCE,
+                FloatType.INSTANCE, DoubleType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
+                // Precision 38 is the widest decimal the carrier accepts.
+                DecimalV3Type.SYSTEM_DEFAULT,
+                DateType.INSTANCE, DateV2Type.INSTANCE, DateTimeType.INSTANCE, DateTimeV2Type.MAX,
+                TimeStampNsType.INSTANCE, TimeStampTzType.MAX,
+                CharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, StringType.INSTANCE,
+                IPv4Type.INSTANCE, IPv6Type.INSTANCE, JsonType.INSTANCE, VariantType.INSTANCE,
+                // Shape change: an array source becomes a Variant array in a scalar Variant column.
+                ArrayType.of(IntegerType.INSTANCE), ArrayType.of(VariantType.INSTANCE));
+        for (DataType source : supportedSources) {
+            Assertions.assertTrue(CheckCast.check(source, ConnectorComputeVariantType.INSTANCE, true),
+                    source.toSql());
+            Assertions.assertTrue(CheckCast.check(source, ConnectorComputeVariantType.INSTANCE, false),
+                    source.toSql());
+        }
+
+        List<DataType> unsupportedSources = Lists.newArrayList(
+                MapType.of(StringType.INSTANCE, IntegerType.INSTANCE),
+                new StructType(Lists.newArrayList(new StructField("v", IntegerType.INSTANCE, true, ""))),
+                TimeV2Type.MAX,
+                DecimalV3Type.createDecimalV3TypeNotCheck256(DecimalV3Type.MAX_DECIMAL128_PRECISION + 1, 0),
+                VarBinaryType.INSTANCE, HllType.INSTANCE, BitmapType.INSTANCE, QuantileStateType.INSTANCE,
+                // The array leaf is checked as well, so a shape change cannot carry in an unsupported leaf.
+                ArrayType.of(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE)),
+                ArrayType.of(TimeV2Type.MAX));
+        for (DataType source : unsupportedSources) {
+            Assertions.assertFalse(CheckCast.check(source, ConnectorComputeVariantType.INSTANCE, true),
+                    source.toSql());
+            Assertions.assertFalse(CheckCast.check(source, ConnectorComputeVariantType.INSTANCE, false),
+                    source.toSql());
+        }
+
+        // Shape change the other way: a Variant source can fill an ARRAY<VARIANT> column.
+        Assertions.assertTrue(CheckCast.check(
+                VariantType.INSTANCE, ArrayType.of(ConnectorComputeVariantType.INSTANCE), true));
+        // A Variant nested in a container column applies the same leaf contract.
+        Assertions.assertFalse(CheckCast.check(
+                ArrayType.of(TimeV2Type.MAX), ArrayType.of(ConnectorComputeVariantType.INSTANCE), true));
+        Assertions.assertFalse(CheckCast.check(
+                MapType.of(StringType.INSTANCE, TimeV2Type.MAX),
+                MapType.of(StringType.INSTANCE, ConnectorComputeVariantType.INSTANCE), true));
+    }
+
+    @Test
     public void testCastFromBoolean() {
         // Strict mode
         Assertions.assertTrue(CheckCast.check(BooleanType.INSTANCE, BooleanType.INSTANCE, true));
