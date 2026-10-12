@@ -301,6 +301,52 @@ class UserAuthenticationBindingTest {
     }
 
     @Test
+    void testShowCreateSnapshotSurvivesRebind() throws Exception {
+        assertShowCreateSnapshotSurvivesAlter("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION "
+                + "INTEGRATION required AS 'replacement' ACCOUNT_UNLOCK REQUIRE SAN 'DNS:after.example' "
+                + "COMMENT 'after'");
+        Assertions.assertEquals("required", user("alice").getAuthIntegration());
+        Assertions.assertEquals("replacement", user("alice").getAuthIdentity());
+        Assertions.assertEquals("after", user("alice").getComment());
+        Assertions.assertDoesNotThrow(() -> auth.checkAccountLocked(user("alice").getUserIdentity()));
+    }
+
+    @Test
+    void testShowCreateSnapshotSurvivesUnbind() throws Exception {
+        assertShowCreateSnapshotSurvivesAlter("ALTER USER 'alice' IDENTIFIED BY 'local'");
+        Assertions.assertFalse(user("alice").isAuthenticationBound());
+    }
+
+    @Test
+    void testShowCreateLocalAccountUsesStoredTlsAfterPasswordOptions() throws Exception {
+        execute("CREATE USER 'alice' IDENTIFIED BY 'local' PASSWORD_HISTORY 3 ACCOUNT_LOCK "
+                + "REQUIRE SAN 'DNS:local.example'");
+        UserIdentity lookup = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+        String sql = new ShowCreateUserCommand(lookup).doRun(context, null).getResultRows().get(0).get(1);
+        Assertions.assertTrue(sql.contains("PASSWORD_HISTORY 3"));
+        Assertions.assertTrue(sql.contains("REQUIRE SAN 'DNS:local.example'"));
+        Assertions.assertTrue(sql.indexOf("ACCOUNT_LOCK") < sql.indexOf("REQUIRE SAN"));
+    }
+
+    private void assertShowCreateSnapshotSurvivesAlter(String alter) throws Exception {
+        execute("CREATE USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'original' "
+                + "ACCOUNT_LOCK REQUIRE SAN 'DNS:before.example' COMMENT 'before'");
+        UserIdentity identity = user("alice").getUserIdentity();
+        Auth observed = Mockito.spy(auth);
+        Mockito.when(env.getAuth()).thenReturn(observed);
+        // Execute the actual DDL in the gap between snapshot acquisition and rendering.
+        // No timing assumptions or thread-local mocks on another thread are needed.
+        Mockito.doAnswer(invocation -> {
+            Object snapshot = invocation.callRealMethod();
+            execute(alter);
+            return snapshot;
+        }).when(observed).getUserForShowCreate(identity);
+        String sql = new ShowCreateUserCommand(identity).doRun(context, null).getResultRows().get(0).get(1);
+        Assertions.assertEquals("CREATE USER 'alice'@'%' IDENTIFIED WITH AUTHENTICATION INTEGRATION `bound` "
+                + "AS \"original\" ACCOUNT_LOCK REQUIRE SAN 'DNS:before.example' COMMENT \"before\"", sql);
+    }
+
+    @Test
     void testLocalAlterKeepsLegacySingleOperationRule() throws Exception {
         execute("CREATE USER 'alice' IDENTIFIED BY 'old'");
         Mockito.clearInvocations(editLog);

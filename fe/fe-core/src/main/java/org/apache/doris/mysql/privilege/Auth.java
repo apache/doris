@@ -377,6 +377,26 @@ public class Auth implements Writable {
         }
     }
 
+    /** Snapshot one exact account and its policy rows before SHOW CREATE renders them. */
+    public Pair<User, List<List<String>>> getUserForShowCreate(UserIdentity identity) throws AnalysisException {
+        readLock();
+        try {
+            User user = userManager.getUserByUserIdentity(identity);
+            if (user == null || user.isSetByDomainResolver()) {
+                throw new AnalysisException(String.format("User: %s does not exist", identity));
+            }
+            // DDL replaces the stored UserIdentity when TLS requirements change. Copy the
+            // mutable User fields while Auth's lock excludes binding, lock and comment updates.
+            User snapshot = new User();
+            snapshot.setUserIdentity(user.getUserIdentity());
+            snapshot.setAuthenticationBinding(user.getAuthIntegration(), user.getAuthIdentity());
+            snapshot.setComment(user.getComment());
+            return Pair.of(snapshot, passwdPolicyManager.getPolicyInfo(identity));
+        } finally {
+            readUnlock();
+        }
+    }
+
     public boolean hasAuthenticationBinding(String userName) {
         readLock();
         try {

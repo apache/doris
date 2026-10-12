@@ -34,10 +34,10 @@ suite('test_manager_interface_3',"p0") {
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     int grantUserIdentityIndex = 0
-    int grantRolesIndex = 4
-    int grantGlobalPrivsIndex = 5
-    int grantDatabasePrivsIndex = 7
-    int grantResourcePrivsIndex = 10
+    int grantRolesIndex = 5
+    int grantGlobalPrivsIndex = 6
+    int grantDatabasePrivsIndex = 8
+    int grantResourcePrivsIndex = 11
     def hasGrantRole = { row, String roleName ->
         row[grantRolesIndex].toString().split(",").collect { it.trim() }.contains(roleName)
     }
