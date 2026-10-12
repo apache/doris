@@ -17,10 +17,12 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 
@@ -93,6 +95,10 @@ public class StreamingInsertJobCheckDataQualityTest {
             thrown = e;
         }
         Assert.assertNotNull("expected pause when combined ratio exceeds threshold", thrown);
+        Assert.assertTrue(thrown.getMessage().contains("load.max_filter_ratio"));
+        Assert.assertTrue(thrown.getMessage().contains("RESUME JOB"));
+        Assert.assertEquals(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
+                new FailureReason(thrown.getMessage()).getCode());
         Assert.assertEquals(JobStatus.PAUSED, job.getJobStatus());
     }
 

@@ -338,7 +338,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     private Pair<List<String>, UnboundTVFRelation> getTargetTableAndTvf(String sql) throws AnalysisException {
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
         if (!(logicalPlan instanceof InsertIntoTableCommand)) {
-            throw new AnalysisException("Only support insert command");
+            throw new AnalysisException("Streaming jobs only support INSERT statements");
         }
         LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
         List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ConnectContext.get());

@@ -163,18 +163,21 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     log.info("Send write records request successfully, response: {}", responseObj.getData());
                     return;
                 }
+                String errorMessage = StringUtils.defaultIfBlank(responseObj.getData(), responseObj.getMsg());
+                throw new JobException(StringUtils.defaultIfBlank(
+                        errorMessage, "cdc_client failed to start streaming write"));
             } catch (JsonProcessingException e) {
                 log.warn("Failed to parse write records response: {}", response);
                 throw new JobException("Failed to parse write records response: " + response);
             }
-            throw new JobException("Failed to send write records request , error message: " + response);
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/writeRecords taskId={} jobId={} backend={}:{} timeout_sec={}",
                     taskId, getJobId(), backend.getHost(), backend.getBrpcPort(),
                     Config.streaming_cdc_heavy_rpc_timeout_sec);
             // the request may have been dispatched and still running remotely
             noRetry = true;
-            throw new JobException("cdc_client RPC timeout: /api/writeRecords taskId=" + taskId);
+            throw new JobException("cdc_client RPC timeout: /api/writeRecords jobId="
+                    + getJobId() + " taskId=" + taskId);
         } catch (ExecutionException | InterruptedException ex) {
             if (ex instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
