@@ -22,8 +22,16 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
+import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.sql.SQLException;
 
@@ -82,6 +90,39 @@ class JdbcCatalogDiagnosticsTest {
         Assertions.assertTrue(trace.contains("remote_sqlstate=08001"));
         Assertions.assertFalse(trace.contains("test-password"));
         Assertions.assertNull(ExternalCatalog.initErrorStackTrace(new IllegalStateException("ordinary failure")));
+    }
+
+    @Test
+    void swallowedCatalogFailureRetainsItsCompleteLogTrace() {
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        RuntimeException error = new RuntimeException("catalog wrapper", new IllegalStateException("remote IO failure"));
+        Mockito.when(catalog.getDbNames()).thenThrow(error);
+        Mockito.when(catalog.getDbNamesOrEmpty()).thenCallRealMethod();
+        StringBuilder logs = new StringBuilder();
+        AbstractAppender appender = new AbstractAppender("catalog-diagnostics-test", null,
+                PatternLayout.newBuilder().withPattern("%m%n%ex").build(), false, Property.EMPTY_ARRAY) {
+            @Override
+            public void append(LogEvent event) {
+                logs.append(getLayout().toSerializable(event));
+            }
+        };
+        Logger logger = (Logger) LogManager.getLogger(CatalogIf.class);
+        Level originalLevel = logger.getLevel();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.WARN);
+        try {
+            Assertions.assertTrue(catalog.getDbNamesOrEmpty().isEmpty());
+        } finally {
+            logger.removeAppender(appender);
+            logger.setLevel(originalLevel);
+            appender.stop();
+        }
+        Assertions.assertTrue(logs.toString().contains("catalog wrapper"), logs.toString());
+        Assertions.assertTrue(logs.toString().contains("Caused by: java.lang.IllegalStateException: remote IO failure"),
+                logs.toString());
+        Assertions.assertTrue(logs.toString().contains("swallowedCatalogFailureRetainsItsCompleteLogTrace"),
+                logs.toString());
     }
 
     private static class SafeConnectorException extends DorisConnectorException implements DiagnosticException {

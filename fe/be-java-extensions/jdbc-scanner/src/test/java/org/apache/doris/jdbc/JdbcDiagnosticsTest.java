@@ -47,6 +47,20 @@ class JdbcDiagnosticsTest {
     }
 
     @Test
+    void cleanupFailureKeepsTypesAndLocationsWithoutDriverMessages() {
+        SQLException cause = new SQLException("raw=test-password jdbc:mysql://private/db", "08001", 0);
+        RuntimeException error = new RuntimeException("outer raw=test-password", cause);
+        String trace = JdbcDataSource.cleanupErrorStackTrace(error);
+        Assertions.assertTrue(trace.contains("java.lang.RuntimeException"));
+        Assertions.assertTrue(trace.contains("java.sql.SQLException"));
+        Assertions.assertTrue(trace.contains("cleanupFailureKeepsTypesAndLocationsWithoutDriverMessages"));
+        Assertions.assertFalse(trace.contains("test-password"));
+        Assertions.assertFalse(trace.contains("jdbc:mysql"));
+        cause.initCause(error);
+        Assertions.assertEquals(trace, JdbcDataSource.cleanupErrorStackTrace(error));
+    }
+
+    @Test
     void scannerOpenReportsRemoteCodesThroughTheActualJniFormatter() throws Exception {
         JdbcJniScanner scanner = new JdbcJniScanner(1, params());
         SQLException cause = failure();

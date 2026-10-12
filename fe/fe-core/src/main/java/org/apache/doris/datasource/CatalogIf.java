@@ -88,7 +88,7 @@ public interface CatalogIf<T extends DatabaseIf> {
             if (diagnosticTrace != null) {
                 LOG.warn("failed to get db names in catalog {}: {}", getName(), diagnosticTrace);
             } else {
-                LOG.warn("failed to get db names in catalog {}", getName());
+                LOG.warn("failed to get db names in catalog {}", getName(), e);
             }
             return Lists.newArrayList();
         }

@@ -358,7 +358,7 @@ public abstract class ExternalCatalog
             if (diagnosticTrace != null) {
                 LOG.warn("failed to init catalog {}:{}: {}", name, id, diagnosticTrace);
             } else {
-                LOG.warn("failed to init catalog {}:{}", name, id);
+                LOG.warn("failed to init catalog {}:{}", name, id, e);
             }
             throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
@@ -775,7 +775,7 @@ public abstract class ExternalCatalog
                 if (diagnosticTrace != null) {
                     LOG.warn("failed to get db names in catalog {}: {}", getName(), diagnosticTrace);
                 } else {
-                    LOG.warn("failed to get db names in catalog {}", getName());
+                    LOG.warn("failed to get db names in catalog {}", getName(), e);
                 }
                 return Lists.newArrayList();
             }
@@ -803,7 +803,7 @@ public abstract class ExternalCatalog
             if (diagnosticTrace != null) {
                 LOG.warn("failed to get db {} in catalog {}: {}", dbName, name, diagnosticTrace);
             } else {
-                LOG.warn("failed to get db {} in catalog {}", dbName, name);
+                LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
             }
             return null;
         }
@@ -890,7 +890,7 @@ public abstract class ExternalCatalog
             if (diagnosticTrace != null) {
                 LOG.warn("failed to get db {} in catalog {}: {}", dbId, name, diagnosticTrace);
             } else {
-                LOG.warn("failed to get db {} in catalog {}", dbId, name);
+                LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
             }
             return null;
         }
@@ -1137,7 +1137,7 @@ public abstract class ExternalCatalog
                         LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
                                 localDbName, diagnosticTrace);
                     } else {
-                        LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName);
+                        LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
                     }
                     return null;
                 }
@@ -1149,7 +1149,7 @@ public abstract class ExternalCatalog
                     LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
                             localDbName, diagnosticTrace);
                 } else {
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName);
+                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
                 }
                 return null;
             }
