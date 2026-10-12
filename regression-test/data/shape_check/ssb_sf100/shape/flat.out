@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((p.p_partkey = l.lo_partkey)) otherCondition=() build RFs:RF0 p_partkey->[lo_partkey]
 ----------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
-----------------PhysicalOlapScan[part]
-------------PhysicalOlapScan[customer]
---------PhysicalOlapScan[supplier]
+----------------PhysicalOlapScan[part(p)]
+------------PhysicalOlapScan[customer(c)]
+--------PhysicalOlapScan[supplier(s)]
 

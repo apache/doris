@@ -227,6 +227,15 @@ suite("test_pruned_columns") {
     sql "set enable_common_expr_pushdown = true"
 
     def lazyPrunedToken = "lazy_pruned_column_recovery_" + UUID.randomUUID().toString()
+    // NOTE: this query must not carry a LIMIT that is pushed down to the scan. The
+    // segment-level counters of a scanner (LazyReadPrunedTime among them) are flushed into
+    // the profile by OlapScanner::_collect_profile_before_close(), which runs from
+    // Scanner::mark_to_need_to_close() only when a scanner reaches EOS. A pushed-down LIMIT
+    // makes the scan operator call ScannerContext::stop_scanners() as soon as the limit is
+    // satisfied, and a scanner that is idle in the queue at that moment is never flushed, so
+    // LazyReadPrunedTime may legitimately be reported as 0ns even though the lazy read was
+    // performed. Reading the whole table lets every scanner reach EOS, which makes the
+    // counter assertion below deterministic.
     sql """
         select
             "${lazyPrunedToken}"
@@ -234,7 +243,7 @@ suite("test_pruned_columns") {
             , element_at(s, 'data')
         from `tbl_test_pruned_columns`
         where element_at(s, 'city') = 'chengdu'
-        order by 1 limit 0, 20;
+        order by 1;
     """
 
     def profileAction = new ProfileAction(context)

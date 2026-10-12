@@ -49,7 +49,7 @@ PhysicalResultSink
 ----------PhysicalProject[(cast(id as BIGINT) * 5) AS `expr_(cast(id as BIGINT) * 5)`, t2.id]
 ------------PhysicalOlapScan[t2]
 ------PhysicalProject[t3.id]
---------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t2(t3)]
 
 -- !reorder_join_3 --
 PhysicalResultSink
@@ -63,7 +63,7 @@ PhysicalResultSink
 ------------PhysicalProject[t2.id]
 --------------PhysicalOlapScan[t2]
 --------PhysicalProject[(cast(id as BIGINT) * 5) AS `expr_(cast(id as BIGINT) * 5)`, t3.id]
-----------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2(t3)]
 
 -- !push_down_filter_through_join_4 --
 PhysicalResultSink

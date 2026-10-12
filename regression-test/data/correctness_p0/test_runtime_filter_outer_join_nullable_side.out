@@ -11,8 +11,8 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_coalesce(pk, 0) = c.pk)) otherCondition=()
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((a.pk = b.pk)) otherCondition=()
-----------------------PhysicalOlapScan[rf_outer_join_nullable_a]
-----------------------PhysicalOlapScan[rf_outer_join_nullable_b]
-------------------PhysicalOlapScan[rf_outer_join_nullable_c]
+----------------------PhysicalOlapScan[rf_outer_join_nullable_a(a)]
+----------------------PhysicalOlapScan[rf_outer_join_nullable_b(b)]
+------------------PhysicalOlapScan[rf_outer_join_nullable_c(c)]
 
 -- !result --

@@ -60,6 +60,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
                         Optional.empty(),
                         olapScan.getLogicalProperties(),
+                        null,
+                        null,
                         olapScan.getTableSample(),
                         olapScan.getOperativeSlots(),
                         olapScan.getVirtualColumns(),
@@ -68,7 +70,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getScoreRangeInfo(),
                         olapScan.getAnnOrderKeys(),
                         olapScan.getAnnLimit(),
-                        olapScan.getPartitionPrunablePredicates())
+                        olapScan.getPartitionPrunablePredicates(),
+                        olapScan.getTableAlias())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 

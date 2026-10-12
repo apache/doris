@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF5 ss_sold_date_sk->[d_date_sk]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[date_dim] apply RFs: RF5
+--------------------PhysicalOlapScan[date_dim(d1)] apply RFs: RF5
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF4 s_store_sk->[ss_store_sk]
 ----------------------PhysicalProject
@@ -22,7 +22,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 ----------------------------PhysicalProject
 ------------------------------filter((d2.d_moy = 8) and (d2.d_year = 2001))
---------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalOlapScan[date_dim(d2)]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store]
 

@@ -16,7 +16,7 @@ PhysicalResultSink
 --------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ------------------------PhysicalProject
 --------------------------filter((dt.d_moy = 12) and (dt.d_year = 2002))
-----------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalOlapScan[date_dim(dt)]
 --------------------PhysicalProject
 ----------------------filter((item.i_manager_id = 1))
 ------------------------PhysicalOlapScan[item]

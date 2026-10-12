@@ -26,7 +26,7 @@ PhysicalResultSink
 ------------------------------------------hashAgg[LOCAL]
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((ss1.ss_store_sk = 4))
-------------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------------------PhysicalOlapScan[store_sales(ss1)]
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalAssertNumRows
 ----------------------------------------PhysicalDistribute[DistributionSpecGather]
@@ -56,7 +56,7 @@ PhysicalResultSink
 --------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((ss1.ss_store_sk = 4))
---------------------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------------------PhysicalOlapScan[store_sales(ss1)]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalAssertNumRows
 ------------------------------------------PhysicalDistribute[DistributionSpecGather]

@@ -16,11 +16,11 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[LEFT_SEMI_JOIN shuffle] hashCondition=((ws1.ws_order_number = ws2.ws_order_number)) otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk))) build RFs:RF0 ws_order_number->[ws_order_number]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------------PhysicalOlapScan[web_sales(ws1)] apply RFs: RF0 RF1 RF2 RF3
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_sales]
+--------------------------------PhysicalOlapScan[web_sales(ws2)]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[web_returns]
+----------------------------PhysicalOlapScan[web_returns(wr1)]
 ------------------------PhysicalProject
 --------------------------filter((customer_address.ca_state = 'OK'))
 ----------------------------PhysicalOlapScan[customer_address]

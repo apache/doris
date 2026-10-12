@@ -36,3 +36,4 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------PhysicalProject
 ----------------filter((date_dim.d_year = 1998))
 ------------------PhysicalOlapScan[date_dim]
+
