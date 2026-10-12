@@ -20,14 +20,12 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.common.Config;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TPartitionType;
 
-import mockit.Deencapsulation;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -85,11 +83,10 @@ class PhysicalPlanTranslatorHiveWriteCompatibilityTest {
         try {
             PlanTranslatorContext context = new PlanTranslatorContext(
                     Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION);
-            PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context);
 
             Config.be_exec_version = Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION - 1;
-            DataPartition partition = Deencapsulation.invoke(translator, "toDataPartition",
-                    DistributionSpecHiveTableSinkUnPartitioned.INSTANCE, Collections.emptyList(), context);
+            DataPartition partition = PhysicalPlanTranslator.createHiveTableSinkDataPartition(
+                    Collections.emptyList(), context.getBeExecVersion());
 
             Assertions.assertEquals(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED,
                     partition.toThrift().type);

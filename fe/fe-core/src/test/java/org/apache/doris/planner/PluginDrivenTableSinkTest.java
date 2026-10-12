@@ -109,6 +109,27 @@ public class PluginDrivenTableSinkTest {
     }
 
     @Test
+    public void bindDataSinkKeepsStatementExecutionVersion() throws AnalysisException {
+        int original = Config.be_exec_version;
+        try {
+            int statementVersion = Config.PAIMON_WRITE_MIN_BE_EXEC_VERSION;
+            RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                    new ConnectorSinkPlan(new TDataSink(TDataSinkType.PAIMON_TABLE_SINK)));
+            PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                    null, provider, null, new ConnectorTableHandle() { }, Collections.emptyList(),
+                    Collections.emptyList(), null, WriteOperation.INSERT, true, false,
+                    null, null, statementVersion);
+
+            Config.be_exec_version = statementVersion - 1;
+            sink.bindDataSink(Optional.empty());
+
+            Assertions.assertEquals(statementVersion, provider.seenHandle.getBeExecVersion());
+        } finally {
+            Config.be_exec_version = original;
+        }
+    }
+
+    @Test
     public void bindDataSinkKeepsWriteSubsetSeparateFromBoundTargetSchema() throws AnalysisException {
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));

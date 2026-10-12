@@ -566,7 +566,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
         // resolves it by block-name, not by output-expr name.
         rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE,
-                false, false, deleteSink.getBoundWriteMetadataIdentity()));
+                false, false, deleteSink.getBoundWriteMetadataIdentity(), context));
         return rootFragment;
     }
 
@@ -604,7 +604,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
         rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
                 mergeSink.isWritesDataFiles(), mergeSink.isRequireMergeCardinalityCheck(),
-                mergeSink.getBoundWriteMetadataIdentity()));
+                mergeSink.getBoundWriteMetadataIdentity(), context));
         return rootFragment;
     }
 
@@ -622,7 +622,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PluginDrivenTableSink buildPluginRowLevelDmlSink(
             PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation,
             boolean writesDataFiles, boolean requireMergeCardinalityCheck,
-            String boundWriteMetadataIdentity) {
+            String boundWriteMetadataIdentity, PlanTranslatorContext context) {
         PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) sink.getTargetTable();
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) targetTable.getCatalog();
 
@@ -661,7 +661,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
         return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
                 providerTableHandle, connectorColumns, connectorColumns, null, writeOperation,
-                writesDataFiles, requireMergeCardinalityCheck, boundWriteMetadataIdentity, metadata);
+                writesDataFiles, requireMergeCardinalityCheck, boundWriteMetadataIdentity, metadata,
+                context.getBeExecVersion());
     }
 
     @Override
@@ -728,8 +729,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
                 writePlanProvider, connSession, providerTableHandle, connectorColumns,
-                boundTargetColumns, writeSortInfo, writeOperation, false,
-                boundWriteMetadataIdentity, metadata);
+                boundTargetColumns, writeSortInfo, writeOperation, true, false,
+                boundWriteMetadataIdentity, metadata, context.getBeExecVersion());
         rootFragment.setSink(providerSink);
         return rootFragment;
     }

@@ -67,7 +67,6 @@ public class PlanTranslatorContext {
     private final ConnectContext connectContext;
     private final StatementContext statementContext;
     private final ScanContext scanContext;
-    private final int beExecVersion;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private DescriptorTable descTable;
@@ -189,15 +188,15 @@ public class PlanTranslatorContext {
     private PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable, int beExecVersion) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
-        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
-                ? ScanContext.EMPTY
-                : ScanContext.builder()
-                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
-                        .build();
+        ScanContext.Builder scanContextBuilder = ScanContext.builder().beExecVersion(beExecVersion);
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            scanContextBuilder.clusterName(
+                    connectContext.getSessionVariable().resolveCloudClusterName(connectContext));
+        }
+        this.scanContext = scanContextBuilder.build();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.descTable = descTable;
-        this.beExecVersion = beExecVersion;
     }
 
     /**
@@ -212,15 +211,14 @@ public class PlanTranslatorContext {
     PlanTranslatorContext(int beExecVersion) {
         this.connectContext = null;
         this.statementContext = new StatementContext();
-        this.scanContext = ScanContext.EMPTY;
+        this.scanContext = ScanContext.builder().beExecVersion(beExecVersion).build();
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
         this.descTable = new DescriptorTable();
-        this.beExecVersion = beExecVersion;
     }
 
     public int getBeExecVersion() {
-        return beExecVersion;
+        return scanContext.getBeExecVersion();
     }
 
     /**

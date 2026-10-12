@@ -88,6 +88,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     // Carried from PhysicalExternalRowLevelMergeSink onto the write handle so the connector can stamp the
     // enforcement flag onto its BE sink; false for UPDATE and for every non-row-level write.
     private final boolean requireMergeCardinalityCheck;
+    private final int beExecVersion;
 
     /**
      * Plan-provider mode (W5): the connector supplies a {@link ConnectorWritePlanProvider}
@@ -217,6 +218,22 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             WriteOperation writeOperation, boolean writesDataFiles,
             boolean requireMergeCardinalityCheck, String boundWriteMetadataIdentity,
             ConnectorMetadata connectorMetadata) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                boundTargetColumns, writeSortInfo, writeOperation, writesDataFiles,
+                requireMergeCardinalityCheck, boundWriteMetadataIdentity, connectorMetadata,
+                Config.be_exec_version);
+    }
+
+    /**
+     * Complete plan-provider mode with the statement-scoped backend execution version.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
+            WriteOperation writeOperation, boolean writesDataFiles,
+            boolean requireMergeCardinalityCheck, String boundWriteMetadataIdentity,
+            ConnectorMetadata connectorMetadata, int beExecVersion) {
         super();
         this.targetTable = targetTable;
         this.writePlanProvider = writePlanProvider;
@@ -232,6 +249,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
         this.writesDataFiles = writesDataFiles;
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
+        this.beExecVersion = beExecVersion;
     }
 
     /**
@@ -265,7 +283,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
                 tableHandle, connectorColumns, boundTargetColumns, false, Collections.emptyMap(),
                 Collections.emptySet(), null, null, Optional.empty(), writeOperation,
-                writesDataFiles, requireMergeCardinalityCheck);
+                writesDataFiles, requireMergeCardinalityCheck, beExecVersion);
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
@@ -283,7 +301,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             throws AnalysisException {
         if (writeOperation == WriteOperation.MERGE && !writesDataFiles
                 && containsVariant(boundTargetColumns)
-                && Config.be_exec_version < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
+                && beExecVersion < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
             // Older BEs ignore writes_data_files and instantiate the omitted data writer, so reject
             // only when the schema would make that legacy writer fail to parse Variant metadata.
             throw new AnalysisException("Delete-only Iceberg MERGE with Variant is unavailable "
@@ -314,7 +332,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
                 boundTableHandle, connectorColumns, boundTargetColumns, overwrite, writeContext,
                 staticPartitionNullKeys, writeSortInfo,
                 boundWriteMetadataIdentity, branchName, writeOperation, writesDataFiles,
-                requireMergeCardinalityCheck);
+                requireMergeCardinalityCheck, beExecVersion);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
     }
@@ -353,13 +371,15 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         private final WriteOperation writeOperation;
         private final boolean writesDataFiles;
         private final boolean requireMergeCardinalityCheck;
+        private final int beExecVersion;
 
         private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
                 List<ConnectorColumn> boundTargetColumns, boolean overwrite,
                 Map<String, String> writeContext, Set<String> staticPartitionNullKeys,
                 TSortInfo sortInfo, String boundWriteMetadataIdentity,
                 Optional<String> branchName, WriteOperation writeOperation,
-                boolean writesDataFiles, boolean requireMergeCardinalityCheck) {
+                boolean writesDataFiles, boolean requireMergeCardinalityCheck,
+                int beExecVersion) {
             this.tableHandle = tableHandle;
             this.columns = columns;
             this.boundTargetColumns = boundTargetColumns;
@@ -372,6 +392,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
             this.writesDataFiles = writesDataFiles;
             this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
+            this.beExecVersion = beExecVersion;
         }
 
         @Override
@@ -381,8 +402,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
 
         @Override
         public int getBeExecVersion() {
-            // Use the query-wide minimum so connector plans cannot select a capability absent on any BE.
-            return Config.be_exec_version;
+            return beExecVersion;
         }
 
         @Override

@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.common.Config;
+
 /**
  * Shared context for scan planning/runtime decisions.
  * <p>
@@ -24,12 +26,14 @@ package org.apache.doris.planner;
  * we can evolve fields incrementally in future.
  */
 public final class ScanContext {
-    public static final ScanContext EMPTY = new ScanContext("");
+    public static final ScanContext EMPTY = new ScanContext("", Config.max_be_exec_version);
 
     private final String clusterName;
+    private final int beExecVersion;
 
-    private ScanContext(String clusterName) {
+    private ScanContext(String clusterName, int beExecVersion) {
         this.clusterName = clusterName == null ? "" : clusterName;
+        this.beExecVersion = beExecVersion;
     }
 
     public static Builder builder() {
@@ -40,19 +44,26 @@ public final class ScanContext {
         return clusterName;
     }
 
+    public int getBeExecVersion() {
+        return beExecVersion;
+    }
+
     public static final class Builder {
         private String clusterName = "";
+        private int beExecVersion = Config.be_exec_version;
 
         public Builder clusterName(String clusterName) {
             this.clusterName = clusterName;
             return this;
         }
 
+        public Builder beExecVersion(int beExecVersion) {
+            this.beExecVersion = beExecVersion;
+            return this;
+        }
+
         public ScanContext build() {
-            if (clusterName == null || clusterName.isEmpty()) {
-                return ScanContext.EMPTY;
-            }
-            return new ScanContext(clusterName);
+            return new ScanContext(clusterName, beExecVersion);
         }
     }
 }
