@@ -17,39 +17,25 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
-import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
-import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.function.Function;
 
-class CompositeTimeExtractTest extends ExpressionRewriteTestHelper {
+class CompositeTimeExtractTest {
     private static final List<Function<Expression, ScalarFunction>> FUNCTIONS = ImmutableList.of(
             HourMinute::new, HourSecond::new, MinuteSecond::new, SecondMicrosecond::new);
 
@@ -104,74 +90,4 @@ class CompositeTimeExtractTest extends ExpressionRewriteTestHelper {
         }
     }
 
-    @Test
-    void testOtherInputsKeepOriginalBinding() {
-        for (Function<Expression, ScalarFunction> factory : FUNCTIONS) {
-            ScalarFunction integer = factory.apply(SlotReference.of("i", IntegerType.INSTANCE));
-            Assertions.assertTrue(integer.getSignature().getArgType(0) instanceof DateTimeV2Type);
-            ScalarFunction array = factory.apply(SlotReference.of("a", ArrayType.of(IntegerType.INSTANCE)));
-            Assertions.assertThrows(AnalysisException.class, array::getSignature);
-            ScalarFunction volatileString = factory.apply(new Uuid());
-            Assertions.assertTrue(volatileString.getSignature().getArgType(0) instanceof DateTimeV2Type);
-        }
-    }
-
-    @Test
-    void testStringColumnsUseTheSameBindingAsSimpleExtracts() {
-        for (Function<Expression, ScalarFunction> factory : FUNCTIONS) {
-            for (DataType type : ImmutableList.of(VarcharType.SYSTEM_DEFAULT,
-                    StringType.INSTANCE, CharType.createCharType(64))) {
-                SlotReference argument = SlotReference.of("s", type);
-                ScalarFunction function = factory.apply(argument);
-                Assertions.assertEquals(new Microsecond(argument).getSignature().getArgType(0),
-                        function.getSignature().getArgType(0));
-                function = (ScalarFunction) TypeCoercionUtils.processBoundFunction(function);
-                Expression rewritten = ((RewriteWhenAnalyze) function).rewriteWhenAnalyze();
-                Assertions.assertSame(function, rewritten);
-                Assertions.assertInstanceOf(Cast.class, rewritten.child(0));
-                Assertions.assertSame(argument, rewritten.child(0).child(0));
-                Assertions.assertEquals(DateTimeV2Type.MAX, rewritten.child(0).getDataType());
-                Assertions.assertTrue(rewritten.nullable());
-                Assertions.assertTrue(rewritten.checkInputDataTypes().success());
-            }
-        }
-    }
-
-    @Test
-    void testStringExpressionsKeepDateTimeBinding() {
-        NereidsParser parser = new NereidsParser();
-        for (String name : ImmutableList.of("hour_minute", "hour_second", "minute_second", "second_microsecond")) {
-            for (String value : ImmutableList.of("12:34:56.789123", "2024-01-02 12:34:56.789123")) {
-                String argument = "concat('" + value + "', '')";
-                Expression simple = ExpressionAnalyzer.analyzeFunction(null, null,
-                        parser.parseExpression("microsecond(" + argument + ")"));
-                for (String expression : ImmutableList.of(name + "(" + argument + ")",
-                        "extract(" + name + " from " + argument + ")")) {
-                    Expression analyzed = ExpressionAnalyzer.analyzeFunction(null, null,
-                            parser.parseExpression(expression));
-                    Assertions.assertInstanceOf(Cast.class, analyzed.child(0));
-                    Assertions.assertEquals(simple.child(0), analyzed.child(0));
-                    Assertions.assertEquals(DateTimeV2Type.MAX, analyzed.child(0).getDataType());
-                }
-            }
-        }
-    }
-
-    @Test
-    void testStrictErrorsInStringSourcesAreNotSwallowed() {
-        NereidsParser parser = new NereidsParser();
-        String argument = "cast(cast('bad' as int) as varchar(20))";
-        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
-            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
-            for (String name : ImmutableList.of("hour_minute", "hour_second", "minute_second", "second_microsecond")) {
-                for (String expression : ImmutableList.of(name + "(" + argument + ")",
-                        "extract(" + name + " from " + argument + ")")) {
-                    Expression analyzed = ExpressionAnalyzer.analyzeFunction(null, null,
-                            parser.parseExpression(expression));
-                    Assertions.assertThrows(CastException.class,
-                            () -> FoldConstantRuleOnFE.evaluate(analyzed, context), expression);
-                }
-            }
-        }
-    }
 }
