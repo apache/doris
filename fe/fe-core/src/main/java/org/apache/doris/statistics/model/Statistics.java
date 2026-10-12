@@ -87,10 +87,11 @@ public class Statistics {
      * expression are simply unknown. Missing statistics therefore degrade to
      * {@link ColumnStatistic#UNKNOWN} instead of breaking the query.
      *
-     * <p>Absence of statistics is however always a potential bug of the statistics derivation: when
-     * {@code fe_debug} is on (as in the pipeline test environment) it is turned into a
-     * NullPointerException so that the bug fails the test instead of silently degrading the plan,
-     * while the production environment keeps returning unknown statistics.
+     * <p>Absence of the statistics of a column of a relation is however a potential bug of the
+     * statistics derivation: when {@code fe_debug} is on (as in the pipeline test environment) it is
+     * turned into a NullPointerException so that the bug fails the test instead of silently
+     * degrading the plan, while the production environment keeps returning unknown statistics. See
+     * {@link #isStatisticsDerivationExpected} for the expressions this covers.
      *
      * <p>Use {@link #findColumnStatisticsOrNull} when the absence of statistics is an expected case
      * that the caller explicitly handles.
@@ -100,11 +101,27 @@ public class Statistics {
         if (columnStatistic != null) {
             return columnStatistic;
         }
-        if (SessionVariable.isFeDebug()) {
+        if (SessionVariable.isFeDebug() && isStatisticsDerivationExpected(expression)) {
             throw new NullPointerException("Statistics of " + expression + " is not derived, rowCount="
                     + rowCount + ", derived expressions: " + expressionToColumnStats.keySet());
         }
         return ColumnStatistic.UNKNOWN;
+    }
+
+    /**
+     * Whether a missing entry for the given expression means that the statistics derivation missed
+     * something, i.e. whether it is a bug worth failing the query for while {@code fe_debug} is on.
+     *
+     * <p>The statistics of a plan are derived for the columns of a relation, which is also what
+     * {@code OperativeColumnDerive} decides to fetch, so a column of a relation is expected to have
+     * its statistics recorded. Slots that a rewrite generated are not columns of a relation and are
+     * not expected to be recorded: for example the alias slot of an unnested subquery
+     * ({@code $c$1}, see {@code ColumnAliasGenerator}), the slot of a mark join, or the slot of an
+     * unnest. Their statistics have always been estimated as unknown.
+     */
+    private static boolean isStatisticsDerivationExpected(Expression expression) {
+        return expression instanceof SlotReference
+                && ((SlotReference) expression).getOriginalColumn().isPresent();
     }
 
     /**
