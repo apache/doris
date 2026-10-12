@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string_view>
@@ -376,6 +377,28 @@ static Status build_v2_json_map_default(const format::ColumnDefinition& field,
     return Status::OK();
 }
 
+static bool parse_non_finite_default(doris::PrimitiveType type, std::string_view value,
+                                     Field* result) {
+    DORIS_CHECK(result != nullptr);
+    if (type != TYPE_FLOAT && type != TYPE_DOUBLE) {
+        return false;
+    }
+    double parsed;
+    if (value == "NaN") {
+        parsed = std::numeric_limits<double>::quiet_NaN();
+    } else if (value == "Infinity") {
+        parsed = std::numeric_limits<double>::infinity();
+    } else if (value == "-Infinity") {
+        parsed = -std::numeric_limits<double>::infinity();
+    } else {
+        return false;
+    }
+    // Iceberg serializes non-finite defaults as strings, which generic Doris numeric parsers reject.
+    *result = type == TYPE_FLOAT ? Field::create_field<TYPE_FLOAT>(static_cast<float>(parsed))
+                                 : Field::create_field<TYPE_DOUBLE>(parsed);
+    return true;
+}
+
 static Status build_v2_json_scalar_default(const format::ColumnDefinition& field,
                                            const DataTypePtr& value_type,
                                            const rapidjson::Value& json_value,
@@ -416,8 +439,7 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
         *result = Field::create_field<TYPE_STRING>(std::move(serialized_value));
         return Status::OK();
     }
-    if (doris::iceberg::detail::parse_non_finite_default(primitive_type, serialized_value,
-                                                         result)) {
+    if (parse_non_finite_default(primitive_type, serialized_value, result)) {
         return Status::OK();
     }
     RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
@@ -509,8 +531,7 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
     }
 
     std::string serialized_value = *field.initial_default_value;
-    if (doris::iceberg::detail::parse_non_finite_default(primitive_type, serialized_value,
-                                                         result)) {
+    if (parse_non_finite_default(primitive_type, serialized_value, result)) {
         return Status::OK();
     }
     RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,

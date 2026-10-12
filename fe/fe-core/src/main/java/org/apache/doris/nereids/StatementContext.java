@@ -278,6 +278,7 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> injectedSnapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> latestSnapshotFences = Maps.newHashMap();
     private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
@@ -1146,6 +1147,7 @@ public class StatementContext implements Closeable {
      * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
      */
     public void resetMvccSnapshots() {
+        injectedSnapshots.clear();
         snapshots.clear();
         latestSnapshots.clear();
         latestSnapshotFences.clear();
@@ -1158,6 +1160,14 @@ public class StatementContext implements Closeable {
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
+    }
+
+    public void resetMvccSnapshotsForRetry() {
+        // MTMV refresh partitions and rewrite inputs were selected against these task-owned fences.
+        // Only planner-loaded metadata may advance when the same execution retries planning.
+        Map<MvccTableInfo, MvccSnapshot> preservedSnapshots = Maps.newHashMap(injectedSnapshots);
+        resetMvccSnapshots();
+        preservedSnapshots.forEach(this::setSnapshot);
     }
 
     /**
@@ -1247,6 +1257,7 @@ public class StatementContext implements Closeable {
      * @param snapshot      snapshot
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        injectedSnapshots.put(mvccTableInfo, snapshot);
         // Injected snapshots are execution fences (for example MTMV refresh); an unqualified
         // relation must reuse that fence instead of treating the latest-snapshot cache as empty.
         latestSnapshots.put(mvccTableInfo, snapshot);

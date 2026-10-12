@@ -21,12 +21,19 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -79,5 +86,50 @@ public class PhysicalIcebergMergeSinkTest {
         Mockito.when(root.getUniqueId()).thenReturn(-1);
         build.invoke(sink, fields, spec, schema, Collections.singletonMap(1, rootExprId));
         Assertions.assertTrue(fields.isEmpty());
+    }
+
+    @Test
+    public void v3LineageSlotsDoNotDisablePartitionRouting() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "payload", Types.StructType.of(
+                        Types.NestedField.optional(2, "part", Types.IntegerType.get()))),
+                Types.NestedField.optional(3, "id", Types.IntegerType.get()));
+        List<Column> columns = IcebergWriteSchemaContext.forSchema(schema, 3, true, true).getMergeColumns();
+        List<NamedExpression> output = new ArrayList<>();
+        for (Column column : columns) {
+            output.add(new SlotReference(column.getName(), DataType.fromCatalogType(column.getType())));
+        }
+        output.add(new SlotReference(IcebergMergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE));
+        PhysicalEmptyRelation child = new PhysicalEmptyRelation(new RelationId(2), output, null);
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().enableIcebergMergePartitioning = true;
+        context.setThreadLocalInfo();
+        try {
+            for (PartitionSpec spec : new PartitionSpec[] {
+                    PartitionSpec.builderFor(schema).bucket("id", 8).build(),
+                    PartitionSpec.builderFor(schema).bucket("payload.part", 8).build(),
+                    PartitionSpec.builderFor(schema).identity("payload.part").build()}) {
+                Table table = Mockito.mock(Table.class);
+                Mockito.when(table.schema()).thenReturn(schema);
+                Mockito.when(table.spec()).thenReturn(spec);
+                PhysicalIcebergMergeSink<PhysicalEmptyRelation> sink = new PhysicalIcebergMergeSink<>(
+                        Mockito.mock(IcebergExternalDatabase.class), Mockito.mock(IcebergExternalTable.class),
+                        table, columns, output, new DeleteCommandContext(), true, false,
+                        Optional.empty(), null, child);
+                DistributionSpecMerge distribution = (DistributionSpecMerge)
+                        sink.getRequirePhysicalProperties().getDistributionSpec();
+                Assertions.assertFalse(distribution.isInsertRandom());
+                Assertions.assertEquals(1, distribution.getInsertPartitionFields().size());
+                Assertions.assertEquals(spec.fields().get(0).sourceId(),
+                        distribution.getInsertPartitionFields().get(0).getSourceId());
+            }
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
     }
 }

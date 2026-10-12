@@ -155,7 +155,7 @@ public class InsertUtilsTest {
     }
 
     @Test
-    public void testFirstInsertPlanAttemptKeepsInjectedSnapshot() {
+    public void testInsertPlanRetryPreservesInjectedSnapshotAndReloadsPlannerSnapshot() {
         StatementContext statementContext = new StatementContext();
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         DatabaseIf database = Mockito.mock(DatabaseIf.class);
@@ -176,8 +176,26 @@ public class InsertUtilsTest {
                 statementContext.loadSnapshots(table, Optional.empty(), Optional.empty())
                         .orElseThrow(AssertionError::new));
         Mockito.verify(table, Mockito.never()).loadSnapshot(Optional.empty(), Optional.empty());
-        InsertIntoTableCommand.prepareMvccSnapshotsForPlanAttempt(statementContext, 2);
-        Assertions.assertFalse(statementContext.getSnapshot(table).isPresent());
+        IcebergExternalTable plannerTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(plannerTable.getName()).thenReturn("planner_table");
+        Mockito.when(plannerTable.getDatabase()).thenReturn(database);
+        Mockito.when(plannerTable.loadSnapshot(Optional.empty(), Optional.empty()))
+                .thenReturn(snapshot, newerSnapshot);
+        Assertions.assertSame(snapshot, statementContext.loadSnapshots(
+                plannerTable, Optional.empty(), Optional.empty()).orElseThrow(AssertionError::new));
+
+        // Target-schema retries must keep the source generation selected for the MTMV refresh.
+        for (int attempt = 2; attempt <= 3; attempt++) {
+            InsertIntoTableCommand.prepareMvccSnapshotsForPlanAttempt(statementContext, attempt);
+            Assertions.assertSame(snapshot, statementContext.loadSnapshots(
+                    table, Optional.empty(), Optional.empty()).orElseThrow(AssertionError::new));
+            Assertions.assertSame(newerSnapshot, statementContext.loadSnapshots(
+                    plannerTable, Optional.empty(), Optional.empty()).orElseThrow(AssertionError::new));
+        }
+        Mockito.verify(table, Mockito.never()).loadSnapshot(Optional.empty(), Optional.empty());
+        statementContext.resetMvccSnapshots();
+        Assertions.assertSame(newerSnapshot, statementContext.loadSnapshots(
+                table, Optional.empty(), Optional.empty()).orElseThrow(AssertionError::new));
     }
 
     private String generateString(int length) {

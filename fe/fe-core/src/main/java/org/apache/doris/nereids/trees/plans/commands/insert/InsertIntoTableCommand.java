@@ -344,9 +344,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     static void prepareMvccSnapshotsForPlanAttempt(StatementContext statementContext, int attempt) {
         if (attempt > 1) {
-            // MTMV injects snapshot fences before the first attempt; only a failed planner attempt
-            // may be cleared so its stale metadata cannot leak into the retry.
-            statementContext.resetMvccSnapshots();
+            // Refresh planner metadata while retaining the source fences selected by the caller.
+            statementContext.resetMvccSnapshotsForRetry();
         }
     }
 

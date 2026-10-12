@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
@@ -345,7 +346,9 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
             if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
                 continue;
             }
-            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
+            // V3 lineage slots have no visible schema column and must not shift positional binding.
+            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)
+                    || IcebergUtils.isIcebergRowLineageColumn(name)) {
                 continue;
             }
             dataSlots.add(slot);
