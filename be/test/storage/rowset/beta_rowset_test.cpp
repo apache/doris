@@ -310,6 +310,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
                             .ak = "ak",
                             .sk = "sk",
                             .token = "",
+                            .azure_credentials = {},
                             .bucket = "",
                             .role_arn = "",
                             .external_id = "",

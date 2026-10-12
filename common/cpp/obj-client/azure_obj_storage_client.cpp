@@ -19,6 +19,7 @@
 
 #include <butil/guid.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <string_view>
@@ -30,8 +31,12 @@ using namespace Azure::Storage::Blobs;
 
 namespace {
 std::string wrap_object_storage_path_msg(const doris::ObjStoragePath& opts) {
+    std::string path = opts.path.native();
+    if (const auto query = path.find('?'); query != std::string::npos) {
+        path.resize(query);
+    }
     return fmt::format("bucket {}, key {}, prefix {}, path {}", opts.bucket, opts.key, opts.prefix,
-                       opts.path.native());
+                       path);
 }
 
 doris::ObjStoragePath with_object_key(const doris::ObjStoragePath& opts, std::string_view key) {
@@ -42,9 +47,17 @@ doris::ObjStoragePath with_object_key(const doris::ObjStoragePath& opts, std::st
 
 std::string to_lower_ascii(std::string_view input) {
     std::string lowered(input);
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    std::ranges::transform(lowered, lowered.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return lowered;
+}
+
+std::string redact_azure_url(std::string_view url) {
+    const auto query = url.find('?');
+    if (query == std::string_view::npos) {
+        return std::string(url);
+    }
+    return fmt::format("{}?<redacted>", url.substr(0, query));
 }
 
 std::string encode_azure_block_id(std::string_view upload_id, int part_num) {
@@ -59,7 +72,6 @@ std::string encode_azure_block_id(std::string_view upload_id, int part_num) {
     return Aws::Utils::HashingUtils::Base64Encode(bytes);
 }
 
-constexpr char SAS_TOKEN_URL_TEMPLATE[] = "{}/{}/{}{}";
 constexpr char BlobNotFound[] = "BlobNotFound";
 } // namespace
 
@@ -99,8 +111,8 @@ std::string build_azure_tls_debug_suffix(std::string_view error_message,
 static ObjStorageResponse make_azure_std_exception_response(const std::exception& e,
                                                             const ObjStoragePath& opts,
                                                             std::string_view tls_debug_context) {
-    auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),
-                           wrap_object_storage_path_msg(opts),
+    auto msg = fmt::format("Azure request failed because {}, path msg {}{}",
+                           redact_azure_url(e.what()), wrap_object_storage_path_msg(opts),
                            build_azure_tls_debug_suffix(e.what(), tls_debug_context));
     LOG(WARNING) << msg;
     return {.status = ObjStorageStatus {ObjStorageStatus::INTERNAL_ERROR, std::move(msg)},
@@ -117,8 +129,8 @@ ObjStorageResponse do_azure_client_call(Func f, const ObjStoragePath& opts,
         doris::record_object_request_failed(static_cast<int>(e.StatusCode));
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
-                wrap_object_storage_path_msg(opts),
+                redact_azure_url(e.what()), redact_azure_url(e.Message),
+                static_cast<int>(e.StatusCode), wrap_object_storage_path_msg(opts),
                 build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
                                              tls_debug_context));
         LOG(WARNING) << msg;
@@ -179,7 +191,8 @@ struct AzureBatchDeleter {
                 auto msg = fmt::format(
                         "Azure request failed because {}, error msg {}, http code {}, path msg "
                         "{}{}",
-                        e.what(), e.Message, static_cast<int>(e.StatusCode),
+                        redact_azure_url(e.what()), redact_azure_url(e.Message),
+                        static_cast<int>(e.StatusCode),
                         wrap_object_storage_path_msg(with_object_key(_opts, deferred.key)),
                         build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
                                                      _tls_debug_context));
@@ -250,8 +263,9 @@ ObjStorageUploadResult AzureObjStorageClient::upload_part(const ObjStoragePath& 
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
-                wrap_object_storage_path_msg(opts), tls_debug_suffix);
+                redact_azure_url(e.what()), redact_azure_url(e.Message),
+                static_cast<int>(e.StatusCode), wrap_object_storage_path_msg(opts),
+                tls_debug_suffix);
         LOG(WARNING) << msg;
         // clang-format off
         return {
@@ -309,8 +323,9 @@ ObjStorageHeadResult AzureObjStorageClient::head_object(const ObjStoragePath& op
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
-                wrap_object_storage_path_msg(opts), tls_debug_suffix);
+                redact_azure_url(e.what()), redact_azure_url(e.Message),
+                static_cast<int>(e.StatusCode), wrap_object_storage_path_msg(opts),
+                tls_debug_suffix);
         LOG(WARNING) << msg << ", request_id=" << e.RequestId;
         return ObjStorageHeadResult {
                 .resp = {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
@@ -398,19 +413,21 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}{}",
-                                    e.what(), _client->GetUrl(), request.Prefix.Value(),
-                                    tls_debug_suffix);
+                                    redact_azure_url(e.what()), redact_azure_url(_client->GetUrl()),
+                                    request.Prefix.Value(), tls_debug_suffix);
         return {
-                .resp = {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
-                                                                     e.Message + tls_debug_suffix),
+                .resp = {.status = obj_storage_status_from_http_code(
+                                 static_cast<int>(e.StatusCode),
+                                 redact_azure_url(e.Message) + tls_debug_suffix),
                          .http_code = static_cast<int>(e.StatusCode),
                          .request_id = std::move(e.RequestId)},
         };
     } catch (std::exception& e) {
         LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}",
-                                    e.what(), _client->GetUrl(), request.Prefix.Value());
+                                    redact_azure_url(e.what()), redact_azure_url(_client->GetUrl()),
+                                    request.Prefix.Value());
         return {
-                .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR, e.what()},
+                .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR, redact_azure_url(e.what())},
                          .http_code = 0,
                          .request_id = ""},
         };
@@ -472,8 +489,9 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
-                wrap_object_storage_path_msg(opts), tls_debug_suffix);
+                redact_azure_url(e.what()), redact_azure_url(e.Message),
+                static_cast<int>(e.StatusCode), wrap_object_storage_path_msg(opts),
+                tls_debug_suffix);
         LOG(WARNING) << msg;
         return {
                 .status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
@@ -482,8 +500,8 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                 .request_id = std::move(e.RequestId),
         };
     } catch (std::exception& e) {
-        auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),
-                               wrap_object_storage_path_msg(opts),
+        auto msg = fmt::format("Azure request failed because {}, path msg {}{}",
+                               redact_azure_url(e.what()), wrap_object_storage_path_msg(opts),
                                build_azure_tls_debug_suffix(e.what(), _config.tls_debug_context));
         LOG(WARNING) << msg;
         return {
@@ -496,6 +514,14 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
 
 std::string AzureObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,
                                                           int64_t expiration_secs) {
+    // A vended SAS may authorize an entire container. Returning the SDK URL would expose that
+    // credential without reducing its scope or lifetime. OAuth2 user-delegation SAS signing is
+    // not implemented. Preserve the string API's failure signal, which callers must not publish.
+    if (_credential == nullptr) {
+        LOG(WARNING) << "Azure presigned URL generation requires a SharedKey credential; "
+                        "signing is not supported for SAS or OAuth2 credentials";
+        return {};
+    }
     Azure::Storage::Sas::BlobSasBuilder sas_builder;
     sas_builder.ExpiresOn =
             std::chrono::system_clock::now() + std::chrono::seconds(expiration_secs);
@@ -505,19 +531,11 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjStoragePath& 
     sas_builder.Protocol = Azure::Storage::Sas::SasProtocol::HttpsOnly;
     sas_builder.SetPermissions(Azure::Storage::Sas::BlobSasPermissions::Read);
 
-    auto credential = _credential;
-    if (credential == nullptr) {
-        credential = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(_config.ak,
-                                                                                  _config.sk);
-    }
-    std::string sasToken = sas_builder.GenerateSasToken(*credential);
+    std::string sasToken = sas_builder.GenerateSasToken(*_credential);
 
-    auto sasURL =
-            fmt::format(SAS_TOKEN_URL_TEMPLATE, _config.endpoint, opts.bucket, opts.key, sasToken);
-    if (sasURL.find("://") == std::string::npos) {
-        sasURL = "https://" + sasURL;
-    }
-    return sasURL;
+    // The SDK encodes the raw name exactly as it does for open/HEAD/range reads. Concatenating
+    // opts.key directly would reinterpret a literal %2F as a slash after signing a different blob.
+    return _client->GetBlobClient(opts.key).GetUrl() + sasToken;
 }
 
 ObjStorageResponse AzureObjStorageClient::get_lifecycle(const std::string& /*bucket*/,
@@ -532,10 +550,12 @@ ObjStorageResponse AzureObjStorageClient::check_versioning(const std::string& /*
     return ObjStorageResponse::OK();
 }
 
-ObjStorageResponse AzureObjStorageClient::abort_multipart_upload(const ObjStoragePath& opts,
-                                                                 const std::string& upload_id) {
-    // delete uncommitted blobs
-    // https://learn.microsoft.com/en-us/rest/api/storageservices/delete-blob?tabs=microsoft-entra-id#remarks
-    return delete_object(opts);
+ObjStorageResponse AzureObjStorageClient::abort_multipart_upload(const ObjStoragePath& /*opts*/,
+                                                                 const std::string& /*upload_id*/) {
+    // Azure has no server-side multipart session to abort. Blocks are isolated by upload UUID;
+    // deleting their blob would also remove any previously committed data or another writer's
+    // blocks. Leave uncommitted blocks to service garbage collection instead. This is idempotent
+    // abandonment, not a claim that the service has immediately reclaimed the staged blocks.
+    return ObjStorageResponse::OK();
 }
 } // namespace doris
