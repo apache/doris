@@ -395,13 +395,14 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")
 
-            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
+            // UTC text projection prevents Connector/J from applying its cached connection time zone.
+            contains "QUERY: SELECT CAST(`timestamp0` AS CHAR) AS `timestamp0` FROM `doris_test`.`dt`"
         }
         explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
 
             // The JDBC session is UTC, while the literal is interpreted in the Doris session zone.
-            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
+            contains "QUERY: SELECT CAST(`timestamp0` AS CHAR) AS `timestamp0` FROM `doris_test`.`dt`"
             notContains "WHERE"
             contains "PREDICATES:"
             contains "2021-12-31 16:00:00+00:00"

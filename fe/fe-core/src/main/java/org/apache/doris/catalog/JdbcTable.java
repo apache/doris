@@ -152,7 +152,18 @@ public class JdbcTable extends Table {
             if (i != 0) {
                 sb.append(", ");
             }
-            sb.append("?");
+            Column column = getColumn(insertCols.get(i));
+            TOdbcTableType remoteType = getJdbcTableType();
+            // Legacy drivers bind zoned timestamps as VARCHAR; parse their explicit offsets on the server.
+            if (column != null && column.getType().isTimeStampTz()
+                    && (remoteType == TOdbcTableType.ORACLE || remoteType == TOdbcTableType.OCEANBASE_ORACLE)) {
+                sb.append("TO_TIMESTAMP_TZ(?, 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM')");
+            } else if (column != null && column.getType().isTimeStampTz() && remoteType == TOdbcTableType.PRESTO) {
+                sb.append("io.prestosql.jdbc.PrestoDriver".equals(getDriverClass())
+                        ? "CAST(? AS TIMESTAMP(6) WITH TIME ZONE)" : "CAST(? AS TIMESTAMP WITH TIME ZONE)");
+            } else {
+                sb.append("?");
+            }
         }
         sb.append(")");
         return sb.toString();
