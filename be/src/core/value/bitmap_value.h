@@ -941,11 +941,29 @@ private:
     // Bounded counterpart of roaring::Roaring::read(buf, portable). portable format uses
     // roaring_bitmap_portable_deserialize_safe; the V1 non-portable format uses
     // roaring_bitmap_deserialize_safe. Both return NULL on a truncated/invalid buffer.
+    //
+    // The *_deserialize_safe functions only bound the reads: a bitset container keeps
+    // whatever cardinality the payload declared (bitset_container_read never recomputes
+    // it), so a corrupt bitmap can claim cardinality 4097 while its words hold 65536
+    // bits. bitmap_to_array resizes by the declared cardinality but the element writer
+    // iterates the actual bits, i.e. a heap out-of-bounds write. roaring_bitmap_internal_validate
+    // cross-checks the declared and actual cardinalities (plus key order and container
+    // consistency) and rejects such payloads.
     static roaring::Roaring read_single_roaring_safe(const char* buf, size_t max_bytes,
                                                      bool portable, bool* is_valid_ptr) {
         auto* r = portable ? roaring::api::roaring_bitmap_portable_deserialize_safe(buf, max_bytes)
                            : roaring::api::roaring_bitmap_deserialize_safe(buf, max_bytes);
         if (r == nullptr) {
+            *is_valid_ptr = false;
+            return {};
+        }
+        const char* reason = nullptr;
+        if (!roaring::api::roaring_bitmap_internal_validate(r, &reason)) {
+            // Reachable from user supplied bytes (bitmap_from_binary), so it must not log at a
+            // level that is on by default: one line per input row lets any user with SELECT
+            // privilege flood be.log. Keep the diagnostic at VLOG_DEBUG.
+            VLOG_DEBUG << "Decode roaring bitmap failed: " << (reason ? reason : "unknown");
+            roaring::api::roaring_bitmap_free(r);
             *is_valid_ptr = false;
             return {};
         }

@@ -780,6 +780,30 @@ TEST(BitmapValueTest, valid_and_deserialize_rejects_duplicate_bitmap64_map_key) 
     EXPECT_EQ(deserialized.cardinality(), 0);
 }
 
+// A BITMAP32 portable payload declaring a bitset cardinality that does not
+// match the actual bits set must be rejected by valid_and_deserialize: the
+// declared cardinality flows into bitmap_to_array's resize while the element
+// writer iterates the actual bits, so accepting such a payload is a heap
+// out-of-bounds write (covered by ASan in the ASAN UT build).
+TEST(BitmapValueTest, FakeBitsetCardinality) {
+    std::string bytes;
+    bytes += static_cast<char>(BitmapTypeCode::BITMAP32);
+    uint32_t cookie = 12347; // SERIAL_COOKIE (hasrun), size-1 = 0
+    bytes.append(reinterpret_cast<const char*>(&cookie), 4);
+    bytes += '\0';                           // run bitmap: container 0 is not a run container
+    uint16_t key = 0, card_minus_one = 4096; // thiscard = 4097 > 4096 -> bitset container
+    bytes.append(reinterpret_cast<const char*>(&key), 2);
+    bytes.append(reinterpret_cast<const char*>(&card_minus_one), 2);
+    bytes.append(8192, '\xff'); // every one of the 65536 bits set
+
+    BitmapValue deserialized;
+    EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()))
+            << "declared cardinality must be validated";
+    PaddedPODArray<int64_t> out;
+    deserialized.to_array(out);
+    EXPECT_EQ(0u, out.size());
+}
+
 TEST(BitmapValueTest, valid_and_deserialize) {
     config::enable_set_in_bitmap_value = false;
 
