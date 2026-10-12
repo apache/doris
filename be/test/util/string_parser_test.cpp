@@ -33,18 +33,51 @@ std::string space[] = {"", "   ", "\t\t\t", "\n\n\n", "\v\v\v", "\f\f\f", "\r\r\
 const int space_len = 7;
 
 // Tests conversion of s to integer with and without leading/trailing whitespace
-template <typename T>
+template <typename T, bool enable_strict_mode = false>
 void test_int_value(const char* s, T exp_val, StringParser::ParseResult exp_result) {
     for (int i = 0; i < space_len; ++i) {
         for (int j = 0; j < space_len; ++j) {
             // All combinations of leading and/or trailing whitespace.
             std::string str = space[i] + s + space[j];
             StringParser::ParseResult result;
-            T val = StringParser::string_to_int<T>(str.data(), str.length(), &result);
+            T val = StringParser::string_to_int<T, enable_strict_mode>(str.data(), str.length(),
+                                                                       &result);
             EXPECT_EQ(exp_val, val) << str;
             EXPECT_EQ(result, exp_result);
         }
     }
+}
+
+template <typename T, bool enable_strict_mode>
+void test_unsigned_negative_int_bounds(const char* limit, const char* overflow,
+                                       const char* all_nines) {
+    constexpr T max_value = std::numeric_limits<T>::max();
+    constexpr T negative_ten = max_value - 9;
+    test_int_value<T, enable_strict_mode>("-0", T {0}, StringParser::PARSE_SUCCESS);
+    test_int_value<T, enable_strict_mode>("-10", negative_ten, StringParser::PARSE_SUCCESS);
+    test_int_value<T, enable_strict_mode>("-00000000000000000010", negative_ten,
+                                          StringParser::PARSE_SUCCESS);
+    test_int_value<T, enable_strict_mode>(limit, T {1}, StringParser::PARSE_SUCCESS);
+    test_int_value<T, enable_strict_mode>(overflow, T {1}, StringParser::PARSE_OVERFLOW);
+    test_int_value<T, enable_strict_mode>(all_nines, T {1}, StringParser::PARSE_OVERFLOW);
+    test_int_value<T, enable_strict_mode>(limit + 1, max_value, StringParser::PARSE_SUCCESS);
+    test_int_value<T, enable_strict_mode>(overflow + 1, max_value, StringParser::PARSE_OVERFLOW);
+    test_int_value<T, enable_strict_mode>(
+            "-10.5", enable_strict_mode ? T {0} : negative_ten,
+            enable_strict_mode ? StringParser::PARSE_FAILURE : StringParser::PARSE_SUCCESS);
+}
+
+template <bool enable_strict_mode>
+void test_unsigned_negative_int_bounds() {
+    test_unsigned_negative_int_bounds<uint8_t, enable_strict_mode>("-255", "-256", "-999");
+    test_unsigned_negative_int_bounds<uint16_t, enable_strict_mode>("-65535", "-65536", "-99999");
+    test_unsigned_negative_int_bounds<uint32_t, enable_strict_mode>("-4294967295", "-4294967296",
+                                                                    "-9999999999");
+    test_unsigned_negative_int_bounds<uint64_t, enable_strict_mode>(
+            "-18446744073709551615", "-18446744073709551616", "-99999999999999999999");
+    test_unsigned_negative_int_bounds<uint128_t, enable_strict_mode>(
+            "-340282366920938463463374607431768211455", "-340282366920938463463374607431768211456",
+            "-999999999999999999999999999999999999999");
 }
 
 // Tests conversion of s to integer with and without leading/trailing whitespace
@@ -224,6 +257,29 @@ TEST(StringToInt, Limit) {
                             StringParser::PARSE_SUCCESS);
     test_int_value<int64_t>("-9223372036854775808", std::numeric_limits<int64_t>::min(),
                             StringParser::PARSE_SUCCESS);
+}
+
+TEST(StringToInt, UnsignedNegativeBounds) {
+    test_unsigned_negative_int_bounds<false>();
+}
+
+TEST(StringToInt, UnsignedNegativeBoundsStrict) {
+    test_unsigned_negative_int_bounds<true>();
+}
+
+TEST(StringToInt, SignedLimitsStrict) {
+    test_int_value<int8_t, true>("127", 127, StringParser::PARSE_SUCCESS);
+    test_int_value<int8_t, true>("-128", -128, StringParser::PARSE_SUCCESS);
+    test_int_value<int8_t, true>("-129", -128, StringParser::PARSE_OVERFLOW);
+    test_int_value<int64_t, true>("9223372036854775807", std::numeric_limits<int64_t>::max(),
+                                  StringParser::PARSE_SUCCESS);
+    test_int_value<int64_t, true>("-9223372036854775808", std::numeric_limits<int64_t>::min(),
+                                  StringParser::PARSE_SUCCESS);
+    test_int_value<int64_t, true>("-9223372036854775809", std::numeric_limits<int64_t>::min(),
+                                  StringParser::PARSE_OVERFLOW);
+    test_int_value<int128_t, true>("-170141183460469231731687303715884105728",
+                                   std::numeric_limits<int128_t>::min(),
+                                   StringParser::PARSE_SUCCESS);
 }
 
 TEST(StringToUnsignedInt, Basic) {
