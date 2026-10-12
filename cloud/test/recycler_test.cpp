@@ -6968,7 +6968,11 @@ TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
 
 TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
     auto* sp = SyncPoint::get_instance();
+    auto old_white_list = config::recycler_storage_vault_white_list;
+    auto old_black_list = config::recycler_storage_vault_black_list;
     DORIS_CLOUD_DEFER {
+        config::recycler_storage_vault_white_list = old_white_list;
+        config::recycler_storage_vault_black_list = old_black_list;
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
@@ -7072,6 +7076,7 @@ TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
     EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     EXPECT_EQ(accessor->exists("data/0/test.csv"), 0);
+    config::recycler_storage_vault_black_list = {};
 
     {
         config::recycler_storage_vault_white_list = {};
@@ -7097,6 +7102,19 @@ TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
         EXPECT_EQ(recycler.accessor_map_.size(), 2);
         EXPECT_EQ(recycler.accessor_map_.at("s3_1")->exists("data/0/test.csv"), 0);
         EXPECT_EQ(recycler.accessor_map_.at("hdfs_1")->exists("data/0/test.csv"), 0);
+    }
+
+    {
+        config::recycler_storage_vault_white_list = {"s3_1", "s3_2"};
+        config::recycler_storage_vault_black_list = {"s3_2"};
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        EXPECT_EQ(recycler.init(), 0);
+        EXPECT_EQ(recycler.accessor_map_.size(), 2);
+        auto skip_accessor = recycler.accessor_map_.at("s3_2");
+        EXPECT_EQ(skip_accessor->type(), AccessorType::S3);
+        EXPECT_EQ(skip_accessor->delete_file("data/0/test.csv"), 0);
+        EXPECT_EQ(accessor->exists("data/0/test.csv"), 0);
     }
 }
 

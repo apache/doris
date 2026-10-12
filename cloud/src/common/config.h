@@ -371,9 +371,12 @@ CONF_mString(delete_bitmap_lock_v2_white_list, "");
 // FOR DEBUGGING
 CONF_mBool(use_delete_bitmap_lock_random_version, "false");
 
-// Which vaults should be recycled. If empty, recycle all vaults.
-// Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
+// Which vaults should be recycled. If empty, recycle all vaults except blacklisted vaults.
+// Comma separated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
 CONF_Strings(recycler_storage_vault_white_list, "");
+// Vaults whose objects must not be deleted by the recycler.
+// Comma separated list of vault names: recycler_storage_vault_black_list="aaa,bbb,ccc"
+CONF_Strings(recycler_storage_vault_black_list, "");
 
 // for test only
 CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
