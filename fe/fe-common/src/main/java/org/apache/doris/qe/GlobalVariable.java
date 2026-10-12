@@ -49,6 +49,7 @@ public final class GlobalVariable {
     public static final String VERSION = "version";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String LICENSE = "license";
+    public static final String AUTHENTICATION_POLICY = "authentication_policy";
     public static final String LANGUAGE = "language";
     public static final String INIT_CONNECT = "init_connect";
     public static final String SYSTEM_TIME_ZONE = "system_time_zone";
@@ -111,6 +112,11 @@ public final class GlobalVariable {
 
     @VarAttrDef.VarAttr(name = LICENSE, flag = VarAttrDef.READ_ONLY)
     public static String license = "Apache License, Version 2.0";
+
+    // MySQL 8.0.27+ reports the multi-factor authentication policy here and tools built for
+    // MySQL 8.4+ read it. Doris authenticates with a single factor, which is the MySQL default.
+    @VarAttrDef.VarAttr(name = AUTHENTICATION_POLICY, flag = VarAttrDef.READ_ONLY)
+    public static String authenticationPolicy = "*,,";
 
     @VarAttrDef.VarAttr(name = LANGUAGE, flag = VarAttrDef.READ_ONLY)
     public static String language = "/palo/share/english/";
