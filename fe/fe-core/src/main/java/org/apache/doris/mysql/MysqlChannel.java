@@ -391,7 +391,7 @@ public class MysqlChannel implements BytesChannel {
                 result.compact();
                 // when encounter large sql query, one mysql packet will be packed as multiple ssl packets.
                 // we need to read all ssl packets to combine the complete mysql packet.
-                while (mysqlPacketLength > result.limit()) {
+                while (mysqlPacketLength > result.position()) {
                     sslHeaderByteBuffer.clear();
                     readLen = readAll(sslHeaderByteBuffer, true);
                     if (readLen != SSL_PACKET_HEADER_LEN) {
