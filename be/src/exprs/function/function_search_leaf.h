@@ -20,12 +20,17 @@
 #include <cstdint>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <string>
+#include <utility>
 
 #include "common/status.h"
+#include "core/data_type/data_type.h"
+#include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/query/logical/node.h"
+#include "storage/index/query/spi/index_source.h"
 
 namespace doris {
 
@@ -55,5 +60,37 @@ inline segment_v2::inverted_index::query_v2::QueryPtr make_unknown_leaf_query(ui
     return std::make_shared<segment_v2::inverted_index::query_v2::BitSetQuery>(
             std::make_shared<roaring::Roaring>(), std::move(null_bitmap));
 }
+
+// Compiles a leaf into the lazy query_v2 query the engine evaluates on the field's bound source,
+// after the source resolved the leaf's terms in one dictionary batch.
+class LazyLeafCompiler final : public SearchLeafCompiler {
+public:
+    LazyLeafCompiler(std::wstring field, std::string binding_key,
+                     index_query::IndexSourcePtr source);
+
+    Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
+                   segment_v2::inverted_index::query_v2::QueryPtr* out) override;
+
+private:
+    std::wstring _field;
+    std::string _binding_key;
+    index_query::IndexSourcePtr _source;
+};
+
+// Answers a comparison leaf from a scalar (BKD) index through its iterator.
+// Every other leaf on such an index is UNKNOWN.
+class ScalarLeafCompiler final : public SearchLeafCompiler {
+public:
+    ScalarLeafCompiler(segment_v2::IndexIterator* iterator, DataTypePtr column_type,
+                       std::string stored_field_name);
+
+    Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
+                   segment_v2::inverted_index::query_v2::QueryPtr* out) override;
+
+private:
+    segment_v2::IndexIterator* _iterator;
+    DataTypePtr _column_type;
+    std::string _stored_field_name;
+};
 
 } // namespace doris

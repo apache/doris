@@ -20,8 +20,7 @@
 #include <CLucene/config/repl_wchar.h>
 
 // clang-format off
-#include "exprs/function/lazy_leaf_compiler.h"
-#include "exprs/function/scalar_leaf_compiler.h"
+#include "exprs/function/function_search_leaf.h"
 // clang-format on
 #include <fmt/format.h>
 #include <glog/logging.h>

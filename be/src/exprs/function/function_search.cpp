@@ -37,7 +37,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/block/columns_with_type_and_name.h"
-#include "exprs/function/search_leaf_compiler.h"
+#include "exprs/function/function_search_leaf.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function/variant_inverted_index_search.h"
 #include "exprs/vexpr_context.h"

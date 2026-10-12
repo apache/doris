@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/scalar_leaf_compiler.h"
+#include "exprs/function/function_search_leaf.h"
 
 #include <glog/logging.h>
 
 #include <memory>
 #include <roaring/roaring.hh>
 #include <utility>
+#include <vector>
 
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/field.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
 #include "util/string_parser.hpp"
 
@@ -37,6 +39,26 @@ namespace {
 
 namespace logical = index_query::logical;
 namespace query_v2 = segment_v2::inverted_index::query_v2;
+
+// The terms a leaf opens, for the source to resolve ahead in one batch.
+std::vector<std::string> leaf_terms(const logical::Node& leaf) {
+    std::vector<std::string> terms;
+    if (const auto* term = leaf.as<logical::Term>()) {
+        terms.push_back(term->term);
+    } else if (const auto* set = leaf.as<logical::TermSet>()) {
+        terms = set->terms;
+    } else if (const auto* phrase = leaf.as<logical::Phrase>()) {
+        for (const auto& slot : phrase->slots) {
+            if (slot.is_single_term()) {
+                terms.push_back(slot.get_single_term());
+            } else {
+                const auto& alternatives = slot.get_multi_terms();
+                terms.insert(terms.end(), alternatives.begin(), alternatives.end());
+            }
+        }
+    }
+    return terms;
+}
 
 // The scalar type the index stores: nullable and array wrappers are stripped.
 DataTypePtr unwrap_value_type(const DataTypePtr& column_type) {
@@ -111,6 +133,22 @@ Status parse_scalar_value(const DataTypePtr& column_type, const std::string& val
 }
 
 } // namespace
+
+LazyLeafCompiler::LazyLeafCompiler(std::wstring field, std::string binding_key,
+                                   index_query::IndexSourcePtr source)
+        : _field(std::move(field)),
+          _binding_key(std::move(binding_key)),
+          _source(std::move(source)) {}
+
+Status LazyLeafCompiler::compile(const logical::Node& leaf, const SearchLeafContext& ctx,
+                                 query_v2::QueryPtr* out) {
+    const std::vector<std::string> terms = leaf_terms(leaf);
+    if (!terms.empty()) {
+        RETURN_IF_ERROR(_source->prepare_terms(terms));
+    }
+    return segment_v2::plan_query(leaf, ctx.context, _field, _binding_key, /*candidates=*/nullptr,
+                                  out);
+}
 
 ScalarLeafCompiler::ScalarLeafCompiler(segment_v2::IndexIterator* iterator, DataTypePtr column_type,
                                        std::string stored_field_name)
