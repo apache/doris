@@ -15,24 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The SNII index-build OBSERVATION tracker: a labelled MemTracker fed by every
-// production MemoryReporter so index-build RAM is a visible category in Doris's
-// memory picture (the jemalloc allocation hook only knows which THREAD
-// allocated, so the bytes otherwise dissolve into whichever task tracker
-// happened to be attached).
-//
-// These tests pin the contract the limiter's decision layer depends on:
-//   (1) the tracker is a stable, labelled process singleton;
-//   (2) a reporter wired with snii_build_consume_release(BuildMemoryPopulation::kRegistered) moves the tracker in
-//       lockstep with its own live bytes, through BOTH the Reservation path and
-//       the legacy report() path;
-//   (3) the tracker returns to its baseline when writers drain -- a missed
-//       negative would leave permanently overstated memory in the picture and,
-//       through the limiter, permanent phantom back-pressure.
-//
-// The tracker is process-wide and shared with anything else in this binary that
-// builds a production reporter, so every assertion is a DELTA from a baseline
-// taken at the start of the test, never an absolute value.
+// Compare deltas because the build memory tracker is shared across the process.
 
 #include "storage/index/snii/writer/snii_build_memory_tracker.h"
 

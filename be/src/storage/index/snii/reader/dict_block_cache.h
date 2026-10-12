@@ -29,22 +29,7 @@
 #include "common/status.h"
 #include "storage/index/snii/format/dict_block.h"
 
-// DictBlockCache -- a REQUEST-SCOPED (per-query) MRU cache of decoded DICT
-// blocks, keyed by block ordinal.
-//
-// Why request-scoped (and not a reader-level shared cache): the same DICT block
-// is decoded once per LogicalIndexReader::lookup() today, so a multi-term query
-// (phrase / boolean / conjunction) whose terms fall in the same block re-runs
-// the zstd decompress + CRC verify + anchor parse for every term. Threading one
-// of these caches through a single query's lookups collapses that to a single
-// decode per unique block.
-//
-// CONCURRENCY: this object carries NO shared mutable state and is intentionally
-// NOT thread-safe. It is meant to live on one query's stack/context and be used
-// by a single thread; concurrent queries each own a separate cache. The shared
-// LogicalIndexReader therefore stays const and lock-free -- no lock is ever held
-// across a decode/IO. (The cross-query, lock-striped variant that would let
-// queries share decoded blocks is deferred to the T26 concurrency work.)
+// Caches decoded DICT blocks for one query so repeated term lookups share a decode. Each query owns its cache; concurrent queries use separate instances.
 namespace doris::snii::reader {
 
 // A decoded DICT block with stable backing storage. Heap-allocated and owned by

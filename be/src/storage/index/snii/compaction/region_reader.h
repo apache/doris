@@ -27,32 +27,7 @@
 #include "storage/index/snii/io/file_reader.h"
 #include "storage/index/snii/writer/memory_reporter.h"
 
-// SequentialRegionReader -- chunked sequential read-ahead over ONE contiguous
-// byte region of a source file (T2.3, compaction index-merge fast path).
-//
-// The merge walks a source segment's posting region in ascending offset order
-// (the writer laid the per-term [prx][frq] spans out in term order, and the
-// term cursor replays terms in that same order), so per-window read_at calls
-// would issue thousands of tiny reads over an already-sequential byte stream.
-// This reader amortizes them: resolve() serves a window from the buffered
-// chunk when possible and only touches the file on a miss.
-//
-// resolve() preference order (documented contract, pinned by UT):
-//   1. window fully inside the buffered chunk -> zero-copy Slice into the
-//      buffer, NO file read;
-//   2. forward miss with len <= chunk_bytes -> ONE chunk read starting at the
-//      window (clamped to the region end, never past it) and a slice of it;
-//   3. oversized (len > chunk_bytes) or backward window -> ONE exact range
-//      read into *scratch, leaving the buffered chunk untouched (a rare
-//      backward probe must not thrash the forward stream).
-// A window not fully inside [region_offset, region_offset+region_length) is
-// Corruption -- posting locators were already validated against the region by
-// LogicalIndexReader::resolve_*_window, so an out-of-region request here means
-// a caller bug or corrupt state, never a legal miss.
-//
-// The returned Slice is valid until the NEXT resolve() call (buffer path) or
-// until *scratch is next modified (fallback path); callers decode immediately.
-// Single-threaded, borrowed FileReader must outlive the region reader.
+// Reads one contiguous source-file region with sequential read-ahead. A buffered hit returns a view; a forward miss refills the chunk; oversized or backward reads use scratch without replacing the chunk. Returned views remain valid until the next resolve() call.
 namespace doris::snii::compaction {
 
 enum class PostingStream : uint8_t { kDocs = 0, kPrx = 1 };

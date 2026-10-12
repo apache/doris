@@ -36,7 +36,7 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
 
-// G02 single-term count-only fast path: the count answered from dict-entry df
+// Single-term count-only fast path: the count answered from dict-entry df
 // alone must equal the full posting decode on the shared 9000-doc fixture. The
 // count_fastpath_hits seam pins that hits are counted exactly when a dict-only
 // answer was produced and never on the ordinary decode path.

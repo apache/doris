@@ -29,7 +29,7 @@ namespace roaring {
 class Roaring;
 } // namespace roaring
 
-// count_query -- G02 single-term count-only fast path primitives. They answer
+// Single-term count-only primitives. They answer
 // "how many docs match" from a dict entry alone, without reading .frq bytes.
 // Multi-term queries, prefix/regexp/wildcard expansion, and phrases execute the
 // normal query path. Deletes and extra predicates are a caller responsibility;
@@ -43,31 +43,7 @@ namespace doris::snii::query {
 Status count_only_term_df(const reader::LogicalIndexReader& idx, std::string_view term,
                           uint64_t* count);
 
-// Builds the fabricated count bitmap for a segment WITH a null bitmap: exactly
-// `count` row ids DISJOINT from `nulls` (the first `count` non-null row ids,
-// all < count + |nulls|). Why disjoint: the MATCH machinery unconditionally
-// subtracts the segment null bitmap from every index result
-// (FunctionMatchBase -> InvertedIndexResultBitmap::mask_out_null). For the
-// callers allowed to fabricate, postings never contain null docs -- the writer
-// adds NO tokens for a null doc (scalar add_nulls) -- so that subtraction is a
-// no-op on true results and df already IS the exact match count regardless of
-// nulls. That does NOT hold for ARRAY columns, whose add_array_values() also
-// indexes the nested payload of outer-null rows and whose add_array_nulls()
-// never retracts it; SniiIndexReader::_try_count_only_fastpath therefore
-// refuses an ARRAY column on a segment with nulls before reaching here. A naive
-// [0, df) range MAY collide with null row ids and be shrunk by mask_out_null;
-// picking the ids from the non-null space makes the subtraction provably a
-// no-op, preserving cardinality == df end to end.
-//
-// The window bound is doc-count-free: count counts only non-null docs, so
-// count + |nulls| <= segment doc count and [0, count + |nulls|) always holds
-// >= count non-null ids. Whether that lands inside the segment's real
-// [0, num_rows) row space rests on doc count <= num_rows, which the caller
-// checks against the segment itself -- not on anything this function can see.
-// Errors (id space would exceed the uint32 docid domain, or the window
-// unexpectedly holds fewer than `count` survivors) only occur on a corrupt
-// index; callers treat them as "fall through to the decode path", never as a
-// fabricated answer.
+// Builds a count-sized bitmap from non-null row IDs so later null masking preserves its cardinality. The caller checks the real row domain and rejects array columns whose postings may include outer-null rows.
 Status fabricate_null_disjoint_count_bitmap(uint64_t count, const roaring::Roaring& nulls,
                                             roaring::Roaring* out);
 

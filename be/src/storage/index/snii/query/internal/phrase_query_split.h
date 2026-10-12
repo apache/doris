@@ -54,30 +54,7 @@
 #include "storage/index/snii/reader/windowed_posting.h"
 #include "util/debug_points.h"
 
-// phrase_query implements MATCH_PHRASE with WINDOW (sub-block) SKIPPING for
-// high-df windowed terms (design spec section 6.2):
-//   1. Resolve every term; reject if any is absent.
-//   2. Batch-read each windowed term's prelude + each slim/inline term's full
-//      docid posting in one round; open the two-level prelude readers.
-//   3. Pick the DRIVER = smallest-df term; materialize it fully -> the initial
-//      candidate docid set.
-//   4. For every other term in ascending-df order, narrow the candidate set:
-//        - slim/inline: intersect with its (already decoded) full posting.
-//        - windowed:    locate_window() the CURRENT candidates -> the SET of
-//                       windows covering them; batch-fetch ONLY those windows'
-//                       .frq docid regions; keep candidates present in some
-//                       covering window. A high-df term thus reads
-//                       O(candidates) windows instead of its whole O(df)
-//                       posting.
-//   5. Fetch PRX only for retained chunks and run the positional phrase check
-//      (term[0]@p, term[1]@p+1, ...) on the survivors.
-// The result is identical to a full-read intersection; only the bytes read for
-// high-df windowed terms shrink.
-//
-// Internal to the phrase-query implementation, which spans phrase_plan.cpp,
-// phrase_position_source.cpp, phrase_emit.cpp, phrase_prefix_exec.cpp,
-// phrase_planned_query.cpp and phrase_query.cpp. This header carries the types and
-// functions those translation units share; nothing outside query/ may include it.
+// Plans a phrase query by materializing the smallest posting first, then reading only windows that cover surviving candidates. Position data is fetched for the remaining candidates before the final phrase check.
 namespace doris::snii::query::phrase_impl {
 
 struct PosSource;

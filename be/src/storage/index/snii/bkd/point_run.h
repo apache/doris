@@ -24,16 +24,7 @@
 #include "common/status.h"
 #include "storage/index/snii/common/slice.h"
 
-// One spilled RUN of build-time point records (design 6.2).
-//
-// A run is written once, in full, already sorted, and read back exactly once by
-// the k-way merge. That is the whole lifecycle, and it is why these two types
-// are deliberately smaller than a general file abstraction: no seeking, no
-// random access, no re-reads.
-//
-// Records are FIXED WIDTH (value bytes followed by a big-endian doc id), so the
-// run needs no framing of its own -- a record boundary is arithmetic, not a
-// delimiter -- and the reader's buffer can be sized in whole records.
+// Stores one sorted run of fixed-width point records for sequential merge reads.
 namespace doris::snii::bkd {
 
 // Append-only sink for one run. The caller owns the path and its removal; this
@@ -58,10 +49,7 @@ private:
     int fd_ = -1;
 };
 
-// Forward-only cursor over one run, holding at most `buffer_records` records
-// resident. Sizing the cursor in records rather than bytes is what keeps the
-// merge's total footprint a function of (run count x buffer_records), which is
-// the bound design 6.2 promises.
+// Forward-only cursor that keeps at most buffer_records records resident.
 class PointRunReader {
 public:
     PointRunReader() = default;

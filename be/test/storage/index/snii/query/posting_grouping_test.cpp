@@ -47,22 +47,7 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
 
-// PHASE D differential + contiguity test (design 1.6: posting-level dd/freq
-// grouping). The windowed .frq payload is laid out
-// [prelude][dd-block][freq-block] so a docid-only / phrase reader fetches the
-// docs-only data ([prelude][dd-block]) as ONE CONTIGUOUS run. Over a ~5000-doc
-// kDocsPositions + norms index with a high-df term spanning MANY adaptive
-// windows plus mid/low terms and a planted 5-term phrase, this asserts:
-//   (a) term_query + phrase_query (incl the 5-term phrase) docids == a
-//   brute-force
-//       ORACLE; scoring top-K (exhaustive == wand == selective) unchanged.
-//   (b) Through a MeteredFileReader the docid-only posting reader for the
-//   high-df
-//       term reads the dd-block as a CONTIGUOUS region: read_at is SMALL (a
-//       couple of ranges, NOT one-per-window / not thousands), range_gets is
-//       small, AND request_bytes is strictly LESS than fetching the full
-//       posting (the freq-block is skipped). All three (read_at, range_gets,
-//       request_bytes) drop vs the full-posting read, with identical docids.
+// Verify posting queries and scoring against independent results. A doc-only read should fetch the contiguous prelude and dd-block without the freq-block.
 using namespace doris::snii;
 using namespace doris::snii::format;
 using namespace doris::snii::reader;
@@ -424,7 +409,7 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
                         .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
 
     // ---- (b) docid-only posting read fetches the dd-block CONTIGUOUSLY --------
-    // GROUPED = the Phase-D grouped docid-only path: read [prelude][dd-block] as
+    // Read [prelude][dd-block] as
     // one contiguous range. The lookup is deliberately outside this metrics
     // window so the assertion covers posting I/O.
     metered.reset_metrics();

@@ -26,18 +26,7 @@
 
 namespace doris::segment_v2 {
 
-// Doris read-path adapter for the SNII-native BKD (design 10 / task P3-2b): the
-// numeric counterpart of SniiIndexReader, and the drop-in replacement for the
-// CLucene-backed BkdIndexReader on SNII segments.
-//
-// It reports type() == BKD on purpose. The predicate layer routes on exactly
-// that (comparison_predicate.h and in_list_predicate.h both refuse to push a
-// numeric comparison down unless the iterator has a BKD reader), so a distinct
-// reader type would silently disable index acceleration for every numeric
-// column in the format rather than fail loudly.
-//
-// Nothing here catches a CLuceneError, because nothing under it can throw one:
-// this reader reaches the SNII-native core and no third-party index library.
+// Adapts the native BKD reader to Doris numeric predicates. Reports BKD type so predicates can use index pushdown.
 class SniiBkdIndexReader final : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(SniiBkdIndexReader);
 

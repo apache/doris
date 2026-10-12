@@ -15,27 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// P1-6, design 12.2: property tests for the SNII-native BKD index.
-//
-// The differential test (design 12.1) can only prove "the rewrite answers what
-// the CLucene BKD answers". An error the two SHARE passes it unnoticed, and the
-// baseline has catalogued defects (design 14), so agreement alone is not
-// correctness. These tests never consult either implementation: they state LAWS
-// a correct one-dimensional range index obeys, and check them against
-//
-//   * a brute-force scan of the same point list -- the independent oracle
-//     (design 12.2 / R1), and
-//   * the index's own answers to RELATED queries, which is what catches an
-//     oracle and an index that are wrong the same way.
-//
-// The laws are the part a brute-force comparison cannot express on its own: an
-// answer that does not depend on points_per_leaf, a pivot that partitions the
-// doc set, a widening interval that only ever adds docs, and a build whose bytes
-// do not depend on the order equal-doc points were appended in.
-//
-// Every RNG seed is a literal in this file and every dataset is derived from one,
-// so a failure reproduces from the test name alone -- no state carries between
-// runs and no clock or address feeds the generator.
+// Checks range-query laws against a brute-force scan and related index queries. Fixed random seeds make failures reproducible.
 
 #include <gtest/gtest.h>
 
@@ -323,10 +303,7 @@ struct Dataset {
     std::vector<Bytes> probes;
 };
 
-// Random ranks over [-span, span], doc ids ascending as add() requires
-// (design 6.1). `points_per_doc_max > 1` is the array-column shape: one row
-// contributing several points, which is a first-class case rather than
-// something a "single value per doc" flag promises away (design 14 #8).
+// Generate ascending doc IDs with repeated IDs for array-shaped rows.
 template <FieldType FT>
 std::vector<EncodedPoint> random_points(Rng* rng, uint32_t doc_count, int64_t span,
                                         uint32_t points_per_doc_max) {
@@ -633,9 +610,7 @@ TYPED_TEST(BkdPropertyTest, HeaderCountsAndBoundsDescribeThePointSet) {
                 docs.insert(point.doc_id);
             }
             EXPECT_EQ(reader.point_count(), dataset.points.size());
-            // doc_count is counted by the builder from consecutive doc ids
-            // (design 6.1), so an array column repeating one doc must not
-            // inflate it.
+            // Repeated points for one document must not increase doc_count.
             EXPECT_EQ(reader.doc_count(), docs.size());
             EXPECT_EQ(reader.header().bytes_per_dim, width);
             EXPECT_EQ(reader.header().field_type, kFieldType);
@@ -694,24 +669,7 @@ TYPED_TEST(BkdPropertyTest, BuildIsDeterministicUnderPerDocValueOrder) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// INV-1: the encoding must preserve the NATIVE order
-// ---------------------------------------------------------------------------
-//
-// Every law above draws its oracle from the ENCODED bytes, so the oracle and
-// the index share one notion of order: if the encoder stopped being
-// order-preserving they would be wrong together and stay green. That is exactly
-// the failure design 3 calls out as silent -- a self-consistent tree that
-// answers ranges with garbage and reports no error.
-//
-// The laws below take their oracle from the native C++ values instead. `values`
-// is sorted and deduplicated by native `<`, so a position in it IS the native
-// rank, and neither law mentions an encoded byte except to hand it to the index.
-//
-// The type axis matters as much as the oracle: the width spread above is four
-// SIGNED integers, which cannot distinguish "flips the sign bit" from "flips it
-// only when it should". The spread here crosses signed / unsigned / floating at
-// 1, 2, 4, 8 and 16 bytes, which is where a KeyCoder mistake would actually hide.
+// Check encoded ranges against native value order across signed, unsigned, and floating-point types.
 
 template <FieldType FT>
 std::vector<typename CppTypeTraits<FT>::CppType> native_spread() {

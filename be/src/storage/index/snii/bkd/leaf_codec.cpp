@@ -29,11 +29,7 @@
 #include "storage/index/snii/encoding/pfor.h"
 #include "storage/index/snii/encoding/varint.h"
 
-// The encode half and the decode half below share NOTHING but the constants in
-// bkd_format.h (design 4): no helper, no struct, no constant is reused across the
-// divider. That is the whole point -- the old docids_writer declared both
-// directions on one type, which is how the writer TU came to include the entire
-// read side.
+// The encoder and decoder share only the format constants.
 namespace doris::snii::bkd {
 
 // ===========================================================================
@@ -43,9 +39,7 @@ namespace {
 
 static_assert(kPointDocIdBytes == 4, "the build-time record tail is a 4-byte big-endian doc id");
 
-// The builder's own point buffer (design 6.2), addressed by point index: fixed
-// width [value: bytes_per_dim][doc_id: 4 big-endian] records, sorted by the memcmp
-// of the whole record, which IS (value, doc_id) order.
+// Reads a fixed-width [value][big-endian doc ID] record from the builder's sorted buffer.
 struct PointArray {
     const uint8_t* records = nullptr;
     size_t record_size = 0;
@@ -220,11 +214,7 @@ namespace {
 // Longest LEB128 encoding of a uint32.
 constexpr size_t kMaxVarint32Bytes = 5;
 
-// Every rejection of leaf bytes funnels through here. A leaf is read lazily and is
-// therefore NOT covered by the open-time validation of bkd_index, so these are the
-// checks that stand between a damaged file and the query. Disk data is not an
-// invariant: none of them may be a DORIS_CHECK, or a recoverable downgrade would
-// become a node crash (design 8).
+// Report malformed leaf bytes as corruption; leaves are validated when read.
 Status leaf_codec_corrupted(std::string_view what) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bkd leaf: {}", what);
 }
@@ -241,11 +231,7 @@ Status decode_leaf_head(ByteSource* src, uint32_t bytes_per_dim, uint32_t expect
                         LeafHead* head) {
     uint32_t point_count = 0;
     RETURN_IF_ERROR(src->get_varint32(&point_count));
-    // Design 5.2: the leaf directory already said how many points are here, and it
-    // was validated at open. Pinning the two together both catches damage and
-    // bounds every allocation below by trusted metadata -- necessary because an
-    // all-equal leaf spends zero bytes per point, so block length alone bounds
-    // nothing.
+    // Match the leaf's point count to the validated directory before allocating decode buffers.
     if (point_count != expected_point_count) {
         return leaf_codec_corrupted("point_count disagrees with the leaf directory");
     }

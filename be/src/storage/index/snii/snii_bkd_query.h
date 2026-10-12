@@ -21,17 +21,7 @@
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/snii/common/slice.h"
 
-// Predicate -> interval translation for the SNII-native BKD (design 7.1 / 10).
-//
-// This is the whole of what the old implementation spread across five template
-// specializations of InvertedIndexVisitor<QT>, each with its own matches() and
-// compare(). One interval primitive needs one translation, and it is a pure
-// function of the query type -- no index, no I/O, no KeyCoder.
-//
-// ENCODING IS NOT DONE HERE ON PURPOSE. The caller passes bytes already produced
-// by the KeyCoder of the INDEX's own field_type (INV-1); resolving that type is
-// the reader's job because only the reader has read the header. Keeping the two
-// apart is what makes this testable without an index at all.
+// Translates a numeric predicate into range bounds. The caller encodes values using the index field type before calling this function.
 namespace doris::segment_v2 {
 
 // A closed-or-open interval in sortable-byte space, in the shape

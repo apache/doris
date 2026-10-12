@@ -15,19 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// SNII Batch 2 -- multi-term OR read-amplification + streaming docid-union (T09).
-//
-// Covers three reader-only, byte-identical changes:
-//   (1) emit_docid_union streams each posting into a dedup-capable sink (Roaring)
-//       over ONE shared fetch round -- dense-full windows stay runs via
-//       append_range -- instead of materializing a per-term vector + K-way merge.
-//   (2) union_sorted_many reserves by summed input size (single allocation),
-//       capped by reserve_cap so heavily-overlapping inputs do not over-reserve.
-//   (3) the OR resolve path threads one request-scoped DictBlockCache through its
-//       per-term lookups, so terms sharing a DICT block read+decode it once.
-//
-// All assertions are deterministic (op-counts, capacities, set equality, I/O round
-// counts through MeteredFileReader / MemoryFile). No wall-clock gates.
+// Checks multi-term OR union results, bounded allocations, and shared DICT block decoding with deterministic counters.
 
 #include <gtest/gtest.h>
 

@@ -37,51 +37,15 @@ namespace doris::snii::reader {
 class SniiRewriteSnapshot;
 } // namespace doris::snii::reader
 
-// SniiCompoundWriter -- orchestrates a single-segment SNII container for one or
-// more logical indexes, written front-to-back through an append-only
-// io::FileWriter (no seek-back). It resolves all back-references by writing the
-// metadata groups, raw directory, and fixed tail pointer LAST.
+// Writes one SNII container through an append-only FileWriter:
 //
-// CONTAINER LAYOUT PRODUCED (this is the on-disk contract the reader matches):
-//   [bootstrap_header]                          (kBootstrapHeaderSize bytes)
-//   for each logical index, in add order:
-//     [posting region]       interleaved [prx][frq] per pod_ref term, term order
-//                            (prx span empty when !has_prx)
-//     [DICT blocks region]   concatenated DICT blocks, split by
-//                            target_dict_block_bytes
-//   for each logical index, in add order:
-//     [norms POD]            NormsPodWriter::finish (scoring only; else absent)
-//     [null bitmap POD]      NullBitmapWriter::finish (when nulls exist)
-//   for each logical index, in add order:
-//     [Core metadata][SampledTermIndex blob][DICT block directory blob]
-//   [metadata directory]     raw SniiMetadataDirectoryPB bytes
-//   [block padding]          OPTIONAL run of zero bytes, see write_tail(). Written only for
-//                            containers of >= kMinPaddingLeverage cache blocks, and only when the
-//                            file cache is on, so that the container ends on a block boundary.
-//                            Referenced by nothing and read by nobody -- but it means the metadata
-//                            directory is NOT necessarily adjacent to the tail pointer, and that
-//                            container length is not a pure function of the indexed content (two
-//                            BEs with different file_cache_each_block_size produce different
-//                            lengths for identical input).
-//   [tail_pointer]           encode_tail_pointer at EOF
+//   [bootstrap header]
+//   [posting and DICT regions per logical index]
+//   [norms and null-bitmap sections per logical index]
+//   [Core, sampled-term index, and DICT directory per logical index]
+//   [metadata directory][optional cache-block padding][tail pointer]
 //
-// (The posting region is streamed BEFORE the DICT region per index: postings are
-// the large append-only term-ordered stream; the DICT region is the compact
-// compressed trailer.)
-//
-// OFFSET CONVENTIONS (ABSOLUTE file offsets unless stated otherwise):
-//   - SectionRefs in each Core metadata record ABSOLUTE file offset+length of
-//     that index's posting, DICT, norms, null-bitmap, and BSBF regions. Absent
-//     regions are (0,0); a present-but-empty posting region (all-INLINE index)
-//     is (off, 0).
-//   - DictBlockDirectory entries record each DICT block's ABSOLUTE file offset +
-//     length.
-//   - A windowed/slim pod_ref entry's absolute .frq offset =
-//       section_refs.posting_region.offset + frq_base + frq_off_delta
-//     where frq_base is the posting-region-relative running offset captured at the
-//     block's open (see logical_index_writer.h). prx follows the identical rule
-//     against the SAME region (prx_base == frq_base).
-//   - tail_pointer.directory_offset/length point at the raw metadata directory.
+// SectionRefs and directory entries use absolute file offsets. DICT entry posting offsets are relative to their index's posting region; the tail pointer locates the metadata directory.
 namespace doris::snii::writer {
 
 // A container is padded up to a file-cache block boundary only when it spans at least this many

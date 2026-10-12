@@ -104,16 +104,16 @@ TEST(SniiLocalFile, BufferedAppendsByteIdentical) {
         LocalFileWriter w;
         ASSERT_TRUE(w.open(path).ok());
         size_t off = 0;
-        // Phase 1: many small appends (700 B) -> repeated buffer overflow/flush.
+        // Repeated small appends flush the buffer.
         while (off + 700 <= 600U * 1024) {
             ASSERT_TRUE(w.append(Slice(expected.data() + off, 700)).ok());
             off += 700;
         }
-        // Phase 2: one append larger than the buffer (direct-to-fd path).
+        // An append larger than the buffer writes directly.
         const size_t big = 300U * 1024;
         ASSERT_TRUE(w.append(Slice(expected.data() + off, big)).ok());
         off += big;
-        // Phase 3: drain the remainder in a final small append.
+        // Flush the remaining bytes on the final append.
         ASSERT_TRUE(w.append(Slice(expected.data() + off, expected.size() - off)).ok());
         EXPECT_EQ(w.bytes_written(), expected.size());
         ASSERT_TRUE(w.finalize().ok());

@@ -37,36 +37,7 @@
 #include "storage/index/snii/writer/term_posting_test_utils.h"
 #include "util/mem_info.h"
 
-// G09: process-wide build-RAM limiter. The per-writer gate-2 cap bounds ONE
-// SPIMI accumulator; a concurrent load keeps (tablets x concurrency) writers
-// alive at once, none of which may ever reach its own cap (wikipedia at
-// concurrency 16: 100+ writers x 300-500 MB, ~41 GiB, zero per-writer spills).
-// These tests pin the limiter's contract:
-//   (1) REGISTRY: register / absolute-report / unregister maintain the exact
-//       eligible-arena sum and entry count; reports for unregistered flags are
-//       ignored;
-//   (2) TRIGGER: the decision is judged against SNII's share of the process
-//       limit (from the observation tracker's consumption) plus the two
-//       process-level backstops; a zero share disables SNII's own trigger even
-//       for writers that registered while it was enabled;
-//   (3) SELECTION: over the share, the largest-ARENA eligible buffers
-//       (arena >= the victim floor -- only the arena is reclaimable by a
-//       forced spill) are flagged until the flagged arena covers the overage --
-//       counting already-pending flags -- and under it nothing is flagged;
-//   (4) HONOR: the owner's next add_token observes a pending request, spills
-//       (run_count increments; global_forced_spills seam bumps) BYPASSING the
-//       G08 anti-churn floor but respecting the FORCED-SPILL FLOOR, and
-//       clears the flag; requests are advisory;
-//   (5) LIFETIME: attach registers the current arena bytes, the debounced
-//       report path keeps the registry equal to arena_bytes(), and the
-//       destructor un-registers;
-//   (6) THREADS: concurrent register / report / unregister (with flags dying
-//       right after unregister) is race-free -- the TSAN canary;
-//   (7) ANTI-STORM (the conc=16 wikipedia field failure): the floor makes a
-//       below-floor request a pending NO-OP, the cooldown exempts a
-//       just-spilled buffer until its arena regrows past the floor, and
-//       flagging is suspended whenever the reclaimable arena summed over the
-//       eligible victims cannot cover the overage.
+// Checks limiter registration, spill selection, floor and cooldown behavior, and concurrent flag lifetime. Eligible owners handle advisory requests on their next token.
 using doris::snii::writer::BuildMemorySignals;
 using doris::snii::writer::calc_process_max_snii_build_memory;
 using doris::snii::writer::MemoryReporter;
@@ -599,7 +570,7 @@ TEST(SniiGlobalMemoryLimiter, ProcessPressureBeyondSniiStillReclaimsWhatSniiHold
 TEST(SniiSpimiGlobalSpill, OwnerHonorsRequestAtNextTokenAndClears) {
     snii_testing::reset_global_forced_spills();
     // Unlimited local threshold: the per-writer gate can never fire, so any
-    // spill below is attributable to the global request alone. The G08
+    // spill below is attributable to the global request alone. The local
     // anti-churn floor (arena >= cap/4) is bypassed by construction here --
     // the arena holds a single 32 KiB block, far below any production cap/4.
     // The forced-spill floor is dropped to its one-block minimum: THIS test
@@ -781,7 +752,7 @@ TEST(SniiSpimiGlobalSpill, AttachRegistersReportsTrackArenaAndDtorUnregisters) {
 // End-to-end: two attached buffers, one small and one that grows. The limiter
 // must flag the larger-ARENA grower once its arena clears the victim floor (the
 // small buffer's single arena block never does); the grower's own next token
-// honors the request (its local threshold is unlimited, the G08 floor
+// honors the request (its local threshold is unlimited, the local floor
 // bypassed); the small buffer is never flagged and never spills.
 TEST(SniiSpimiGlobalSpill, LimiterFlagsLargestOwnerSpillsSmallBufferSpared) {
     snii_testing::reset_global_forced_spills();
@@ -864,7 +835,7 @@ TEST(SniiSpimiGlobalSpill, LimiterFlagsLargestOwnerSpillsSmallBufferSpared) {
 
 // Concurrent register / report / unregister with a tiny overage so cross-thread
 // flagging constantly targets flags that die right after their unregister --
-// the exact lifetime the mutex must protect. Run under TSAN this is the G09
+// the exact lifetime the mutex must protect. Under TSAN this is the
 // race canary; under ASAN it still catches any touch-after-unregister. The
 // floor is dropped so the byte-scale entries keep producing flags (the point is
 // flag traffic, not selection policy).

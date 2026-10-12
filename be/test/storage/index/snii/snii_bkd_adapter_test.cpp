@@ -15,21 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The Doris WRITE-path adapter for the SNII-native BKD (design 10 / task P3-2a):
-// a numeric column driven through the ordinary IndexColumnWriter interface must
-// land in the segment's SNII container as a blob logical index that the native
-// BkdReader can answer from.
-//
-// What is only covered HERE (bkd_container_roundtrip_test already covers the
-// core riding a hand-driven container):
-//   * the adapter translates Doris's (const void* values, size_t count) +
-//     add_nulls row stream into (doc_id, sortable bytes) points, keeping the
-//     row id in step across value runs and null runs;
-//   * it encodes through the INDEX's own field type -- the one invariant that
-//     silently produces a self-consistent but semantically wrong index if it
-//     is taken from anywhere else (INV-1);
-//   * the null rows survive as a real SNII null-bitmap POD, not as points;
-//   * IndexFileWriter seals all of it into one container.
+// Exercises numeric BKD writes through IndexColumnWriter into a sealed SNII container. Checks row IDs, KeyCoder encoding, NULL bitmap, and native reads.
 
 #include <gtest/gtest.h>
 
@@ -357,9 +343,7 @@ TEST_F(SniiBkdAdapterTest, NullRowsBecomeANullBitmapNotPoints) {
     EXPECT_TRUE(all == complement);
 }
 
-// An all-NULL column still produces a well-formed, openable index: the empty
-// BKD (design 5.3) plus a full null bitmap. Treating it as an error here would
-// make a legal column unindexable.
+// An all-NULL column produces an empty BKD and a full null bitmap.
 TEST_F(SniiBkdAdapterTest, AllNullColumnSealsAnEmptyIndex) {
     std::vector<Row> rows;
     for (uint32_t i = 0; i < 500; ++i) {
@@ -441,10 +425,7 @@ TEST_F(SniiBkdAdapterTest, EncodesThroughTheIndexFieldTypeNotTheWidestOne) {
     EXPECT_TRUE(hits == expected);
 }
 
-// ---------------------------------------------------------------------------
-// READ path (task P3-2b): the same sealed container answered through the Doris
-// InvertedIndexReader interface, i.e. what a predicate actually calls.
-// ---------------------------------------------------------------------------
+// Read the sealed index through the Doris InvertedIndexReader interface.
 
 // A query context with the searcher cache DISABLED, so each test opens its own
 // reader and cannot pass or fail because of another test's cache entry.
@@ -604,12 +585,7 @@ TEST_F(SniiBkdAdapterTest, ReaderIdentifiesAsBkd) {
     EXPECT_EQ(reader->type(), InvertedIndexReaderType::BKD);
 }
 
-// ---------------------------------------------------------------------------
-// The GATES (task P3-2c): before this, both factories refused every non-string
-// column on a SNII segment outright, so nothing above could ever be reached in
-// production. These pin that the routing now happens -- and that a type NEITHER
-// writer can represent is still refused rather than silently dropped.
-// ---------------------------------------------------------------------------
+// Check factory routing for supported numeric and unsupported field types.
 
 TabletColumn numeric_column(FieldType type) {
     TabletColumn column;
@@ -660,16 +636,7 @@ TEST_F(SniiBkdAdapterTest, WriterFactoryStillRefusesNonIndexableTypes) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status.to_string();
 }
 
-// ---------------------------------------------------------------------------
-// ARRAY<numeric> (task P3-4). One row contributes SEVERAL points, which is why
-// the builder keys on (value, doc_id) rather than assuming one value per doc.
-//
-// The reference for these semantics is the CLucene numeric array branch
-// (inverted_index_writer.cpp add_array_values): it walks elements with a
-// running counter, skips nested nulls, advances the row id once per row, and
-// records NO null for a row whose array is empty. Array-level NULLs come from
-// add_array_nulls and nowhere else.
-// ---------------------------------------------------------------------------
+// Check that numeric arrays index multiple values per row while preserving row IDs and NULL semantics.
 
 // Drives the adapter's array entry points directly, the way the segment writer
 // does: one add_array_values over the whole block, then add_array_nulls over

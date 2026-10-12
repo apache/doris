@@ -388,13 +388,7 @@ TEST(SniiDictBlock, RejectsNonMonotonicAnchorOffsets) {
     EXPECT_FALSE(s.ok());
 }
 
-// ===========================================================================
-// T16: DictBlockBuilder move-entry overload + dead prev_term_ removal.
-// The move overload must be byte-for-byte equivalent to the const-ref (copy)
-// overload, must actually transfer (not copy) the entry, and removing the dead
-// prev_term_ member must leave finish() output unchanged. These live in the
-// SniiDictBlockTest suite per the T16 plan.
-// ===========================================================================
+// Check that moving an entry preserves the encoded bytes and avoids copying it.
 namespace {
 
 // Inline entry carrying BOTH non-empty frq_bytes and prx_bytes, so the move path
