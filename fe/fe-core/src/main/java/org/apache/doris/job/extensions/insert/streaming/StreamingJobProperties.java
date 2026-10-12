@@ -106,18 +106,22 @@ public class StreamingJobProperties implements JobProperties {
         this.maxIntervalSecond = Util.getLongPropertyOrDefault(
                         properties.get(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY),
                         StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND, (v) -> v >= 1,
-                StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY + " should > 1");
+                StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY + " must be at least 1 second, but was "
+                        + properties.get(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY));
 
         this.s3BatchFiles = Util.getLongPropertyOrDefault(
                         properties.get(StreamingJobProperties.S3_MAX_BATCH_FILES_PROPERTY),
                         StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES, (v) -> v >= 1,
-                StreamingJobProperties.S3_MAX_BATCH_FILES_PROPERTY + " should >=1 ");
+                StreamingJobProperties.S3_MAX_BATCH_FILES_PROPERTY + " must be at least 1, but was "
+                        + properties.get(StreamingJobProperties.S3_MAX_BATCH_FILES_PROPERTY));
 
         this.s3BatchBytes = Util.getLongPropertyOrDefault(
                         properties.get(StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY),
                         StreamingJobProperties.DEFAULT_MAX_S3_BATCH_BYTES, (v) -> v >= 100 * 1024 * 1024
                         && v <= (long) (1024 * 1024 * 1024) * 10,
-                StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY + " should between 100MB and 10GB");
+                StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY
+                        + " must be between 100 MB and 10 GB, but was "
+                        + properties.get(StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY));
 
         // validate session variables
         try {
