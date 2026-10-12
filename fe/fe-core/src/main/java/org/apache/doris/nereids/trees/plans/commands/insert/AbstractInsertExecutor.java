@@ -270,6 +270,7 @@ public abstract class AbstractInsertExecutor {
                 listener.afterComplete(this, executor, jobId);
             }
         } catch (Throwable t) {
+            executor.getSummaryProfile().recordFailedAttempt(ctx.queryId());
             onFail(t);
             // retry insert into from select when meet "need re-plan error" or no scan node in cloud
             if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
