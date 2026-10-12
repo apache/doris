@@ -211,6 +211,38 @@ public class IcebergWriterHelperTest {
     }
 
     @Test
+    public void convertToWriterResultDecodesBinaryAndUuidPartitionValues() {
+        // BE commits binary-like identity partitions as 0x hex; UUID may also arrive as canonical text.
+        Schema binarySchema = new Schema(
+                Types.NestedField.optional(1, "key", Types.BinaryType.get()),
+                Types.NestedField.optional(2, "fixed_key", Types.FixedType.ofLength(2)),
+                Types.NestedField.optional(3, "uuid_key", Types.UUIDType.get()));
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "binary_t"), binarySchema,
+                PartitionSpec.builderFor(binarySchema).identity("key").identity("fixed_key").identity("uuid_key")
+                        .build(),
+                Collections.singletonMap("write.format.default", "parquet"));
+        java.util.UUID uuid = java.util.UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        for (String uuidValue : Arrays.asList("0x00112233445566778899aabbccddeeff", uuid.toString())) {
+            TIcebergCommitData commit = new TIcebergCommitData();
+            commit.setFilePath("s3://b/db1/binary_t/binary.parquet");
+            commit.setPartitionValues(Arrays.asList("0xdead", "0xdead", uuidValue));
+            commit.setRowCount(1L);
+            commit.setFileSize(128L);
+            commit.setFileContent(TFileContent.DATA);
+            DataFile file = IcebergWriterHelper.convertToWriterResult(
+                    table, Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
+            Assertions.assertEquals(ByteBuffer.wrap(new byte[] {(byte) 0xde, (byte) 0xad}),
+                    file.partition().get(0, ByteBuffer.class));
+            Assertions.assertEquals(file.partition().get(0, ByteBuffer.class),
+                    file.partition().get(1, ByteBuffer.class));
+            Assertions.assertEquals(uuid, file.partition().get(2, java.util.UUID.class), uuidValue);
+        }
+    }
+
+    @Test
     public void convertToWriterResultCarriesColumnMetrics() {
         Table table = tableWith("write.format.default", "parquet");
 

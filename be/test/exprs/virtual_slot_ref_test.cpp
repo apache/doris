@@ -26,6 +26,8 @@
 
 #include "common/object_pool.h"
 #include "core/data_type/data_type_string.h"
+#include "exec/scan/scanner.h"
+#include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -105,6 +107,27 @@ TEST_F(VirtualSlotRefTest, ConstructorWithSlotDescriptor) {
 
     EXPECT_EQ(virtual_slot_ref.slot_id(), 2);
     EXPECT_EQ(virtual_slot_ref.column_id(), -1); // Should be -1 initially
+}
+
+TEST_F(VirtualSlotRefTest, ConditionCacheDigestIsDisabled) {
+    const VExprSPtr ref =
+            VirtualSlotRef::create_shared(create_virtual_slot_ref_node(1, "virtual_column"));
+    EXPECT_EQ(ref->get_digest(12345), 0);
+
+    const VirtualSlotRef descriptor_ref(create_slot_descriptor(2, "virtual_column"));
+    EXPECT_EQ(descriptor_ref.get_digest(12345), 0);
+}
+
+TEST_F(VirtualSlotRefTest, ConditionCacheDigestPropagatesThroughParentAndConjuncts) {
+    auto cast_node = create_virtual_slot_ref_node(1);
+    cast_node.__set_node_type(TExprNodeType::CAST_EXPR);
+    cast_node.__set_num_children(1);
+    auto cast_expr = VCastExpr::create_shared(cast_node);
+    cast_expr->add_child(VirtualSlotRef::create_shared(create_virtual_slot_ref_node(1)));
+    const auto conjunct = VExprContext::create_shared(cast_expr);
+
+    EXPECT_EQ(conjunct->get_digest(12345), 0);
+    EXPECT_EQ(Scanner::TEST_build_condition_cache_digest(12345, {conjunct}), 0);
 }
 
 TEST_F(VirtualSlotRefTest, EqualsFunction_SameObjects) {

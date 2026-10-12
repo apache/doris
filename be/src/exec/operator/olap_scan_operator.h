@@ -161,6 +161,7 @@ private:
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
     snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
 
+    RuntimeProfile::Counter* _condition_cache_lookup_counter = nullptr;
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;

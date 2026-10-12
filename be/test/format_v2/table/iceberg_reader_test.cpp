@@ -59,8 +59,10 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "core/value/uuid_value.h"
 #include "exec/common/endian.h"
 #include "exec/scan/access_path_parser.h"
 #include "exprs/runtime_filter_expr.h"
@@ -4216,7 +4218,7 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesTimestampInitialDefaultFor
     std::filesystem::remove_all(test_dir);
 }
 
-TEST(IcebergV2ReaderTest, UuidBinaryCarrierAcrossDataAndEqualityDeleteFormats) {
+TEST(IcebergV2ReaderTest, UuidNativeValuesAcrossDataAndEqualityDeleteFormats) {
     const auto test_dir = std::filesystem::temp_directory_path() / "iceberg_uuid_binary_carrier";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
@@ -4242,9 +4244,7 @@ TEST(IcebergV2ReaderTest, UuidBinaryCarrierAcrossDataAndEqualityDeleteFormats) {
                                  << "data=" << static_cast<int>(data_format)
                                  << " delete=" << static_cast<int>(delete_format)
                                  << " mapping=" << mapping << " strict=" << strict);
-                    DataTypePtr uuid_type =
-                            mapping ? DataTypePtr(std::make_shared<DataTypeVarbinary>(16))
-                                    : DataTypePtr(std::make_shared<DataTypeString>());
+                    DataTypePtr uuid_type = std::make_shared<DataTypeUUID>();
                     std::vector<ColumnDefinition> columns = {
                             make_table_column(0, "id", std::make_shared<DataTypeInt32>()),
                             make_table_column(1, "u", uuid_type)};
@@ -4281,8 +4281,10 @@ TEST(IcebergV2ReaderTest, UuidBinaryCarrierAcrossDataAndEqualityDeleteFormats) {
                             ASSERT_LT(total, values.size());
                             EXPECT_EQ(u.is_null_at(row), !values[total].has_value());
                             if (values[total].has_value()) {
-                                EXPECT_EQ(u.get_nested_column().get_data_at(row).to_string(),
-                                          *values[total]);
+                                EXPECT_EQ(uuid_type->to_string(u.get_nested_column(), row),
+                                          UUIDValue::to_string(UUIDValue::from_big_endian(
+                                                  reinterpret_cast<const uint8_t*>(
+                                                          values[total]->data()))));
                             }
                         }
                     }
@@ -4339,12 +4341,9 @@ TEST(IcebergV2ReaderTest, UuidEqualityDeleteMatchesMissingColumnInitialDefault) 
                     scan_params.__set_current_schema_id(100);
                     scan_params.__set_history_schema_info({external_schema(
                             100, {external_schema_field("id", 0),
-                                  external_schema_field("u", 1, {}, "ABEiM0RVZneImaq7zN3u/w==",
-                                                        external_primitive_type(
-                                                                mapping ? TPrimitiveType::VARBINARY
-                                                                        : TPrimitiveType::STRING,
-                                                                16),
-                                                        true)})});
+                                  external_schema_field(
+                                          "u", 1, {}, "00112233-4455-6677-8899-aabbccddeeff",
+                                          external_primitive_type(TPrimitiveType::UUID), false)})});
                     TQueryOptions query_options;
                     query_options.__set_enable_strict_cast(strict);
                     RuntimeState state {query_options, TQueryGlobals()};

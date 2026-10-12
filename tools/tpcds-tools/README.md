@@ -17,6 +17,27 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+# Run TPCDS with one command
+
+Install the Trino TPCDS generator on every FE and BE using the
+[shared installation instructions](../benchmark/README.md#install-the-generators-once),
+then configure `conf/doris-cluster.conf` and run:
+
+```bash
+./bin/run-tpcds.sh -s 1 -d tpcds_sf1
+```
+
+This streams generated rows directly into Doris, creates the existing benchmark
+tables, collects statistics, and records three executions per query. It supports
+SF1, SF100, SF1000, and SF10000. Preparation requires a new database.
+Use `--queries-only` to measure existing data again, with the same scale factor.
+
+See [shared workflow options, result files, and timing semantics](../benchmark/README.md).
+TPCDS uses the original scale-specific table DDL and multi-table queries.
+Install the plugin before running the command.
+
+# Original file-based workflow
+
 ## Usage
 
 These scripts are used to make tpc-ds test.

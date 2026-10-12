@@ -31,6 +31,8 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * sets, so row multiplicities are part of the expectation.
  */
 suite("test_ivm_partition_baseline_rebuild_dup_keys") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     def tableName = "ivm_part_dup_t"
     def mvName = "ivm_part_dup_mv"
 

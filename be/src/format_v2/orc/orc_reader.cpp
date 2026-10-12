@@ -1038,11 +1038,14 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         data_type = std::make_shared<DataTypeString>();
         break;
     case ::orc::TypeKind::BINARY:
-        if (_enable_mapping_varbinary) {
-            data_type = std::make_shared<DataTypeVarbinary>();
-        } else if (type.hasAttributeKey("doris.logical_type") &&
-                   type.getAttributeValue("doris.logical_type") == "uuid") {
+        // UUID metadata takes precedence over the physical BINARY kind.
+        if ((type.hasAttributeKey("doris.logical_type") &&
+             type.getAttributeValue("doris.logical_type") == "uuid") ||
+            (type.hasAttributeKey("iceberg.binary-type") &&
+             type.getAttributeValue("iceberg.binary-type") == "UUID")) {
             data_type = std::make_shared<DataTypeUUID>();
+        } else if (_enable_mapping_varbinary) {
+            data_type = std::make_shared<DataTypeVarbinary>();
         } else {
             data_type = std::make_shared<DataTypeString>();
         }
