@@ -19,7 +19,7 @@
 // true/false, and equality and grouping see two values. That must hold however the rows reach
 // storage - in one load, one load per row, spread over several tablets - and must survive a
 // full compaction.
-suite("test_variant_bool_path", "p0") {
+suite("test_variant_bool_path", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true]) {
 
     sql "drop table if exists test_variant_bool_path"

@@ -19,7 +19,7 @@
 // canonical equality and comparison. Window PARTITION BY used to be the one remaining context that
 // rejected it, so these queries pin that a Variant partition key groups rows by canonical value:
 // values of different JSON kinds ("a", true, 1) never share a partition, and equal values do.
-suite("test_variant_window_partition", "p0") {
+suite("test_variant_window_partition", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true]) {
 
     sql "drop table if exists test_variant_window_partition"

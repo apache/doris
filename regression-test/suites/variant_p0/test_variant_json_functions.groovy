@@ -16,7 +16,7 @@
 // under the License.
 
 // JSON functions accept a Variant argument by casting it to JSON implicitly.
-suite("test_variant_json_functions", "p0") {
+suite("test_variant_json_functions", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true]) {
 
     sql "DROP TABLE IF EXISTS test_variant_json_functions"

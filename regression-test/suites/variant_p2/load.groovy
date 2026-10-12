@@ -17,7 +17,7 @@
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-suite("load_p2", "variant_type,p2"){
+suite("load_p2", "variant_type,p2,nonConcurrent"){
     def enableVariantV2 = System.getenv().containsKey("VARIANT_BENCH_PHASE") ||
             getFeConfig("enable_variant_v2").toBoolean()
     setFeConfigTemporary([enable_variant_v2: enableVariantV2]) {
