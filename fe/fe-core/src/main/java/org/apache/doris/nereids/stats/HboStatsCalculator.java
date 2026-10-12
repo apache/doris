@@ -269,12 +269,12 @@ public class HboStatsCalculator extends StatsCalculator {
             return null;
         }
         for (GroupStructInfo.LiteralMode mode : lookupModes) {
-            Optional<GroupStructInfo> structInfoOpt = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
+            Optional<GroupStructInfo> structInfoOpt = GroupStructInfo.structInfoOfPlanNode(planNode, null);
             if (!structInfoOpt.isPresent()) {
                 continue;
             }
             GroupStructInfo structInfo = structInfoOpt.get();
-            String fingerprint = structInfo.getFingerprint();
+            String fingerprint = structInfo.getFingerprint(mode);
             Optional<HboPlanStatisticsManager.PinnedHboStatistics> pinnedOpt = Env.getCurrentEnv()
                     .getHboPlanStatisticsManager().getPinnedPlanStatistics(fingerprint);
             if (!pinnedOpt.isPresent()) {
@@ -300,7 +300,7 @@ public class HboStatsCalculator extends StatsCalculator {
             // records no data state at all is applied as it always was.
             HboStructFreshness freshness;
             if (HboStructFreshness.hasRecordedDataState(pinned.getStructCanonical())) {
-                Optional<GroupStructInfo> dataState = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
+                Optional<GroupStructInfo> dataState = GroupStructInfo.structInfoOfPlanNode(planNode, null);
                 // nothing to compare means unknown, which keeps the entry applicable (soft strategy)
                 freshness = dataState.isPresent()
                         ? HboStructFreshness.between(pinned.getStructCanonical(), dataState.get())
@@ -364,7 +364,7 @@ public class HboStatsCalculator extends StatsCalculator {
         if (planNode instanceof OlapScan) {
             // the data state of a scan group is the scan itself, and it is the one this query built
             // for the group (a scan node's own description)
-            Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
+            Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.structInfoOfPlanNode(planNode, null);
             if (liveStructInfo.isPresent()) {
                 HboStructFreshness freshness = HboStructFreshness.ofLearnedEntry(
                         matchedEntry.getInputTableStatistics(), liveStructInfo.get());

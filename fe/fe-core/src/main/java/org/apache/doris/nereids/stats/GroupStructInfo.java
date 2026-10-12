@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -53,7 +54,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 /**
  * Simplified struct info of a memo {@link Group}, used by History Based Optimization (HBO).
@@ -127,13 +127,21 @@ public class GroupStructInfo {
     private static final char[] HEX_DIGITS = "0123456789ABCDEF".toCharArray();
 
     /**
-     * How many groups this query described. A group is described once: the parts are memoized on the
-     * group and composed by their parents, so this number only grows when a new group is reached.
+     * How many groups this query described. A group is described once: the description is memoized on
+     * the group and composed by its parents, so this number only grows when a new group is reached.
      */
     private static final AtomicInteger describedGroups = new AtomicInteger();
 
+    /**
+     * How many descriptions were walked while materializing a string. A description whose string is
+     * already materialized is copied instead of being walked again, so this number does not grow for
+     * the sub tree of an already materialized child.
+     */
+    private static final AtomicInteger materializedGroups = new AtomicInteger();
+
     /** Shared invalid instance: the group content is not supported by the simplified struct info. */
-    public static final GroupStructInfo INVALID = new GroupStructInfo(false, "", "", "", INVALID_SCANS);
+    public static final GroupStructInfo INVALID =
+            new GroupStructInfo(false, false, "", Collections.emptyList(), INVALID_SCANS);
     /**
      * Shared instance for a failure which is not a property of the plan: the table state could not be
      * read (e.g. the visible version of a cloud table could not be fetched). Unlike
@@ -142,7 +150,7 @@ public class GroupStructInfo {
      * query.
      */
     public static final GroupStructInfo TRANSIENT_FAILURE =
-            new GroupStructInfo(false, "", "", "", INVALID_SCANS);
+            new GroupStructInfo(false, true, "", Collections.emptyList(), INVALID_SCANS);
 
     private static final String SEP = ";";
     private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
@@ -168,28 +176,49 @@ public class GroupStructInfo {
     }
 
     private final boolean valid;
-    private final String canonicalString;
-    /** The canonical string without the scan baselines: the fingerprint input. */
-    private final String shapeString;
-    private final String fingerprint;
+    /** Whether the failure was an environment problem which a later lookup may survive. */
+    private final boolean retryable;
+    /**
+     * The rope of this description: the text fragments of its own layer (in both literal modes) and
+     * references to the descriptions of its child groups. A parent therefore records only its own
+     * layer and never rebuilds the canonical string of a child; the strings are materialized on the
+     * first request (see {@link #getCanonical(LiteralMode)}).
+     */
+    private final List<Piece> pieces;
     /** The scans of the sub tree, in the order their tokens appear in the canonical string. */
     private final List<HboScanDescriptor> scans;
     /** Why no struct info was built, when it was refused by a limit instead of being unsupported. */
     private final String skipReason;
+    // the forms materialized on first request: the read side only needs a fingerprint, while the
+    // explain annotation needs the canonical string, so building all of them up front would be wasted
+    private String canonicalWithLiteral;
+    private String canonicalNoLiteral;
+    private String shapeWithLiteral;
+    private String shapeNoLiteral;
+    private String fingerprintWithLiteral;
+    private String fingerprintNoLiteral;
 
-    private GroupStructInfo(boolean valid, String canonicalString, String shapeString, String fingerprint,
+    private GroupStructInfo(boolean valid, boolean retryable, String skipReason, List<Piece> pieces,
             List<HboScanDescriptor> scans) {
-        this(valid, canonicalString, shapeString, fingerprint, scans, "");
+        this.valid = valid;
+        this.retryable = retryable;
+        this.skipReason = skipReason;
+        this.pieces = pieces;
+        this.scans = scans;
     }
 
-    private GroupStructInfo(boolean valid, String canonicalString, String shapeString, String fingerprint,
-            List<HboScanDescriptor> scans, String skipReason) {
-        this.valid = valid;
-        this.canonicalString = canonicalString;
-        this.shapeString = shapeString;
-        this.fingerprint = fingerprint;
-        this.scans = scans;
-        this.skipReason = skipReason;
+    private static GroupStructInfo ofPieces(List<Piece> pieces, List<HboScanDescriptor> scans) {
+        return new GroupStructInfo(true, false, "", pieces, Collections.unmodifiableList(scans));
+    }
+
+    private static GroupStructInfo invalidStructInfo(String skipReason) {
+        return skipReason.isEmpty()
+                ? INVALID
+                : new GroupStructInfo(false, false, skipReason, Collections.emptyList(), INVALID_SCANS);
+    }
+
+    private static GroupStructInfo transientStructInfo() {
+        return TRANSIENT_FAILURE;
     }
 
     /** The reason the struct info was refused by a limit, or empty. Only for diagnostics. */
@@ -201,17 +230,12 @@ public class GroupStructInfo {
         return valid;
     }
 
-    public String getCanonicalString() {
-        return canonicalString;
-    }
-
     /**
-     * The fingerprint input: the canonical string with the baseline of every scan token removed
-     * ({@code S{db.t}}). It is built from the traversal itself and not by parsing the canonical
-     * string, so no text inside a table name or a literal can be mistaken for a scan token.
+     * Whether the description failed on the environment (the data state of a table could not be read)
+     * rather than on the plan: such a failure is not memoized, so that a later lookup retries.
      */
-    public String getShapeString() {
-        return shapeString;
+    public boolean isRetryable() {
+        return retryable;
     }
 
     /**
@@ -223,8 +247,82 @@ public class GroupStructInfo {
         return scans;
     }
 
-    public String getFingerprint() {
-        return fingerprint;
+    /** The canonical string of one literal mode, with the data state of every scan. */
+    public String getCanonical(LiteralMode mode) {
+        boolean noLiteral = mode == LiteralMode.NO_LITERAL;
+        String materialized = noLiteral ? canonicalNoLiteral : canonicalWithLiteral;
+        if (materialized != null) {
+            return materialized;
+        }
+        StringBuilder sb = new StringBuilder(256);
+        appendTo(sb, mode, false);
+        materialized = sb.toString();
+        if (noLiteral) {
+            canonicalNoLiteral = materialized;
+        } else {
+            canonicalWithLiteral = materialized;
+        }
+        return materialized;
+    }
+
+    /**
+     * The fingerprint input of one literal mode: the canonical string with the data state of every
+     * scan removed ({@code S{db.t}}). It is assembled from the rope and never parsed out of the
+     * canonical string, so no text inside a table name or a literal can be mistaken for a scan token.
+     */
+    public String getShape(LiteralMode mode) {
+        boolean noLiteral = mode == LiteralMode.NO_LITERAL;
+        String materialized = noLiteral ? shapeNoLiteral : shapeWithLiteral;
+        if (materialized != null) {
+            return materialized;
+        }
+        StringBuilder sb = new StringBuilder(256);
+        appendTo(sb, mode, true);
+        materialized = sb.toString();
+        if (noLiteral) {
+            shapeNoLiteral = materialized;
+        } else {
+            shapeWithLiteral = materialized;
+        }
+        return materialized;
+    }
+
+    /** The sha256 of {@link #getShape(LiteralMode)}: the key an hbo entry is registered under. */
+    public String getFingerprint(LiteralMode mode) {
+        boolean noLiteral = mode == LiteralMode.NO_LITERAL;
+        String materialized = noLiteral ? fingerprintNoLiteral : fingerprintWithLiteral;
+        if (materialized != null) {
+            return materialized;
+        }
+        materialized = sha256(getShape(mode));
+        if (noLiteral) {
+            fingerprintNoLiteral = materialized;
+        } else {
+            fingerprintWithLiteral = materialized;
+        }
+        return materialized;
+    }
+
+    /**
+     * Write one form of this description: the pieces of its own layer and, for a child whose same
+     * form is already materialized, that materialized string instead of walking the child again.
+     */
+    private void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
+        materializedGroups.incrementAndGet();
+        for (Piece piece : pieces) {
+            piece.appendTo(out, mode, shape);
+        }
+    }
+
+    private String materialized(LiteralMode mode, boolean shape) {
+        if (shape) {
+            return mode == LiteralMode.NO_LITERAL ? shapeNoLiteral : shapeWithLiteral;
+        }
+        return mode == LiteralMode.NO_LITERAL ? canonicalNoLiteral : canonicalWithLiteral;
+    }
+
+    private static String sha256(String value) {
+        return Hashing.sha256().hashString(value, StandardCharsets.UTF_8).toString();
     }
 
     /**
@@ -240,8 +338,8 @@ public class GroupStructInfo {
      * Resolve the group fingerprint of a plan node in the given literal mode.
      */
     public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, LiteralMode mode) {
-        return fingerprintOfGroup(planNode.getGroupExpression()
-                .map(GroupExpression::getOwnerGroup).orElse(null), mode);
+        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
+        return fingerprintOfGroup(group, mode);
     }
 
     /**
@@ -260,121 +358,81 @@ public class GroupStructInfo {
      */
     public static Optional<String> fingerprintOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById,
             LiteralMode mode) {
-        return structInfoOfPlanNode(planNode, groupsById, mode).map(GroupStructInfo::getFingerprint);
+        return fingerprintOfGroup(resolveGroup(planNode, groupsById), mode);
     }
 
     private static Optional<String> fingerprintOfGroup(Group group, LiteralMode mode) {
-        return structInfoOfGroup(group, mode).map(GroupStructInfo::getFingerprint);
+        GroupStructInfo structInfo = group == null ? INVALID : group.getOrComputeHboStructInfo();
+        return structInfo.isValid() ? Optional.of(structInfo.getFingerprint(mode)) : Optional.empty();
     }
 
     /**
-     * Resolve the {@link GroupStructInfo} (with canonical string and fingerprint) of the group a
-     * plan node belongs to, using the group-expression back reference or the KEY_GROUP group-id
-     * state propagated by post processors (see {@link #fingerprintOfPlanNode}).
+     * Resolve the description of the group a plan node belongs to, using the group-expression back
+     * reference or the KEY_GROUP group-id state propagated by post processors (see
+     * {@link #fingerprintOfPlanNode}). Empty when the group content is unsupported.
      */
     public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode,
             Map<Integer, Group> groupsById) {
-        return structInfoOfPlanNode(planNode, groupsById, LiteralMode.WITH_LITERAL);
+        return structInfoOfGroup(resolveGroup(planNode, groupsById));
     }
 
-    /**
-     * Resolve the struct info of the group a plan node belongs to, in the given literal mode.
-     */
-    public static Optional<GroupStructInfo> structInfoOfPlanNode(AbstractPlan planNode,
-            Map<Integer, Group> groupsById, LiteralMode mode) {
-        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
-        if (group == null) {
-            Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
-            if (groupState.isPresent() && groupsById != null) {
-                try {
-                    group = groupsById.get(Integer.valueOf(groupState.get().toString()));
-                } catch (NumberFormatException ignored) {
-                    group = null;
-                }
-            }
-        }
-        return structInfoOfGroup(group, mode);
-    }
-
-    private static Optional<GroupStructInfo> structInfoOfGroup(Group group, LiteralMode mode) {
+    private static Optional<GroupStructInfo> structInfoOfGroup(Group group) {
         if (group == null) {
             return Optional.empty();
         }
-        GroupStructInfo structInfo = group.getOrComputeHboStructInfo(mode);
+        GroupStructInfo structInfo = group.getOrComputeHboStructInfo();
         return structInfo.isValid() ? Optional.of(structInfo) : Optional.empty();
     }
 
     /**
-     * Compute the simplified struct info of a memo group in the given literal mode.
+     * The description of a group: computed once per query and memoized on the group (see
+     * {@link Group#getOrComputeHboStructInfo}), so that a parent composes the description of its
+     * children instead of describing their sub trees again.
      */
-    public static GroupStructInfo of(Group group, LiteralMode mode) {
+    public static GroupStructInfo of(Group group) {
         if (group.getLogicalExpressions().isEmpty()) {
-            // physical only group: nothing to describe (see computeParts)
+            // physical only group: nothing to describe
             return INVALID;
         }
-        return fromParts(group.getOrComputeHboStructParts(), mode);
+        return group.getOrComputeHboStructInfo();
     }
 
-    /** The struct info of one literal mode of a group's parts, or the matching sentinel. */
-    public static GroupStructInfo fromParts(HboStructParts parts, LiteralMode mode) {
-        if (!parts.isValid()) {
-            if (parts.isRetryable()) {
-                // a failure which came from reading the catalog (e.g. a cloud rpc error) may survive a
-                // later attempt: INVALID would be cached by the memo group and disable hbo for the
-                // whole query, TRANSIENT_FAILURE is retried instead
-                return TRANSIENT_FAILURE;
-            }
-            String skipReason = parts.getSkipReason();
-            return skipReason.isEmpty()
-                    ? INVALID
-                    : new GroupStructInfo(false, "", "", "", INVALID_SCANS, skipReason);
-        }
-        return new GroupStructInfo(true, parts.canonical(mode), parts.shape(mode),
-                parts.fingerprint(mode), parts.getScans());
+    public static GroupStructInfo describeGroup(Group group) {
+        return describeGroup(group, new Ctx());
     }
 
-    /**
-     * The canonical parts of a group, computed once and memoized on it (see
-     * {@link Group#getOrComputeHboStructParts}). A group whose parts are already memoized is never
-     * walked again: a parent composes the parts of its children instead of describing their sub trees
-     * a second time.
-     */
-    public static HboStructParts partsOf(Group group) {
-        return partsOf(group, new Ctx());
-    }
-
-    private static HboStructParts partsOf(Group group, Ctx ctx) {
+    private static GroupStructInfo describeGroup(Group group, Ctx ctx) {
         if (!ctx.visited.add(group)) {
             // shared sub graph (e.g. CTE / repeated child group): cannot be expressed by a single
             // canonical tree, mark invalid so that callers fall back to legacy behavior
             invalid(ctx);
-            return HboStructParts.invalid("");
+            return INVALID;
         }
-        return partsOfVisited(group, ctx);
+        return describeVisited(group, ctx);
     }
 
     /**
-     * The parts of a group which the caller already marked visited (the join chain marks the groups
-     * it descends through itself, so that a group is never added twice within one build).
+     * The description of a group which the caller already marked visited (the join chain marks the
+     * groups it descends through itself, so that a group is never added twice within one build).
      */
-    private static HboStructParts partsOfVisited(Group group, Ctx ctx) {
-        HboStructParts memoized = group.getHboStructPartsOrNull();
+    private static GroupStructInfo describeVisited(Group group, Ctx ctx) {
+        GroupStructInfo memoized = group.getHboStructInfoOrNull();
         if (memoized != null) {
             return memoized;
         }
-        HboStructParts computed = computeParts(group, ctx);
+        GroupStructInfo computed = build(group, ctx);
         if (!computed.isRetryable()) {
             // a catalog failure is retried by the next lookup instead of being cached
-            group.setHboStructParts(computed);
+            group.setHboStructInfo(computed);
         }
         return computed;
     }
 
     /**
-     * Describe one group by composing the parts of its children (which are memoized, so each group of
-     * a plan is described exactly once per query), in both literal modes at once.
+     * Describe one group by composing the descriptions of its children (which are memoized, so each
+     * group of a plan is described exactly once per query), in both literal modes at once.
      */
-    private static HboStructParts computeParts(Group group, Ctx ctx) {
+    private static GroupStructInfo build(Group group, Ctx ctx) {
         describedGroups.incrementAndGet();
         HboStructSummary summary = group.getOrComputeHboStructSummary();
         int maxScansPerGroup = hboMaxScansPerGroup();
@@ -383,12 +441,12 @@ public class GroupStructInfo {
             // summary is used as a gate: a sub tree with more scan tokens than
             // hbo_max_scans_per_group is not described at all (the read side falls back to the
             // optimizer estimation and EXPLAIN reports why).
-            return HboStructParts.invalid("subtree scans=" + summary.getScanCount()
+            return invalidStructInfo("subtree scans=" + summary.getScanCount()
                     + " > hbo_max_scans_per_group=" + maxScansPerGroup);
         }
         if (group.getLogicalExpressions().isEmpty()) {
             // physical only group: there is no expression to describe
-            return HboStructParts.invalid("");
+            return INVALID;
         }
         GroupExpression ge = group.getFirstLogicalExpression();
         Canonical out = new Canonical();
@@ -398,12 +456,29 @@ public class GroupStructInfo {
             // memo content not supported by the simplified struct info: treat as invalid and
             // fall back to legacy behavior instead of failing the optimizer on the hot path
             LOG.debug("failed to compute hbo struct info for group {}", group.getGroupId(), e);
-            return ctx.retryable ? HboStructParts.transientFailure() : HboStructParts.invalid("");
+            return ctx.retryable ? transientStructInfo() : INVALID;
         }
         if (!ctx.valid) {
-            return ctx.retryable ? HboStructParts.transientFailure() : HboStructParts.invalid("");
+            return ctx.retryable ? transientStructInfo() : INVALID;
         }
-        return HboStructParts.of(out);
+        return ofPieces(out.getPieces(), out.getScans());
+    }
+
+    /** The memo group a plan node belongs to: its back reference, or the post processed group id. */
+    private static Group resolveGroup(AbstractPlan planNode, Map<Integer, Group> groupsById) {
+        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
+        if (group != null) {
+            return group;
+        }
+        Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
+        if (groupState.isPresent() && groupsById != null) {
+            try {
+                return groupsById.get(Integer.valueOf(groupState.get().toString()));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static void appendPlan(Plan plan, GroupExpression ge, Canonical out, Ctx ctx) {
@@ -414,10 +489,10 @@ public class GroupStructInfo {
             appendScan((LogicalOlapScan) plan, out, ctx);
         } else if (plan instanceof LogicalFilter) {
             LogicalFilter<?> filter = (LogicalFilter<?>) plan;
-            out.same("F{");
-            out.modes(normalizedSorted(filter.getConjuncts(), LiteralMode.WITH_LITERAL),
-                    normalizedSorted(filter.getConjuncts(), LiteralMode.NO_LITERAL));
-            out.same("}(");
+            StringBuilder withLiteralHeader = new StringBuilder("F{");
+            StringBuilder noLiteralHeader = new StringBuilder("F{");
+            appendNormalizedSorted(filter.getConjuncts(), withLiteralHeader, noLiteralHeader);
+            out.modes(withLiteralHeader.append("}(").toString(), noLiteralHeader.append("}(").toString());
             appendChild(ge, 0, out, ctx);
             out.same(")");
         } else if (plan instanceof LogicalProject) {
@@ -443,7 +518,7 @@ public class GroupStructInfo {
         }
         // the child is described once per query: its memoized parts are composed here instead of
         // walking its sub tree again (the grand children are never visited by this build)
-        HboStructParts child = partsOf(ge.child(index), ctx);
+        GroupStructInfo child = describeGroup(ge.child(index), ctx);
         if (!child.isValid()) {
             if (child.isRetryable()) {
                 transientFailure(ctx);
@@ -463,8 +538,10 @@ public class GroupStructInfo {
         // Outer / semi / anti / asof joins: the two sides are semantically different and the join
         // cannot be reassociated, so the memo order of the children and the join type are kept.
         out.same("J{" + join.getJoinType() + ",c:[");
-        out.modes(normalizedJoinConditions(join, LiteralMode.WITH_LITERAL),
-                normalizedJoinConditions(join, LiteralMode.NO_LITERAL));
+        TreeSet<String> conditions = new TreeSet<>();
+        TreeSet<String> conditionsNoLiteral = new TreeSet<>();
+        collectJoinConditions(join, conditions, conditionsNoLiteral);
+        out.modes(String.join(SEP, conditions), String.join(SEP, conditionsNoLiteral));
         out.same("]}(");
         appendChild(ge, 0, out, ctx);
         out.same(SEP);
@@ -487,8 +564,7 @@ public class GroupStructInfo {
         TreeSet<String> conditions = new TreeSet<>();
         TreeSet<String> conditionsNoLiteral = new TreeSet<>();
         List<Leaf> leaves = new ArrayList<>();
-        collectJoinConditions(join, conditions, LiteralMode.WITH_LITERAL);
-        collectJoinConditions(join, conditionsNoLiteral, LiteralMode.NO_LITERAL);
+        collectJoinConditions(join, conditions, conditionsNoLiteral);
         for (int i = 0; i < ge.arity(); i++) {
             collectJoinChain(ge.child(i), conditions, conditionsNoLiteral, leaves, ctx);
         }
@@ -506,7 +582,7 @@ public class GroupStructInfo {
             if (i > 0) {
                 out.same(SEP);
             }
-            out.append(leaves.get(i).getParts());
+            out.append(leaves.get(i).getLeaf());
         }
         out.same(")");
     }
@@ -532,8 +608,7 @@ public class GroupStructInfo {
         }
         Plan plan = ge.getPlan();
         if (plan instanceof LogicalJoin && isFlattenableJoinType(((LogicalJoin<?, ?>) plan).getJoinType())) {
-            collectJoinConditions((LogicalJoin<?, ?>) plan, conditions, LiteralMode.WITH_LITERAL);
-            collectJoinConditions((LogicalJoin<?, ?>) plan, conditionsNoLiteral, LiteralMode.NO_LITERAL);
+            collectJoinConditions((LogicalJoin<?, ?>) plan, conditions, conditionsNoLiteral);
             for (int i = 0; i < ge.arity(); i++) {
                 collectJoinChain(ge.child(i), conditions, conditionsNoLiteral, leaves, ctx);
             }
@@ -545,7 +620,7 @@ public class GroupStructInfo {
             collectJoinChain(ge.child(0), conditions, conditionsNoLiteral, leaves, ctx);
             return;
         }
-        HboStructParts leaf = partsOfVisited(group, ctx);
+        GroupStructInfo leaf = describeVisited(group, ctx);
         if (!leaf.isValid()) {
             if (leaf.isRetryable()) {
                 transientFailure(ctx);
@@ -557,20 +632,20 @@ public class GroupStructInfo {
         leaves.add(new Leaf(leaf));
     }
 
-    /** One leaf of a flattened join chain: the memoized parts of that sub tree. */
+    /** One leaf of a flattened join chain: the memoized description of that sub tree. */
     private static class Leaf {
-        private final HboStructParts parts;
+        private final GroupStructInfo leaf;
 
-        Leaf(HboStructParts parts) {
-            this.parts = parts;
+        Leaf(GroupStructInfo leaf) {
+            this.leaf = leaf;
         }
 
-        HboStructParts getParts() {
-            return parts;
+        GroupStructInfo getLeaf() {
+            return leaf;
         }
 
         String getShape() {
-            return parts.shape(LiteralMode.WITH_LITERAL);
+            return leaf.getShape(LiteralMode.WITH_LITERAL);
         }
     }
 
@@ -583,10 +658,10 @@ public class GroupStructInfo {
         // Only the grouping keys and the child take part: the output row count of an aggregation is
         // the number of groups, which the aggregate functions and the output expressions cannot
         // change, so keeping them would only split one plan pattern into several cache entries.
-        out.same("A{gb:");
-        out.modes(normalizedSorted(agg.getGroupByExpressions(), LiteralMode.WITH_LITERAL),
-                normalizedSorted(agg.getGroupByExpressions(), LiteralMode.NO_LITERAL));
-        out.same("}(");
+        StringBuilder withLiteralHeader = new StringBuilder("A{gb:");
+        StringBuilder noLiteralHeader = new StringBuilder("A{gb:");
+        appendNormalizedSorted(agg.getGroupByExpressions(), withLiteralHeader, noLiteralHeader);
+        out.modes(withLiteralHeader.append("}(").toString(), noLiteralHeader.append("}(").toString());
         appendChild(ge, 0, out, ctx);
         out.same(")");
     }
@@ -616,8 +691,7 @@ public class GroupStructInfo {
                 invalid(ctx);
                 return;
             }
-            out.token("S{" + descriptor.render() + "}", "S{" + descriptor.getTable() + "}");
-            out.getScans().add(descriptor);
+            out.scan(descriptor);
         } catch (org.apache.doris.rpc.RpcException e) {
             // the table version may not be readable (e.g. a cloud rpc failure): the group stays
             // invalid for this lookup, but the failure is retried by the next one
@@ -665,35 +739,50 @@ public class GroupStructInfo {
     // expression normalization: strip slot/expr ids, keep qualifier + column + literal value
     // -----------------------------------------------------------------------------------
 
-    private static String normalizedSorted(Set<Expression> conjuncts, LiteralMode mode) {
-        return conjuncts.stream().map(e -> normalizeExpression(e, mode)).sorted()
-                .collect(Collectors.joining(SEP));
-    }
-
-    private static String normalizedSorted(List<Expression> conjuncts, LiteralMode mode) {
-        return conjuncts.stream().map(e -> normalizeExpression(e, mode)).sorted()
-                .collect(Collectors.joining(SEP));
+    /**
+     * Append the two forms of a set of conjuncts (each form sorted) while normalizing every conjunct
+     * once.
+     */
+    private static void appendNormalizedSorted(Collection<Expression> conjuncts,
+            StringBuilder withLiteral, StringBuilder noLiteral) {
+        List<String> withLiteralParts = new ArrayList<>(conjuncts.size());
+        List<String> noLiteralParts = new ArrayList<>(conjuncts.size());
+        for (Expression conjunct : conjuncts) {
+            StringBuilder partWithLiteral = new StringBuilder();
+            StringBuilder partNoLiteral = new StringBuilder();
+            appendNormalizedExpression(conjunct, partWithLiteral, partNoLiteral);
+            withLiteralParts.add(partWithLiteral.toString());
+            noLiteralParts.add(partNoLiteral.toString());
+        }
+        withLiteralParts.sort(String::compareTo);
+        noLiteralParts.sort(String::compareTo);
+        withLiteral.append(String.join(SEP, withLiteralParts));
+        noLiteral.append(String.join(SEP, noLiteralParts));
     }
 
     /**
-     * Render all conditions of one join node (hash and other conjuncts) as one sorted, de
-     * duplicated set: whether a given conjunct is classified as a hash conjunct or as an other
-     * conjunct depends on the grouping of the chain, so that classification cannot be part of a
-     * canonical form that has to be insensitive to the grouping.
+     * Collect both forms of the conditions of one join node (hash and other conjuncts) as sorted, de
+     * duplicated sets, normalizing every conjunct once: whether a given conjunct is classified as a
+     * hash conjunct or as an other conjunct depends on the grouping of the chain, so that
+     * classification cannot be part of a canonical form that has to be insensitive to the grouping.
      */
-    private static String normalizedJoinConditions(LogicalJoin<?, ?> join, LiteralMode mode) {
-        TreeSet<String> conditions = new TreeSet<>();
-        collectJoinConditions(join, conditions, mode);
-        return String.join(SEP, conditions);
-    }
-
-    private static void collectJoinConditions(LogicalJoin<?, ?> join, Set<String> conditions, LiteralMode mode) {
+    private static void collectJoinConditions(LogicalJoin<?, ?> join,
+            Set<String> conditions, Set<String> conditionsNoLiteral) {
         for (Expression conjunct : join.getHashJoinConjuncts()) {
-            conditions.add(normalizeExpression(conjunct, mode));
+            addCondition(conjunct, conditions, conditionsNoLiteral);
         }
         for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            conditions.add(normalizeExpression(conjunct, mode));
+            addCondition(conjunct, conditions, conditionsNoLiteral);
         }
+    }
+
+    private static void addCondition(Expression conjunct,
+            Set<String> conditions, Set<String> conditionsNoLiteral) {
+        StringBuilder withLiteral = new StringBuilder();
+        StringBuilder noLiteral = new StringBuilder();
+        appendNormalizedExpression(conjunct, withLiteral, noLiteral);
+        conditions.add(withLiteral.toString());
+        conditionsNoLiteral.add(noLiteral.toString());
     }
 
     /**
@@ -807,30 +896,54 @@ public class GroupStructInfo {
      * its value, or becomes {@code lit(*)} when the constant agnostic form is asked for.
      */
     public static String normalizeExpression(Expression expression, LiteralMode mode) {
+        StringBuilder withLiteral = new StringBuilder();
+        StringBuilder noLiteral = new StringBuilder();
+        appendNormalizedExpression(expression, withLiteral, noLiteral);
+        return mode == LiteralMode.NO_LITERAL ? noLiteral.toString() : withLiteral.toString();
+    }
+
+    /**
+     * Append both forms of one expression while walking its tree once: the literal carrying form into
+     * {@code withLiteral} and the constant agnostic one into {@code noLiteral}. The operands of a
+     * commutative operator are sorted per form, because a literal value may order two operands
+     * differently than {@code lit(*)} does.
+     */
+    private static void appendNormalizedExpression(Expression expression,
+            StringBuilder withLiteral, StringBuilder noLiteral) {
         if (expression instanceof SlotReference) {
             SlotReference slot = (SlotReference) expression;
-            return "col(" + String.join(".", slot.getQualifier()) + "." + slot.getName() + ")";
+            String text = "col(" + String.join(".", slot.getQualifier()) + "." + slot.getName() + ")";
+            withLiteral.append(text);
+            noLiteral.append(text);
         } else if (expression instanceof Literal) {
-            if (mode == LiteralMode.NO_LITERAL) {
-                return "lit(*)";
-            }
             Literal literal = (Literal) expression;
-            return "lit(" + encodeLiteralValue(String.valueOf(literal.getValue()))
-                    + ":" + literal.getDataType() + ")";
+            withLiteral.append("lit(").append(encodeLiteralValue(String.valueOf(literal.getValue())))
+                    .append(':').append(literal.getDataType()).append(')');
+            noLiteral.append("lit(*)");
         } else if (expression.children().isEmpty()) {
-            return expression.getClass().getSimpleName();
+            String name = expression.getClass().getSimpleName();
+            withLiteral.append(name);
+            noLiteral.append(name);
         } else {
-            List<Expression> children = expression.children();
-            List<String> normalizedChildren = children.stream()
-                    .map(e -> normalizeExpression(e, mode)).collect(Collectors.toList());
-            if (isOrderInsensitive(expression)) {
-                // only order-insensitive operators (equal-to / and / or) may have their operands
-                // sorted; ordered comparisons (e.g. '<') must keep the original order, otherwise
-                // `col < 5` and `5 < col` would collapse to the same descriptor (review B2).
-                normalizedChildren.sort(String::compareTo);
+            List<String> withLiteralChildren = new ArrayList<>();
+            List<String> noLiteralChildren = new ArrayList<>();
+            for (Expression child : expression.children()) {
+                StringBuilder childWithLiteral = new StringBuilder();
+                StringBuilder childNoLiteral = new StringBuilder();
+                appendNormalizedExpression(child, childWithLiteral, childNoLiteral);
+                withLiteralChildren.add(childWithLiteral.toString());
+                noLiteralChildren.add(childNoLiteral.toString());
             }
-            String childrenStr = String.join(",", normalizedChildren);
-            return expression.getClass().getSimpleName() + "(" + childrenStr + ")";
+            if (isOrderInsensitive(expression)) {
+                // only order-insensitive operators (equal-to / null safe equal-to / and / or) may have
+                // their operands sorted; ordered comparisons (e.g. '<') must keep the original order,
+                // otherwise `col < 5` and `5 < col` would collapse to the same descriptor (review B2)
+                withLiteralChildren.sort(String::compareTo);
+                noLiteralChildren.sort(String::compareTo);
+            }
+            String name = expression.getClass().getSimpleName();
+            withLiteral.append(name).append('(').append(String.join(",", withLiteralChildren)).append(')');
+            noLiteral.append(name).append('(').append(String.join(",", noLiteralChildren)).append(')');
         }
     }
 
@@ -955,112 +1068,22 @@ public class GroupStructInfo {
         describedGroups.set(0);
     }
 
+    /** The number of descriptions walked since the last reset. For tests only. */
+    @VisibleForTesting
+    public static int getMaterializedGroupCount() {
+        return materializedGroups.get();
+    }
+
+    /** Reset the materialization counter. For tests only. */
+    @VisibleForTesting
+    public static void resetMaterializedGroupCount() {
+        materializedGroups.set(0);
+    }
+
     /** The relation key of the group of a plan node, or null when that group is not reachable. */
     public static String relationKeyOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById) {
         Group group = resolveGroup(planNode, groupsById);
         return group == null ? null : group.getOrComputeHboStructSummary().getRelationKey();
-    }
-
-    /** The memo group a plan node belongs to: its back reference, or the post processed group id. */
-    private static Group resolveGroup(AbstractPlan planNode, Map<Integer, Group> groupsById) {
-        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
-        if (group != null) {
-            return group;
-        }
-        Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
-        if (groupState.isPresent() && groupsById != null) {
-            try {
-                return groupsById.get(Integer.valueOf(groupState.get().toString()));
-            } catch (NumberFormatException ignored) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * The canonical description of one group, in both literal modes and in both forms, built in a
-     * single pass and memoized on the group, so that the read side lookups and the explain annotation
-     * share one description and one data state.
-     */
-    public static final class HboStructParts {
-        private static final HboStructParts INVALID_PARTS = new HboStructParts(false, false, "", null);
-        private static final HboStructParts TRANSIENT_PARTS = new HboStructParts(false, true, "", null);
-
-        private final boolean valid;
-        private final boolean retryable;
-        private final String skipReason;
-        private final String annotated;
-        private final String annotatedNoLiteral;
-        private final String shape;
-        private final String shapeNoLiteral;
-        private final String fingerprint;
-        private final String fingerprintNoLiteral;
-        private final List<HboScanDescriptor> scans;
-
-        private HboStructParts(boolean valid, boolean retryable, String skipReason, Canonical canonical) {
-            this.valid = valid;
-            this.retryable = retryable;
-            this.skipReason = skipReason;
-            this.annotated = valid ? canonical.annotated.toString() : "";
-            this.annotatedNoLiteral = valid ? canonical.annotatedNoLiteral.toString() : "";
-            this.shape = valid ? canonical.shape.toString() : "";
-            this.shapeNoLiteral = valid ? canonical.shapeNoLiteral.toString() : "";
-            this.fingerprint = valid ? sha256(this.shape) : "";
-            this.fingerprintNoLiteral = valid ? sha256(this.shapeNoLiteral) : "";
-            this.scans = valid
-                    ? Collections.unmodifiableList(new ArrayList<>(canonical.getScans()))
-                    : INVALID_SCANS;
-        }
-
-        static HboStructParts of(Canonical canonical) {
-            return new HboStructParts(true, false, "", canonical);
-        }
-
-        static HboStructParts invalid(String skipReason) {
-            return skipReason.isEmpty()
-                    ? INVALID_PARTS : new HboStructParts(false, false, skipReason, null);
-        }
-
-        static HboStructParts transientFailure() {
-            return TRANSIENT_PARTS;
-        }
-
-        private static String sha256(String value) {
-            return Hashing.sha256().hashString(value, StandardCharsets.UTF_8).toString();
-        }
-
-        boolean isValid() {
-            return valid;
-        }
-
-        /** Whether the failure was an environment problem which a later lookup may survive. */
-        boolean isRetryable() {
-            return retryable;
-        }
-
-        /** The reason the parts were refused by a limit, or empty. Only for diagnostics. */
-        String getSkipReason() {
-            return skipReason;
-        }
-
-        /** The canonical string of one literal mode, with the data state of every scan. */
-        String canonical(LiteralMode mode) {
-            return mode == LiteralMode.NO_LITERAL ? annotatedNoLiteral : annotated;
-        }
-
-        /** The fingerprint input of one literal mode: the canonical string without the scan states. */
-        String shape(LiteralMode mode) {
-            return mode == LiteralMode.NO_LITERAL ? shapeNoLiteral : shape;
-        }
-
-        String fingerprint(LiteralMode mode) {
-            return mode == LiteralMode.NO_LITERAL ? fingerprintNoLiteral : fingerprint;
-        }
-
-        List<HboScanDescriptor> getScans() {
-            return scans;
-        }
     }
 
     /** The state of one build: it describes the sub tree of the group it was started at. */
@@ -1072,60 +1095,139 @@ public class GroupStructInfo {
     }
 
     /**
-     * The four strings a build writes at the same time: the canonical string of each literal mode
-     * (which carries the data state of every scan as an annotation) and its shape (which does not,
-     * and whose sha256 is the fingerprint). Everything but a scan token is written to all four, so a
-     * group is described once instead of once per literal mode.
+     * The rope of one group: a text fragment (its two literal forms) or a reference to the
+     * description of a child. Materializing a form walks the pieces and copies the strings, it never
+     * parses them, and it takes the materialized string of a child when that child already has it.
+     */
+    private interface Piece {
+        void appendTo(StringBuilder out, LiteralMode mode, boolean shape);
+    }
+
+    /** A fragment of text: the same structure in both forms, the literals differ per mode. */
+    private static final class Text implements Piece {
+        private final String withLiteral;
+        private final String noLiteral;
+
+        Text(String withLiteral, String noLiteral) {
+            this.withLiteral = withLiteral;
+            this.noLiteral = noLiteral;
+        }
+
+        String getWithLiteral() {
+            return withLiteral;
+        }
+
+        String getNoLiteral() {
+            return noLiteral;
+        }
+
+        @Override
+        public void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
+            out.append(mode == LiteralMode.NO_LITERAL ? noLiteral : withLiteral);
+        }
+    }
+
+    /** The scan token of a scan group: the only piece which differs between the two forms. */
+    private static final class ScanToken implements Piece {
+        private final HboScanDescriptor descriptor;
+
+        ScanToken(HboScanDescriptor descriptor) {
+            this.descriptor = descriptor;
+        }
+
+        HboScanDescriptor getDescriptor() {
+            return descriptor;
+        }
+
+        @Override
+        public void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
+            out.append("S{").append(shape ? descriptor.getTable() : descriptor.render()).append('}');
+        }
+    }
+
+    /** A child sub tree. */
+    private static final class Child implements Piece {
+        private final GroupStructInfo child;
+
+        Child(GroupStructInfo child) {
+            this.child = child;
+        }
+
+        GroupStructInfo getChild() {
+            return child;
+        }
+
+        @Override
+        public void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
+            String materialized = child.materialized(mode, shape);
+            if (materialized != null) {
+                // the child is already materialized in this form: copy it instead of walking its own
+                // pieces again (and therefore without touching its grand children)
+                out.append(materialized);
+                return;
+            }
+            child.appendTo(out, mode, shape);
+        }
+    }
+
+    /**
+     * The rope a build assembles: the pieces of one group, plus the scans of its whole sub tree in
+     * the order their tokens appear (a caller which compares them with the scans of another struct
+     * info has to see the same order the printed struct info has, which is not always the build order
+     * because a join chain prints its leaves sorted).
      */
     private static class Canonical {
-        private final StringBuilder annotated = new StringBuilder();
-        private final StringBuilder annotatedNoLiteral = new StringBuilder();
-        private final StringBuilder shape = new StringBuilder();
-        private final StringBuilder shapeNoLiteral = new StringBuilder();
-        // the scans of this part, in the order their tokens appear in the strings: a caller which
-        // compares them with the scans of another struct info (see HboStructFreshness) has to see the
-        // same order the printed struct info has, which is not always the build order (a join chain
-        // prints its leaves sorted)
+        private final List<Piece> pieces = new ArrayList<>();
         private final List<HboScanDescriptor> scans = new ArrayList<>();
 
-        /** A fragment which is the same in every form (structure, separator, scan token shape). */
+        /** A fragment which is the same in every form (structure, separator). */
         Canonical same(String text) {
-            annotated.append(text);
-            annotatedNoLiteral.append(text);
-            shape.append(text);
-            shapeNoLiteral.append(text);
-            return this;
+            return addText(text, text);
         }
 
         /** A fragment which differs between the literal modes (a literal carrying expression). */
         Canonical modes(String withLiteral, String noLiteral) {
-            annotated.append(withLiteral);
-            shape.append(withLiteral);
-            annotatedNoLiteral.append(noLiteral);
-            shapeNoLiteral.append(noLiteral);
-            return this;
+            return addText(withLiteral, noLiteral);
         }
 
-        /** A scan token: the same in both modes, but only the canonical string carries its state. */
-        Canonical token(String annotatedPart, String shapePart) {
-            annotated.append(annotatedPart);
-            annotatedNoLiteral.append(annotatedPart);
-            shape.append(shapePart);
-            shapeNoLiteral.append(shapePart);
+        /** The scan token of a scan group. */
+        Canonical scan(HboScanDescriptor descriptor) {
+            pieces.add(new ScanToken(descriptor));
+            scans.add(descriptor);
             return this;
         }
 
         /**
-         * Compose the parts of a child (or of a join chain leaf) which are already built and
-         * memoized: the two strings are concatenated, they are never parsed again.
+         * Compose the description of a child (or of a join chain leaf): the rope only records the
+         * reference, and the scans of the child are inherited in token order.
          */
-        Canonical append(HboStructParts parts) {
-            annotated.append(parts.canonical(LiteralMode.WITH_LITERAL));
-            shape.append(parts.shape(LiteralMode.WITH_LITERAL));
-            annotatedNoLiteral.append(parts.canonical(LiteralMode.NO_LITERAL));
-            shapeNoLiteral.append(parts.shape(LiteralMode.NO_LITERAL));
-            scans.addAll(parts.getScans());
+        Canonical append(GroupStructInfo child) {
+            if (child.isValid()) {
+                pieces.add(new Child(child));
+                scans.addAll(child.getScans());
+            }
             return this;
+        }
+
+        private Canonical addText(String withLiteral, String noLiteral) {
+            if (withLiteral.isEmpty() && noLiteral.isEmpty()) {
+                return this;
+            }
+            Piece last = pieces.isEmpty() ? null : pieces.get(pieces.size() - 1);
+            if (last instanceof Text) {
+                // merge neighbouring text, so that a layer of structure does not become a long list
+                // of one character pieces
+                Text previous = (Text) last;
+                pieces.set(pieces.size() - 1, new Text(previous.getWithLiteral() + withLiteral,
+                        previous.getNoLiteral() + noLiteral));
+                return this;
+            }
+            pieces.add(new Text(withLiteral, noLiteral));
+            return this;
+        }
+
+        List<Piece> getPieces() {
+            return pieces;
         }
 
         List<HboScanDescriptor> getScans() {

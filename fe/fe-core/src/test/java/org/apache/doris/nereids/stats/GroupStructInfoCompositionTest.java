@@ -20,11 +20,13 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Assertions;
@@ -33,12 +35,14 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * Unit test of the contract that a memo group is described once per query: the parts of a group are
- * memoized on it and a parent composes the parts of its children, so asking for the struct info of a
- * node never describes the sub tree of that node a second time (see
- * {@link GroupStructInfo#partsOf(Group)}).
+ * Unit test of the contract that a memo group is described once per query and that its strings are
+ * materialized on demand: the description of a group is memoized on it (see
+ * {@link GroupStructInfo#describeGroup(Group)}), a parent composes the descriptions of its children
+ * through the rope, and materializing a parent copies the string of a child which already has one
+ * instead of walking that child's sub tree again.
  */
 public class GroupStructInfoCompositionTest {
 
@@ -58,77 +62,104 @@ public class GroupStructInfoCompositionTest {
         return new Memo(null, root);
     }
 
+    /** A join whose right side is an aggregation: the aggregation is a leaf of the join chain. */
+    private Memo joinOverAggregateMemo() {
+        LogicalOlapScan t1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan t2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        LogicalOlapScan t3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> inner =
+                new LogicalJoin<>(JoinType.INNER_JOIN, t2, t3, null);
+        LogicalAggregate<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> aggregate =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(), true, Optional.empty(), inner);
+        return new Memo(null, new LogicalJoin<>(JoinType.INNER_JOIN, t1, aggregate, null));
+    }
+
     @Test
     void testAGroupIsNeverDescribedTwice() {
         Memo memo = joinChainMemo();
         GroupStructInfo.resetDescribedGroupCount();
-        Map<Group, GroupStructInfo.HboStructParts> first = new LinkedHashMap<>();
+        Map<Group, GroupStructInfo> first = new LinkedHashMap<>();
         for (Group group : memo.getGroups()) {
-            first.put(group, GroupStructInfo.partsOf(group));
+            first.put(group, GroupStructInfo.describeGroup(group));
         }
         int describedOnce = GroupStructInfo.getDescribedGroupCount();
         Assertions.assertTrue(describedOnce > 0, "no group was described");
         Assertions.assertTrue(describedOnce <= memo.getGroups().size(),
                 "a group was described more than once in the first pass");
-        // the same object comes back: every later request (both literal modes, every group) is
-        // answered from the memo of that group
+        // the same object comes back: every later request is answered from the memo of that group
         for (Group group : memo.getGroups()) {
-            GroupStructInfo.of(group, WITH_LITERAL);
-            GroupStructInfo.of(group, NO_LITERAL);
-            Assertions.assertSame(first.get(group), GroupStructInfo.partsOf(group));
+            GroupStructInfo.of(group);
+            Assertions.assertSame(first.get(group), GroupStructInfo.describeGroup(group));
+            first.get(group).getFingerprint(WITH_LITERAL);
+            first.get(group).getFingerprint(NO_LITERAL);
         }
         Assertions.assertEquals(describedOnce, GroupStructInfo.getDescribedGroupCount(),
-                "a group was described again after its parts had been built");
+                "a group was described again after it had been built");
     }
 
     @Test
-    void testTheRootDescribesTheChainInOnePass() {
+    void testTheFingerprintIsTheSha256OfTheShape() {
         Memo memo = joinChainMemo();
-        GroupStructInfo.resetDescribedGroupCount();
-        GroupStructInfo.partsOf(memo.getRoot());
-        int described = GroupStructInfo.getDescribedGroupCount();
-        // one description for the root and one per scan of the chain: the inner join of a flattened
-        // chain is not described at all, its sub tree is part of the canonical of the chain
-        Assertions.assertEquals(memo.getGroups().size() - 1, described,
-                "the root did not describe the chain in one pass");
-    }
-
-    @Test
-    void testAParentComposesThePartsOfItsChildren() {
-        Memo memo = joinChainMemo();
-        GroupStructInfo.HboStructParts rootParts = GroupStructInfo.partsOf(memo.getRoot());
-        Assertions.assertTrue(rootParts.isValid(), rootParts.getSkipReason());
-        String rootCanonical = rootParts.canonical(NO_LITERAL);
-        String rootShape = rootParts.shape(NO_LITERAL);
-        int scans = 0;
-        String filterCanonical = null;
-        for (Group group : memo.getGroups()) {
-            GroupStructInfo.HboStructParts parts = GroupStructInfo.partsOf(group);
-            String canonical = parts.canonical(NO_LITERAL);
-            if (canonical.startsWith("F{")) {
-                filterCanonical = canonical;
-                continue;
-            }
-            if (!canonical.startsWith("S{")) {
-                // a chain member is replaced by the canonical of the whole chain
-                continue;
-            }
-            scans++;
-            // the child is not rebuilt: its canonical and its shape are literally the parts which
-            // appear inside the canonical of the parent
-            Assertions.assertTrue(rootCanonical.contains(canonical),
-                    "the canonical of the chain does not contain " + canonical);
-            Assertions.assertTrue(rootShape.contains(parts.shape(NO_LITERAL)),
-                    "the shape of the chain does not contain " + parts.shape(NO_LITERAL));
-        }
-        Assertions.assertEquals(3, scans, "the chain has three scans");
-        Assertions.assertNotNull(filterCanonical, "the filter of the memo was not described");
-        Assertions.assertTrue(rootCanonical.contains(filterCanonical),
-                "the canonical of the chain does not contain the filter leaf");
-        // a shape is never empty and the fingerprint is the sha256 of it
-        Assertions.assertFalse(rootShape.isEmpty(), "the shape of the root is empty");
-        Assertions.assertEquals(Hashing.sha256().hashString(rootShape, StandardCharsets.UTF_8).toString(),
-                rootParts.fingerprint(NO_LITERAL),
+        GroupStructInfo root = GroupStructInfo.describeGroup(memo.getRoot());
+        Assertions.assertTrue(root.isValid(), root.getSkipReason());
+        String shape = root.getShape(NO_LITERAL);
+        Assertions.assertFalse(shape.isEmpty(), "the shape of the root is empty");
+        Assertions.assertEquals(Hashing.sha256().hashString(shape, StandardCharsets.UTF_8).toString(),
+                root.getFingerprint(NO_LITERAL),
                 "the fingerprint of a group is not the sha256 of its shape");
+        // the canonical string carries the data state of the scans, the shape does not
+        Assertions.assertTrue(root.getCanonical(NO_LITERAL).contains("S{"),
+                "the canonical string has no scan token");
+    }
+
+    @Test
+    void testAParentComposesTheCanonicalOfItsChildren() {
+        Memo memo = joinOverAggregateMemo();
+        GroupStructInfo root = GroupStructInfo.describeGroup(memo.getRoot());
+        Assertions.assertTrue(root.isValid(), root.getSkipReason());
+        String rootCanonical = root.getCanonical(NO_LITERAL);
+        String rootShape = root.getShape(NO_LITERAL);
+        int contained = 0;
+        for (Group group : memo.getGroups()) {
+            GroupStructInfo child = GroupStructInfo.describeGroup(group);
+            String canonical = child.getCanonical(NO_LITERAL);
+            if (canonical.equals(rootCanonical)) {
+                continue;
+            }
+            if (rootCanonical.contains(canonical)) {
+                contained++;
+                Assertions.assertTrue(rootShape.contains(child.getShape(NO_LITERAL)),
+                        "the shape of the parent does not contain the shape of its child");
+            }
+        }
+        // the whole sub tree of the aggregation (its own canonical and the two scans) appears
+        // literally inside the canonical of the join: it is composed, not described again
+        Assertions.assertTrue(contained >= 2,
+                "the canonical of the parent does not contain the canonical of its children");
+    }
+
+    @Test
+    void testAMaterializedChildIsNotWalkedAgain() {
+        Memo memo = joinOverAggregateMemo();
+        GroupStructInfo root = GroupStructInfo.describeGroup(memo.getRoot());
+        // materialize every other description first, the same way the read side asks for the
+        // fingerprint of a node before the explain annotation prints the plan
+        for (Group group : memo.getGroups()) {
+            if (group != memo.getRoot()) {
+                GroupStructInfo.describeGroup(group).getCanonical(NO_LITERAL);
+            }
+        }
+        GroupStructInfo.resetMaterializedGroupCount();
+        root.getCanonical(NO_LITERAL);
+        Assertions.assertEquals(1, GroupStructInfo.getMaterializedGroupCount(),
+                "materializing the root walked the sub tree of an already materialized child");
+        // repeating the request answers from the cache of the root itself
+        GroupStructInfo.resetMaterializedGroupCount();
+        root.getCanonical(NO_LITERAL);
+        Assertions.assertEquals(0, GroupStructInfo.getMaterializedGroupCount(),
+                "a materialized string was built again");
+        // and the two forms are cached independently: asking for the shape still walks the rope
+        Assertions.assertTrue(root.getShape(NO_LITERAL).startsWith("J{inner"),
+                root.getShape(NO_LITERAL));
     }
 }

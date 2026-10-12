@@ -731,27 +731,25 @@ public class NereidsPlanner extends Planner {
                 : GroupStructInfo.LiteralMode.NO_LITERAL;
         // the struct info of a group is built once per query, so the data state printed here is the
         // same one the read side judged its entries against (see Group#getOrComputeHboStructParts)
-        Optional<GroupStructInfo> structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById, primaryMode);
-        Optional<GroupStructInfo> noLiteralStructInfo = structInfo;
-        if (isFilter) {
-            noLiteralStructInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById,
-                    GroupStructInfo.LiteralMode.NO_LITERAL);
-        }
+        Optional<GroupStructInfo> structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById);
+        GroupStructInfo.LiteralMode noLiteralMode = GroupStructInfo.LiteralMode.NO_LITERAL;
         if (isJoinOrAgg && node instanceof AbstractPhysicalJoin) {
             attachHboJoinConditionInfo(node);
         }
         if (structInfo.isPresent()) {
-            node.setMutableState(MutableState.KEY_HBO_FP, structInfo.get().getFingerprint());
-            if (noLiteralStructInfo.isPresent()) {
+            node.setMutableState(MutableState.KEY_HBO_FP, structInfo.get().getFingerprint(primaryMode));
+            if (isFilter) {
                 node.setMutableState(MutableState.KEY_HBO_FP_NO_LITERAL,
-                        noLiteralStructInfo.get().getFingerprint());
+                        structInfo.get().getFingerprint(noLiteralMode));
             }
-            node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonicalString());
-            // the constant agnostic struct info is built by the traversal as well: folding the
-            // literal carrying form as text would mis-handle a literal whose value contains a
-            // parenthesis, and the printed struct= must hash to the fingerprint next to it
-            noLiteralStructInfo.ifPresent(noLiteral -> node.setMutableState(
-                    MutableState.KEY_HBO_STRUCT_NO_LITERAL, noLiteral.getCanonicalString()));
+            node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonical(primaryMode));
+            // the constant agnostic form is materialized by the rope as well: folding the literal
+            // carrying form as text would mis-handle a literal whose value contains a parenthesis,
+            // and the printed struct= must hash to the fingerprint next to it
+            if (isFilter) {
+                node.setMutableState(MutableState.KEY_HBO_STRUCT_NO_LITERAL,
+                        structInfo.get().getCanonical(noLiteralMode));
+            }
         } else {
             // no struct info: record why, when the reason is a limit rather than an unsupported plan
             // pattern, so the annotation can tell "no fingerprint by design" from "hbo is broken"
