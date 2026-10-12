@@ -823,19 +823,99 @@ TEST(MathFunctionTest, conv_int64_boundary_test) {
              VARCHAR("-9223372036854775808")},
             {{BIGINT(8000000000000000LL), TINYINT(16), TINYINT(10)},
              VARCHAR("9223372036854775808")},
+            {{BIGINT(std::numeric_limits<int64_t>::min()), TINYINT(10), TINYINT(10)},
+             VARCHAR("9223372036854775808")},
             {{BIGINT(std::numeric_limits<int64_t>::min()), TINYINT(10), TINYINT(-10)},
              VARCHAR("-9223372036854775808")},
             {{BIGINT(8000000000000000LL), TINYINT(16), TINYINT(-16)}, VARCHAR("-8000000000000000")},
             {{BIGINT(10000000000000000LL), TINYINT(16), TINYINT(-10)}, VARCHAR("-1")},
             {{BIGINT(10000000000000000LL), TINYINT(16), TINYINT(10)},
              VARCHAR("18446744073709551615")},
+            {{BIGINT(-10), TINYINT(10), TINYINT(10)}, VARCHAR("18446744073709551606")},
+            {{BIGINT(-10), TINYINT(2), TINYINT(10)}, VARCHAR("18446744073709551614")},
+            {{BIGINT(-10), TINYINT(10), TINYINT(-10)}, VARCHAR("-10")},
+            {{BIGINT(-10), TINYINT(2), TINYINT(-10)}, VARCHAR("-2")},
             {{BIGINT(-255), TINYINT(10), TINYINT(-16)}, VARCHAR("-FF")},
             {{BIGINT(-1), TINYINT(10), TINYINT(16)}, VARCHAR("FFFFFFFFFFFFFFFF")},
+            {{BIGINT(255), TINYINT(10), TINYINT(16)}, VARCHAR("FF")},
             {{BIGINT(255), TINYINT(10), TINYINT(-16)}, VARCHAR("FF")},
+            {{BIGINT(0), TINYINT(16), TINYINT(10)}, VARCHAR("0")},
             {{BIGINT(0), TINYINT(16), TINYINT(-10)}, VARCHAR("0")},
+            {{Null(), TINYINT(16), TINYINT(10)}, Null()},
             {{Null(), TINYINT(16), TINYINT(-10)}, Null()},
     };
     check_function_all_arg_comb<DataTypeString, true>("conv", input_types, data_set);
+}
+
+TEST(MathFunctionTest, conv_string_boundary_test) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_TINYINT,
+                                PrimitiveType::TYPE_TINYINT};
+    DataSet data_set = {
+            {{VARCHAR("-10"), TINYINT(10), TINYINT(10)}, VARCHAR("18446744073709551606")},
+            {{VARCHAR("-10"), TINYINT(2), TINYINT(10)}, VARCHAR("18446744073709551614")},
+            {{VARCHAR("-10"), TINYINT(10), TINYINT(-10)}, VARCHAR("-10")},
+            {{VARCHAR("-10"), TINYINT(2), TINYINT(-10)}, VARCHAR("-2")},
+            {{VARCHAR("-ff"), TINYINT(16), TINYINT(-16)}, VARCHAR("-FF")},
+            {{VARCHAR("  -10  "), TINYINT(10), TINYINT(10)}, VARCHAR("18446744073709551606")},
+            {{VARCHAR("-10.5"), TINYINT(10), TINYINT(10)}, VARCHAR("18446744073709551606")},
+            {{VARCHAR("-0"), TINYINT(10), TINYINT(10)}, VARCHAR("0")},
+            {{VARCHAR("-100"), TINYINT(10), TINYINT(16)}, VARCHAR("FFFFFFFFFFFFFF9C")},
+            {{VARCHAR("-ff"), TINYINT(16), TINYINT(10)}, VARCHAR("18446744073709551361")},
+            {{VARCHAR("-9223372036854775808"), TINYINT(10), TINYINT(10)},
+             VARCHAR("9223372036854775808")},
+            {{VARCHAR("-9223372036854775808"), TINYINT(10), TINYINT(-10)},
+             VARCHAR("-9223372036854775808")},
+            {{VARCHAR("-9223372036854775809"), TINYINT(10), TINYINT(10)},
+             VARCHAR("9223372036854775807")},
+            {{VARCHAR("18446744073709551615"), TINYINT(10), TINYINT(16)},
+             VARCHAR("FFFFFFFFFFFFFFFF")},
+            {{VARCHAR("18446744073709551615"), TINYINT(10), TINYINT(-10)}, VARCHAR("-1")},
+            {{VARCHAR("-18446744073709551615"), TINYINT(10), TINYINT(10)}, VARCHAR("1")},
+            {{VARCHAR("18446744073709551616"), TINYINT(10), TINYINT(10)},
+             VARCHAR("18446744073709551615")},
+            {{VARCHAR("-18446744073709551616"), TINYINT(10), TINYINT(10)},
+             VARCHAR("18446744073709551615")},
+            {{VARCHAR("18446744073709551616"), TINYINT(10), TINYINT(-10)}, VARCHAR("-1")},
+            {{VARCHAR("-18446744073709551616"), TINYINT(10), TINYINT(-10)}, VARCHAR("-1")},
+            {{VARCHAR(""), TINYINT(10), TINYINT(10)}, VARCHAR("0")},
+            {{VARCHAR("-+10"), TINYINT(10), TINYINT(10)}, VARCHAR("0")},
+            {{Null(), TINYINT(10), TINYINT(10)}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeString, true>("conv", input_types, data_set);
+}
+
+TEST(MathFunctionTest, conv_base_range_test) {
+    InputTypeSet int_input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_TINYINT,
+                                    PrimitiveType::TYPE_TINYINT};
+    InputTypeSet string_input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_TINYINT,
+                                       PrimitiveType::TYPE_TINYINT};
+    DataSet int_data_set;
+    DataSet string_data_set;
+    for (int base = std::numeric_limits<Int8>::min(); base <= std::numeric_limits<Int8>::max();
+         ++base) {
+        const int abs_base = std::abs(base);
+        const bool valid_base = abs_base >= 2 && abs_base <= 36;
+        Expect expected = valid_base ? Expect(VARCHAR("10")) : Expect(Null());
+        for (Int64 value : {-10, 0, 10}) {
+            std::string converted =
+                    value == 0 ? "0" : std::to_string(value < 0 ? UInt64 {0} - base : UInt64(base));
+            Expect src_expected =
+                    valid_base && base > 0 ? Expect(VARCHAR(converted)) : Expect(Null());
+            Expect int_src_expected =
+                    valid_base && base < 0 && value < 0 ? Expect(VARCHAR("0")) : src_expected;
+            // Preserve the existing overload-specific results for negative source bases.
+            Expect string_src_expected =
+                    valid_base && base < 0 && value > 0 ? Expect(VARCHAR(converted)) : src_expected;
+            int_data_set.push_back({{BIGINT(value), TINYINT(base), TINYINT(10)}, int_src_expected});
+            string_data_set.push_back({{VARCHAR(std::to_string(value)), TINYINT(base), TINYINT(10)},
+                                       string_src_expected});
+        }
+        int_data_set.push_back({{BIGINT(abs_base), TINYINT(10), TINYINT(base)}, expected});
+        string_data_set.push_back(
+                {{VARCHAR(std::to_string(abs_base)), TINYINT(10), TINYINT(base)}, expected});
+    }
+    check_function_all_arg_comb<DataTypeString, true>("conv", int_input_types, int_data_set);
+    check_function_all_arg_comb<DataTypeString, true>("conv", string_input_types, string_data_set);
 }
 
 TEST(MathFunctionTest, money_format_test) {

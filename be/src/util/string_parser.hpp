@@ -611,7 +611,9 @@ T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, in
     switch (*s) {
     case '-':
         negative = true;
-        max_val = StringParser::numeric_limits<T>(false) + 1;
+        // Only signed types have an extra value in their negative range.
+        // Keep the unsigned magnitude limit unchanged to avoid wrapping it to zero.
+        max_val += std::numeric_limits<T>::is_signed;
         [[fallthrough]];
     case '+':
         i = 1;

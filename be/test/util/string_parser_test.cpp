@@ -385,6 +385,25 @@ TEST(StringToIntWithBase, Overflow) {
                             StringParser::PARSE_OVERFLOW);
 }
 
+TEST(StringToIntWithBase, UnsignedNegative) {
+    test_int_value<uint8_t>("-10", 10, 246, StringParser::PARSE_SUCCESS);
+    test_int_value<uint8_t>("-255", 10, 1, StringParser::PARSE_SUCCESS);
+    test_int_value<uint8_t>("-256", 10, 1, StringParser::PARSE_OVERFLOW);
+    test_int_value<uint64_t>("-0", 10, 0, StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-10", 10, 18446744073709551606ULL, StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-10", 2, 18446744073709551614ULL, StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-100", 10, 18446744073709551516ULL, StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-ff", 16, 18446744073709551361ULL, StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-8000000000000000", 16, 9223372036854775808ULL,
+                             StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-9223372036854775809", 10, 9223372036854775807ULL,
+                             StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("18446744073709551615", 10, 18446744073709551615ULL,
+                             StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-18446744073709551615", 10, 1, StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-18446744073709551616", 10, 1, StringParser::PARSE_OVERFLOW);
+}
+
 TEST(StringToIntWithBase, Int8_Exhaustive) {
     char buffer[5];
     for (int i = -256; i <= 256; ++i) {
