@@ -36,6 +36,19 @@ bool has_nanosecond_timestamp(const ::orc::Type& type) {
     return false;
 }
 
+int64_t corrected_orc_timestamp_seconds(const OrcDecodedColumnView& view, int64_t seconds,
+                                        int64_t nanoseconds) {
+    if (view.writer_epoch_offset == 0 || nanoseconds <= 999999 ||
+        view.file_type->getKind() != ::orc::TIMESTAMP) {
+        return seconds;
+    }
+    // ORC 1.9 applies the negative-fraction correction after changing timezones. Undo it
+    // in the GMT carrier and apply it at the writer's epoch boundary instead, preserving
+    // fractions when the timezone shift crosses zero. TIMESTAMP_INSTANT is always UTC.
+    const int64_t encoded_seconds = seconds < 0 ? seconds + 1 : seconds;
+    return encoded_seconds < view.writer_epoch_offset ? encoded_seconds - 1 : encoded_seconds;
+}
+
 size_t orc_decode_row_count(size_t rows, const std::vector<size_t>* selected_rows) {
     if (selected_rows == nullptr) {
         return rows;

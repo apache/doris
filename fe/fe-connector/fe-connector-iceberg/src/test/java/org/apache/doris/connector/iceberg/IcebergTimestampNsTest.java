@@ -18,19 +18,27 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.UnboundPredicate;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
 public class IcebergTimestampNsTest {
     @Test
@@ -60,6 +68,84 @@ public class IcebergTimestampNsTest {
                 IcebergTypeMapping.toIcebergPrimitive(ConnectorType.of("TIMESTAMP_NS")));
         Assertions.assertEquals("UNSUPPORTED", IcebergTypeMapping.fromIcebergType(
                 Types.TimestampNanoType.withZone(), false, false).getTypeName());
+    }
+
+    @Test
+    public void predicatesPreserveNanosecondsInEveryMode() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        for (IcebergPredicateConverter.Mode mode : IcebergPredicateConverter.Mode.values()) {
+            for (String zone : new String[] {"UTC", "Asia/Shanghai", "America/New_York"}) {
+                IcebergPredicateConverter converter = new IcebergPredicateConverter(schema, ZoneId.of(zone), mode);
+                for (String text : new String[] {"2024-01-02 03:04:05.123456789",
+                        "1969-12-31 23:59:59.999999999", "1677-09-21 00:12:43.145224192",
+                        "2262-04-11 23:47:16.854775807"}) {
+                    long expected = (long) IcebergPartitionUtils.parsePartitionValueFromString(
+                            text, Types.TimestampNanoType.withoutZone(), ZoneId.of(zone));
+                    for (ConnectorLiteral literal : new ConnectorLiteral[] {
+                            new ConnectorLiteral(ConnectorType.of("STRING"), text),
+                            new ConnectorLiteral(ConnectorType.of("TIMESTAMP_NS"),
+                                    LocalDateTime.parse(text.replace(' ', 'T')))}) {
+                        List<Expression> expressions = converter.convert(new ConnectorComparison(
+                                ConnectorComparison.Operator.EQ,
+                                new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")), literal));
+                        Assertions.assertEquals(1, expressions.size(), mode + " " + text);
+                        Assertions.assertEquals(expected,
+                                ((UnboundPredicate<?>) expressions.get(0)).literal().value());
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void writeDefaultsPreserveNanoseconds() {
+        for (long nanos : new long[] {Long.MIN_VALUE, -1, 0, 1, 123456789, Long.MAX_VALUE}) {
+            String sql = IcebergWriteSchemaContext.toDorisSql(
+                    Types.TimestampNanoType.withoutZone(), nanos, false, false);
+            Assertions.assertTrue(sql.startsWith("'") && sql.endsWith("'"));
+            String text = sql.substring(1, sql.length() - 1);
+            Assertions.assertEquals(nanos, IcebergPartitionUtils.parsePartitionValueFromString(
+                    text, Types.TimestampNanoType.withoutZone(), ZoneId.of("UTC")));
+        }
+    }
+
+    @Test
+    public void addColumnDefaultsAcceptNanosecondDateTimes() {
+        String text = "2024-01-02 03:04:05.123456789";
+        Assertions.assertEquals(1704164645123456789L, IcebergSchemaBuilder.parseDefaultLiteral(
+                text, Types.TimestampNanoType.withoutZone()).value());
+        Assertions.assertEquals(Long.MIN_VALUE, IcebergSchemaBuilder.parseDefaultLiteral(
+                "1677-09-21 00:12:43.145224192", Types.TimestampNanoType.withoutZone()).value());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> IcebergSchemaBuilder.parseDefaultLiteral(
+                "2262-04-11 23:47:16.854775808", Types.TimestampNanoType.withoutZone()));
+    }
+
+    @Test
+    public void addColumnDefaultSurvivesSchemaCommitAndWritePlanning() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db"));
+        Table table = catalog.createTable(TableIdentifier.of("db", "defaults"),
+                new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get())),
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
+        String text = "2024-01-02 03:04:05.123456789";
+        table.updateSchema().addColumn("ts", Types.TimestampNanoType.withoutZone(), null,
+                IcebergSchemaBuilder.parseDefaultLiteral(text, Types.TimestampNanoType.withoutZone())).commit();
+        Assertions.assertEquals(1704164645123456789L, table.schema().findField("ts").initialDefault());
+        Assertions.assertEquals(1704164645123456789L, table.schema().findField("ts").writeDefault());
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
+                table, "defaults", Optional.empty(), false, false);
+        Assertions.assertEquals("'" + text + "'", context.getColumns().get(1).getDefaultValueSql());
+    }
+
+    @Test
+    public void staticIdentityPartitionAcceptsDateOnly() {
+        for (String zone : new String[] {"UTC", "Asia/Shanghai", "America/New_York"}) {
+            Object expected = IcebergPartitionUtils.parsePartitionValueFromString(
+                    "2024-01-01 00:00:00", Types.TimestampNanoType.withoutZone(), ZoneId.of(zone));
+            Assertions.assertEquals(expected, IcebergPartitionUtils.parsePartitionValueFromString(
+                    "2024-01-01", Types.TimestampNanoType.withoutZone(), ZoneId.of(zone)));
+        }
     }
 
     @Test

@@ -10496,6 +10496,89 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsRoundsToMicroseconds) {
     }
 }
 
+TEST_F(NewOrcReaderTest, NanosecondFilesPreserveNegativeFractionsAcrossWriterTimezones) {
+    for (const auto& [writer_zone, offset] : std::vector<std::pair<std::string, int64_t>> {
+                 {"GMT", 0}, {"Asia/Shanghai", 28800}, {"America/New_York", -18000}}) {
+        SCOPED_TRACE(writer_zone);
+        const auto file_path = (_test_dir / "timestamp_ns_writer_zone.orc").string();
+        auto type = ::orc::createStructType();
+        auto ns_type = ::orc::createPrimitiveType(::orc::TIMESTAMP);
+        ns_type->setAttribute("iceberg.timestamp-unit", "NANOS");
+        type->addStructField("ns", std::move(ns_type));
+        type->addStructField("plain", ::orc::createPrimitiveType(::orc::TIMESTAMP));
+        MemoryOutputStream stream(1024 * 1024);
+        ::orc::WriterOptions options;
+        options.setTimezoneName(writer_zone);
+        options.setCompression(::orc::CompressionKind_NONE);
+        auto writer = ::orc::createWriter(*type, &stream, options);
+        constexpr std::array<int64_t, 6> fractions {0, 1, 999999, 1000000, 500000123, 999999999};
+        constexpr size_t row_count = 3 * fractions.size();
+        auto batch = writer->createRowBatch(row_count);
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        root.numElements = row_count;
+        for (auto* field : root.fields) {
+            auto& timestamps = dynamic_cast<::orc::TimestampVectorBatch&>(*field);
+            timestamps.numElements = row_count;
+            for (size_t row = 0; row < row_count; ++row) {
+                // Use the external writer's epoch carrier, not Doris's UTC writer convention.
+                timestamps.data[row] =
+                        (static_cast<int64_t>(row / fractions.size()) - 1) * 2 - offset;
+                timestamps.nanoseconds[row] = fractions[row % fractions.size()];
+            }
+        }
+        writer->add(*batch);
+        writer->close();
+        {
+            std::ofstream out(file_path, std::ios::binary);
+            out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+        }
+        for (bool sparse : {false, true}) {
+            auto reader = create_reader_for_path(file_path);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            state.set_timezone("+08:00");
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            Block block = build_file_block(schema);
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(0), field_projection(1)};
+            std::vector<int64_t> source_rows;
+            for (size_t row = 0; row < row_count; row += sparse ? 2 : 1) {
+                source_rows.push_back(static_cast<int64_t>(row));
+            }
+            if (sparse) {
+                request->row_ids = source_rows;
+            }
+            ASSERT_TRUE(reader->open(request).ok());
+            const std::array<std::string, 3> seconds {"1969-12-31 23:59:58", "1970-01-01 00:00:00",
+                                                      "1970-01-01 00:00:02"};
+            const std::array<std::string, 3> carried_seconds {
+                    "1969-12-31 23:59:59", "1970-01-01 00:00:01", "1970-01-01 00:00:03"};
+            const std::array<std::string, 6> micros {"000000", "000000", "001000",
+                                                     "001000", "500000", "000000"};
+            bool eof = false;
+            size_t output_row = 0;
+            while (!eof) {
+                size_t rows = 0;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                for (size_t row = 0; row < rows; ++row) {
+                    ASSERT_LT(output_row, source_rows.size());
+                    const size_t source = static_cast<size_t>(source_rows[output_row++]);
+                    const size_t second_index = source / fractions.size();
+                    const size_t fraction_index = source % fractions.size();
+                    EXPECT_EQ(schema[0].type->to_string(*block.get_by_position(0).column, row),
+                              fmt::format("{}.{:09}", seconds[second_index],
+                                          fractions[fraction_index]));
+                    const auto& whole = fraction_index == 5 ? carried_seconds : seconds;
+                    EXPECT_EQ(schema[1].type->to_string(*block.get_by_position(1).column, row),
+                              whole[second_index] + "." + micros[fraction_index]);
+                }
+            }
+            EXPECT_EQ(output_row, source_rows.size());
+        }
+    }
+}
+
 Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool file_is_instant,
                                      bool use_timestamp_tz,
                                      const cctz::time_zone& timezone = cctz::utc_time_zone(),

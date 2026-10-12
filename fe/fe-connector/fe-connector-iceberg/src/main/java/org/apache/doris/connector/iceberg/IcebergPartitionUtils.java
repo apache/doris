@@ -492,12 +492,11 @@ final class IcebergPartitionUtils {
                     // Iceberg date is days since epoch (1970-01-01).
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
                 case TIMESTAMP_NANO:
-                    LocalDateTime timestampNs = LocalDateTime.parse(valueStr.replace('T', ' '),
-                            TIMESTAMP_PARTITION_FORMAT);
-                    // Widen before combining: the minimum nanosecond timestamp's whole second overflows long.
-                    return BigDecimal.valueOf(timestampNs.toEpochSecond(ZoneOffset.UTC))
-                            .multiply(BigDecimal.valueOf(1_000_000_000L))
-                            .add(BigDecimal.valueOf(timestampNs.getNano())).longValueExact();
+                    // Match the sink cast: a date-only static partition denotes midnight.
+                    LocalDateTime timestampNs = valueStr.length() == 10
+                            ? LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay()
+                            : LocalDateTime.parse(valueStr.replace('T', ' '), TIMESTAMP_PARTITION_FORMAT);
+                    return toEpochNanos(timestampNs);
                 case TIMESTAMP:
                     return parseTimestampToMicros(valueStr, (TimestampType) icebergType, zone);
                 case DECIMAL:
@@ -1161,4 +1160,12 @@ final class IcebergPartitionUtils {
             return upperBound;
         }
     }
+
+    static long toEpochNanos(LocalDateTime timestamp) {
+        // Widen before combining: the minimum nanosecond timestamp's whole second overflows long.
+        return BigDecimal.valueOf(timestamp.toEpochSecond(ZoneOffset.UTC))
+                .multiply(BigDecimal.valueOf(1_000_000_000L))
+                .add(BigDecimal.valueOf(timestamp.getNano())).longValueExact();
+    }
+
 }

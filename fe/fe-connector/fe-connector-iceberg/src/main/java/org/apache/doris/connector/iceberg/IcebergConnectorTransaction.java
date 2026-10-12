@@ -66,6 +66,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.logging.log4j.LogManager;
@@ -902,7 +903,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 }
                 Object partitionValue = IcebergPartitionUtils.parsePartitionValueFromString(
                         partitionValueStr, sourceField.type(), zone);
-                predicates.add(identityPartitionPredicate(sourceField.name(), partitionValue));
+                predicates.add(identityPartitionPredicate(sourceField, partitionValue));
             }
         }
 
@@ -929,13 +930,18 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * both paths that build this predicate: DELETE/UPDATE/MERGE conflict detection and
      * {@code INSERT OVERWRITE ... PARTITION(d='nan')}.
      */
-    private static Expression identityPartitionPredicate(String sourceColName, Object value) {
+    private static Expression identityPartitionPredicate(Types.NestedField sourceField, Object value) {
+        String sourceColName = sourceField.name();
         if (value == null) {
             return Expressions.isNull(sourceColName);
         }
         if ((value instanceof Double || value instanceof Float)
                 && Double.isNaN(((Number) value).doubleValue())) {
             return Expressions.isNaN(sourceColName);
+        }
+        if (sourceField.type().typeId() == TypeID.TIMESTAMP_NANO) {
+            // Partition values are already nanos; a raw Long would be rebound as microseconds.
+            return Expressions.equal(sourceColName, Expressions.nanos((Long) value));
         }
         return Expressions.equal(sourceColName, value);
     }
@@ -1223,7 +1229,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 valueStr = null;
             }
             Object value = IcebergPartitionUtils.parsePartitionValueFromString(valueStr, sourceField.type(), zone);
-            Expression predicate = identityPartitionPredicate(sourceField.name(), value);
+            Expression predicate = identityPartitionPredicate(sourceField, value);
             expression = expression == null ? predicate : Expressions.and(expression, predicate);
         }
         return expression;

@@ -71,6 +71,20 @@ suite("test_paimon_timestamp_ns", "p0,external,paimon") {
                         }
                     }
                 }
+                if (!primaryKey) {
+                    sql "SET enable_file_scanner_v2=true"
+                    sql "SET force_jni_scanner=false"
+                    // Automatic lossless JNI reads must retain physical metadata, including after filtering.
+                    def metadata = sql("""SELECT id, CAST(ts AS STRING), __paimon_file_path, __paimon_row_index
+                        FROM ${table} ORDER BY id""")
+                    "qt_${table}_metadata" """SELECT id, CAST(ts AS STRING),
+                        __paimon_file_path IS NOT NULL, __paimon_row_index >= 0 FROM ${table} ORDER BY id"""
+                    "qt_${table}_metadata_unique" """SELECT COUNT(*) FROM
+                        (SELECT DISTINCT __paimon_file_path, __paimon_row_index FROM ${table}) positions"""
+                    assertEquals([metadata[0]], sql("""SELECT id, CAST(ts AS STRING),
+                        __paimon_file_path, __paimon_row_index FROM ${table}
+                        WHERE ts=CAST('2024-01-02 03:04:05.123456789' AS TIMESTAMP_NS)"""))
+                }
                 sql "DROP TABLE IF EXISTS ${table}_copy"
                 sql """CREATE TABLE ${table}_copy PROPERTIES ("file.format"="${format}")
                     AS SELECT * FROM ${table}"""

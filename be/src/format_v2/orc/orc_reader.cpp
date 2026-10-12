@@ -763,6 +763,10 @@ struct OrcReaderScanState {
     ::orc::RowReaderOptions row_reader_options; // projection + filter + SARG + stripe range
     std::string timezone = TimezoneUtils::default_time_zone;
     cctz::time_zone timezone_obj;
+    bool utc_wall_clock = false;
+    OrcFileInputStream* input_stream = nullptr;
+    std::string stripe_writer_timezone;
+    int32_t writer_epoch_offset = 0;
     std::unique_ptr<::orc::RowReader> row_reader;
     const ::orc::Type* selected_type = nullptr;
     std::unique_ptr<::orc::ColumnVectorBatch> batch;
@@ -951,11 +955,13 @@ Status OrcReader::init(RuntimeState* state) {
     auto input_stream = std::make_unique<OrcFileInputStream>(
             _file_description->path, _file_reader, _io_ctx.get(), _profile, input_stream_options);
     try {
+        _state->input_stream = input_stream.get();
         _state->reader = ::orc::createReader(std::move(input_stream), options);
         _state->root_type = &_state->reader->getType();
         if (orc_serde_utils::has_nanosecond_timestamp(*_state->root_type)) {
             // Use the same UTC wall-clock carrier as the writer; historical local offsets
             // differ between ORC and cctz and can push boundary values out of range.
+            _state->utc_wall_clock = true;
             _state->timezone = "GMT";
             _state->timezone_obj = cctz::utc_time_zone();
         }
@@ -1971,6 +1977,20 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
     view.selected_rows = selected_rows;
     view.timezone = &_state->timezone_obj;
     view.enable_mapping_timestamp_tz = _enable_mapping_timestamp_tz;
+    if (_state->utc_wall_clock) {
+        const auto& writer_timezone = _state->input_stream->writer_timezone();
+        if (_state->stripe_writer_timezone != writer_timezone) {
+            cctz::time_zone zone = cctz::utc_time_zone();
+            if (!writer_timezone.empty() &&
+                !TimezoneUtils::find_cctz_time_zone(writer_timezone, zone)) {
+                return Status::InvalidArgument("Unknown ORC stripe writer timezone: {}",
+                                               writer_timezone);
+            }
+            _state->writer_epoch_offset = zone.lookup(cctz::time_point<cctz::seconds> {}).offset;
+            _state->stripe_writer_timezone = writer_timezone;
+        }
+        view.writer_epoch_offset = _state->writer_epoch_offset;
+    }
     return column_type->get_serde()->read_column_from_orc(*column, view);
 }
 

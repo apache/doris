@@ -32,6 +32,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
@@ -509,6 +510,8 @@ public class IcebergPredicateConverter {
                 case STRING:
                 case DATE:
                     return date.toString();
+                case TIMESTAMP_NANO:
+                    return toNanos(date.atStartOfDay(), icebergType);
                 case TIMESTAMP:
                     return toMicros(date.atStartOfDay(), icebergType);
                 default:
@@ -520,6 +523,8 @@ public class IcebergPredicateConverter {
                 case STRING:
                 case DATE:
                     return dorisDateTimeString(dateTime);
+                case TIMESTAMP_NANO:
+                    return toNanos(dateTime, icebergType);
                 case TIMESTAMP:
                     return toMicros(dateTime, icebergType,
                             "TIMESTAMPTZ".equalsIgnoreCase(literal.getType().getTypeName()));
@@ -603,6 +608,9 @@ public class IcebergPredicateConverter {
         } else if (value instanceof String) {
             String string = (String) value;
             switch (id) {
+                case TIMESTAMP_NANO:
+                    LocalDateTime parsedNs = parseDorisDateTime(string);
+                    return parsedNs == null ? null : toNanos(parsedNs, icebergType);
                 case TIMESTAMP:
                     if (mode == Mode.SCAN) {
                         // Legacy IcebergUtils.extractDorisLiteral returns the raw string for a TIMESTAMP column and
@@ -669,6 +677,19 @@ public class IcebergPredicateConverter {
                 ? sessionZone : ZoneOffset.UTC;
         Instant instant = dateTime.atZone(zone).toInstant();
         return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
+    }
+
+    private static Literal<Long> toNanos(LocalDateTime dateTime, Type icebergType) {
+        if (((Types.TimestampNanoType) icebergType).shouldAdjustToUTC()) {
+            return null;
+        }
+        try {
+            // A raw Long is a microsecond literal in Iceberg; preserve the nanosecond unit explicitly.
+            // Unzoned values use a UTC wall-clock carrier, never the session zone.
+            return Expressions.nanos(IcebergPartitionUtils.toEpochNanos(dateTime));
+        } catch (ArithmeticException e) {
+            return null;
+        }
     }
 
     // Parse a Doris-format datetime string ("yyyy-MM-dd HH:mm:ss[.fraction]") -- or a date-only string, taken

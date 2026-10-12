@@ -72,9 +72,11 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
+        const int64_t seconds = orc_serde_utils::corrected_orc_timestamp_seconds(
+                orc_view, orc_batch->data[source_row], orc_batch->nanoseconds[source_row]);
         orc_serde_utils::RoundedOrcTimestamp timestamp;
         auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
-                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+                seconds, orc_batch->nanoseconds[source_row], &timestamp);
         if (!status.ok()) {
             data.resize(old_data_size);
             return status;
@@ -84,8 +86,8 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         // Instant carry precedes timezone conversion; plain TIMESTAMP carry stays in civil time
         // so rounding cannot jump across a daylight-saving gap or fold.
         status = orc_serde_utils::orc_timestamp_to_datetime(
-                is_timestamp_instant ? timestamp.seconds : orc_batch->data[source_row],
-                timestamp.microseconds, timezone, !is_timestamp_instant && timestamp.carry, &value);
+                is_timestamp_instant ? timestamp.seconds : seconds, timestamp.microseconds,
+                timezone, !is_timestamp_instant && timestamp.carry, &value);
         if (!status.ok()) {
             data.resize(old_data_size);
             return status;

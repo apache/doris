@@ -490,8 +490,10 @@ Status DataTypeTimeStampNsSerDe::read_column_from_orc(IColumn& column,
             return Status::DataQualityError("Invalid ORC timestamp nanoseconds: {}", nanos);
         }
         DateV2Value<DateTimeV2ValueType> civil;
-        auto status = orc_serde_utils::orc_timestamp_to_datetime(batch.data[source], nanos / 1000,
-                                                                 timezone, false, &civil);
+        const int64_t seconds =
+                orc_serde_utils::corrected_orc_timestamp_seconds(view, batch.data[source], nanos);
+        auto status = orc_serde_utils::orc_timestamp_to_datetime(seconds, nanos / 1000, timezone,
+                                                                 false, &civil);
         TimeStampNsValue value;
         if (!status.ok() || !value.from_datetime(civil, nanos % 1000)) {
             data.resize(old_size);

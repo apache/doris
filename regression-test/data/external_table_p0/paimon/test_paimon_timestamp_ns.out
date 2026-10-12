@@ -150,6 +150,18 @@ entries	map<text,timestamp_ns>	Yes	true	\N
 -- !ns_parquet_false_true_true_Asia_Shanghai_aggregate --
 1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
 
+-- !ns_parquet_false_metadata --
+1	2024-01-02 03:04:05.123456789	true	true
+2	2024-01-02 03:04:05.123456788	true	true
+3	1969-12-31 23:59:58.999999999	true	true
+4	1970-01-01 00:00:00.000000001	true	true
+5	\N	true	true
+6	1677-09-21 00:12:43.145224192	true	true
+7	2262-04-11 23:47:16.854775807	true	true
+
+-- !ns_parquet_false_metadata_unique --
+7
+
 -- !ns_parquet_false_copy --
 1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
 2	2024-01-02 03:04:05.123456788	[]	\N	{}
@@ -478,6 +490,18 @@ entries	map<text,timestamp_ns>	Yes	true	\N
 
 -- !ns_orc_false_true_true_Asia_Shanghai_aggregate --
 1677-09-21 00:12:43.145224192	2262-04-11 23:47:16.854775807	6
+
+-- !ns_orc_false_metadata --
+1	2024-01-02 03:04:05.123456789	true	true
+2	2024-01-02 03:04:05.123456788	true	true
+3	1969-12-31 23:59:58.999999999	true	true
+4	1970-01-01 00:00:00.000000001	true	true
+5	\N	true	true
+6	1677-09-21 00:12:43.145224192	true	true
+7	2262-04-11 23:47:16.854775807	true	true
+
+-- !ns_orc_false_metadata_unique --
+7
 
 -- !ns_orc_false_copy --
 1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}

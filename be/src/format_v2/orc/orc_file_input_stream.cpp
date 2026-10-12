@@ -278,6 +278,7 @@ void OrcFileInputStream::beforeReadStripe(
         std::unique_ptr<::orc::StripeInformation> current_stripe_information,
         const std::vector<bool>& selected_columns,
         std::unordered_map<::orc::StreamId, std::shared_ptr<::orc::InputStream>>& streams) {
+    _writer_timezone = current_stripe_information->getWriterTimezone();
     _flush_active_clusters();
     _active_stripe_streams.clear();
 

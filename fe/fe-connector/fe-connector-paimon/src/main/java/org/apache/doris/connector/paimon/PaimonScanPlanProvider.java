@@ -1019,9 +1019,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
+                // Lossless timestamp fallbacks can expose metadata through the SDK's physical iterator.
                 // Raw convertibility alone does not select the SDK raw reader: historical primary-key
                 // files without delete counts require merging and lose physical file/row positions.
-                if (requiresMetadataColumns && (!legacyOrcTimestamp || !supportsJniPhysicalMetadata(
+                if (requiresMetadataColumns && (!(legacyOrcTimestamp || needsNanosecondReader)
+                        || !supportsJniPhysicalMetadata(
                         legacyOrcSchemaTable.get(), dataSplit))) {
                     validateMetadataColumnReader(true, false);
                 }

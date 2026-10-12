@@ -20,7 +20,8 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
         return
     }
     String host = context.config.otherConfigs.get("externalEnvIp")
-    String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
+    // The newer REST fixture preserves nanosecond schema defaults; the baseline 1.10 server rescales them.
+    String restPort = context.config.otherConfigs.get("iceberg_scan_planning_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalog = "test_iceberg_timestamp_ns"
     def zone = sql("SELECT @@time_zone")[0][0]
@@ -68,6 +69,22 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
             sql """CREATE TABLE ${table}_copy PROPERTIES ("format-version"="3",
                 "write.format.default"="${format}") AS SELECT * FROM ${table}"""
             "qt_${format}_copy" "SELECT * FROM ${table}_copy ORDER BY id"
+            // Filtered rewrites must bind a nanosecond literal without scaling it as microseconds.
+            def beforeRewrite = sql("SELECT * FROM ${table} ORDER BY id")
+            sql """ALTER TABLE ${table} EXECUTE rewrite_data_files("rewrite-all"="true")
+                WHERE ts='2024-01-02 03:04:05.123456789'"""
+            assertEquals(beforeRewrite, sql("SELECT * FROM ${table} ORDER BY id"))
+
+            String defaultsTable = "${table}_defaults"
+            sql "DROP TABLE IF EXISTS ${defaultsTable}"
+            sql """CREATE TABLE ${defaultsTable} (id INT) PROPERTIES
+                ("format-version"="3", "write.format.default"="${format}")"""
+            // Exercise both metadata default parsing and the subsequent statement-scoped sink schema.
+            sql """ALTER TABLE ${defaultsTable} ADD COLUMN ts TIMESTAMP_NS
+                DEFAULT '2024-01-02 03:04:05.123456789'"""
+            sql "INSERT INTO ${defaultsTable} (id) VALUES (1)"
+            sql "INSERT INTO ${defaultsTable} VALUES (2, '2024-01-02 03:04:05.123456788')"
+            "qt_${format}_defaults" "SELECT id, CAST(ts AS STRING) FROM ${defaultsTable} ORDER BY id"
             for (String transform : ["identity", "year", "month", "day", "hour", "bucket"]) {
                 String partitionTable = "${table}_${transform}"
                 String expression = transform == "identity" ? "ts"
@@ -80,6 +97,11 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
                 "qt_${format}_${transform}" "SELECT * FROM ${partitionTable} ORDER BY id"
                 sql "INSERT OVERWRITE TABLE ${partitionTable} SELECT id, ts FROM ${table} WHERE id=2"
                 "qt_${format}_${transform}_overwrite" "SELECT * FROM ${partitionTable} ORDER BY id"
+                if (transform == "identity") {
+                    // Static partition commit parsing must accept the same date-only input as the sink cast.
+                    sql "INSERT OVERWRITE TABLE ${partitionTable} PARTITION(ts='2024-01-01') SELECT 8"
+                    "qt_${format}_identity_static_date" "SELECT CAST(ts AS STRING) FROM ${partitionTable} WHERE id=8"
+                }
             }
         }
     } finally {
