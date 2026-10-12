@@ -24,18 +24,35 @@
 
 namespace doris {
 
-TEST(DiskInfoTest, StripPartitionSuffix) {
-    // Regular disks: the trailing digits are a partition number, strip them.
-    EXPECT_EQ(DiskInfo::strip_partition_suffix("sda"), "sda");
-    EXPECT_EQ(DiskInfo::strip_partition_suffix("sda1"), "sda");
-    EXPECT_EQ(DiskInfo::strip_partition_suffix("sda15"), "sda");
-    EXPECT_EQ(DiskInfo::strip_partition_suffix("nvme0n1p1"), "nvme0n1p");
+TEST(DiskInfoTest, DiskNameFromSysfsPath) {
+    // Partitions: sysfs nests a partition's directory one level below its
+    // whole-device parent, so the parent's name is what matters, not any
+    // naming convention in the partition's own name.
+    EXPECT_EQ(DiskInfo::disk_name_from_sysfs_path(
+                      "/sys/devices/pci0000:00/ata1/host0/target0:0:0/0:0:0:0/block/sda/sda1",
+                      /*is_partition=*/true),
+              "sda");
+    EXPECT_EQ(DiskInfo::disk_name_from_sysfs_path(
+                      "/sys/devices/pci0000:00/nvme0/nvme0n1/nvme0n1p1", /*is_partition=*/true),
+              "nvme0n1");
+    EXPECT_EQ(DiskInfo::disk_name_from_sysfs_path("/sys/devices/platform/mmcblk0/mmcblk0p1",
+                                                   /*is_partition=*/true),
+              "mmcblk0");
 
-    // Device-mapper (LVM) devices: dm-N is the whole device, not a partition
-    // of some "dm" disk, so distinct dm-N devices must stay distinct.
-    EXPECT_EQ(DiskInfo::strip_partition_suffix("dm-0"), "dm-0");
-    EXPECT_EQ(DiskInfo::strip_partition_suffix("dm-1"), "dm-1");
-    EXPECT_NE(DiskInfo::strip_partition_suffix("dm-0"), DiskInfo::strip_partition_suffix("dm-1"));
+    // Whole devices (no "partition" file in their sysfs directory): keep the
+    // leaf name as-is, including ones with trailing digits that are not a
+    // partition number, like md127, and device-mapper's dm-N.
+    EXPECT_EQ(DiskInfo::disk_name_from_sysfs_path("/sys/devices/virtual/block/md127",
+                                                   /*is_partition=*/false),
+              "md127");
+    EXPECT_EQ(DiskInfo::disk_name_from_sysfs_path("/sys/devices/virtual/block/dm-0",
+                                                   /*is_partition=*/false),
+              "dm-0");
+    EXPECT_EQ(DiskInfo::disk_name_from_sysfs_path("/sys/devices/virtual/block/dm-1",
+                                                   /*is_partition=*/false),
+              "dm-1");
+    EXPECT_NE(DiskInfo::disk_name_from_sysfs_path("/sys/devices/virtual/block/dm-0", false),
+              DiskInfo::disk_name_from_sysfs_path("/sys/devices/virtual/block/dm-1", false));
 }
 
 } // namespace doris

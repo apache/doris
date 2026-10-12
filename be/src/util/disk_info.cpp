@@ -28,10 +28,8 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/detail/classification.hpp>
-#include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -41,6 +39,30 @@
 #include "io/fs/local_file_system.h"
 
 namespace doris {
+
+namespace {
+
+// Resolves a block device's kernel name via sysfs, asking the kernel whether
+// it's a partition rather than guessing from the name. Every block device
+// has a /sys/dev/block/<major>:<minor> symlink into sysfs, and every
+// partition's sysfs directory (unlike its whole-device parent's) contains a
+// "partition" file, so this works uniformly for sda2, nvme0n1p1, mmcblk0p1,
+// dm-0, md127, etc. without a name-based exception list.
+bool resolve_sysfs_disk_name(dev_t dev, std::string* out_name) {
+    namespace fs = std::filesystem;
+    std::stringstream link;
+    link << "/sys/dev/block/" << major(dev) << ":" << minor(dev);
+    std::error_code ec;
+    fs::path resolved = fs::canonical(link.str(), ec);
+    if (ec) {
+        return false;
+    }
+    bool is_partition = fs::exists(resolved / "partition", ec);
+    *out_name = DiskInfo::disk_name_from_sysfs_path(resolved.string(), is_partition);
+    return true;
+}
+
+} // namespace
 
 bool DiskInfo::_s_initialized;
 std::vector<DiskInfo::Disk> DiskInfo::_s_disks;
@@ -75,14 +97,20 @@ void DiskInfo::get_device_names() {
             continue;
         }
 
-        // Remove the partition# from the name.  e.g. sda2 --> sda
-        name = strip_partition_suffix(name);
-
         // Create a mapping of all device ids (one per partition) to the disk id.
         int major_dev_id = atoi(fields[0].c_str());
         int minor_dev_id = atoi(fields[1].c_str());
         dev_t dev = makedev(major_dev_id, minor_dev_id);
         DCHECK(_s_device_id_to_disk_id.find(dev) == _s_device_id_to_disk_id.end());
+
+        // Ask sysfs which whole device this one belongs to, instead of
+        // guessing from the name: a partition's parent disk is identity,
+        // not a naming convention.
+        if (!resolve_sysfs_disk_name(dev, &name)) {
+            LOG(WARNING) << "could not resolve sysfs block device for " << fields[3] << " ("
+                         << major_dev_id << ":" << minor_dev_id << "), skipping";
+            continue;
+        }
 
         int disk_id = -1;
         std::map<std::string, int>::iterator it = _s_disk_name_to_disk_id.find(name);
@@ -130,11 +158,13 @@ void DiskInfo::get_device_names() {
     }
 }
 
-std::string DiskInfo::strip_partition_suffix(std::string name) {
-    if (!boost::starts_with(name, "dm-")) {
-        boost::trim_right_if(name, boost::is_any_of("0123456789"));
+std::string DiskInfo::disk_name_from_sysfs_path(const std::string& resolved_path,
+                                                 bool is_partition) {
+    std::filesystem::path path(resolved_path);
+    if (is_partition) {
+        path = path.parent_path();
     }
-    return name;
+    return path.filename().string();
 }
 
 void DiskInfo::init() {
