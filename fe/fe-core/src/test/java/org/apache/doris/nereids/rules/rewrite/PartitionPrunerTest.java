@@ -327,7 +327,22 @@ public class PartitionPrunerTest extends TestWithFeService {
     }
 
     @Test
-    public void testPruneWithResultIgnoresNonPruningPartitionPredicate() throws AnalysisException {
+    public void testPruneWithResultIgnoresNonPartitionPredicate() throws AnalysisException {
+        Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"));
+
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), new GreaterThan(slotB, Literal.of(0)), idToPartitions, cascadesContext,
+                PartitionTableType.OLAP, Optional.empty());
+
+        Assertions.assertEquals(2, result.partitions.size());
+        Assertions.assertFalse(result.hasPartitionPredicate);
+        Assertions.assertFalse(result.prunedPartitionPredicate.isPresent());
+    }
+
+    @Test
+    public void testPruneWithResultKeepsProvableNonFilteringPartitionPredicate() throws AnalysisException {
         Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
                 "p1", createListPartitionItem("1"),
                 "p2", createListPartitionItem("2"));
@@ -338,6 +353,7 @@ public class PartitionPrunerTest extends TestWithFeService {
 
         Assertions.assertEquals(2, result.partitions.size());
         Assertions.assertFalse(result.hasPartitionPredicate);
+        Assertions.assertTrue(result.prunedPartitionPredicate.isPresent());
     }
 
     @Test
