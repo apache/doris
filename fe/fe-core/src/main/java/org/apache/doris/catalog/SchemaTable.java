@@ -754,8 +754,6 @@ public class SchemaTable extends Table {
                                     .column("REMOTE_PATH", ScalarType.createStringType())
                                     .column("CACHE_PATH", ScalarType.createStringType())
                                     .column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("PROTECTED", ScalarType.createType(PrimitiveType.BOOLEAN))
-                                    .column("PROTECTED_UNTIL", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,

@@ -150,24 +150,6 @@ suite("ex06_ttl_restart_consistency", "docker") {
             waitForFileCacheType.call(tabletIds, "normal")
             waitForFileCacheType.call(gainTabletIds, "ttl")
             waitForTtlQueueToHold.call(gainTabletIds)
-
-            // PROTECTED and PROTECTED_UNTIL tell the same as TYPE: the deadline of a tablet with
-            // no TTL is 0.
-            long nowSeconds = System.currentTimeMillis().intdiv(1000)
-            def protection = { List<Long> ids ->
-                sql """select protected, protected_until, lower(type) from information_schema.file_cache_info
-                        where tablet_id in (${ids.join(',')})"""
-            }
-            protection.call(gainTabletIds).each { row ->
-                assertTrue(row[0] as boolean, "Block of a TTL tablet is not protected: ${row}")
-                assertTrue((row[1] as long) > nowSeconds, "Protected block has a past deadline: ${row}")
-                assertEquals("ttl", row[2].toString())
-            }
-            protection.call(tabletIds).each { row ->
-                assertFalse(row[0] as boolean, "Block of a tablet without TTL is protected: ${row}")
-                assertEquals(0L, row[1] as long)
-                assertEquals("normal", row[2].toString())
-            }
         } finally {
             sql """drop table if exists ${tableName}"""
             sql """drop table if exists ${gainTableName}"""

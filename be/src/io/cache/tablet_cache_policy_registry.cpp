@@ -89,18 +89,19 @@ std::optional<int64_t> TabletCachePolicyRegistry::deadline(int64_t tablet_id) co
     return it->second.policy.deadline();
 }
 
-int64_t TabletCachePolicyRegistry::protection_deadline(int64_t tablet_id, int64_t legacy_deadline) {
+bool TabletCachePolicyRegistry::is_protected(int64_t tablet_id, int64_t legacy_deadline,
+                                             int64_t now) {
     // tablet_id 0 is data outside any Doris tablet (external tables, v2 cache files that never
     // recorded one): it only has the deadline it was written with.
     if (tablet_id <= 0) {
-        return legacy_deadline;
+        return legacy_deadline > now;
     }
     const std::optional<int64_t> known = deadline(tablet_id);
     if (!known.has_value()) {
         note_tablet(tablet_id);
-        return legacy_deadline;
+        return legacy_deadline > now;
     }
-    return *known;
+    return *known > now;
 }
 
 std::optional<TabletCachePolicy> TabletCachePolicyRegistry::set_locked(
