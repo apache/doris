@@ -182,7 +182,7 @@ SpillFileManager::~SpillFileManager() {
     // A local directory that still cannot be deleted remains under the active spill root and is
     // moved to the GC root by init() after restart; remote objects that still cannot be deleted
     // are left to the lifecycle rule of the bucket.
-    _retry_pending_spill_directories();
+    _retry_pending_spill_directories_bounded();
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 
@@ -213,8 +213,9 @@ void SpillFileManager::stop() {
     }
     // The GC thread may observe the stop latch before processing a recently queued failed deletion.
     // Retry the pending directories after the thread exits; later failures get one final retry in
-    // the destructor.
-    _retry_pending_spill_directories();
+    // the destructor. Both are bounded by spill_gc_work_time_ms, so that an unavailable object
+    // store does not delay shutdown by one request timeout per queued directory.
+    _retry_pending_spill_directories_bounded();
 }
 
 Status SpillFileManager::init() {
@@ -568,7 +569,14 @@ Status SpillFileManager::_try_delete_spill_directory(
     return fs->delete_directory(pending_directory.dir);
 }
 
-void SpillFileManager::_retry_pending_spill_directories() {
+void SpillFileManager::_retry_pending_spill_directories_bounded() {
+    MonotonicStopWatch watch;
+    watch.start();
+    _retry_pending_spill_directories(watch, config::spill_gc_work_time_ms * 1000L * 1000L);
+}
+
+void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch& watch,
+                                                        int64_t max_work_time_ns) {
     std::vector<PendingSpillDirectory> pending_directories;
     {
         std::lock_guard lock(_pending_spill_directories_mutex);
@@ -581,7 +589,15 @@ void SpillFileManager::_retry_pending_spill_directories() {
     // every subsequent retry.
     constexpr int log_interval = 5;
     std::vector<PendingSpillDirectory> failed_directories;
-    for (auto& pending_directory : pending_directories) {
+    size_t next = 0;
+    while (next < pending_directories.size()) {
+        // A remote deletion can wait for a request timeout: after the time slice is used up the
+        // remaining directories are queued again without being tried, ahead of the ones that
+        // just failed, so that a slow failing directory cannot starve the others.
+        if (next > 0 && watch.elapsed_time() >= max_work_time_ns) {
+            break;
+        }
+        auto& pending_directory = pending_directories[next++];
         auto status = _try_delete_spill_directory(pending_directory);
         if (status.ok()) {
             pending_directory.data_dir->release(pending_directory.charged_bytes);
@@ -609,6 +625,9 @@ void SpillFileManager::_retry_pending_spill_directories() {
         failed_directories.emplace_back(std::move(pending_directory));
     }
 
+    for (; next < pending_directories.size(); ++next) {
+        _add_pending_directory(std::move(pending_directories[next]));
+    }
     for (auto& pending_directory : failed_directories) {
         _add_pending_directory(std::move(pending_directory));
     }
@@ -633,7 +652,7 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
             LOG(INFO) << msg;
         }
     }};
-    _retry_pending_spill_directories();
+    _retry_pending_spill_directories(watch, max_work_time_ns);
     for (auto* store_dir : _local_stores) {
         SpillGcStats stats;
         _gc_spill_store(store_dir, watch, max_work_time_ns, &stats);

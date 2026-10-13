@@ -103,6 +103,8 @@ struct MockS3Store {
     // of a committed request is lost.
     std::atomic<bool> fail_complete_after_publish {false};
     std::atomic<bool> fail_deletes {false};
+    // Every delete request first sleeps this long, as against an unresponsive object store.
+    std::atomic<int64_t> delete_delay_ms {0};
     // Guarded by mutex. Delete every other key, then report a per-key failure.
     std::string fail_delete_key;
     std::atomic<bool> block_uploads {false};
@@ -141,6 +143,7 @@ struct MockS3Store {
         fail_create_multipart = false;
         fail_complete_after_publish = false;
         fail_deletes = false;
+        delete_delay_ms = 0;
         fail_delete_key.clear();
         block_uploads = false;
         put_requests = 0;
@@ -334,6 +337,7 @@ public:
     io::ObjStorageResponse delete_objects(const io::ObjStoragePath& opts,
                                           std::vector<std::string> objs) override {
         _store->delete_requests++;
+        std::this_thread::sleep_for(std::chrono::milliseconds(_store->delete_delay_ms.load()));
         if (_store->fail_deletes) {
             return make_error("injected delete failure");
         }
@@ -352,6 +356,7 @@ public:
 
     io::ObjStorageResponse delete_object(const io::ObjStoragePath& opts) override {
         _store->delete_requests++;
+        std::this_thread::sleep_for(std::chrono::milliseconds(_store->delete_delay_ms.load()));
         if (_store->fail_deletes) {
             return make_error("injected delete failure");
         }
@@ -901,6 +906,57 @@ TEST_F(SpillFileS3Test, PublishedPartRemainsBillableWhenCloseAndCleanupFail) {
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     ASSERT_TRUE(_query_objects("query_failed_complete").empty());
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+}
+
+// Retrying failed remote deletions is bounded by the GC work time: with a slow object store one
+// round tries one directory and keeps the others queued for the next round, ahead of the one
+// that failed, so a directory that keeps failing slowly does not starve the others.
+TEST_F(SpillFileS3Test, PendingRemoteDeletesAreBoundedByGcWorkTime) {
+    _create_manager();
+    std::mt19937 rng(128);
+    std::vector<SpillFileSPtr> files;
+    for (int i = 0; i < 3; ++i) {
+        Status status;
+        files.push_back(_write_blocks(fmt::format("query_slow_delete_{}/sort-1", i),
+                                      {_random_string_block(rng, 16, 100)}, &status));
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    _manager->stop();
+    mock_store().fail_deletes = true;
+    files.clear();
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 3);
+
+    // A slow object store where the first directory keeps failing: every round tries one
+    // directory, and the first one does not block the other two.
+    mock_store().fail_deletes = false;
+    {
+        auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_slow_delete_0/");
+        ASSERT_EQ(keys.size(), 1);
+        std::lock_guard lock(mock_store().mutex);
+        mock_store().fail_delete_key = keys[0];
+    }
+    mock_store().delete_delay_ms = 20;
+    _manager->gc(1);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 3);
+    _manager->gc(1);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 2);
+    _manager->gc(1);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
+    ASSERT_FALSE(_query_objects("query_slow_delete_0").empty());
+    ASSERT_TRUE(_query_objects("query_slow_delete_1").empty());
+    ASSERT_TRUE(_query_objects("query_slow_delete_2").empty());
+
+    {
+        std::lock_guard lock(mock_store().mutex);
+        mock_store().fail_delete_key.clear();
+    }
+    mock_store().delete_delay_ms = 0;
+    _manager->gc(1000);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_TRUE(_query_objects(fmt::format("query_slow_delete_{}", i)).empty());
+    }
 }
 
 TEST_F(SpillFileS3Test, PartialDeleteReconcilesOnlyRemainingObjectBytes) {
