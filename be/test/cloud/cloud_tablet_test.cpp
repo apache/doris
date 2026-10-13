@@ -33,6 +33,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "common/config.h"
 #include "cpp/sync_point.h"
+#include "io/cache/tablet_cache_policy_registry.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -1172,6 +1173,16 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlWithoutChangingInMemory) {
     EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
     EXPECT_TRUE(_tablet->tablet_meta()->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
+
+    // The file cache learns the policy from every refresh, also from one that changes nothing
+    // on the tablet, so a policy it lost is put back.
+    auto* registry = io::TabletCachePolicyRegistry::instance();
+    const int64_t deadline = mock_tablet_meta->creation_time() + 3600;
+    EXPECT_EQ(registry->deadline(_tablet->tablet_id()), deadline);
+    registry->erase(_tablet->tablet_id());
+    ASSERT_TRUE(_tablet->sync_meta().ok());
+    EXPECT_EQ(registry->deadline(_tablet->tablet_id()), deadline);
+    registry->erase(_tablet->tablet_id());
 
     sp->disable_processing();
     sp->clear_all_call_backs();

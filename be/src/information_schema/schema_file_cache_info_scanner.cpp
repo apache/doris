@@ -17,15 +17,19 @@
 
 #include "information_schema/schema_file_cache_info_scanner.h"
 
+#include <memory>
+
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/tablet_cache_policy_registry.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -38,7 +42,9 @@ std::vector<SchemaScanner::ColumnDesc> SchemaFileCacheInfoScanner::_s_tbls_colum
         {"TYPE", TYPE_STRING, sizeof(StringRef), true},
         {"REMOTE_PATH", TYPE_STRING, sizeof(StringRef), true},
         {"CACHE_PATH", TYPE_STRING, sizeof(StringRef), true},
-        {"BE_ID", TYPE_BIGINT, sizeof(int64_t), true}};
+        {"BE_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"PROTECTED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"PROTECTED_UNTIL", TYPE_BIGINT, sizeof(int64_t), true}};
 
 SchemaFileCacheInfoScanner::SchemaFileCacheInfoScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_FILE_CACHE_INFO) {}
@@ -70,8 +76,18 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
         return Status::OK();
     }
 
+    struct CacheEntry {
+        std::string hash;
+        int64_t offset;
+        int64_t tablet_id;
+        int64_t size;
+        doris::io::FileCacheType type;
+        std::string cache_path;
+        bool is_protected;
+        int64_t protected_until;
+    };
     // Collect all cache entries from all file cache instances
-    std::vector<std::tuple<std::string, int64_t, int64_t, int64_t, int, std::string>> cache_entries;
+    std::vector<CacheEntry> cache_entries;
 
     // Get all cache instances using the public getter
     const auto& caches = file_cache_factory->get_caches();
@@ -101,6 +117,8 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
             continue;
         }
 
+        auto* policy_registry = doris::io::TabletCachePolicyRegistry::instance();
+        const int64_t now = UnixSeconds();
         // Iterate through all cache entries
         while (iterator->valid()) {
             const auto& key = iterator->key();
@@ -118,9 +136,17 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
             // Convert hash to string
             std::string hash_str = key.hash.to_string();
 
+            // What is persisted is the class; TYPE shows the queue the block belongs in now, which
+            // is TTL while its tablet protects it.
+            const int64_t deadline = policy_registry->protection_deadline(
+                    key.tablet_id, static_cast<int64_t>(value.ttl));
+            const bool is_protected = deadline > now;
+            const auto type = is_protected ? doris::io::FileCacheType::TTL
+                                           : doris::io::cache_class_of(value.type);
             // Add to cache entries
-            cache_entries.emplace_back(hash_str, static_cast<int64_t>(key.offset), key.tablet_id,
-                                       static_cast<int64_t>(value.size), value.type, cache_path);
+            cache_entries.push_back({hash_str, static_cast<int64_t>(key.offset), key.tablet_id,
+                                     static_cast<int64_t>(value.size), type, cache_path,
+                                     is_protected, deadline});
 
             iterator->next();
         }
@@ -136,12 +162,14 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
 
         std::vector<StringRef> str_refs(row_num);
         std::vector<int64_t> int64_vals(row_num);
+        auto bool_vals = std::make_unique<bool[]>(row_num);
         std::vector<void*> datas(row_num);
         std::vector<std::string> column_values(row_num);
 
         for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
             const auto& entry = cache_entries[row_idx];
-            const auto& [hash, offset, tablet_id, size, type, cache_path] = entry;
+            const auto& [hash, offset, tablet_id, size, type, cache_path, is_protected,
+                         protected_until] = entry;
 
             if (col_desc.type == TYPE_STRING) {
                 switch (col_idx) {
@@ -149,8 +177,7 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
                     column_values[row_idx] = hash;
                     break;
                 case 4: // TYPE
-                    column_values[row_idx] = doris::io::cache_type_to_string(
-                            static_cast<doris::io::FileCacheType>(type));
+                    column_values[row_idx] = doris::io::cache_type_to_string(type);
                     break;
                 case 5:                          // REMOTE_PATH
                     column_values[row_idx] = ""; // TODO: Implement remote path retrieval
@@ -179,11 +206,17 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
                 case 7: // BE_ID
                     int64_vals[row_idx] = ExecEnv::GetInstance()->cluster_info()->backend_id;
                     break;
+                case 9: // PROTECTED_UNTIL
+                    int64_vals[row_idx] = protected_until;
+                    break;
                 default:
                     int64_vals[row_idx] = 0;
                     break;
                 }
                 datas[row_idx] = &int64_vals[row_idx];
+            } else if (col_desc.type == TYPE_BOOLEAN) { // PROTECTED
+                bool_vals[row_idx] = is_protected;
+                datas[row_idx] = &bool_vals[row_idx];
             }
         }
 

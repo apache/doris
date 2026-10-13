@@ -465,12 +465,6 @@ public:
         config::enable_evict_file_cache_in_advance = false;
         config::file_cache_enter_disk_resource_limit_mode_percent = 99;
         config::file_cache_each_block_size = static_cast<int64_t>(FLAGS_block_size);
-        // Benchmark reads are external-table style with tablet_id=0, so they do not register
-        // tablet-scoped TTL work. Short intervals only bound cache teardown latency; production
-        // defaults let the otherwise idle TTL threads sleep for three minutes before join().
-        config::file_cache_background_ttl_gc_interval_ms = 100;
-        config::file_cache_background_ttl_info_update_interval_ms = 100;
-        config::file_cache_background_tablet_id_flush_interval_ms = 100;
         config::async_file_cache_write_workers_per_disk = FLAGS_reader_workers;
         config::async_file_cache_write_max_pending_bytes = static_cast<int64_t>(
                 std::max(FLAGS_reader_operations, FLAGS_manager_operations) * FLAGS_block_size);

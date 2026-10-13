@@ -29,7 +29,8 @@ namespace {} // namespace
 void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType log_type,
                                           const UInt128Wrapper hash, const size_t offset,
                                           const size_t size) {
-    if (config::file_cache_background_lru_dump_tail_record_num <= 0) {
+    // The TTL queue is not dumped, see BlockFileCache::restore_lru_queues_from_disk().
+    if (config::file_cache_background_lru_dump_tail_record_num <= 0 || type == FileCacheType::TTL) {
         return;
     }
     ++(_lru_queue_update_cnt_from_last_dump[type]);
@@ -64,6 +65,11 @@ size_t LRUQueueRecorder::replay_queue_event(FileCacheType type) {
                 switch (log->type) {
                 case CacheLRULogType::ADD: {
                     shadow_queue.add(log->hash, log->offset, log->size, lru_log_lock);
+                    limit_shadow_queue_size(shadow_queue, lru_log_lock);
+                    break;
+                }
+                case CacheLRULogType::ADDTOFRONT: {
+                    shadow_queue.add_front(log->hash, log->offset, log->size, lru_log_lock);
                     limit_shadow_queue_size(shadow_queue, lru_log_lock);
                     break;
                 }

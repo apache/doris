@@ -1315,6 +1315,10 @@ DECLARE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_evict_in_advance_interval_ms);
 DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
 DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
+// The most blocks one eviction scan of a queue may skip because they cannot be released.
+// Bounds the time spent under the cache lock when the cold end of a queue is occupied by
+// blocks that cannot be evicted; the scan gives up on that queue once it is reached.
+DECLARE_mInt64(file_cache_evict_max_skipped_blocks_per_scan);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 DECLARE_mBool(enbale_dump_error_file);
@@ -1346,9 +1350,19 @@ DECLARE_mInt64(file_cache_background_block_lru_update_queue_max_size);
 DECLARE_mBool(enable_file_cache_async_touch_on_get_or_set);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
-DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
-DECLARE_mInt64(file_cache_background_ttl_info_update_interval_ms);
-DECLARE_mInt64(file_cache_background_tablet_id_flush_interval_ms);
+// How long a tablet's file cache TTL policy may go without being confirmed from its meta before
+// it is fetched again. Loaded tablets confirm it on every meta sync.
+DECLARE_mInt64(file_cache_tablet_policy_refresh_interval_s);
+// The most tablet policies fetched per second.
+DECLARE_mInt64(file_cache_tablet_policy_refresh_batch);
+// The queue sweep moves blocks between the TTL queue and their class queue when their tablet's
+// TTL changed or ran out. It walks at most this many blocks per round, one round per interval.
+DECLARE_mInt64(file_cache_queue_sweep_interval_ms);
+DECLARE_mInt64(file_cache_queue_sweep_batch_blocks);
+// Every queue is swept at least this often, even when no TTL changed.
+DECLARE_mInt64(file_cache_queue_sweep_backstop_interval_s);
+// The most protected blocks one eviction scan moves out of a class queue to the TTL queue.
+DECLARE_mInt64(file_cache_ttl_relocate_batch_blocks);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
 // used to persist lru information before be reboot and load the info back

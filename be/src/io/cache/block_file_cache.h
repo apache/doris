@@ -35,12 +35,12 @@
 #include <unordered_map>
 #include <vector>
 
-#include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
 #include "io/cache/lru_queue_recorder.h"
+#include "io/cache/tablet_cache_policy_registry.h"
 #include "runtime/runtime_profile.h"
 #include "util/threadpool.h"
 
@@ -293,10 +293,6 @@ public:
 
     [[nodiscard]] size_t get_file_blocks_num(FileCacheType type) const;
 
-    // change the block cache type
-    void change_cache_type(const UInt128Wrapper& hash, size_t offset, FileCacheType new_type,
-                           std::lock_guard<std::mutex>& cache_lock);
-
     // remove all blocks that belong to the key
     void remove_if_cached(const UInt128Wrapper& key);
     void remove_if_cached_async(const UInt128Wrapper& key);
@@ -312,9 +308,9 @@ public:
 
     [[nodiscard]] bool get_async_open_success() const { return _async_open_done; }
 
-    // The manager that keeps cached blocks in the cache type their tablet's TTL asks for.
-    // Exposed so that tests can drive it deterministically rather than race its threads.
-    BlockFileCacheTtlMgr* get_ttl_mgr() { return _ttl_mgr.get(); }
+    // Whether the TTL of the block's tablet protects it from LRU eviction at `now` (unix seconds).
+    // Computed from the tablet's current policy every time, never stored on the block.
+    bool is_protected(const FileBlock& block, int64_t now);
 
     BlockFileCache& operator=(const BlockFileCache&) = delete;
     BlockFileCache(const BlockFileCache&) = delete;
@@ -326,7 +322,7 @@ public:
     /**
      * Proactively evict cache blocks to free up space before cache is full.
      * 
-     * This function attempts to evict blocks from both NORMAL and TTL queues to maintain 
+     * This function attempts to evict blocks on behalf of the NORMAL queue to maintain
      * cache size below high watermark. Unlike try_reserve() which blocks until space is freed,
      * this function initiates asynchronous eviction in background.
      * 
@@ -445,6 +441,12 @@ private:
     virtual FileBlockCell* add_cell(const UInt128Wrapper& hash, const CacheContext& context,
                                     size_t offset, size_t size, FileBlock::State state,
                                     std::lock_guard<std::mutex>& cache_lock);
+    // add_cell() into `queue_type`, which the caller computed for the tablet and class in
+    // `context`.
+    FileBlockCell* add_cell_in_queue(const UInt128Wrapper& hash, const CacheContext& context,
+                                     FileCacheType queue_type, size_t offset, size_t size,
+                                     FileBlock::State state,
+                                     std::lock_guard<std::mutex>& cache_lock);
 
     Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
@@ -506,6 +508,29 @@ private:
     void restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock);
     void run_background_evict_in_advance();
     void run_background_block_lru_update();
+    void run_background_queue_sweep();
+
+    // The queue a block of this class and tablet belongs in at `now`.
+    FileCacheType queue_type_for(int64_t tablet_id, int64_t legacy_deadline,
+                                 FileCacheType cache_class, int64_t now);
+    // Moves a cell to the cold end of another queue. Queue membership is not persisted.
+    void move_cell_to_queue(FileBlockCell& cell, FileCacheType new_type,
+                            std::lock_guard<std::mutex>& cache_lock);
+    void add_cached_tablet(int64_t tablet_id);
+    void remove_cached_tablet(int64_t tablet_id);
+    // Moves the given cells, found protected in their class queue, to the TTL queue.
+    void relocate_to_ttl_queue(const std::vector<FileBlockCell*>& cells,
+                               std::lock_guard<std::mutex>& cache_lock);
+    // Completes a cell created before its metadata was loaded (from an LRU dump, which records
+    // neither the class nor the tablet), and puts it in the queue it belongs in.
+    void complete_loaded_cell(FileBlockCell& cell, int64_t tablet_id, FileCacheType cache_class,
+                              uint64_t legacy_deadline, std::lock_guard<std::mutex>& cache_lock);
+    // Starts a pass over each queue whose blocks may have changed protection since its last pass.
+    void start_queue_sweeps(int64_t now);
+    // Walks at most `budget` blocks of an active pass over the queue, moving each block that is
+    // in the wrong queue. Returns how many blocks it walked.
+    size_t sweep_queue(FileCacheType type, size_t budget, int64_t now,
+                       std::lock_guard<std::mutex>& cache_lock);
 
     bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
                                                        std::vector<FileCacheType> other_cache_types,
@@ -524,10 +549,16 @@ private:
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
                             std::string& reason);
 
-    void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
+    // Collects LRU eviction candidates of one queue. A protected block found in a class queue is
+    // skipped and moved to the TTL queue instead; one evicted from the TTL queue counts as
+    // protection that could not be honored.
+    void find_evict_candidates(FileCacheType queue_type, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
                                std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size,
                                bool evict_in_advance);
+    // Counts one block an eviction scan had to skip; true once the scan has skipped
+    // file_cache_evict_max_skipped_blocks_per_scan blocks and should give up on the queue.
+    bool skip_evict_candidate(size_t& skipped);
 
     Status check_ofstream_status(std::ofstream& out, std::string& filename);
     Status dump_one_lru_entry(std::ofstream& out, std::string& filename, const UInt128Wrapper& hash,
@@ -557,6 +588,7 @@ private:
     std::thread _cache_background_lru_dump_thread;
     std::thread _cache_background_lru_log_replay_thread;
     std::thread _cache_background_block_lru_update_thread;
+    std::thread _cache_background_queue_sweep_thread;
     std::atomic_bool _async_open_done {false};
     // disk space or inode is less than the specified value
     std::atomic<bool> _disk_resource_limit_mode {false};
@@ -569,7 +601,9 @@ private:
     CachedFiles _files;
     QueryFileCacheContextMap _query_map;
     size_t _cur_cache_size = 0;
-    size_t _cur_ttl_size = 0;
+    // Number of cells per tablet (tablet_id > 0), reported to the policy registry so that it
+    // only keeps fetching the policies of tablets cached here.
+    std::unordered_map<int64_t, size_t> _cached_tablets;
     std::multimap<uint64_t, UInt128Wrapper> _time_to_key;
     std::unordered_map<UInt128Wrapper, uint64_t, KeyHash> _key_to_time;
     // The three queues are level queue.
@@ -588,7 +622,24 @@ private:
 
     std::unique_ptr<LRUQueueRecorder> _lru_recorder;
     std::unique_ptr<CacheLRUDumper> _lru_dumper;
-    std::unique_ptr<BlockFileCacheTtlMgr> _ttl_mgr;
+    TabletCachePolicyRegistry* _policy_registry = nullptr;
+
+    // State of the background queue sweep, only touched by its thread. A pass over the TTL queue
+    // looks for blocks whose protection ended, a pass over the class queues for blocks that
+    // became protected; each starts when the registry says that may have happened.
+    struct QueueSweepState {
+        std::array<bool, 4> active {};
+        // Blocks the active pass over each queue may still walk.
+        std::array<size_t, 4> pass_left {};
+        uint64_t ttl_pass_lost_version = 0;
+        int64_t ttl_pass_started_at = 0;
+        // Bytes the current pass over the TTL queue found protected only by a v2 cache file name.
+        size_t ttl_pass_legacy_bytes = 0;
+        uint64_t class_pass_gained_version = 0;
+        int64_t last_backstop_at = 0;
+        int64_t last_report_at = 0;
+    };
+    QueueSweepState _queue_sweep;
 
     std::unique_ptr<InflightWriteBufferIndex> _inflight_write_buffer_index;
     std::unique_ptr<AsyncCacheWriteManager> _async_write_manager;
@@ -617,6 +668,16 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_skipped_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_scan_truncated;
+    // Bytes evicted from the TTL queue while still protected: the cache could not honor the TTL.
+    std::shared_ptr<bvar::Adder<size_t>> _ttl_protected_evicted_bytes;
+    // Blocks moved between the TTL queue and their class queue.
+    std::shared_ptr<bvar::Adder<size_t>> _ttl_relocated_blocks;
+    // Bytes in the TTL queue protected only by the deadline in a v2 cache file name, as of the
+    // last pass over the TTL queue. Those files never recorded their tablet, so this should only
+    // go down as they are evicted.
+    std::shared_ptr<bvar::Status<size_t>> _ttl_legacy_v2_protected_bytes;
 
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;
@@ -657,7 +718,6 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _need_update_lru_blocks_length_recorder;
     std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_produce_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_consume_metrics;
-    std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
     std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;

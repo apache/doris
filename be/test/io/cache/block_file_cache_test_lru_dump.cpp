@@ -113,7 +113,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     context3.stats = &rstats;
     context3.cache_type = io::FileCacheType::TTL;
     context3.query_id = query_id;
-    context3.expiration_time = 120;
+    context3.expiration_time = UnixSeconds() + 120;
     auto key3 = io::BlockFileCache::hash("key3");
 
     offset = 0;
@@ -160,15 +160,16 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 500000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 500000);
 
-    // all queue are filled, let's check the lru log records
-    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 5);
+    // all queue are filled, let's check the lru log records. The TTL queue is not dumped, so
+    // nothing records its events.
+    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 0);
     ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 5);
     ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 5);
     ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 5);
 
     // then check the log replay
-    ASSERT_EQ(cache.replay_lru_logs_once(), 20);
-    ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache.replay_lru_logs_once(), 15);
+    ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 0);
     ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
     ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
     ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
@@ -179,12 +180,12 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
                                        context2); // move index queue 3rd element to the end
         cache.remove_if_cached(key3);             // remove all element from ttl queue
     }
-    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 5);
+    ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 0);
     ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 1);
     ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 0);
     ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 0);
 
-    ASSERT_EQ(cache.replay_lru_logs_once(), 6);
+    ASSERT_EQ(cache.replay_lru_logs_once(), 1);
     ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 0);
     ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
     ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
@@ -484,10 +485,12 @@ TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
     }
     ASSERT_TRUE(cache2.get_async_open_success());
 
-    // the dup part should be ttl because ttl has higner priority
-    ASSERT_EQ(cache2._ttl_queue.get_elements_num_unsafe(), 5);
+    // A TTL dump (what an older version left) is ignored and removed: dumps never decide whether
+    // a block is protected. These blocks have no TTL, so they stay NORMAL.
+    ASSERT_FALSE(std::filesystem::exists(dst));
+    ASSERT_EQ(cache2._ttl_queue.get_elements_num_unsafe(), 0);
     ASSERT_EQ(cache2._index_queue.get_elements_num_unsafe(), 0);
-    ASSERT_EQ(cache2._normal_queue.get_elements_num_unsafe(), 0);
+    ASSERT_EQ(cache2._normal_queue.get_elements_num_unsafe(), 5);
     ASSERT_EQ(cache2._disposable_queue.get_elements_num_unsafe(), 0);
     ASSERT_EQ(cache2._cur_cache_size, 500000);
 

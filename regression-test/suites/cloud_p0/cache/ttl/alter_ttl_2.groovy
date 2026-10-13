@@ -29,10 +29,7 @@ suite("alter_ttl_2", "nonConcurrent") {
     sql "set enable_query_cache = false"
     def custoBeConfig = [
         enable_evict_file_cache_in_advance : false,
-        file_cache_enter_disk_resource_limit_mode_percent : 99,
-        file_cache_background_ttl_gc_interval_ms : 1000,
-        file_cache_background_ttl_info_update_interval_ms : 1000,
-        file_cache_background_tablet_id_flush_interval_ms : 1000
+        file_cache_enter_disk_resource_limit_mode_percent : 99
     ]
 
     setBeConfigTemporary(custoBeConfig) {

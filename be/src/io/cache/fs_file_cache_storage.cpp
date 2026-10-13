@@ -156,6 +156,13 @@ Status FSFileCacheStorage::init(BlockFileCache* mgr) {
     _cache_base_path = mgr->_cache_base_path;
     _mgr = mgr;
     _meta_store = std::make_unique<CacheBlockMetaStore>(_cache_base_path + "/meta", 10000);
+    // The policies known before the restart, so the blocks below are judged by them as they load.
+    auto* policy_registry = TabletCachePolicyRegistry::instance();
+    _meta_store->for_each_tablet_policy(
+            [policy_registry](int64_t tablet_id, const TabletCachePolicy& policy) {
+                policy_registry->restore(tablet_id, policy);
+            });
+    policy_registry->add_store(_meta_store.get());
     _cache_background_load_thread = std::thread([this, mgr]() {
         try {
             auto mem_tracker = MemTrackerLimiter::create_shared(
@@ -321,7 +328,9 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-    BlockMeta meta(key.meta.type, size, key.meta.expiration_time);
+    // The class, not the queue: whether the block is protected is recomputed from its tablet.
+    // The deadline it was written with is still recorded for a downgraded BE, which goes by it.
+    BlockMeta meta(key.meta.cache_class, size, key.meta.expiration_time);
     _meta_store->put(mkey, meta);
 
     return Status::OK();
@@ -414,22 +423,25 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     RETURN_IF_ERROR(fs->delete_file(v3_file));
     // return OK not means the file is deleted, it may be not exist
 
-    std::string v2_dir;
-    { // try to detect the file with old v2 format
-        v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
-        const std::string v2_file = get_path_in_local_cache_v2(v2_dir, key.offset, key.meta.type);
-        RETURN_IF_ERROR(fs->delete_file(v2_file));
-    }
-
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
     _meta_store->delete_key(mkey);
+
+    // A block left in the old v2 layout. Its file name suffix records the type it was written
+    // as, which need not be the queue it is in now, so every suffix is tried.
+    const std::string v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
     std::vector<FileInfo> files;
     bool exists {false};
-    RETURN_IF_ERROR(fs->list(v2_dir, true, &files, &exists));
-    if (exists && files.empty()) {
-        auto st = fs->delete_empty_directory(v2_dir);
-        if (!st.ok()) {
-            LOG_WARNING("failed to remove cache directory {}", v2_dir).error(st);
+    RETURN_IF_ERROR(fs->exists(v2_dir, &exists));
+    if (exists) {
+        for (const auto& v2_file : get_path_in_local_cache_all_candidates(v2_dir, key.offset)) {
+            RETURN_IF_ERROR(fs->delete_file(v2_file));
+        }
+        RETURN_IF_ERROR(fs->list(v2_dir, true, &files, &exists));
+        if (exists && files.empty()) {
+            auto st = fs->delete_empty_directory(v2_dir);
+            if (!st.ok()) {
+                LOG_WARNING("failed to remove cache directory {}", v2_dir).error(st);
+            }
         }
     }
 
@@ -441,17 +453,6 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
         if (!st.ok()) {
             LOG_WARNING("failed to remove cache directory {}", v3_dir).error(st);
         }
-    }
-    return Status::OK();
-}
-
-Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
-                                                const size_t size) {
-    // file operation
-    if (key.meta.type != type) {
-        BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-        BlockMeta meta(type, size, key.meta.expiration_time);
-        _meta_store->put(mkey, meta);
     }
     return Status::OK();
 }
@@ -777,7 +778,7 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
 
 bool FSFileCacheStorage::handle_already_loaded_block(
         BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset, size_t new_size,
-        int64_t tablet_id, std::lock_guard<std::mutex>& cache_lock) const {
+        const CacheContext& loaded, std::lock_guard<std::mutex>& cache_lock) const {
     auto file_it = mgr->_files.find(hash);
     if (file_it == mgr->_files.end()) {
         return false;
@@ -789,8 +790,11 @@ bool FSFileCacheStorage::handle_already_loaded_block(
     }
 
     auto block = cell_it->second.file_block;
-    if (tablet_id != 0 && block->tablet_id() == 0) {
-        block->set_tablet_id(tablet_id);
+    if (loaded.tablet_id != 0 && block->tablet_id() == 0) {
+        // Restored from an LRU dump, which records neither the tablet nor the class; the queue
+        // the dump put it in is only a guess until both are known.
+        mgr->complete_loaded_cell(cell_it->second, loaded.tablet_id, loaded.cache_type,
+                                  static_cast<uint64_t>(loaded.expiration_time), cache_lock);
     }
 
     size_t old_size = block->range().size();
@@ -809,8 +813,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
-            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size,
-                                            args.ctx.tablet_id, cache_lock)) {
+            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size, args.ctx,
+                                            cache_lock)) {
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed
@@ -1000,8 +1004,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
-            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size,
-                                            args.ctx.tablet_id, cache_lock)) {
+            if (handle_already_loaded_block(_mgr, args.hash, args.offset, args.size, args.ctx,
+                                            cache_lock)) {
                 return;
             }
             mgr->add_cell(args.hash, args.ctx, args.offset, args.size, FileBlock::State::DOWNLOADED,
@@ -1172,7 +1176,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     context_original.cache_type = block_meta->type;
     context_original.tablet_id = key.meta.tablet_id;
 
-    if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,
+    if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, context_original,
                                     cache_lock)) {
         return;
     } else {
@@ -1227,6 +1231,9 @@ FSFileCacheStorage::~FSFileCacheStorage() {
         _cache_background_load_thread.join();
     }
     stop_leak_cleaner();
+    if (_meta_store) {
+        TabletCachePolicyRegistry::instance()->remove_store(_meta_store.get());
+    }
 }
 
 size_t FSFileCacheStorage::estimate_file_count_from_inode() const {

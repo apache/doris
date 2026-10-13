@@ -1079,9 +1079,8 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
     size_t indirect_read_bytes = 0;
     auto [align_left, align_size] =
             s_align_size(offset + already_read, bytes_req - already_read, size());
-    CacheContext cache_context(io_ctx);
+    CacheContext cache_context(io_ctx, _tablet_id);
     cache_context.stats = &stats;
-    cache_context.tablet_id = _tablet_id;
     MonotonicStopWatch sw;
     sw.start();
     ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->increment();
@@ -1142,9 +1141,8 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
     };
 
     g_read_cache_indirect_num << 1;
-    CacheContext cache_context(io_ctx);
+    CacheContext cache_context(io_ctx, _tablet_id);
     cache_context.stats = &stats;
-    cache_context.tablet_id = _tablet_id;
     FileBlocks file_blocks;
     bool fully_covered = false;
     {

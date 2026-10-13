@@ -724,6 +724,9 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     io::CacheContext ctx {};
     io::ReadStatistics local_stats;
     ctx.stats = &local_stats;
+    // Blocks created here are keyed and persisted under this tablet id, so it has to be the one
+    // the client read for; 0 (no tablet) only when an old client does not send rowset_meta.
+    ctx.tablet_id = std::max<int64_t>(0, get_rowset_meta_tablet_id_from_request(request));
     const size_t file_size =
             request->has_file_size()
                     ? static_cast<size_t>(std::max<int64_t>(0, request->file_size()))

@@ -132,8 +132,8 @@ struct RowsetWriterContext {
     bool is_hot_data = false;
     // Absolute timestamp (seconds since epoch) after which the cache blocks written by
     // this rowset stop being TTL protected; 0 means no TTL. Always set it from
-    // BaseTablet::file_cache_ttl_expiration_time() so every writer agrees with the
-    // deadline BlockFileCacheTtlMgr sweeps by.
+    // BaseTablet::file_cache_ttl_expiration_time(). The file cache judges protection by the
+    // tablet's current policy and only falls back to this value while it does not know it.
     uint64_t file_cache_expiration_time = 0;
     uint64_t approximate_bytes_to_write = 0;
     // If true, compaction output only writes index files to file cache, not data files
