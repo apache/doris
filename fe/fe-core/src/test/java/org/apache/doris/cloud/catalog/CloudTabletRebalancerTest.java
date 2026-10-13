@@ -31,7 +31,9 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
@@ -59,10 +61,17 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 public class CloudTabletRebalancerTest {
@@ -367,6 +376,111 @@ public class CloudTabletRebalancerTest {
     }
 
     @Test
+    public void testStatRouteInfoReadsPrimaryAfterCompletedTaskDisappears() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        Long srcBe = 60_001L;
+        Long destBe = 60_002L;
+        String clusterId = "cluster-a";
+        Tablet tablet = mockTablet(tabletId);
+        CloudReplica replica = (CloudReplica) tablet.getReplicas().get(0);
+        AtomicReference<Long> primary = new AtomicReference<>(srcBe);
+        ConcurrentHashMap<Object, Object> completingTasks = new ConcurrentHashMap<>() {
+            @Override
+            public Object get(Object key) {
+                // Complete A->B exactly when the snapshot checks the inflight task.
+                primary.set(destBe);
+                clear();
+                return null;
+            }
+        };
+        completingTasks.put(tabletId, new Object());
+        setField(rebalancer, "tabletToInfightTask", completingTasks);
+        setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(srcBe, destBe)));
+        setField(rebalancer, "allBes", Set.of(srcBe, destBe));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tablet, clusterId, srcBe)) {
+            Mockito.when(replica.getNonColocatedPrimaryBackendId(clusterId)).thenAnswer(call -> primary.get());
+            Mockito.when(Env.getCurrentSystemInfo().getBackendByIdWithBoxedId(destBe))
+                    .thenReturn(Mockito.mock(Backend.class));
+            rebalancer.statRouteInfo();
+        }
+
+        ConcurrentHashMap<Long, Set<Long>> current = getField(rebalancer, "beToTabletsGlobal");
+        ConcurrentHashMap<Long, Set<Long>> future = getField(rebalancer, "futureBeToTabletsGlobal");
+        Assertions.assertEquals(destBe, primary.get());
+        Assertions.assertEquals(Set.of(tabletId), current.get(destBe));
+        Assertions.assertEquals(Set.of(tabletId), future.get(destBe));
+        Assertions.assertFalse(current.getOrDefault(srcBe, Set.of()).contains(tabletId));
+        Assertions.assertFalse(future.getOrDefault(srcBe, Set.of()).contains(tabletId));
+    }
+
+    @Test
+    public void testUnrelatedWarmupFailureDoesNotRescanPartitionIndexes() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long dbId = 10_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long firstIndexId = 40_001L;
+        Long secondIndexId = 40_002L;
+        Long firstTabletId = 50_001L;
+        Long secondTabletId = 50_002L;
+        Long srcBe = 60_001L;
+        String clusterId = "cluster-a";
+        setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(srcBe)));
+        setField(rebalancer, "allBes", Set.of(srcBe));
+        setField(rebalancer, "cloudSystemInfoService", mockBackendService(srcBe, 60_002L));
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, firstIndexId, firstTabletId, clusterId, srcBe)) {
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            Partition partition = table.getPartition(partitionId);
+            MaterializedIndex firstIndex = partition.getMaterializedIndices(
+                    MaterializedIndex.IndexExtState.VISIBLE, true).get(0);
+            Tablet firstTablet = firstIndex.getTablets().get(0);
+            MaterializedIndex secondIndex = Mockito.mock(MaterializedIndex.class);
+            Tablet secondTablet = mockTablet(secondTabletId);
+            Mockito.when(secondIndex.getId()).thenReturn(secondIndexId);
+            Mockito.when(secondIndex.getTablets()).thenReturn(List.of(secondTablet));
+            Mockito.when(((CloudReplica) secondTablet.getReplicas().get(0))
+                    .getNonColocatedPrimaryBackendId(clusterId)).thenReturn(srcBe);
+            Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                    .thenReturn(List.of(firstIndex, secondIndex));
+            Mockito.when(partition.getIndex(firstIndexId)).thenReturn(firstIndex);
+            Mockito.when(partition.getIndex(secondIndexId)).thenReturn(secondIndex);
+            rebalancer.statRouteInfo();
+
+            Class<?> taskClass = Class.forName(CloudTabletRebalancer.class.getName() + "$WarmupTabletTask");
+            Constructor<?> constructor = taskClass.getDeclaredConstructor(Long.class, long.class,
+                    long.class, String.class);
+            constructor.setAccessible(true);
+            Object obsoleteTask = constructor.newInstance(firstTabletId, srcBe, 60_002L, clusterId);
+            Queue<Object> failedTasks = getField(rebalancer, "failedWarmupTasks");
+            Mockito.doAnswer(call -> {
+                failedTasks.offer(obsoleteTask);
+                return List.of(firstTablet);
+            }).when(firstIndex).getTablets();
+            Mockito.clearInvocations(firstIndex, secondIndex);
+
+            Class<?> phaseClass = Class.forName(CloudTabletRebalancer.class.getName() + "$ActiveSchedulePhase");
+            Object allPhase = Arrays.stream(phaseClass.getEnumConstants())
+                    .filter(value -> value.toString().equals("ALL")).findFirst().orElseThrow();
+            invokePrivate(rebalancer, "balanceInPartition", 4,
+                    new Object[] {List.of(srcBe), clusterId, new ArrayList<>(), allPhase});
+
+            Mockito.verify(firstIndex, Mockito.times(1)).getTablets();
+            Mockito.verify(secondIndex, Mockito.times(1)).getTablets();
+            Assertions.assertTrue(failedTasks.isEmpty());
+        }
+    }
+
+    @Test
     public void testCompleteRouteInfoPresizesRouteListsFromIndexTablets() throws Exception {
         CapacityTrackingRebalancer rebalancer = new CapacityTrackingRebalancer();
         Long dbId = 10_001L;
@@ -483,6 +597,12 @@ public class CloudTabletRebalancerTest {
         RouteMaps current = new RouteMaps();
         RouteMaps future = new RouteMaps();
         initializeRouteMaps(rebalancer, current, future, srcBe, tabletId);
+        setField(rebalancer, "indexCountClusterId", "cluster-a");
+        Pair<Long, Long> indexKey = Pair.of(partitionId, indexId);
+        Map<Pair<Long, Long>, Map<Long, Integer>> currentCounts = getField(rebalancer, "currentIndexCounts");
+        Map<Pair<Long, Long>, Map<Long, Integer>> futureCounts = getField(rebalancer, "futureIndexCounts");
+        currentCounts.put(indexKey, new HashMap<>(Map.of(srcBe, 1, destBe, 0)));
+        futureCounts.put(indexKey, new HashMap<>(Map.of(srcBe, 1, destBe, 0)));
 
         try (MockedStatic<Env> ignored = mockTabletMeta(tabletId, tableId, partitionId, indexId)) {
             boolean moved = invokePrivate(rebalancer, "transferTablet", 6,
@@ -492,6 +612,8 @@ public class CloudTabletRebalancerTest {
             Assertions.assertTrue(moved);
             assertSameRouteIds(destBe, tabletId, current);
             assertSameRouteIds(destBe, tabletId, future);
+            Assertions.assertEquals(Map.of(srcBe, 0, destBe, 1), currentCounts.get(indexKey));
+            Assertions.assertEquals(Map.of(srcBe, 0, destBe, 1), futureCounts.get(indexKey));
         }
     }
 
@@ -524,6 +646,7 @@ public class CloudTabletRebalancerTest {
         TestRebalancer rebalancer = new TestRebalancer();
         Long srcBe = 10_001L;
         Long destBe = 10_002L;
+        Long dbId = 15_001L;
         Long tableId = 20_001L;
         Long partitionId = 30_001L;
         Long indexId = 40_001L;
@@ -532,9 +655,12 @@ public class CloudTabletRebalancerTest {
         RouteMaps future = new RouteMaps();
         initializeRouteMaps(rebalancer, current, future, srcBe, tabletId);
         setField(rebalancer, "cloudSystemInfoService", mockBackendService(srcBe, destBe));
+        setField(rebalancer, "clusterToBes", Map.of("cluster-a", List.of(srcBe, destBe)));
+        setField(rebalancer, "allBes", Set.of(srcBe, destBe));
         Config.cloud_warm_up_batch_size = 10;
 
-        try (MockedStatic<Env> ignored = mockTabletMeta(tabletId, tableId, partitionId, indexId)) {
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, "cluster-a", srcBe)) {
             boolean moved = invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
                     new Object[] {tabletId, srcBe, destBe, "cluster-a", CloudTabletRebalancer.BalanceType.GLOBAL});
             Assertions.assertTrue(moved);
@@ -570,17 +696,19 @@ public class CloudTabletRebalancerTest {
         try (MockedStatic<Env> ignored = mockRouteEnvironment(
                 dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe)) {
             rebalancer.statRouteInfo();
-            Map<Long, Map<Long, Set<Long>>> before = invokePrivate(rebalancer, "buildPartitionViews",
-                    new Class<?>[] {Long.class, String.class}, new Object[] {partitionId, clusterId});
-            Assertions.assertEquals(Set.of(tabletId), before.get(indexId).get(srcBe));
+            Map<Long, Set<Long>> before = invokePrivate(rebalancer, "buildPartitionView",
+                    new Class<?>[] {Long.class, Long.class, String.class},
+                    new Object[] {partitionId, indexId, clusterId});
+            Assertions.assertEquals(Set.of(tabletId), before.get(srcBe));
 
             boolean moved = invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
                     new Object[] {tabletId, srcBe, destBe, clusterId,
                             CloudTabletRebalancer.BalanceType.GLOBAL});
             Assertions.assertTrue(moved);
-            Map<Long, Map<Long, Set<Long>>> warmup = invokePrivate(rebalancer, "buildPartitionViews",
-                    new Class<?>[] {Long.class, String.class}, new Object[] {partitionId, clusterId});
-            Assertions.assertEquals(Set.of(tabletId), warmup.get(indexId).get(destBe));
+            Map<Long, Set<Long>> warmup = invokePrivate(rebalancer, "buildPartitionView",
+                    new Class<?>[] {Long.class, Long.class, String.class},
+                    new Object[] {partitionId, indexId, clusterId});
+            Assertions.assertEquals(Set.of(tabletId), warmup.get(destBe));
             Map<Long, Set<Long>> tableView = invokePrivate(rebalancer, "buildTableView",
                     new Class<?>[] {Long.class, String.class}, new Object[] {tableId, clusterId});
             Assertions.assertEquals(Set.of(tabletId), tableView.get(destBe));
@@ -591,9 +719,401 @@ public class CloudTabletRebalancerTest {
             Object task = ((List<?>) tasksField.get(batch)).get(0);
             invokePrivate(rebalancer, "revertWarmupState", new Class<?>[] {task.getClass()}, new Object[] {task});
 
-            Map<Long, Map<Long, Set<Long>>> rollback = invokePrivate(rebalancer, "buildPartitionViews",
-                    new Class<?>[] {Long.class, String.class}, new Object[] {partitionId, clusterId});
-            Assertions.assertEquals(Set.of(tabletId), rollback.get(indexId).get(srcBe));
+            Map<Long, Set<Long>> rollback = invokePrivate(rebalancer, "buildPartitionView",
+                    new Class<?>[] {Long.class, Long.class, String.class},
+                    new Object[] {partitionId, indexId, clusterId});
+            Assertions.assertEquals(Set.of(tabletId), rollback.get(srcBe));
+        }
+    }
+
+    @Test
+    public void testCompletedWarmupDuringTableViewUsesNewPrimary() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long destBe = 10_002L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        Tablet tablet = mockTablet(tabletId);
+        CloudReplica replica = (CloudReplica) tablet.getReplicas().get(0);
+        initializeRouteMaps(rebalancer, new RouteMaps(), new RouteMaps(), srcBe, tabletId);
+        setField(rebalancer, "cloudSystemInfoService", mockBackendService(srcBe, destBe));
+        setField(rebalancer, "tableIdToDbId", Map.of(tableId, dbId));
+        setField(rebalancer, "allBes", Set.of(srcBe, destBe));
+        Config.cloud_warm_up_batch_size = 10;
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tablet, clusterId, srcBe)) {
+            SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+            Mockito.when(systemInfo.getBackendByIdWithBoxedId(destBe)).thenReturn(Mockito.mock(Backend.class));
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
+                    new Object[] {tabletId, srcBe, destBe, clusterId,
+                            CloudTabletRebalancer.BalanceType.TABLE}));
+            Map<?, ?> inflight = getField(rebalancer, "tabletToInfightTask");
+            AtomicReference<Long> primary = new AtomicReference<>(srcBe);
+            CountDownLatch primaryRead = new CountDownLatch(1);
+            CountDownLatch completed = new CountDownLatch(1);
+            Mockito.doAnswer(invocation -> {
+                Long observed = primary.get();
+                primaryRead.countDown();
+                Assertions.assertTrue(completed.await(10, TimeUnit.SECONDS));
+                return observed;
+            }).when(replica).getNonColocatedPrimaryBackendId(clusterId);
+
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> completion = executor.submit(() -> {
+                    Assertions.assertTrue(primaryRead.await(10, TimeUnit.SECONDS));
+                    primary.set(destBe);
+                    inflight.clear();
+                    completed.countDown();
+                    return null;
+                });
+                Map<Long, Set<Long>> view = invokePrivate(rebalancer, "buildTableView",
+                        new Class<?>[] {Long.class, String.class}, new Object[] {tableId, clusterId});
+                completion.get(10, TimeUnit.SECONDS);
+                Assertions.assertEquals(Map.of(destBe, Set.of(tabletId)), view);
+                Assertions.assertTrue(inflight.isEmpty());
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void testCanceledWarmupRestoresGlobalRouteBeforeBuildingViews() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long destBe = 10_002L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, new RouteMaps(), future, srcBe, tabletId);
+        CloudSystemInfoService cloudService = mockBackendService(srcBe, destBe);
+        setField(rebalancer, "cloudSystemInfoService", cloudService);
+        setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(srcBe, destBe)));
+        setField(rebalancer, "allBes", Set.of(srcBe, destBe));
+        setField(rebalancer, "tableIdToDbId", Map.of(tableId, dbId));
+        setField(rebalancer, "globalBalanceTypeEnum", BalanceTypeEnum.ASYNC_WARMUP);
+        Config.cloud_warm_up_batch_size = 10;
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe)) {
+            Mockito.when(Env.getCurrentEnv().getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
+                    new Object[] {tabletId, srcBe, destBe, clusterId,
+                            CloudTabletRebalancer.BalanceType.TABLE}));
+            Assertions.assertEquals(Set.of(tabletId), future.global.get(destBe));
+
+            Mockito.when(cloudService.getBackend(destBe)).thenReturn(null);
+            rebalancer.checkInflightWarmUpCacheAsync();
+            rebalancer.checkInflightWarmUpCacheAsync();
+            Assertions.assertEquals(1, ((Map<?, ?>) getField(rebalancer, "tabletToInfightTask")).size());
+            Assertions.assertEquals(1, ((Map<?, ?>) getField(rebalancer, "pendingCanceledWarmups")).size());
+            Assertions.assertEquals(Set.of(tabletId), future.global.get(destBe));
+
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "processFailedWarmupTasks",
+                    new Class<?>[] {}, new Object[] {}));
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "tabletToInfightTask")).isEmpty());
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "pendingCanceledWarmups")).isEmpty());
+            Assertions.assertEquals(Set.of(tabletId), future.global.get(srcBe));
+            Assertions.assertFalse((Boolean) invokePrivate(rebalancer, "processFailedWarmupTasks",
+                    new Class<?>[] {}, new Object[] {}));
+            Map<Long, Set<Long>> view = invokePrivate(rebalancer, "buildTableView",
+                    new Class<?>[] {Long.class, String.class}, new Object[] {tableId, clusterId});
+            Assertions.assertEquals(Set.of(tabletId), view.get(srcBe));
+        }
+    }
+
+    @Test
+    public void testRemovedComputeGroupDrainsAllCanceledWarmups() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long destBe = 10_002L;
+        Long liveBe = 10_003L;
+        Long firstTabletId = 50_001L;
+        Long secondTabletId = 50_002L;
+        Long liveTabletId = 50_003L;
+        String removedCluster = "cluster-removed";
+        String liveCluster = "cluster-live";
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, new RouteMaps(), future, srcBe, firstTabletId);
+        future.global.get(srcBe).add(secondTabletId);
+        CloudSystemInfoService cloudService = mockBackendService(srcBe, destBe);
+        setField(rebalancer, "cloudSystemInfoService", cloudService);
+        setField(rebalancer, "clusterToBes", Map.of(removedCluster, List.of(srcBe, destBe),
+                liveCluster, List.of(liveBe)));
+        setField(rebalancer, "globalBalanceTypeEnum", BalanceTypeEnum.ASYNC_WARMUP);
+        Config.cloud_warm_up_batch_size = 10;
+
+        try (MockedStatic<Env> ignored = mockTabletMeta(firstTabletId, 20_001L, 30_001L, 40_001L)) {
+            TabletInvertedIndex invertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
+            TabletMeta firstTabletMeta = invertedIndex.getTabletMeta(firstTabletId);
+            Mockito.when(invertedIndex.getTabletMeta(secondTabletId))
+                    .thenReturn(firstTabletMeta);
+            Mockito.when(Env.getCurrentEnv().getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+            for (Long tabletId : List.of(firstTabletId, secondTabletId)) {
+                Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
+                        new Object[] {tabletId, srcBe, destBe, removedCluster,
+                                CloudTabletRebalancer.BalanceType.GLOBAL}));
+            }
+            setField(rebalancer, "clusterToBes", Map.of(liveCluster, List.of(liveBe)));
+            future.global.clear();
+            future.global.put(liveBe, new HashSet<>(Set.of(liveTabletId)));
+            Mockito.when(cloudService.getBackend(destBe)).thenReturn(null);
+            rebalancer.checkInflightWarmUpCacheAsync();
+
+            Assertions.assertEquals(2, ((Map<?, ?>) getField(rebalancer, "pendingCanceledWarmups")).size());
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "processFailedWarmupTasks",
+                    new Class<?>[] {}, new Object[] {}));
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "tabletToInfightTask")).isEmpty());
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "pendingCanceledWarmups")).isEmpty());
+            Assertions.assertEquals(Set.of(liveTabletId), future.global.get(liveBe));
+            Assertions.assertEquals(1, future.global.size());
+        }
+    }
+
+    @Test
+    public void testCanceledChainedWarmupRestoresCurrentPrimary() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long primaryBe = 10_001L;
+        Long intermediateBe = 10_002L;
+        Long destBe = 10_003L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, new RouteMaps(), future, primaryBe, tabletId);
+        CloudSystemInfoService cloudService = mockBackendService(primaryBe, intermediateBe);
+        Mockito.when(cloudService.getBackend(destBe)).thenReturn(Mockito.mock(Backend.class));
+        setField(rebalancer, "cloudSystemInfoService", cloudService);
+        setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(primaryBe, intermediateBe, destBe)));
+        setField(rebalancer, "allBes", Set.of(primaryBe, intermediateBe, destBe));
+        setField(rebalancer, "globalBalanceTypeEnum", BalanceTypeEnum.ASYNC_WARMUP);
+        setField(rebalancer, "indexCountClusterId", clusterId);
+        Map<Pair<Long, Long>, Map<Long, Integer>> counts = getField(rebalancer, "futureIndexCounts");
+        Pair<Long, Long> indexKey = Pair.of(partitionId, indexId);
+        counts.put(indexKey, new HashMap<>(Map.of(primaryBe, 1, intermediateBe, 0, destBe, 0)));
+        Config.cloud_warm_up_batch_size = 10;
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, primaryBe)) {
+            Mockito.when(Env.getCurrentEnv().getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
+                    new Object[] {tabletId, primaryBe, intermediateBe, clusterId,
+                            CloudTabletRebalancer.BalanceType.GLOBAL}));
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
+                    new Object[] {tabletId, intermediateBe, destBe, clusterId,
+                            CloudTabletRebalancer.BalanceType.GLOBAL}));
+            Assertions.assertEquals(Set.of(tabletId), future.global.get(destBe));
+
+            Mockito.when(cloudService.getBackend(destBe)).thenReturn(null);
+            rebalancer.checkInflightWarmUpCacheAsync();
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "processFailedWarmupTasks",
+                    new Class<?>[] {}, new Object[] {}));
+
+            Assertions.assertEquals(Set.of(tabletId), future.global.get(primaryBe));
+            Assertions.assertFalse(future.global.getOrDefault(intermediateBe, Set.of()).contains(tabletId));
+            Assertions.assertFalse(future.global.getOrDefault(destBe, Set.of()).contains(tabletId));
+            Assertions.assertEquals(Map.of(primaryBe, 1, intermediateBe, 0, destBe, 0), counts.get(indexKey));
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "tabletToInfightTask")).isEmpty());
+        }
+    }
+
+    @Test
+    public void testCanceledWarmupDoesNotRestoreVanishedPrimary() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long primaryBe = 10_001L;
+        Long destBe = 10_002L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, new RouteMaps(), future, primaryBe, tabletId);
+        setField(rebalancer, "cloudSystemInfoService", mockBackendService(primaryBe, destBe));
+        setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(primaryBe, destBe)));
+        setField(rebalancer, "allBes", Set.of(primaryBe, destBe));
+        setField(rebalancer, "indexCountClusterId", clusterId);
+        Map<Pair<Long, Long>, Map<Long, Integer>> counts = getField(rebalancer, "futureIndexCounts");
+        Pair<Long, Long> indexKey = Pair.of(partitionId, indexId);
+        counts.put(indexKey, new HashMap<>(Map.of(primaryBe, 1, destBe, 0)));
+        Config.cloud_warm_up_batch_size = 10;
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, primaryBe)) {
+            Mockito.when(Env.getCurrentEnv().getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
+                    new Object[] {tabletId, primaryBe, destBe, clusterId,
+                            CloudTabletRebalancer.BalanceType.GLOBAL}));
+            setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(destBe)));
+            setField(rebalancer, "allBes", Set.of(destBe));
+            setField(rebalancer, "globalBalanceTypeEnum", BalanceTypeEnum.WITHOUT_WARMUP);
+            rebalancer.checkInflightWarmUpCacheAsync();
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "processFailedWarmupTasks",
+                    new Class<?>[] {}, new Object[] {}));
+
+            Assertions.assertFalse(future.global.getOrDefault(primaryBe, Set.of()).contains(tabletId));
+            Assertions.assertFalse(future.global.getOrDefault(destBe, Set.of()).contains(tabletId));
+            Assertions.assertEquals(0, counts.get(indexKey).get(destBe));
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "tabletToInfightTask")).isEmpty());
+        }
+    }
+
+    @Test
+    public void testMoveUpdatesCountsWhenGlobalRouteSnapshotIsStale() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long liveSrcBe = 10_001L;
+        Long staleBe = 10_002L;
+        Long destBe = 10_003L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, new RouteMaps(), future, staleBe, tabletId);
+        setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(liveSrcBe, staleBe, destBe)));
+        setField(rebalancer, "indexCountClusterId", clusterId);
+        setField(rebalancer, "tableCountClusterId", clusterId);
+        Map<Pair<Long, Long>, Map<Long, Integer>> indexCounts = getField(rebalancer, "futureIndexCounts");
+        Map<Long, Map<Long, Integer>> tableCounts = getField(rebalancer, "futureTableCounts");
+        indexCounts.put(Pair.of(partitionId, indexId), new HashMap<>(Map.of(liveSrcBe, 4, destBe, 2)));
+        tableCounts.put(tableId, new HashMap<>(Map.of(liveSrcBe, 4, destBe, 2)));
+
+        try (MockedStatic<Env> ignored = mockTabletMeta(tabletId, tableId, partitionId, indexId)) {
+            Class<?> variantClass = Class.forName(CloudTabletRebalancer.class.getName() + "$RouteVariant");
+            invokePrivate(rebalancer, "updateBeToTablets", 6,
+                    new Object[] {tabletId, liveSrcBe, destBe, clusterId,
+                            variantClass.getEnumConstants()[1], future.global});
+        }
+
+        Assertions.assertEquals(Set.of(), future.global.get(staleBe));
+        Assertions.assertEquals(Set.of(tabletId), future.global.get(destBe));
+        Assertions.assertEquals(Map.of(liveSrcBe, 3, destBe, 3), indexCounts.get(Pair.of(partitionId, indexId)));
+        Assertions.assertEquals(Map.of(liveSrcBe, 3, destBe, 3), tableCounts.get(tableId));
+    }
+
+    @Test
+    public void testDirectModeDoesNotMoveTabletWithResidualAsyncWarmup() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long primaryBe = 10_001L;
+        Long warmupBe = 10_002L;
+        Long destBe = 10_003L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long warmingTabletId = 50_001L;
+        String clusterId = "cluster-a";
+        RouteMaps current = new RouteMaps();
+        RouteMaps future = new RouteMaps();
+        initializeRouteMaps(rebalancer, current, future, primaryBe, warmingTabletId);
+        Set<Long> otherTabletIds = Set.of(50_002L, 50_003L);
+        current.global.put(warmupBe, new HashSet<>(otherTabletIds));
+        future.global.put(warmupBe, new HashSet<>(otherTabletIds));
+        CloudSystemInfoService cloudService = mockBackendService(primaryBe, warmupBe);
+        Backend warmupBackend = cloudService.getBackend(warmupBe);
+        Backend destBackend = Mockito.mock(Backend.class);
+        Mockito.when(warmupBackend.isAlive()).thenReturn(true);
+        Mockito.when(destBackend.isAlive()).thenReturn(true);
+        Mockito.when(cloudService.getBackend(destBe)).thenReturn(destBackend);
+        setField(rebalancer, "cloudSystemInfoService", cloudService);
+        setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(primaryBe, warmupBe, destBe)));
+        setField(rebalancer, "allBes", Set.of(primaryBe, warmupBe, destBe));
+        setField(rebalancer, "tableIdToDbId", Map.of(tableId, dbId));
+        setField(rebalancer, "activeTabletIds", otherTabletIds);
+        setField(rebalancer, "globalBalanceTypeEnum", BalanceTypeEnum.ASYNC_WARMUP);
+        Config.cloud_warm_up_batch_size = 10;
+        long oldNumberThreshold = Config.cloud_rebalance_number_threshold;
+        Config.cloud_rebalance_number_threshold = 1;
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, warmingTabletId, clusterId, primaryBe)) {
+            SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+            Mockito.when(systemInfo.getBackend(warmupBe)).thenReturn(warmupBackend);
+            Mockito.when(systemInfo.getBackend(destBe)).thenReturn(destBackend);
+            Mockito.when(systemInfo.getBackendByIdWithBoxedId(warmupBe)).thenReturn(warmupBackend);
+            Mockito.when(systemInfo.getBackendByIdWithBoxedId(destBe)).thenReturn(destBackend);
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(dbId)
+                    .getTableNullable(tableId);
+            MaterializedIndex index = table.getPartition(partitionId)
+                    .getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true).get(0);
+            List<Tablet> tablets = new ArrayList<>(index.getTablets());
+            for (Long tabletId : otherTabletIds) {
+                Tablet tablet = mockTablet(tabletId);
+                Mockito.when(((CloudReplica) tablet.getReplicas().get(0))
+                        .getNonColocatedPrimaryBackendId(clusterId)).thenReturn(warmupBe);
+                tablets.add(tablet);
+            }
+            Mockito.when(index.getTablets()).thenReturn(tablets);
+
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "preheatAndUpdateTablet", 5,
+                    new Object[] {warmingTabletId, primaryBe, warmupBe, clusterId,
+                            CloudTabletRebalancer.BalanceType.TABLE}));
+            Map<Long, Set<Long>> view = invokePrivate(rebalancer, "buildTableView",
+                    new Class<?>[] {Long.class, String.class}, new Object[] {tableId, clusterId});
+            Assertions.assertEquals(Set.of(warmingTabletId, 50_002L, 50_003L), view.get(warmupBe));
+
+            setField(rebalancer, "globalBalanceTypeEnum", BalanceTypeEnum.PEER_READ_ASYNC_WARMUP);
+            invokePrivate(rebalancer, "balanceWithIndexCounts", 5,
+                    new Object[] {List.of(warmupBe, destBe), clusterId, view,
+                            CloudTabletRebalancer.BalanceType.TABLE, new ArrayList<UpdateCloudReplicaInfo>()});
+            Assertions.assertTrue(current.global.get(primaryBe).contains(warmingTabletId));
+
+            Mockito.when(Env.getCurrentEnv().getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+            rebalancer.checkInflightWarmUpCacheAsync();
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "processFailedWarmupTasks",
+                    new Class<?>[] {}, new Object[] {}));
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "tabletToInfightTask")).isEmpty());
+            Assertions.assertTrue(future.global.get(primaryBe).contains(warmingTabletId));
+            Assertions.assertFalse(future.global.get(warmupBe).contains(warmingTabletId));
+        } finally {
+            Config.cloud_rebalance_number_threshold = oldNumberThreshold;
+        }
+    }
+
+    @Test
+    public void testRouteScanMetricIncludesViewsAndCountCacheMisses() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long destBe = 10_002L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        setField(rebalancer, "cloudSystemInfoService", mockBackendService(srcBe, destBe));
+        setField(rebalancer, "allBes", Set.of(srcBe, destBe));
+        setField(rebalancer, "partitionIdToDbId", Map.of(partitionId, dbId));
+        setField(rebalancer, "partitionIdToTableId", Map.of(partitionId, tableId));
+        setField(rebalancer, "tableIdToDbId", Map.of(tableId, dbId));
+        setField(rebalancer, "indexCountClusterId", clusterId);
+        setField(rebalancer, "tableCountClusterId", clusterId);
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe)) {
+            invokePrivate(rebalancer, "buildPartitionView", new Class<?>[] {Long.class, Long.class, String.class},
+                    new Object[] {partitionId, indexId, clusterId});
+            invokePrivate(rebalancer, "buildTableView", new Class<?>[] {Long.class, String.class},
+                    new Object[] {tableId, clusterId});
+            Class<?> variantClass = Class.forName(CloudTabletRebalancer.class.getName() + "$RouteVariant");
+            Object[] args = {srcBe, destBe, tabletId,
+                    CloudTabletRebalancer.BalanceType.GLOBAL, clusterId, variantClass.getEnumConstants()[0]};
+            Assertions.assertFalse((Boolean) invokePrivate(rebalancer, "isConflict", 6, args));
+            Assertions.assertFalse((Boolean) invokePrivate(rebalancer, "isConflict", 6, args));
+            Assertions.assertEquals(4L, ((Long) getField(rebalancer, "currentRoundTabletScanCount")).longValue());
         }
     }
 
@@ -610,8 +1130,10 @@ public class CloudTabletRebalancerTest {
         String clusterId = "cluster-a";
         initializeRouteMaps(rebalancer, new RouteMaps(), new RouteMaps(), srcBe, tabletId);
         setField(rebalancer, "cloudSystemInfoService", mockBackendService(srcBe, destBe));
+        setField(rebalancer, "clusterToBes", Map.of(clusterId, List.of(srcBe, destBe)));
         setField(rebalancer, "allBes", Set.of(srcBe, destBe));
         setField(rebalancer, "tableCountClusterId", clusterId);
+        setField(rebalancer, "indexCountClusterId", clusterId);
         Config.cloud_warm_up_batch_size = 10;
         Class<?> variantClass = Class.forName(CloudTabletRebalancer.class.getName() + "$RouteVariant");
         Object current = variantClass.getEnumConstants()[0];
@@ -641,6 +1163,10 @@ public class CloudTabletRebalancerTest {
             Assertions.assertFalse((Boolean) invokePrivate(rebalancer, "isConflict", 6, currentArgs));
             Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "isConflict", 6, futureArgs));
             Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "isConflict", 6, tableFutureArgs));
+            Map<Pair<Long, Long>, Map<Long, Integer>> futureIndexCounts = getField(rebalancer, "futureIndexCounts");
+            Pair<Long, Long> indexKey = Pair.of(partitionId, indexId);
+            Assertions.assertEquals(0, futureIndexCounts.get(indexKey).get(srcBe));
+            Assertions.assertEquals(1, futureIndexCounts.get(indexKey).get(destBe));
             Map<Long, Map<Long, Integer>> futureCounts = getField(rebalancer, "futureTableCounts");
             Assertions.assertEquals(0, futureCounts.get(tableId).get(srcBe));
             Assertions.assertEquals(1, futureCounts.get(tableId).get(destBe));
@@ -652,8 +1178,141 @@ public class CloudTabletRebalancerTest {
             invokePrivate(rebalancer, "revertWarmupState", new Class<?>[] {task.getClass()}, new Object[] {task});
 
             Assertions.assertFalse((Boolean) invokePrivate(rebalancer, "isConflict", 6, futureArgs));
+            Assertions.assertEquals(1, futureIndexCounts.get(indexKey).get(srcBe));
+            Assertions.assertEquals(0, futureIndexCounts.get(indexKey).get(destBe));
             Assertions.assertEquals(1, futureCounts.get(tableId).get(srcBe));
             Assertions.assertEquals(0, futureCounts.get(tableId).get(destBe));
+        }
+    }
+
+    @Test
+    public void testRejectedCandidatesReuseIndexCounts() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long destBe = 10_002L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long partitionId = 30_001L;
+        Long indexId = 40_001L;
+        Long tabletId = 50_001L;
+        String clusterId = "cluster-a";
+        setField(rebalancer, "cloudSystemInfoService", mockBackendService(srcBe, destBe));
+        setField(rebalancer, "allBes", Set.of(srcBe, destBe));
+        setField(rebalancer, "indexCountClusterId", clusterId);
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, partitionId, indexId, tabletId, clusterId, srcBe)) {
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(dbId)
+                    .getTableNullable(tableId);
+            MaterializedIndex index = table.getPartition(partitionId)
+                    .getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true).get(0);
+            Tablet srcTablet = index.getTablets().get(0);
+            Tablet destTablet = mockTablet(tabletId + 1);
+            CloudReplica destReplica = (CloudReplica) destTablet.getReplicas().get(0);
+            Mockito.when(destReplica.getNonColocatedPrimaryBackendId(clusterId)).thenReturn(destBe);
+            SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+            Mockito.when(systemInfo.getBackendByIdWithBoxedId(destBe)).thenReturn(Mockito.mock(Backend.class));
+            AtomicInteger visits = new AtomicInteger();
+            Mockito.when(index.getTablets()).thenReturn(new AbstractList<Tablet>() {
+                @Override
+                public Tablet get(int position) {
+                    visits.incrementAndGet();
+                    return position % 2 == 0 ? srcTablet : destTablet;
+                }
+
+                @Override
+                public int size() {
+                    return 1_000;
+                }
+            });
+
+            Class<?> variantClass = Class.forName(CloudTabletRebalancer.class.getName() + "$RouteVariant");
+            Object current = variantClass.getEnumConstants()[0];
+            Object[] args = {srcBe, destBe, tabletId,
+                    CloudTabletRebalancer.BalanceType.TABLE, clusterId, current};
+            for (int attempt = 0; attempt < 100; attempt++) {
+                Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "isConflict", 6, args));
+            }
+            Assertions.assertEquals(1_000, visits.get());
+        }
+    }
+
+    @Test
+    public void testConflictCountsSeparatePartitionsSharingIndexId() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long srcBe = 10_001L;
+        Long destBe = 10_002L;
+        Long dbId = 15_001L;
+        Long tableId = 20_001L;
+        Long firstPartitionId = 30_001L;
+        Long secondPartitionId = 30_002L;
+        Long indexId = 40_001L;
+        Long firstTabletId = 50_001L;
+        Long secondTabletId = 50_004L;
+        String clusterId = "cluster-a";
+        RouteMaps current = new RouteMaps();
+        initializeRouteMaps(rebalancer, current, new RouteMaps(), srcBe, firstTabletId);
+        setField(rebalancer, "cloudSystemInfoService", mockBackendService(srcBe, destBe));
+        setField(rebalancer, "allBes", Set.of(srcBe, destBe));
+        setField(rebalancer, "indexCountClusterId", clusterId);
+
+        try (MockedStatic<Env> ignored = mockRouteEnvironment(
+                dbId, tableId, firstPartitionId, indexId, firstTabletId, clusterId, srcBe)) {
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(dbId)
+                    .getTableNullable(tableId);
+            MaterializedIndex firstIndex = table.getPartition(firstPartitionId)
+                    .getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true).get(0);
+            Tablet firstTablet = firstIndex.getTablets().get(0);
+            Tablet anotherSourceTablet = mockTablet(firstTabletId + 1);
+            Tablet firstDestinationTablet = mockTablet(firstTabletId + 2);
+            Mockito.when(((CloudReplica) anotherSourceTablet.getReplicas().get(0))
+                    .getNonColocatedPrimaryBackendId(clusterId)).thenReturn(srcBe);
+            Mockito.when(((CloudReplica) firstDestinationTablet.getReplicas().get(0))
+                    .getNonColocatedPrimaryBackendId(clusterId)).thenReturn(destBe);
+            Mockito.when(firstIndex.getTablets())
+                    .thenReturn(List.of(firstTablet, anotherSourceTablet, firstDestinationTablet));
+
+            Partition secondPartition = Mockito.mock(Partition.class);
+            MaterializedIndex secondIndex = Mockito.mock(MaterializedIndex.class);
+            Tablet secondTablet = mockTablet(secondTabletId);
+            Tablet secondDestinationTablet = mockTablet(secondTabletId + 1);
+            Mockito.when(((CloudReplica) secondTablet.getReplicas().get(0))
+                    .getNonColocatedPrimaryBackendId(clusterId)).thenReturn(srcBe);
+            Mockito.when(((CloudReplica) secondDestinationTablet.getReplicas().get(0))
+                    .getNonColocatedPrimaryBackendId(clusterId)).thenReturn(destBe);
+            Mockito.when(secondPartition.getId()).thenReturn(secondPartitionId);
+            Mockito.when(secondPartition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                    .thenReturn(List.of(secondIndex));
+            Mockito.when(secondIndex.getId()).thenReturn(indexId);
+            Mockito.when(secondIndex.getTablets())
+                    .thenReturn(List.of(secondTablet, secondDestinationTablet,
+                            secondDestinationTablet, secondDestinationTablet));
+            Mockito.when(table.getPartition(secondPartitionId)).thenReturn(secondPartition);
+            TabletMeta secondMeta = Mockito.mock(TabletMeta.class);
+            Mockito.when(secondMeta.getDbId()).thenReturn(dbId);
+            Mockito.when(secondMeta.getTableId()).thenReturn(tableId);
+            Mockito.when(secondMeta.getPartitionId()).thenReturn(secondPartitionId);
+            Mockito.when(secondMeta.getIndexId()).thenReturn(indexId);
+            Mockito.when(Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(secondTabletId))
+                    .thenReturn(secondMeta);
+            Mockito.when(Env.getCurrentSystemInfo().getBackendByIdWithBoxedId(destBe))
+                    .thenReturn(Mockito.mock(Backend.class));
+
+            Class<?> variantClass = Class.forName(CloudTabletRebalancer.class.getName() + "$RouteVariant");
+            Object currentVariant = variantClass.getEnumConstants()[0];
+            Object[] firstArgs = {srcBe, destBe, firstTabletId,
+                    CloudTabletRebalancer.BalanceType.TABLE, clusterId, currentVariant};
+            Object[] secondArgs = {srcBe, destBe, secondTabletId,
+                    CloudTabletRebalancer.BalanceType.TABLE, clusterId, currentVariant};
+            Assertions.assertFalse((Boolean) invokePrivate(rebalancer, "isConflict", 6, firstArgs));
+            Assertions.assertTrue((Boolean) invokePrivate(rebalancer, "isConflict", 6, secondArgs));
+
+            Map<Pair<Long, Long>, Map<Long, Integer>> counts = getField(rebalancer, "currentIndexCounts");
+            Assertions.assertEquals(2, counts.size());
+            invokePrivate(rebalancer, "updateBeToTablets", 6,
+                    new Object[] {firstTabletId, srcBe, destBe, clusterId, currentVariant, current.global});
+            Assertions.assertEquals(Map.of(srcBe, 1, destBe, 2), counts.get(Pair.of(firstPartitionId, indexId)));
+            Assertions.assertEquals(Map.of(srcBe, 1, destBe, 3), counts.get(Pair.of(secondPartitionId, indexId)));
         }
     }
 
@@ -736,7 +1395,7 @@ public class CloudTabletRebalancerTest {
         Map<Long, List<CloudReplica>> replicasByPartition = new HashMap<>();
         for (int p = 0; p < 20; p++) {
             Long partitionId = 35_001L + p;
-            Long indexId = 45_001L + p;
+            Long indexId = 45_001L;
             Partition partition = Mockito.mock(Partition.class);
             MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
             List<Tablet> tablets = new ArrayList<>();
@@ -911,10 +1570,10 @@ public class CloudTabletRebalancerTest {
             Long currentTabletId = getStoredId(tabletId, rebuiltCurrentGlobal.get(srcBe));
             Long futureTabletId = getStoredId(tabletId, rebuiltFutureGlobal.get(srcBe));
             Assertions.assertSame(currentTabletId, futureTabletId);
-            Map<Long, Map<Long, Set<Long>>> partitionViews = invokePrivate(rebalancer,
-                    "buildPartitionViews", new Class<?>[] {Long.class, String.class},
-                    new Object[] {partitionId, clusterId});
-            Assertions.assertEquals(Set.of(tabletId), partitionViews.get(indexId).get(srcBe));
+            Map<Long, Set<Long>> partitionView = invokePrivate(rebalancer,
+                    "buildPartitionView", new Class<?>[] {Long.class, Long.class, String.class},
+                    new Object[] {partitionId, indexId, clusterId});
+            Assertions.assertEquals(Set.of(tabletId), partitionView.get(srcBe));
         }
     }
 
@@ -1021,6 +1680,11 @@ public class CloudTabletRebalancerTest {
         RouteMaps current = new RouteMaps();
         RouteMaps future = new RouteMaps();
         initializeRouteMaps(rebalancer, current, future, srcBe, tabletId);
+        setField(rebalancer, "indexCountClusterId", clusterId);
+        Map<Pair<Long, Long>, Map<Long, Integer>> currentIndexCounts = getField(rebalancer, "currentIndexCounts");
+        Map<Pair<Long, Long>, Map<Long, Integer>> futureIndexCounts = getField(rebalancer, "futureIndexCounts");
+        currentIndexCounts.put(Pair.of(partitionId, indexId), new HashMap<>(Map.of(srcBe, 1)));
+        futureIndexCounts.put(Pair.of(partitionId, indexId), new HashMap<>(Map.of(srcBe, 1)));
 
         invokePrivate(rebalancer, "releaseSchedulingIndexes", new Class<?>[] {}, new Object[] {});
 
@@ -1031,6 +1695,9 @@ public class CloudTabletRebalancerTest {
         Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "partitionIdToTableId")).isEmpty());
         Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "currentTableCounts")).isEmpty());
         Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "futureTableCounts")).isEmpty());
+        Assertions.assertNull(getField(rebalancer, "indexCountClusterId"));
+        Assertions.assertTrue(currentIndexCounts.isEmpty());
+        Assertions.assertTrue(futureIndexCounts.isEmpty());
 
         setField(rebalancer, "clusterToBes", Collections.singletonMap(clusterId, List.of(srcBe)));
         setField(rebalancer, "allBes", Set.of(srcBe));
@@ -1082,6 +1749,9 @@ public class CloudTabletRebalancerTest {
             Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "partitionIdToTableId")).isEmpty());
             Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "currentTableCounts")).isEmpty());
             Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "futureTableCounts")).isEmpty());
+            Assertions.assertNull(getField(rebalancer, "indexCountClusterId"));
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "currentIndexCounts")).isEmpty());
+            Assertions.assertTrue(((Map<?, ?>) getField(rebalancer, "futureIndexCounts")).isEmpty());
         } finally {
             Config.enable_cloud_multi_replica = oldEnableCloudMultiReplica;
         }
@@ -1162,6 +1832,7 @@ public class CloudTabletRebalancerTest {
         Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
         Mockito.when(env.getClusterInfo()).thenReturn(systemInfoService);
         Mockito.when(invertedIndex.getTabletMeta(tabletId)).thenReturn(tabletMeta);
+        Mockito.when(invertedIndex.getReplicasByTabletId(tabletId)).thenReturn(List.of(replica));
         Mockito.when(tabletMeta.getTableId()).thenReturn(tableId);
         Mockito.when(tabletMeta.getDbId()).thenReturn(dbId);
         Mockito.when(tabletMeta.getPartitionId()).thenReturn(partitionId);
@@ -1177,6 +1848,7 @@ public class CloudTabletRebalancerTest {
         Mockito.when(database.getTableNullable(tableId)).thenReturn(table);
         Mockito.when(table.getPartition(partitionId)).thenReturn(partition);
         Mockito.when(partition.getId()).thenReturn(partitionId);
+        Mockito.when(partition.getIndex(indexId)).thenReturn(index);
         Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
                 .thenReturn(Collections.singletonList(index));
         Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
