@@ -23,6 +23,26 @@ suite("test_multi_tokenize_index_not_built", "p0") {
 
     def tableName = "test_multi_tokenize_index_not_built"
 
+    def alterJobs = "SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}'"
+    def buildJobs = "SHOW BUILD INDEX WHERE TableName='${tableName}'"
+    def latestJobId = { statement ->
+        def jobs = sql_return_maparray("${statement} ORDER BY JobId DESC LIMIT 1")
+        return jobs.isEmpty() ? -1L : jobs[0].JobId.toLong()
+    }
+    def waitForNewJobs = { statement, previousJobId, operation ->
+        def newJobs = []
+        for (int i = 0; i < 60; i++) {
+            newJobs = sql_return_maparray(statement).findAll { it.JobId.toLong() > previousJobId }
+            def failedJobs = newJobs.findAll { it.State in ["CANCELLED", "FAILED"] }
+            assertTrue(failedJobs.isEmpty(), "${operation} failed: ${failedJobs}")
+            if (!newJobs.isEmpty() && newJobs.every { it.State == "FINISHED" }) {
+                return
+            }
+            sleep(1000)
+        }
+        assertTrue(false, "${operation} did not finish in time; jobs after ${previousJobId}: ${newJobs}")
+    }
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 
     // Create table with one inverted index using standard analyzer (tokenizes by whitespace)
@@ -64,24 +84,13 @@ suite("test_multi_tokenize_index_not_built", "p0") {
     """
 
     // Add new index with keyword analyzer (no tokenization) but DO NOT build it
+    def previousAlterJobId = latestJobId(alterJobs)
     sql """
         ALTER TABLE ${tableName} ADD INDEX idx_title_keyword (title)
         USING INVERTED PROPERTIES("built_in_analyzer" = "none")
     """
 
-    // Wait for schema change to complete
-    def waitSchemaChange = { tbl ->
-        int maxRetry = 60
-        for (int i = 0; i < maxRetry; i++) {
-            def result = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbl}' ORDER BY CreateTime DESC LIMIT 1"
-            if (result.size() > 0 && result[0][9] == "FINISHED") {
-                return true
-            }
-            sleep(1000)
-        }
-        return false
-    }
-    assertTrue(waitSchemaChange(tableName), "Schema change did not finish in time")
+    waitForNewJobs(alterJobs, previousAlterJobId, "Schema change")
 
     // Query using keyword/none analyzer - idx_title_keyword is NOT built
     // This should NOT use idx_title_standard (which would give wrong results)
@@ -103,27 +112,16 @@ suite("test_multi_tokenize_index_not_built", "p0") {
     """
 
     // Now build the keyword index
-    // Cloud mode: BUILD INDEX ON table (builds all indexes)
+    // Cloud mode requires BUILD INDEX without an index name.
     // Non-cloud mode: BUILD INDEX idx_name ON table (builds specific index)
+    def previousBuildJobId = latestJobId(buildJobs)
     if (isCloudMode()) {
         sql "BUILD INDEX ON ${tableName}"
     } else {
         sql "BUILD INDEX idx_title_keyword ON ${tableName}"
     }
 
-    // Wait for build index to complete
-    def waitBuildIndex = { tbl ->
-        int maxRetry = 60
-        for (int i = 0; i < maxRetry; i++) {
-            def result = sql "SHOW BUILD INDEX WHERE TableName='${tbl}' ORDER BY CreateTime DESC LIMIT 1"
-            if (result.size() > 0 && result[0][7] == "FINISHED") {
-                return true
-            }
-            sleep(1000)
-        }
-        return false
-    }
-    assertTrue(waitBuildIndex(tableName), "Build index did not finish in time")
+    waitForNewJobs(buildJobs, previousBuildJobId, "Build index")
 
     sql "SET enable_match_without_inverted_index = false"
 
