@@ -17,20 +17,31 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -261,6 +272,130 @@ public class LogicalOlapScanTest {
         LogicalOlapTableStreamScan copiedStreamScan = streamScan.withSelectedPartitionIds(ImmutableList.of());
 
         Assertions.assertTrue(copiedStreamScan.hasPartitionPredicate());
+    }
+
+    @Test
+    public void copyingPartitionPruningToRollupRebindsThePredicateProof() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(1L);
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.when(table.getPartitionIds()).thenReturn(ImmutableList.of(1L));
+        Mockito.when(table.getPartition(1L)).thenReturn(Mockito.mock(Partition.class));
+        Mockito.when(table.getBaseIndexId()).thenReturn(10L);
+
+        Column baseColumn = createColumn("p");
+        Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(baseColumn));
+        Column rollupColumn = createColumn("mv_p");
+        SlotRef defineExpr = Mockito.mock(SlotRef.class);
+        Mockito.when(defineExpr.getColumnName()).thenReturn("p");
+        rollupColumn.setDefineExpr(defineExpr);
+        MaterializedIndexMeta rollupMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(rollupMeta.getSchema()).thenReturn(ImmutableList.of(rollupColumn));
+        Mockito.when(table.getIndexMetaByIndexId(20L)).thenReturn(rollupMeta);
+
+        LogicalOlapScan sourceScan = new LogicalOlapScan(new RelationId(1), table, ImmutableList.of("db"));
+        Slot baseSlot = sourceScan.getOutput().get(0);
+        PartitionPrunablePredicate proof = new PartitionPrunablePredicate(
+                ImmutableSet.of(1L), ImmutableList.of(baseSlot),
+                ImmutableSet.of(new EqualTo(baseSlot, new IntegerLiteral(1))));
+        sourceScan = sourceScan.withSelectedPartitionIds(ImmutableList.of(1L), true)
+                .withPartitionPrunablePredicates(Optional.of(proof));
+        LogicalOlapScan rollupScan = new LogicalOlapScan(
+                new RelationId(2), table, ImmutableList.of("db"), ImmutableList.of(), ImmutableList.of(1L),
+                20L, PreAggStatus.unset(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
+                ImmutableList.of());
+
+        LogicalOlapScan reboundScan = rollupScan.withPartitionPruningFrom(sourceScan);
+        Slot rollupSlot = reboundScan.getOutput().get(0);
+        PartitionPrunablePredicate reboundProof = reboundScan.getPartitionPrunablePredicates().orElseThrow();
+
+        Assertions.assertNotEquals(baseSlot.getExprId(), rollupSlot.getExprId());
+        Assertions.assertEquals(ImmutableList.of(rollupSlot), reboundProof.getPartitionSlots());
+        Assertions.assertEquals(ImmutableSet.of(new EqualTo(rollupSlot, new IntegerLiteral(1))),
+                reboundProof.getPrunableConjuncts());
+    }
+
+    @Test
+    public void deepCopyRebindsPartitionProofToCopiedOutput() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(1L);
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.when(table.getPartitionIds()).thenReturn(ImmutableList.of(1L));
+        Mockito.when(table.getPartition(1L)).thenReturn(Mockito.mock(Partition.class));
+        Mockito.when(table.getBaseIndexId()).thenReturn(10L);
+        Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(createColumn("p")));
+
+        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), table, ImmutableList.of("db"));
+        Slot partitionSlot = scan.getOutput().get(0);
+        PartitionPrunablePredicate proof = new PartitionPrunablePredicate(
+                ImmutableSet.of(1L), ImmutableList.of(partitionSlot),
+                ImmutableSet.of(new EqualTo(partitionSlot, new IntegerLiteral(1))));
+        scan = scan.withSelectedPartitionIds(ImmutableList.of(1L), true)
+                .withPartitionPrunablePredicates(Optional.of(proof));
+
+        LogicalOlapScan copied = (LogicalOlapScan) LogicalPlanDeepCopier.INSTANCE.deepCopy(
+                scan, new DeepCopierContext());
+        Slot copiedSlot = copied.getOutput().get(0);
+        PartitionPrunablePredicate copiedProof = copied.getPartitionPrunablePredicates().orElseThrow();
+
+        Assertions.assertNotEquals(partitionSlot.getExprId(), copiedSlot.getExprId());
+        Assertions.assertEquals(ImmutableList.of(copiedSlot), copiedProof.getPartitionSlots());
+        Assertions.assertEquals(ImmutableSet.of(new EqualTo(copiedSlot, new IntegerLiteral(1))),
+                copiedProof.getPrunableConjuncts());
+    }
+
+    @Test
+    public void selectedPartitionUpdatesKeepOnlyCoveringProofs() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(1L);
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.when(table.getPartitionIds()).thenReturn(ImmutableList.of(1L, 2L));
+        Mockito.when(table.getPartition(1L)).thenReturn(Mockito.mock(Partition.class));
+        Mockito.when(table.getPartition(2L)).thenReturn(Mockito.mock(Partition.class));
+        Mockito.when(table.getBaseIndexId()).thenReturn(10L);
+        Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(createColumn("p")));
+        LogicalOlapScan scan = new LogicalOlapScan(new RelationId(1), table, ImmutableList.of("db"))
+                .withSelectedPartitionIds(ImmutableList.of(1L), true);
+        Slot partitionSlot = scan.getOutput().get(0);
+        PartitionPrunablePredicate proof = new PartitionPrunablePredicate(
+                ImmutableSet.of(1L), ImmutableList.of(partitionSlot),
+                ImmutableSet.of(new EqualTo(partitionSlot, new IntegerLiteral(1))));
+        scan = scan.withPartitionPrunablePredicates(Optional.of(proof));
+
+        Assertions.assertTrue(scan.withSelectedPartitionIds(ImmutableList.of())
+                .getPartitionPrunablePredicates().isPresent());
+        Assertions.assertFalse(scan.withSelectedPartitionIds(ImmutableList.of(1L, 2L))
+                .getPartitionPrunablePredicates().isPresent());
+
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan.withPreSnapshot(Optional.of(stream));
+        streamScan = streamScan.withSelectedPartitionIds(ImmutableList.of(1L), true)
+                .withPartitionPrunablePredicates(Optional.of(proof));
+        Assertions.assertFalse(streamScan.withSelectedPartitionIds(ImmutableList.of(1L, 2L))
+                .getPartitionPrunablePredicates().isPresent());
+    }
+
+    @Test
+    public void invalidatingPartitionPruningClearsTheRecordedPredicateProof() {
+        SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
+        PartitionPrunablePredicate proof = new PartitionPrunablePredicate(
+                ImmutableSet.of(), ImmutableList.of(partitionSlot),
+                ImmutableSet.of(new EqualTo(partitionSlot, new IntegerLiteral(1))));
+        LogicalOlapScan scan = createMockScan(ImmutableList.of(partitionSlot))
+                .withSelectedPartitionIds(ImmutableList.of(), true)
+                .withPartitionPrunablePredicates(Optional.of(proof));
+
+        Assertions.assertFalse(scan.withPartitionPruned(false).getPartitionPrunablePredicates().isPresent());
+
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan.withPreSnapshot(Optional.of(stream));
+        streamScan = streamScan.withSelectedPartitionIds(ImmutableList.of(), true)
+                .withPartitionPrunablePredicates(Optional.of(proof));
+        Assertions.assertTrue(streamScan.getPartitionPrunablePredicates().isPresent());
+
+        LogicalOlapTableStreamScan invalidated = streamScan.withPartitionPruned(false);
+        Assertions.assertFalse(invalidated.getPartitionPrunablePredicates().isPresent());
+        Assertions.assertTrue(invalidated.isSnapshot());
     }
 
 }
