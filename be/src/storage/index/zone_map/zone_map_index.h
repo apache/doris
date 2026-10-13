@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/string_ref.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "storage/metadata_adder.h"
@@ -95,7 +96,8 @@ public:
 
     virtual ~ZoneMapIndexWriter() = default;
 
-    virtual void add_values(const void* values, size_t count) = 0;
+    // Rows [row_pos, row_pos + count) of `column`.
+    virtual void add(const IColumn& column, size_t row_pos, size_t count) = 0;
 
     virtual void add_nulls(uint32_t count) = 0;
 
@@ -115,14 +117,16 @@ public:
 // The IndexedColumn stores serialized ZoneMapPB for each data page.
 // It also create and store the segment-level zone map in the index meta so that
 // reader can prune an entire segment without reading pages.
-template <PrimitiveType Type>
+template <FieldType FT>
 class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
+    // The bounds are compute-layer values, kept in the column's PrimitiveType.
+    static constexpr PrimitiveType Type = storage_field_type_to_primitive_type(FT);
     using ValType = std::conditional_t<is_string_type(Type), StringRef,
-                                       typename PrimitiveTypeTraits<Type>::StorageFieldType>;
+                                       typename PrimitiveTypeTraits<Type>::CppType>;
     explicit TypedZoneMapIndexWriter(DataTypePtr&& data_type);
 
-    void add_values(const void* values, size_t count) override;
+    void add(const IColumn& column, size_t row_pos, size_t count) override;
 
     void add_nulls(uint32_t count) override { _page_zone_map.has_null = true; }
 

@@ -427,4 +427,8 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
+
+// Splits a possibly-Nullable column into its null bits, already offset to
+// row_pos (nullptr when the column is not nullable).
+const IColumn& peel_nullable(const IColumn& column, size_t row_pos, const uint8_t** null_map);
 } // namespace doris

@@ -24,8 +24,10 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "core/column/column_nullable.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/storage_layout.h"
 
 namespace doris::segment_v2 {
 static std::string get_or_default(const std::map<std::string, std::string>& properties,
@@ -86,8 +88,8 @@ Status AnnIndexColumnWriter::init() {
     return Status::OK();
 }
 
-Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values, size_t count) {
-    return Status::OK();
+Status AnnIndexColumnWriter::add(const IColumn& column, size_t row_pos, size_t n) {
+    return Status::InternalError("Ann index is only built on array columns");
 }
 
 void AnnIndexColumnWriter::close_on_error() {
@@ -95,15 +97,13 @@ void AnnIndexColumnWriter::close_on_error() {
     _buffered_vectors.swap(empty_buffered_vectors);
 }
 
-Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
-                                              const uint8_t* null_map, const uint8_t* offsets_ptr,
-                                              size_t num_rows) {
+Status AnnIndexColumnWriter::add_array(const IColumn& items, size_t first_item,
+                                       const uint64_t* offsets, size_t num_rows) {
     // TODO: Performance optimization
     if (num_rows == 0) {
         return Status::OK();
     }
 
-    const auto* offsets = reinterpret_cast<const size_t*>(offsets_ptr);
     const size_t dim = _vector_index->get_dimension();
     for (size_t i = 0; i < num_rows; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
@@ -113,11 +113,14 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
         }
     }
 
-    const float* p = reinterpret_cast<const float*>(value_ptr);
-
-    // The offsets check above guarantees every array row matches the ANN index dimension.
-    DCHECK(p != nullptr);
-    _buffered_vectors.insert(_buffered_vectors.end(), p, p + num_rows * dim);
+    const uint8_t* item_nulls = nullptr;
+    const IColumn& nested = peel_nullable(items, first_item, &item_nulls);
+    // The vectors are the items as the item writer stores them, every NaN the quiet NaN.
+    const size_t buffered = _buffered_vectors.size();
+    _buffered_vectors.resize(buffered + num_rows * dim);
+    StorageLayout<FieldType::OLAP_FIELD_TYPE_FLOAT>::column_to_storage(
+            nested, first_item, num_rows * dim,
+            reinterpret_cast<uint8_t*>(_buffered_vectors.data() + buffered));
     _total_rows += cast_set<int64_t>(num_rows);
 
     return Status::OK();

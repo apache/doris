@@ -30,6 +30,7 @@
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
 #include "storage/segment/page_pointer.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -43,7 +44,7 @@ class FileWriter;
 namespace segment_v2 {
 
 class IndexPageBuilder;
-class PageBuilder;
+class StringPageBuilder;
 
 struct IndexedColumnWriterOptions {
     size_t index_page_size = 64 * 1024;
@@ -78,8 +79,8 @@ public:
 
     Status init();
 
-    // add a single not-null value
-    Status add(const void* value);
+    // Adds one not-null value; every user of this writer stores Slices.
+    Status add(const Slice& value);
 
     Status finish(IndexedColumnMetaPB* meta);
 
@@ -106,7 +107,7 @@ private:
     // the following members are initialized in init()
     // -----
     // builder for data pages
-    std::unique_ptr<PageBuilder> _data_page_builder;
+    std::unique_ptr<StringPageBuilder> _data_page_builder;
     // builder for index pages of ordinal index, null if write_ordinal_index == false
     std::unique_ptr<IndexPageBuilder> _ordinal_index_builder;
     // builder for index pages of value index, null if write_value_index == false
