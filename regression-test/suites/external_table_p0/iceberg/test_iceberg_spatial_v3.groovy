@@ -91,6 +91,23 @@ import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.MessageTypeParser;
 
 public class CreateIcebergSpatialV3Table {
+    private static void appendParquetRow(Table table, MessageType message, Group row) throws Exception {
+        String localFile = "/tmp/spatial-fixture-" + UUID.randomUUID() + ".parquet";
+        try (ParquetWriter<Group> writer = ExampleParquetWriter.builder(new Path(localFile)).withType(message).build()) {
+            writer.write(row);
+        }
+        OutputFile output = table.io().newOutputFile(table.location()
+                + "/data/spatial-fixture-" + UUID.randomUUID() + ".parquet");
+        long size = Files.size(Paths.get(localFile));
+        try (OutputStream stream = output.create()) {
+            Files.copy(Paths.get(localFile), stream);
+        }
+        Files.delete(Paths.get(localFile));
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(output.location()).withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(size).withRecordCount(1).build()).commit();
+    }
+
     public static void main(String[] args) throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "rest");
@@ -118,6 +135,14 @@ public class CreateIcebergSpatialV3Table {
         tableProperties.put("format-version", "3");
         tableProperties.put("write.format.default", "parquet");
         catalog.createTable(identifier, schema, PartitionSpec.unpartitioned(), tableProperties);
+        TableIdentifier nested = TableIdentifier.of(namespace, "nested_spatial_values");
+        if (catalog.tableExists(nested)) {
+            catalog.dropTable(nested);
+        }
+        Table nestedTable = catalog.createTable(nested, new Schema(
+                Types.NestedField.optional(1, "shapes",
+                        Types.ListType.ofOptional(2, Types.GeometryType.crs84()))),
+                PartitionSpec.unpartitioned(), tableProperties);
         TableIdentifier projected = TableIdentifier.of(namespace, "projected_values");
         if (catalog.tableExists(projected)) {
             catalog.dropTable(projected);
@@ -142,28 +167,23 @@ public class CreateIcebergSpatialV3Table {
         ByteBuffer geography = ByteBuffer.allocate(21).order(ByteOrder.LITTLE_ENDIAN);
         geography.put((byte) 1).putInt(1).putDouble(1).putDouble(2).flip();
         row.append("geog", Binary.fromConstantByteBuffer(geography));
-        String localFile = "/tmp/spatial-fixture-" + UUID.randomUUID() + ".parquet";
-        try (ParquetWriter<Group> writer = ExampleParquetWriter.builder(new Path(localFile)).withType(message).build()) {
-            writer.write(row);
-        }
-        OutputFile output = projectedTable.io().newOutputFile(projectedTable.location()
-                + "/data/spatial-fixture-" + UUID.randomUUID() + ".parquet");
-        long size = Files.size(Paths.get(localFile));
-        try (OutputStream stream = output.create()) {
-            Files.copy(Paths.get(localFile), stream);
-        }
-        Files.delete(Paths.get(localFile));
-        projectedTable.newAppend().appendFile(DataFiles.builder(projectedTable.spec())
-                .withPath(output.location()).withFormat(FileFormat.PARQUET)
-                .withFileSizeInBytes(size).withRecordCount(1).build()).commit();
+        appendParquetRow(projectedTable, message, row);
+        MessageType nestedMessage = MessageTypeParser.parseMessageType(
+                "message spatial_nested { optional group shapes (LIST) = 1 { "
+                + "repeated group list { optional binary element = 2; } } }");
+        Group nestedRow = new SimpleGroupFactory(nestedMessage).newGroup();
+        nestedRow.addGroup("shapes").addGroup("list").append("element", row.getBinary("geog", 0));
+        appendParquetRow(nestedTable, nestedMessage, nestedRow);
     }
 }
 '''
     String encodedJavaSource = javaSource.getBytes("UTF-8").encodeBase64().toString()
-    executeCommand("${dockerCommand} exec ${sparkContainer} bash -lc 'echo ${encodedJavaSource} "
-            + "| base64 -d >/tmp/CreateIcebergSpatialV3Table.java && "
-            + "javac -cp \"/opt/spark/jars/*\" /tmp/CreateIcebergSpatialV3Table.java && "
-            + "java -cp \"/tmp:/opt/spark/jars/*\" CreateIcebergSpatialV3Table ${dbName} geometry_values'")
+    executeCommand("${dockerCommand} exec ${sparkContainer} bash -lc '"
+            + "task_java_dir=\$(mktemp -d /tmp/iceberg-spatial-v3.XXXXXX) && "
+            + "echo ${encodedJavaSource} | base64 -d >\"\$task_java_dir/CreateIcebergSpatialV3Table.java\" && "
+            + "javac -cp \"/opt/spark/jars/*\" \"\$task_java_dir/CreateIcebergSpatialV3Table.java\" && "
+            + "java -cp \"\$task_java_dir:/opt/spark/jars/*\" "
+            + "CreateIcebergSpatialV3Table ${dbName} geometry_values'")
 
     def createCatalog = {
         sql """drop catalog if exists ${catalogName}"""
@@ -184,10 +204,10 @@ public class CreateIcebergSpatialV3Table {
     createCatalog()
     sql """
         insert into geometry_values values
-            (1, ST_GeomFromWKB('0101000000000000000000F03F0000000000000040'),
+            (1, ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
                 ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')),
             (2, NULL, NULL),
-            (3, ST_GeomFromWKB('010100000000000000000008400000000000001040'), NULL),
+            (3, ST_GeometryFromWKBTyped('010100000000000000000008400000000000001040'), NULL),
             (4, NULL, ST_GeogFromWKB('010100000000000000000008400000000000001040'))
     """
     qt_spatial_schema """desc geometry_values"""
@@ -196,17 +216,59 @@ public class CreateIcebergSpatialV3Table {
                hex(ST_AsBinary(geom)), ST_AsText(geog), ST_Distance(geog, geog)
         from geometry_values
     """
+    order_qt_spatial_literal_null_arguments """
+        select id, ST_Distance(geog, NULL), ST_Distance(NULL, geog),
+               ST_Within(geog, NULL), ST_Azimuth(NULL, geog),
+               ST_Angle(NULL, geog, geog), ST_Angle(geog, NULL, geog), ST_Angle(geog, geog, NULL)
+        from geometry_values
+    """
+    order_qt_spatial_additional_functions """
+        select id, ST_Azimuth(geog, ST_GeogFromWKB('010100000000000000000008400000000000001040')),
+               ST_Within(geog, geog),
+               ST_Angle(geog, ST_GeogFromWKB('010100000000000000000008400000000000001040'),
+                   ST_GeogFromWKB('010100000000000000000014400000000000001840'))
+        from geometry_values
+    """
     test {
         sql """insert into geometry_values values (5, 'not WKB', NULL)"""
         exception "Spatial connector write cannot convert"
     }
     test {
         sql """insert into geometry_values values
-            (5, NULL, ST_GeomFromWKB('0101000000000000000000F03F0000000000000040'))"""
+            (5, NULL, ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'))"""
         exception "Spatial connector write type mismatch"
     }
     sql """insert into geometry_values select id + 10, geom, geog
         from geometry_values where id = 1"""
+    order_qt_spatial_grouping """
+        select ST_AsText(geom), ST_AsText(geog), count(*)
+        from geometry_values group by geom, geog
+    """
+    for (String expression : ["case when id = 1 then geom else NULL end",
+            "if(id = 1, geom, NULL)", "coalesce(geom, NULL)"]) {
+        test {
+            sql """insert into geometry_values select id, ${expression}, NULL from projected_values"""
+            exception "Spatial connector write CRS mismatch"
+        }
+    }
+    test {
+        sql """explain insert into geometry_values
+            select id, cast(geom as geometry), NULL from projected_values"""
+        exception "cannot cast GEOMETRY"
+    }
+    for (def branch : [
+            ["case when id = 1 then ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040') else geom end",
+             "Cannot find common type for case when"],
+            ["if(id = 1, ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'), geom)",
+             "Can not find the compatibility function signature"],
+            ["coalesce(ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'), geom)",
+             "Can not find the compatibility function signature"]]) {
+        test {
+            sql """explain insert into geometry_values
+                select id, ${branch[0]}, NULL from projected_values"""
+            exception branch[1]
+        }
+    }
     test {
         sql """insert into geometry_values select id, geom, NULL from projected_values"""
         exception "Spatial connector write CRS mismatch"
@@ -223,6 +285,13 @@ public class CreateIcebergSpatialV3Table {
     test {
         sql """select ST_Distance(geog, geog) from projected_values"""
         exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+    }
+    for (String expression : ["ST_Azimuth(geog, geog)", "ST_Within(geog, geog)",
+            "ST_Angle(geog, geog, geog)"]) {
+        test {
+            sql """select ${expression} from projected_values"""
+            exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+        }
     }
     sql """drop table if exists spatial_ddl_values"""
     sql """create table spatial_ddl_values (id int, geom geometry) engine=iceberg
@@ -260,7 +329,13 @@ public class CreateIcebergSpatialV3Table {
     test {
         sql """create table spatial_create_rejected (geom array<geometry>) engine=iceberg
             properties ('format-version' = '3')"""
-        exception "Nested spatial"
+        // ColumnDefinition validates supported ARRAY elements before connector DDL validation.
+        exception "ARRAY unsupported sub-type: GEOMETRY"
+    }
+    // Spatial validation must preserve ordinary connector column-count diagnostics.
+    test {
+        sql """explain insert into spatial_ddl_v2 select 1, 2"""
+        exception "Expected 1 columns but got 2"
     }
     // Exercise actual SQL analysis before changelog coercion, as well as nullable DML writeback.
     sql """drop table if exists spatial_dml_values"""
@@ -270,7 +345,7 @@ public class CreateIcebergSpatialV3Table {
     sql """insert into spatial_dml_values select id, geom, geog from geometry_values"""
     test {
         sql """explain update spatial_dml_values set geog =
-            ST_GeomFromWKB('0101000000000000000000F03F0000000000000040') where id = 1"""
+            ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040') where id = 1"""
         exception "Spatial connector write type mismatch"
     }
     test {
@@ -292,6 +367,21 @@ public class CreateIcebergSpatialV3Table {
             when matched then update set geog = s.geom"""
         exception "Spatial connector write type mismatch"
     }
+    test {
+        sql """explain merge into spatial_dml_values t
+            using (select id, geom from projected_values) s on t.id = s.id
+            when matched then update set geom = s.geom"""
+        exception "Spatial connector write CRS mismatch"
+    }
+    test {
+        sql """explain with spatial_source as (select id, geom from projected_values)
+            merge into spatial_dml_values t using spatial_source s on t.id = s.id
+            when matched then update set geom = s.geom"""
+        exception "Spatial connector write CRS mismatch"
+    }
+    sql """with spatial_source as (select id, geom from geometry_values)
+        merge into spatial_dml_values t using spatial_source s on t.id = s.id
+        when matched and s.id = 2 then update set geom = s.geom"""
     sql """update spatial_dml_values set geog = NULL where id = 1"""
     sql """merge into spatial_dml_values t using geometry_values s on t.id = s.id
         when matched and s.id = 2 then update set geom = s.geom, geog = s.geog
@@ -300,6 +390,53 @@ public class CreateIcebergSpatialV3Table {
         select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
         from spatial_dml_values
     """
+    // A remote schema created by another engine must obey the same write restrictions.
+    order_qt_nested_spatial_values """
+        select size(shapes), ST_AsText(shapes[1]), hex(ST_AsBinary(shapes[1]))
+        from nested_spatial_values
+    """
+    test {
+        sql """insert into nested_spatial_values select * from nested_spatial_values"""
+        exception "Nested spatial columns"
+    }
+    sql """drop table if exists spatial_wkb_values"""
+    sql """create table spatial_wkb_values (id int, geom geometry, geog geography)
+        engine=iceberg properties ('format-version' = '3')"""
+    sql """insert into spatial_wkb_values values
+        (1, ST_GeometryFromWKBTyped('0104000000020000000101000000000000000000F03F0000000000000040000000000140080000000000004010000000000000'),
+            ST_GeogFromWKB('0104000000020000000101000000000000000000F03F0000000000000040000000000140080000000000004010000000000000')),
+        (2, ST_GeometryFromWKBTyped('010500000001000000010200000000000000'),
+            ST_GeogFromWKB('010500000001000000010200000000000000')),
+        (3, ST_GeometryFromWKBTyped('010600000001000000010300000000000000'),
+            ST_GeogFromWKB('010600000001000000010300000000000000')),
+        (4, ST_GeometryFromWKBTyped('010700000001000000010700000000000000'),
+            ST_GeogFromWKB('010700000001000000010700000000000000')),
+        (5, ST_GeometryFromWKBTyped('0101000000000000000000F87F000000000000F87F'),
+            ST_GeogFromWKB('0101000000000000000000F87F000000000000F87F')),
+        (6, ST_GeometryFromWKBTyped('010200000000000000'), ST_GeogFromWKB('010200000000000000')),
+        (7, ST_GeometryFromWKBTyped('010300000000000000'), ST_GeogFromWKB('010300000000000000')),
+        (8, NULL, NULL),
+        (9, ST_GeometryFromWKBTyped('0101000000000000000000F03F000000000000F87F'),
+            ST_GeogFromWKB('0101000000000000000000F03F000000000000F87F')),
+        (10, ST_GeometryFromWKBTyped('010200000002000000000000000000F03F000000000000004000000000000008400000000000001040'),
+            ST_GeogFromWKB('010200000002000000000000000000F03F000000000000004000000000000008400000000000001040')),
+        (11, ST_GeometryFromWKBTyped('0103000000010000000400000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000004000000000000000000000000000000000'),
+            ST_GeogFromWKB('0103000000010000000400000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000004000000000000000000000000000000000')),
+        (12, ST_GeometryFromWKBTyped('010500000001000000010200000002000000000000000000F03F000000000000004000000000000008400000000000001040'),
+            ST_GeogFromWKB('010500000001000000010200000002000000000000000000F03F000000000000004000000000000008400000000000001040')),
+        (13, ST_GeometryFromWKBTyped('0106000000010000000103000000010000000400000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000004000000000000000000000000000000000'),
+            ST_GeogFromWKB('0106000000010000000103000000010000000400000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000004000000000000000000000000000000000')),
+        (14, ST_GeometryFromWKBTyped('0107000000030000000101000000000000000000F03F0000000000000040010200000002000000000000000000F03F0000000000000040000000000000084000000000000010400103000000010000000400000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000004000000000000000000000000000000000'),
+            ST_GeogFromWKB('0107000000030000000101000000000000000000F03F0000000000000040010200000002000000000000000000F03F0000000000000040000000000000084000000000000010400103000000010000000400000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000004000000000000000000000000000000000'))"""
+    order_qt_spatial_wkb_values """
+        select id, geom is null, geog is null, ST_AsText(geom), ST_AsText(geog),
+               ST_GeometryType(geom), ST_X(geom), ST_Y(geog), hex(ST_AsBinary(geom))
+        from spatial_wkb_values
+    """
+    test {
+        sql """select ST_Length(geog) from spatial_wkb_values where id = 1"""
+        exception "does not support this Geography WKB shape"
+    }
     sql """drop table if exists projected_copy"""
     sql """create table projected_copy (
         id int, geom geometry('EPSG:3857'), geog geography('OGC:CRS84', 'vincenty')
@@ -310,6 +447,11 @@ public class CreateIcebergSpatialV3Table {
     order_qt_spatial_dml_reread """
         select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
         from spatial_dml_values
+    """
+    order_qt_spatial_wkb_reread """
+        select id, geom is null, geog is null, ST_AsText(geom), ST_AsText(geog),
+               ST_GeometryType(geom), ST_X(geom), ST_Y(geog), hex(ST_AsBinary(geom))
+        from spatial_wkb_values
     """
     qt_projected_copy_schema """desc projected_copy"""
     order_qt_projected_copy_reread """
