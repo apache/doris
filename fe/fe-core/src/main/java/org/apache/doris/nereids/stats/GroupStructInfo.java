@@ -47,9 +47,11 @@ import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
 
@@ -461,7 +463,19 @@ public class GroupStructInfo {
      * would hide the struct info of nodes which are perfectly describable.
      */
     private static GroupExpression representativeExpression(Group group) {
-        return group.getChosenGroupExpression().orElseGet(group::getFirstLogicalExpression);
+        GroupExpression chosen = group.getChosenGroupExpression().orElse(null);
+        if (chosen != null) {
+            return chosen;
+        }
+        GroupExpression logical = group.getFirstLogicalExpression();
+        if (logical != null) {
+            return logical;
+        }
+        // a group whose chosen expression is an enforcer (enforcers are recorded outside the chosen id)
+        // or which a rule filled with physical expressions only has no logical expression to describe:
+        // its first physical one is the only alternative to giving the whole struct info up
+        List<GroupExpression> physical = group.getPhysicalExpressions();
+        return physical.isEmpty() ? null : physical.get(0);
     }
 
     /**
@@ -536,6 +550,12 @@ public class GroupStructInfo {
             out.same(")");
         } else if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer
                 || plan instanceof LogicalCTEProducer || plan instanceof PhysicalCTEProducer) {
+            if (ge.arity() == 0 && plan instanceof PhysicalCTEConsumer) {
+                // the consumer references its producer by id, not by a memo edge: there is no sub tree
+                // to describe here until the producer group is resolved through that id
+                invalid(ctx, "unsupported=cte consumer without a memo edge");
+                return;
+            }
             // a CTE consumer describes the sub tree it consumes and a producer the sub tree it
             // materializes: both are transparent, and a consumer which is reached twice composes the
             // description of that sub tree twice (see describeGroup)
@@ -580,6 +600,14 @@ public class GroupStructInfo {
             appendRepeat((Repeat<?>) plan, ge, out, ctx);
         } else if (plan instanceof Union || plan instanceof Intersect || plan instanceof Except) {
             appendSetOperation(plan, (SetOperation) plan, ge, out, ctx);
+        } else if (plan instanceof PhysicalDistribute || plan instanceof PhysicalAssertNumRows) {
+            // an enforcer does not change the number of rows and carries no identity of its own: the
+            // description of the group is the description of the plan below it
+            if (ge.arity() == 1) {
+                appendChild(ge, 0, out, ctx);
+            } else {
+                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
+            }
         } else if (plan instanceof Project || plan instanceof Sort || plan instanceof Window) {
             // a project, a sort and a window are transparent for structure matching: none of them
             // changes the number of rows, and the parameters of a sort / window do not influence a row
