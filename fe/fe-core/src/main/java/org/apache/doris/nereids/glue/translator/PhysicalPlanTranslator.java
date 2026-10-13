@@ -40,7 +40,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.spi.Connector;
@@ -3721,24 +3720,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         updateLegacyPlanIdToPhysicalPlan(planNode, physicalPlan);
     }
 
-    @VisibleForTesting
-    static DataPartition createHiveTableSinkDataPartition(
-            List<Expr> partitionExprs, int beExecVersion) {
-        if (partitionExprs.isEmpty()) {
-            TPartitionType type = beExecVersion
-                    < Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION
-                    ? TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED
-                    : TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED;
-            return new DataPartition(type);
-        }
-        if (beExecVersion < Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION) {
-            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
-                    partitionExprs, "direct_hash", Collections.emptyMap(),
-                    TExternalTableSinkWriterAssignment.SKEWED);
-        }
-        return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
-    }
-
     private DataPartition toDataPartition(DistributionSpec distributionSpec/* target distribution */,
                     List<ExprId> childOutputIds, PlanTranslatorContext context) {
         if (distributionSpec instanceof DistributionSpecAny
@@ -3825,9 +3806,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     partitionExprs.add(context.findSlotRef(partitionExprId));
                 }
             }
-            return createHiveTableSinkDataPartition(partitionExprs, context.getBeExecVersion());
+            return DataPartition.forHiveTableSink(partitionExprs, context.getBeExecVersion());
         } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
-            return createHiveTableSinkDataPartition(Collections.emptyList(), context.getBeExecVersion());
+            return DataPartition.forHiveTableSink(Collections.emptyList(), context.getBeExecVersion());
         } else if (distributionSpec instanceof DistributionSpecMerge) {
             DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;
             Expr operationExpr = context.findSlotRef(mergeSpec.getOperationExprId());

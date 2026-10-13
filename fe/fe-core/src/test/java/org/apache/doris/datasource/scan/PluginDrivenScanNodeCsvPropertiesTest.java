@@ -150,7 +150,8 @@ class PluginDrivenScanNodeCsvPropertiesTest {
         int original = Config.be_exec_version;
         try {
             Config.be_exec_version = Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION - 1;
-            ScanContext scanContext = ScanContext.builder().build();
+            ScanContext scanContext = ScanContext.builder()
+                    .beExecVersion(Config.be_exec_version).build();
             Config.be_exec_version = Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
 
             UserException error = Assertions.assertThrows(UserException.class,
@@ -210,7 +211,8 @@ class PluginDrivenScanNodeCsvPropertiesTest {
     }
 
     private static TFileAttributes propertiesToWire(Map<String, String> properties) throws Exception {
-        return propertiesToWire(properties, ScanContext.builder().build());
+        return propertiesToWire(properties,
+                ScanContext.builder().beExecVersion(Config.be_exec_version).build());
     }
 
     private static TFileAttributes propertiesToWire(Map<String, String> properties,

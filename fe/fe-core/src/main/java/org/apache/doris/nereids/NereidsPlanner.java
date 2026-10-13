@@ -143,6 +143,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
+        statementContext.initializeBeExecVersion(queryOptions.getBeExecVersion());
         this.queryOptions = queryOptions;
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
@@ -649,7 +650,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext, queryOptions.getBeExecVersion());
+        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();

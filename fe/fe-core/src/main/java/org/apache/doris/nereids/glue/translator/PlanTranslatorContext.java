@@ -172,23 +172,17 @@ public class PlanTranslatorContext {
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
-        this(ctx, new DescriptorTable(), Config.be_exec_version);
-    }
-
-    /** PlanTranslatorContext with a statement-scoped BE execution version. */
-    public PlanTranslatorContext(CascadesContext ctx, int beExecVersion) {
-        this(ctx, new DescriptorTable(), beExecVersion);
+        this(ctx, new DescriptorTable());
     }
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
-        this(ctx, descTable, Config.be_exec_version);
-    }
-
-    private PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable, int beExecVersion) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
-        ScanContext.Builder scanContextBuilder = ScanContext.builder().beExecVersion(beExecVersion);
+        ScanContext.Builder scanContextBuilder = ScanContext.builder();
+        if (statementContext.hasBeExecVersion()) {
+            scanContextBuilder.beExecVersion(statementContext.getBeExecVersion());
+        }
         if (connectContext != null && connectContext.getSessionVariable() != null) {
             scanContextBuilder.clusterName(
                     connectContext.getSessionVariable().resolveCloudClusterName(connectContext));
@@ -211,6 +205,7 @@ public class PlanTranslatorContext {
     PlanTranslatorContext(int beExecVersion) {
         this.connectContext = null;
         this.statementContext = new StatementContext();
+        this.statementContext.initializeBeExecVersion(beExecVersion);
         this.scanContext = ScanContext.builder().beExecVersion(beExecVersion).build();
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
@@ -218,7 +213,7 @@ public class PlanTranslatorContext {
     }
 
     public int getBeExecVersion() {
-        return scanContext.getBeExecVersion();
+        return statementContext.getBeExecVersion();
     }
 
     /**

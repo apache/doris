@@ -20,6 +20,7 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
@@ -38,7 +39,7 @@ class PhysicalPlanTranslatorHiveWriteCompatibilityTest {
     void usesBranch41ExternalRoutingUntilAllBackendsSupportAlignedValues() {
         List<Expr> partitionExprs = Collections.singletonList(new IntLiteral(1));
 
-        DataPartition partition = PhysicalPlanTranslator.createHiveTableSinkDataPartition(
+        DataPartition partition = DataPartition.forHiveTableSink(
                 partitionExprs, Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION - 1);
         TDataPartition thrift = partition.toThrift();
 
@@ -55,7 +56,7 @@ class PhysicalPlanTranslatorHiveWriteCompatibilityTest {
     void usesAlignedHiveRoutingAfterRollingUpgrade() {
         List<Expr> partitionExprs = Collections.singletonList(new IntLiteral(1));
 
-        DataPartition partition = PhysicalPlanTranslator.createHiveTableSinkDataPartition(
+        DataPartition partition = DataPartition.forHiveTableSink(
                 partitionExprs, Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION);
 
         Assertions.assertEquals(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED,
@@ -64,10 +65,10 @@ class PhysicalPlanTranslatorHiveWriteCompatibilityTest {
 
     @Test
     void preservesUnpartitionedHiveRoutingAcrossRollingUpgrade() {
-        DataPartition legacy = PhysicalPlanTranslator.createHiveTableSinkDataPartition(
+        DataPartition legacy = DataPartition.forHiveTableSink(
                 Collections.emptyList(),
                 Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION - 1);
-        DataPartition aligned = PhysicalPlanTranslator.createHiveTableSinkDataPartition(
+        DataPartition aligned = DataPartition.forHiveTableSink(
                 Collections.emptyList(),
                 Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION);
 
@@ -81,11 +82,13 @@ class PhysicalPlanTranslatorHiveWriteCompatibilityTest {
     void usesStatementVersionSnapshotWhenGlobalVersionChanges() {
         int originalBeExecVersion = Config.be_exec_version;
         try {
-            PlanTranslatorContext context = new PlanTranslatorContext(
+            CascadesContext cascadesContext = CascadesContext.initTempContext();
+            cascadesContext.getStatementContext().initializeBeExecVersion(
                     Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION);
+            PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
 
             Config.be_exec_version = Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION - 1;
-            DataPartition partition = PhysicalPlanTranslator.createHiveTableSinkDataPartition(
+            DataPartition partition = DataPartition.forHiveTableSink(
                     Collections.emptyList(), context.getBeExecVersion());
 
             Assertions.assertEquals(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED,
