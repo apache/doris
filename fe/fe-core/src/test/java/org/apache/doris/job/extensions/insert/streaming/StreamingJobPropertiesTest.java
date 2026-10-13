@@ -18,17 +18,60 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.HashMap;
 
 public class StreamingJobPropertiesTest {
+
+    @Test
+    public void testS3OnceModeValidationAndAlter() throws Exception {
+        StreamingJobProperties properties = new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", " once "));
+        properties.validate();
+        Assert.assertTrue(properties.isS3OnceMode());
+        Assert.assertThrows(AnalysisException.class,
+                () -> new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", "invalid")).validate());
+        Assert.assertThrows(AnalysisException.class,
+                () -> new StreamingJobProperties(
+                        ImmutableMap.of("s3.ingestion_mode", "ONCE", "offset", "{\"fileName\":\"a.csv\"}"))
+                        .validate());
+
+        StreamingInsertJob job = new StreamingInsertJob();
+        Deencapsulation.setField(job, "properties", properties.getProperties());
+        AlterJobCommand alterBatch = new AlterJobCommand("job", ImmutableMap.of("s3.max_batch_files", "1"),
+                null, null, null, ImmutableMap.of(), ImmutableMap.of());
+        Deencapsulation.invoke(alterBatch, "validateProps", job);
+        AlterJobCommand alterMode = new AlterJobCommand("job", ImmutableMap.of("s3.ingestion_mode", "LEXICAL"),
+                null, null, null, ImmutableMap.of(), ImmutableMap.of());
+        Assert.assertThrows(AnalysisException.class,
+                () -> Deencapsulation.invoke(alterMode, "validateProps", job));
+        AlterJobCommand alterOffset = new AlterJobCommand("job",
+                ImmutableMap.of("offset", "{\"fileName\":\"a.csv\"}"), null, null, null, ImmutableMap.of(), ImmutableMap.of());
+        Assert.assertThrows(AnalysisException.class,
+                () -> Deencapsulation.invoke(alterOffset, "validateProps", job));
+    }
+
+    @Test
+    public void testS3OnceModeRestoredWithLegacyOffset() throws Exception {
+        StreamingInsertJob job = new StreamingInsertJob();
+        Deencapsulation.setField(job, "properties", ImmutableMap.of("s3.ingestion_mode", "ONCE"));
+        Deencapsulation.setField(job, "tvfType", "s3");
+        job.setOffsetProviderPersist("{\"endFile\":\"data/a.csv\"}");
+        job.gsonPostProcess();
+        job.setJobStatus(JobStatus.RUNNING);
+        Assert.assertFalse(job.hasMoreDataToConsume());
+        Assert.assertFalse(job.hasReachedEnd());
+    }
 
     /**
      * Simulate FE restart: constructor is called without validate().

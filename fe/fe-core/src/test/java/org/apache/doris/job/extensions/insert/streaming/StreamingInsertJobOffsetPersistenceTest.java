@@ -27,10 +27,15 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
+import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3Offset;
+import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.MockedStatic;
@@ -38,6 +43,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StreamingInsertJobOffsetPersistenceTest {
@@ -164,6 +170,103 @@ public class StreamingInsertJobOffsetPersistenceTest {
     }
 
     @Test
+    public void testS3OnceLastBatchFinishesOnlyAfterSuccess() throws Exception {
+        StreamingJobProperties properties = new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", "ONCE"));
+        TestStreamingInsertJob failedJob = newJob(new S3SourceOffsetProvider(properties), 1017L);
+        NoopStreamingMultiTblTask failedTask =
+                (NoopStreamingMultiTblTask) Deencapsulation.getField(failedJob, "runningStreamTask");
+        S3Offset failedOffset = new S3Offset();
+        failedOffset.setLastBatch(true);
+        Deencapsulation.setField(failedTask, "runningOffset", failedOffset);
+        failedTask.setErrMsg("failed");
+
+        TestStreamingInsertJob succeededJob = newJob(new S3SourceOffsetProvider(properties), 1018L);
+        NoopStreamingMultiTblTask succeededTask =
+                (NoopStreamingMultiTblTask) Deencapsulation.getField(succeededJob, "runningStreamTask");
+        S3Offset succeededOffset = new S3Offset();
+        succeededOffset.setEndFile("data/b.csv");
+        succeededOffset.setLastBatch(true);
+        Deencapsulation.setField(succeededTask, "runningOffset", succeededOffset);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            JobManager<?, ?> jobManager = Mockito.mock(JobManager.class);
+            StreamingTaskManager streamingTaskManager = Mockito.mock(StreamingTaskManager.class);
+            GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            Mockito.when(env.getJobManager()).thenReturn(jobManager);
+            Mockito.when(jobManager.getStreamingTaskManager()).thenReturn(streamingTaskManager);
+            Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
+
+            Assert.assertEquals(JobStatus.RUNNING, failedJob.getJobStatus());
+            Assert.assertFalse(failedJob.hasReachedEnd());
+            failedJob.onStreamTaskFail(failedTask);
+            Assert.assertEquals(JobStatus.PAUSED, failedJob.getJobStatus());
+            Assert.assertEquals(0, failedJob.journalCount);
+
+            Assert.assertEquals(JobStatus.RUNNING, succeededJob.getJobStatus());
+            Assert.assertFalse(succeededJob.hasReachedEnd());
+            Deencapsulation.invoke(succeededJob, "updateJobStatisticAndOffset",
+                    new StreamingTaskTxnCommitAttachment(9001L, 1018L, 0, 0, 0, 0, 0,
+                            succeededOffset.toSerializedJson()), false);
+            succeededJob.onStreamTaskSuccess(succeededTask);
+            Assert.assertEquals(JobStatus.FINISHED, succeededJob.getJobStatus());
+            Assert.assertEquals(1, succeededJob.journalCount);
+        }
+    }
+
+    @Test
+    public void testRecoveredSourceFinishesBeforeCreatingTask() throws Exception {
+        TestStreamingInsertJob job = newJob(new EndJdbcSourceOffsetProvider(), 1019L);
+        job.setJobStatus(JobStatus.PENDING);
+        Deencapsulation.setField(job, "runningStreamTask", null);
+        job.setJobRuntimeMsg("will retry");
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+            envMockedStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
+
+            Assert.assertTrue(job.tryFinishJob());
+        }
+
+        Assert.assertEquals(JobStatus.FINISHED, job.getJobStatus());
+        Assert.assertNull(job.getRunningStreamTask());
+        Assert.assertEquals("", job.getJobRuntimeMsg());
+        Assert.assertEquals(1, job.journalCount);
+    }
+
+    @Test
+    public void testCloudReplayRefreshesPersistedOffset() {
+        Map<String, String> properties = ImmutableMap.of("s3.ingestion_mode", "ONCE");
+        S3SourceOffsetProvider provider = new S3SourceOffsetProvider(new StreamingJobProperties(properties));
+        StreamingInsertJob job = new StreamingInsertJob();
+        job.offsetProvider = provider;
+        job.setJobStatus(JobStatus.PENDING);
+        Deencapsulation.setField(job, "properties", properties);
+        Deencapsulation.setField(job, "tvfType", "s3");
+        job.setOffsetProviderPersist("{\"endFile\":\"data/a.csv\"}");
+        S3Offset offset = new S3Offset();
+        offset.setEndFile("data/b.csv");
+        offset.setLastBatch(true);
+        StreamingTaskTxnCommitAttachment attachment = new StreamingTaskTxnCommitAttachment(
+                9001L, 1020L, 0, 0, 0, 0, 0, offset.toSerializedJson());
+
+        Deencapsulation.invoke(job, "updateCloudJobStatisticAndOffset", attachment, true);
+
+        Assert.assertEquals(provider.getPersistInfo(), job.getOffsetProviderPersist());
+        Assert.assertTrue(job.getOffsetProviderPersist().contains("data/b.csv"));
+        StreamingInsertJob recovered = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(job), StreamingInsertJob.class);
+        Assert.assertEquals(JobStatus.PENDING, recovered.getJobStatus());
+        Assert.assertTrue(recovered.hasReachedEnd());
+        Assert.assertFalse(recovered.hasMoreDataToConsume());
+    }
+
+    @Test
     public void testReplayUpdatedRestoresFinalStateAndRemovesCallback() {
         TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1013L);
         TestStreamingInsertJob replayJob = newJob(new JdbcSourceOffsetProvider(), 1014L);
@@ -195,7 +298,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
         Assert.assertEquals(1234L, job.getStartTimeMs());
     }
 
-    private static TestStreamingInsertJob newJob(JdbcSourceOffsetProvider provider, long taskId) {
+    private static TestStreamingInsertJob newJob(SourceOffsetProvider provider, long taskId) {
         TestStreamingInsertJob job = new TestStreamingInsertJob();
         Deencapsulation.setField(job, "lock", new ReentrantReadWriteLock(true));
         Deencapsulation.setField(job, "jobId", 9001L);
