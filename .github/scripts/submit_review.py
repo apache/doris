@@ -49,9 +49,25 @@ def priority(body):
 
 def validate_submission(value):
     if not isinstance(value, dict) or set(value) != {
-        "body", "comments", "existing_blocking_comment_ids"
+        "body", "comments", "existing_blocking_comment_ids",
+        "converged", "rounds", "incomplete_reason"
     }:
-        raise ValueError("Final review requires body, comments and existing_blocking_comment_ids")
+        raise ValueError(
+            "Final review requires body, comments, existing_blocking_comment_ids, "
+            "converged, rounds and incomplete_reason"
+        )
+    if type(value["converged"]) is not bool:
+        raise ValueError("converged must be a boolean")
+    if type(value["rounds"]) is not int or not 1 <= value["rounds"] <= 3:
+        raise ValueError("rounds must be an integer from 1 to 3")
+    reason = value["incomplete_reason"]
+    if not isinstance(reason, str):
+        raise ValueError("incomplete_reason must be text")
+    if value["converged"]:
+        if reason.strip():
+            raise ValueError("A converged review cannot have an incomplete_reason")
+    elif value["rounds"] != 3 or not reason.strip():
+        raise ValueError("A non-converged review requires three rounds and an incomplete_reason")
     if not isinstance(value["body"], str) or not value["body"].strip():
         raise ValueError("Final review summary is empty")
     if not isinstance(value["comments"], list):
@@ -119,6 +135,15 @@ def review_payload(submission, run, root, remaining):
     digest = hashlib.sha256(json.dumps(submission, sort_keys=True).encode()).hexdigest()
     marker = f"<!-- code-review-completion:{run['token']}:{digest} -->"
     body = submission["body"]
+    # Render the declared convergence state ourselves and bind it to the same
+    # digest/readback as the findings. A delivered review can still be incomplete.
+    if submission["converged"]:
+        body += f"\n\nReview converged after {submission['rounds']} round(s)."
+    else:
+        body += (
+            "\n\n**Review did not converge after 3 rounds. This automated review cannot pass the review check.**"
+            f"\n\n{submission['incomplete_reason']}"
+        )
     if ids:
         body += "\n\nExisting P0/P1 findings confirmed for this head: " + ", ".join(
             f"https://github.com/{run['repository']}/pull/{run['pr_number']}#discussion_r{i}"
@@ -187,7 +212,9 @@ def verify_completion(context, run, remaining, *, submit=False, submission=None)
     # Recheck after the API reads so a moving PR cannot pass an obsolete review.
     check_target(run, remaining)
     return {
-        "state": "failure" if counts[0] + counts[1] else "success",
+        "state": "failure" if counts[0] + counts[1] or not submission["converged"] else "success",
+        "converged": submission["converged"], "rounds": submission["rounds"],
+        "incomplete_reason": submission["incomplete_reason"],
         "p0": counts[0], "p1": counts[1], "review_id": review["id"],
         "review_url": review["html_url"],
     }

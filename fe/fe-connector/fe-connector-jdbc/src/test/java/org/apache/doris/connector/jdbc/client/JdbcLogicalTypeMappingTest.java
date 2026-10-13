@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.sql.Types;
 import java.util.Collections;
 import java.util.Optional;
@@ -45,6 +46,30 @@ class JdbcLogicalTypeMappingTest {
             assertVarbinary(sqlServer(flag), "binary", "varbinary", "image");
             assertVarbinary(new JdbcDB2ConnectorClient("test", JdbcDbType.DB2, "jdbc:db2://localhost/test",
                     false, Collections.emptyMap(), Collections.emptyMap(), flag, flag), "BLOB", "BINARY", "VARBINARY");
+        }
+    }
+
+    @Test
+    void remoteDorisVarbinaryKeepsBytesAndDeclaredLength() throws ReflectiveOperationException {
+        for (boolean flag : new boolean[] {false, true}) {
+            assertVarbinary(remoteDoris(flag), "VARBINARY");
+        }
+    }
+
+    @Test
+    void remoteDorisVarbinaryArrayElementsStayString() throws ReflectiveOperationException {
+        // The scanner decodes the elements of a remote Doris array only into strings, so a VARBINARY element,
+        // nested or not, keeps the STRING it had before the top-level VARBINARY mapping.
+        for (boolean flag : new boolean[] {false, true}) {
+            JdbcConnectorClient doris = remoteDoris(flag);
+            for (String typeName : new String[] {"ARRAY<VARBINARY>", "ARRAY<VARBINARY(16)>"}) {
+                ConnectorType type = doris.jdbcTypeToConnectorType(arrayField(typeName));
+                Assertions.assertEquals("ARRAY", type.getTypeName(), typeName);
+                Assertions.assertEquals("STRING", type.getChildren().get(0).getTypeName(), typeName);
+            }
+            ConnectorType nested = doris.jdbcTypeToConnectorType(arrayField("ARRAY<ARRAY<VARBINARY(16)>>"));
+            Assertions.assertEquals("ARRAY", nested.getChildren().get(0).getTypeName());
+            Assertions.assertEquals("STRING", nested.getChildren().get(0).getChildren().get(0).getTypeName());
         }
     }
 
@@ -86,6 +111,21 @@ class JdbcLogicalTypeMappingTest {
         local.setAllowNull(false);
         postgres(false).jdbcTypeToConnectorType(local);
         Assertions.assertFalse(local.isAllowNull());
+    }
+
+    private static JdbcConnectorClient remoteDoris(boolean flag) throws ReflectiveOperationException {
+        JdbcMySQLConnectorClient doris = new JdbcMySQLConnectorClient("test", JdbcDbType.MYSQL,
+                "jdbc:mysql://localhost/test", false, Collections.emptyMap(), Collections.emptyMap(), flag, flag);
+        // A remote Doris is detected through the connection, which a unit test does not have.
+        Field isDoris = JdbcMySQLConnectorClient.class.getDeclaredField("isDoris");
+        isDoris.setAccessible(true);
+        isDoris.setBoolean(doris, true);
+        return doris;
+    }
+
+    private static JdbcFieldInfo arrayField(String typeName) {
+        return new JdbcFieldInfo("a", Optional.of(typeName), Types.OTHER,
+                Optional.of(65535), Optional.of(0), Optional.empty());
     }
 
     private static JdbcConnectorClient postgres(boolean flag) {

@@ -25,12 +25,12 @@ create table variant_shredded (
 partitioned by (event_date)
 tblproperties (
     'file.format' = 'parquet',
-    'parquet.variant.shreddingSchema' = '{"type":"ROW","fields":[{"name":"payload","type":{"type":"ROW","fields":[{"name":"name","type":"STRING"},{"name":"age","type":"INT"}]}}]}'
+    'parquet.variant.shreddingSchema' = '{"type":"ROW","fields":[{"name":"payload","type":{"type":"ROW","fields":[{"name":"name","type":"STRING"},{"name":"age","type":"INT"},{"name":"profile","type":{"type":"ROW","fields":[{"name":"city","type":"STRING"}]}}]}}]}'
 );
 
 insert into variant_shredded values
-    (1, date '2026-06-01', parse_json('{"name":"alice","age":18,"extra":"shredded"}')),
-    (2, date '2026-06-01', parse_json('{"name":"bob","age":30}'));
+    (1, date '2026-06-01', parse_json('{"name":"alice","age":18,"profile":{"city":"beijing"},"tags":["flink","paimon"],"extra":"shredded"}')),
+    (2, date '2026-06-01', parse_json('{"name":"bob","age":30,"profile":{"city":"shanghai"},"tags":["doris"]}'));
 
 drop table if exists variant_mixed_us;
 create table variant_mixed_us (

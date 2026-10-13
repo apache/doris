@@ -563,6 +563,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 clearRunningStreamTask(status);
             }
             if (isFinalStatus()) {
+                closeOffsetProvider();
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
             log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
@@ -801,7 +802,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             // when fe restart, offsetProvider.jobId may be null
             Map<String, String> props = getProviderProps();
             offsetProvider.ensureInitialized(getJobId(), props);
-            offsetProvider.fetchRemoteMeta(props);
+            offsetProvider.fetchRemoteMeta(jobProperties, props);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
             if (tryPauseJob(new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
@@ -1058,6 +1059,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public long getLastSourceEventTimestampSeconds() {
         return offsetProvider != null ? offsetProvider.getLastSourceEventTimestampSeconds() : 0;
+    }
+
+    public long getLagMessages() {
+        return offsetProvider != null ? offsetProvider.getLagMessages() : -1;
     }
 
     public long getLastTaskSuccessTimeSeconds() {
@@ -1734,12 +1739,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return offsetProvider != null && offsetProvider.hasReachedEnd();
     }
 
+    private void closeOffsetProvider() {
+        if (offsetProvider != null) {
+            offsetProvider.close();
+        }
+    }
+
     /**
      * 1. Clean offset info in ms (s3 tvf)
      * 2. Clean chunk info in meta table (jdbc)
      */
     public void cleanup() throws JobException {
         log.info("cleanup streaming job {}", getJobId());
+        closeOffsetProvider();
 
         // s3 tvf clean offset
         if (tvfType != null && Config.isCloudMode()) {

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -96,21 +97,27 @@ public class Embed extends AIFunction {
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        // resolve the resource name FE can evaluate here too, see AIFunction.checkLegalityBeforeTypeCoercion
+        checkArguments(ExpressionUtils.foldConstantArgument(getArgument(0)));
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        // the name FE can evaluate is resolved here too, see AIFunction.checkLegalityAfterRewrite
+        checkArguments(ExpressionUtils.foldConstantArgument(getArgument(0)));
+    }
+
+    private void checkArguments(Expression firstArgument) {
         if (arity() == 1) {
             return;
         }
         if (arity() == 2) {
-            String aiResourceName = requireStringLiteral(getArgument(0), "resource name",
+            String aiResourceName = requireStringLiteral(firstArgument, "resource name",
                     "AI Function must accept literal for the resource name.");
             validateAIResource(aiResourceName, getArgument(1).getDataType().isJsonType());
             return;
         }
         throw new AnalysisException("Function EMBED only accepts 1 or 2 arguments");
-    }
-
-    @Override
-    public void checkLegalityAfterRewrite() {
-        checkLegalityBeforeTypeCoercion();
     }
 
     private static String requireStringLiteral(Expression arg, String argName, String errorMsg) {
