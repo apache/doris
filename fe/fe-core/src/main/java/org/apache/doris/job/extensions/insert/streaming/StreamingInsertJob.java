@@ -1171,12 +1171,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.cloudCluster = inputProperties.get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
             offsetProvider.setCloudCluster(this.cloudCluster);
         }
-        long oldMaxIntervalSecond = this.jobProperties.getMaxIntervalSecond();
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
-        if (oldMaxIntervalSecond != this.jobProperties.getMaxIntervalSecond()) {
-            recomputeDerivedFields();
-        }
+        recomputeDerivedFields();
     }
 
     private void resetCloudProgress(Offset offset) throws JobException {
