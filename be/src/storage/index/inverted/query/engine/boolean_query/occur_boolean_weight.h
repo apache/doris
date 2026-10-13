@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <variant>
+#include <vector>
+
 #include "storage/index/inverted/query/engine/boolean_query/occur.h"
 #include "storage/index/inverted/query/engine/score_combiner.h"
 #include "storage/index/inverted/query/engine/scorer.h"

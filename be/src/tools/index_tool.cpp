@@ -45,11 +45,13 @@
 #pragma clang diagnostic pop
 #endif
 #include "io/fs/local_file_system.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/query/logical/node.h"

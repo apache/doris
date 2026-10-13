@@ -18,6 +18,7 @@
 #pragma once
 
 #include <span>
+#include <vector>
 
 #include "storage/index/inverted/query/scoring/similarity.h"
 

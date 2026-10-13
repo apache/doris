@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/query/spi/scoring_context.h"

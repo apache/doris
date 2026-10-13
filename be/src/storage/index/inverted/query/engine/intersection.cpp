@@ -18,6 +18,7 @@
 #include "storage/index/inverted/query/engine/intersection.h"
 
 #include <algorithm>
+#include <numeric>
 
 #include "common/status.h"
 #include "storage/index/inverted/query/engine/doc_set.h"
