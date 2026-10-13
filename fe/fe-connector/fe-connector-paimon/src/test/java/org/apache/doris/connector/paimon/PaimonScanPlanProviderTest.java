@@ -1025,6 +1025,46 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void statementReuseLastsOnlyWhilePlanning(@TempDir Path warehouse) throws Exception {
+        // Identical scans share their ranges only within one plan, so the range memo is kept for planning only:
+        // once the engine ends planning no range is held, and a later plan of the statement plans the scan again.
+        // The table resolved for the statement stays, so that plan still reads the same table generation.
+        // MUTATION: keeping the range memo for the whole statement (computeIfAbsent) -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "reuse_planning");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            commitRows(table, GenericRow.of(1));
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            TestStatementScope scope = new TestStatementScope();
+            ConnectorSession session = reuseSession(scope, 0L);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "reuse_planning", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorScanRange> planned = provider.planScan(session, scanOf(handle).build());
+
+            scope.endPlanning();
+
+            Assertions.assertFalse(scope.contains(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE + ":0:q"),
+                    "the planned ranges must not outlive planning");
+            Assertions.assertTrue(scope.contains(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE + ":tables:0:q"),
+                    "the table resolved for the statement stays");
+            List<ConnectorScanRange> replanned = provider.planScan(session, scanOf(handle).build());
+            Assertions.assertFalse(planned.isEmpty(), "one committed row must plan at least one split");
+            Assertions.assertNotSame(planned, replanned, "a scan planned after planning ended plans again");
+            Assertions.assertEquals(planned.size(), replanned.size());
+        }
+    }
+
+    @Test
     public void statementReuseNeverMemoizesSystemTables(@TempDir Path warehouse) throws Exception {
         // System tables resolve their snapshot on the BE and are never reused. MUTATION: dropping the
         // system-table bypass in planScan -> the statement scope gains the reuse memo -> red.
@@ -3227,11 +3267,25 @@ public class PaimonScanPlanProviderTest {
 
     private static final class TestStatementScope implements ConnectorStatementScope {
         private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+        private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
 
         @Override
         @SuppressWarnings("unchecked")
         public <T> T computeIfAbsent(String key, Supplier<T> loader) {
             return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
+
+        @Override
+        public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+            T value = computeIfAbsent(key, loader);
+            planningKeys.add(key);
+            return value;
+        }
+
+        @Override
+        public void endPlanning() {
+            planningKeys.forEach(cache::remove);
+            planningKeys.clear();
         }
 
         /** Whether something was memoized under {@code key}, e.g. the statement reuse map. */
