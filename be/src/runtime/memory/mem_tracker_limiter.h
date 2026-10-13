@@ -36,7 +36,7 @@
 #include "common/status.h"
 #include "runtime/memory/mem_counter.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/string_util.h"
+#include "runtime/memory/memory_limit.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -67,7 +67,7 @@ struct TrackerLimiterGroup {
  *
  * This class is thread-safe.
 */
-class MemTrackerLimiter final {
+class MemTrackerLimiter final : public MemoryLimit {
 public:
     /*
     * Part 1, Type definition
@@ -118,7 +118,7 @@ public:
                                                             int64_t byte_limit = -1);
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit);
-    ~MemTrackerLimiter();
+    ~MemTrackerLimiter() override;
 
     Type type() const { return _type; }
     const std::string& label() const { return _label; }
@@ -232,6 +232,14 @@ public:
     bool is_group_commit_load {false};
 
 private:
+    bool local_limit_exceeded(int64_t bytes) const;
+    Status make_limit_exceeded_status(int64_t bytes);
+    bool exceeds_local_memory_limit(int64_t bytes) override;
+    Status check_local_memory_limit(int64_t bytes) override;
+    Status reserve_local_memory(int64_t bytes, bool check_limit) override;
+    void rollback_local_reservation(int64_t bytes) override;
+    std::string local_memory_limit_string() const override;
+
     // When the accumulated untracked memory value exceeds the upper limit,
     // the current value is returned and set to 0.
     // Thread safety.
@@ -295,22 +303,20 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
     consume(consume_bytes);
 }
 
-inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
+inline bool MemTrackerLimiter::local_limit_exceeded(int64_t bytes) const {
     if (bytes <= 0 || !_enable_check_limit || _limit <= 0) {
+        return false;
+    }
+    return consumption() + bytes > _limit;
+}
+
+inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
+    // Ordinary allocations only check this task. Keep the success path inline
+    // without ancestor traversal or virtual dispatch, especially with reserve enabled.
+    if (!local_limit_exceeded(bytes)) {
         return Status::OK();
     }
-
-    // If reserve not enabled, then should check limit here to kill the query when limit exceed.
-    // For insert into select or pure load job, its memtable is accounted in a seperate memtracker limiter,
-    // and its reserve is set to true. So that it will not reach this logic.
-    // Only query and load job has exec_mem_limit and the _limit > 0, other memtracker limiter's _limit is -1 so
-    // it will not take effect.
-    if (consumption() + bytes > _limit) {
-        return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
-                                                       PrettyPrinter::print_bytes(bytes),
-                                                       tracker_limit_exceeded_str()));
-    }
-    return Status::OK();
+    return make_limit_exceeded_status(bytes);
 }
 
 } // namespace doris

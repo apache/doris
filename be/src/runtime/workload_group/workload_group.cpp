@@ -63,7 +63,8 @@ const static int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 95;
 const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
 
 WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info)
-        : _id(wg_info.id),
+        : MemoryLimit(Scope::WORKLOAD_GROUP, process_memory_limit()),
+          _id(wg_info.id),
           _name(wg_info.name),
           _version(wg_info.version),
           _min_cpu_percent(wg_info.min_cpu_percent),
@@ -109,6 +110,46 @@ std::string WorkloadGroup::debug_string() const {
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
             _is_shutdown, _resource_ctxs.size(), _scan_bytes_per_second,
             _remote_scan_bytes_per_second);
+}
+
+bool WorkloadGroup::exceeds_local_memory_limit(int64_t bytes) {
+    DCHECK_GE(bytes, 0);
+    bool low_watermark = false;
+    bool high_watermark = false;
+    check_mem_used(static_cast<size_t>(bytes), &low_watermark, &high_watermark);
+    return high_watermark;
+}
+
+Status WorkloadGroup::check_local_memory_limit(int64_t bytes) {
+    if (exceeds_local_memory_limit(bytes)) {
+        return Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(
+                "workload group memory limit exceeded, size: {}, workload group: {}",
+                PrettyPrinter::print_bytes(bytes), local_memory_limit_string());
+    }
+    return Status::OK();
+}
+
+Status WorkloadGroup::reserve_local_memory(int64_t bytes, bool check_limit) {
+    if (check_limit) {
+        if (!try_add_wg_refresh_interval_memory_growth(bytes)) {
+            return Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(
+                    "reserve memory failed, size: {}, because workload group memory exceeded, "
+                    "workload group: {}",
+                    PrettyPrinter::print_bytes(bytes), local_memory_limit_string());
+        }
+    } else {
+        add_wg_refresh_interval_memory_growth(bytes);
+    }
+    return Status::OK();
+}
+
+void WorkloadGroup::rollback_local_reservation(int64_t bytes) {
+    sub_wg_refresh_interval_memory_growth(bytes);
+}
+
+std::string WorkloadGroup::local_memory_limit_string() const {
+    std::shared_lock<std::shared_mutex> lock(_mutex);
+    return memory_debug_string();
 }
 
 bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {

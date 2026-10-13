@@ -41,7 +41,8 @@ static bvar::Adder<int64_t> memory_memtrackerlimiter_cnt("memory_memtrackerlimit
 
 std::atomic<long> mem_tracker_limiter_group_counter(0);
 
-MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit) {
+MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit)
+        : MemoryLimit(Scope::TASK, process_memory_limit()) {
     DCHECK_GE(byte_limit, -1);
     _type = type;
     _label = label;
@@ -363,6 +364,48 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     }
 }
 
+bool MemTrackerLimiter::exceeds_local_memory_limit(int64_t bytes) {
+    return local_limit_exceeded(bytes);
+}
+
+Status MemTrackerLimiter::check_local_memory_limit(int64_t bytes) {
+    return check_limit(bytes);
+}
+
+Status MemTrackerLimiter::make_limit_exceeded_status(int64_t bytes) {
+    return Status::MemoryLimitExceeded("failed alloc size {}, {}",
+                                       PrettyPrinter::print_bytes(bytes),
+                                       tracker_limit_exceeded_str());
+}
+
+Status MemTrackerLimiter::reserve_local_memory(int64_t bytes, bool check_limit) {
+    if (check_limit) {
+        if (!try_reserve(bytes)) {
+            return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                    "reserve memory failed, size: {}, because query memory exceeded, memory "
+                    "tracker: {}, consumption: {}, limit: {}, peak: {}",
+                    PrettyPrinter::print_bytes(bytes), label(),
+                    PrettyPrinter::print_bytes(consumption()), PrettyPrinter::print_bytes(limit()),
+                    PrettyPrinter::print_bytes(peak_consumption()));
+        }
+    } else {
+        reserve(bytes);
+    }
+    return Status::OK();
+}
+
+void MemTrackerLimiter::rollback_local_reservation(int64_t bytes) {
+    release(bytes);
+    shrink_reserved(bytes);
+}
+
+std::string MemTrackerLimiter::local_memory_limit_string() const {
+    return fmt::format("Task[label={}, type={}, effective limit={}, used={}, reserved={}]", label(),
+                       type_string(_type), PrettyPrinter::print_bytes(limit()),
+                       PrettyPrinter::print_bytes(consumption()),
+                       PrettyPrinter::print_bytes(reserved_consumption()));
+}
+
 std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
     std::string err_msg = fmt::format(
             "memory tracker limit exceeded, tracker label:{}, type:{}, limit "
@@ -372,9 +415,20 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
             PrettyPrinter::print_bytes(consumption()), BackendOptions::get_localhost(),
             GlobalMemoryArbitrator::process_memory_used_str());
     if (_type == Type::QUERY || _type == Type::LOAD) {
-        err_msg += fmt::format(
-                " exec node:<{}>, can `set exec_mem_limit` to change limit, details see be.INFO.",
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label());
+        auto parent = memory_limit_parent();
+        if (parent->memory_limit_scope() == Scope::WORKLOAD_GROUP) {
+            err_msg += fmt::format(
+                    " exec node:<{}>, memory limit tree: {}. The effective task limit depends on "
+                    "exec_mem_limit and the workload group's memory/slot settings; check both. "
+                    "details see be.INFO.",
+                    doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
+                    memory_limit_tree_string());
+        } else {
+            err_msg += fmt::format(
+                    " exec node:<{}>, can `set exec_mem_limit` to change limit, details see "
+                    "be.INFO.",
+                    doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label());
+        }
     } else if (_type == Type::SCHEMA_CHANGE) {
         err_msg += fmt::format(
                 " can modify `memory_limitation_per_thread_for_schema_change_bytes` in be.conf to "

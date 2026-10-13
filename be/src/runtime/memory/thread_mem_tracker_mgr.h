@@ -118,16 +118,7 @@ public:
     void consume(int64_t size);
     void flush_untracked_mem();
 
-    enum class TryReserveChecker {
-        NONE = 0,
-        CHECK_TASK = 1,
-        CHECK_WORKLOAD_GROUP = 2,
-        CHECK_TASK_AND_WORKLOAD_GROUP = 3,
-        CHECK_PROCESS = 4,
-        CHECK_TASK_AND_PROCESS = 5,
-        CHECK_WORKLOAD_GROUP_AND_PROCESS = 6,
-        CHECK_TASK_AND_WORKLOAD_GROUP_AND_PROCESS = 7,
-    };
+    using TryReserveChecker = MemoryLimit::CheckScope;
 
     // if only_check_process_memory == true, still reserve query, wg, process memory, only check process memory.
     MOCK_FUNCTION doris::Status try_reserve(

@@ -27,6 +27,11 @@
 
 namespace doris {
 
+void ResourceContext::set_workload_group(WorkloadGroupPtr wg) {
+    _workload_group = std::move(wg);
+    memory_context_->refresh_memory_limit_parent(true);
+}
+
 void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) const {
     DCHECK(statistics != nullptr);
     statistics->__set_scan_rows(io_context()->scan_rows());

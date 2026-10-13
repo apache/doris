@@ -20,11 +20,14 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/resource_context.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -540,6 +543,273 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemoryFailed) {
         EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
         EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
     }
+}
+
+TEST_F(ThreadMemTrackerMgrTest, AllocationSkipsWorkloadGroupTotal) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 1024);
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 101, .memory_limit = 2048, .memory_high_watermark = 100});
+    rc->set_workload_group(wg);
+    wg->_total_mem_used = 2048;
+    SCOPED_ATTACH_TASK(rc);
+    tracker->consume(512);
+    Defer release {[&]() { tracker->release(512); }};
+
+    Allocator<false, false, false> allocator;
+    std::string error;
+    EXPECT_FALSE(allocator.memory_tracker_exceed(256, &error));
+    auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(256);
+    EXPECT_EQ(st.code(), ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED) << st.to_string();
+    EXPECT_EQ(tracker->consumption(), 512);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, DisabledAllocationCheckStillChecksQueryReservation) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 1024);
+    tracker->set_enable_check_limit(false);
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    SCOPED_ATTACH_TASK(rc);
+
+    Allocator<false, false, false> allocator;
+    std::string error;
+    EXPECT_FALSE(allocator.memory_tracker_exceed(2048, &error));
+    auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(2048);
+    EXPECT_EQ(st.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << st.to_string();
+    EXPECT_EQ(tracker->consumption(), 0);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, LocalAllocationChecksRespectLimitBoundaries) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 1024);
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    SCOPED_ATTACH_TASK(rc);
+    tracker->consume(768);
+    Defer release {[&]() { tracker->release(768); }};
+
+    for (int64_t bytes : {-1, 0, 255, 256}) {
+        EXPECT_TRUE(tracker->check_limit(bytes).ok()) << bytes;
+        EXPECT_TRUE(tracker->check_memory_limit(bytes, MemoryLimit::CheckScope::CHECK_TASK).ok())
+                << bytes;
+        EXPECT_FALSE(tracker->exceeds_memory_limit(bytes, MemoryLimit::CheckScope::CHECK_TASK))
+                << bytes;
+    }
+    EXPECT_EQ(tracker->check_limit(257).code(), ErrorCode::MEM_LIMIT_EXCEEDED);
+    EXPECT_EQ(tracker->check_memory_limit(257, MemoryLimit::CheckScope::CHECK_TASK).code(),
+              ErrorCode::MEM_LIMIT_EXCEEDED);
+    EXPECT_TRUE(tracker->exceeds_memory_limit(257, MemoryLimit::CheckScope::CHECK_TASK));
+    EXPECT_EQ(tracker->consumption(), 768);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, LocalAllocationChecksAllowUnlimitedTasks) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", -1);
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    SCOPED_ATTACH_TASK(rc);
+    tracker->consume(768);
+    Defer release {[&]() { tracker->release(768); }};
+
+    for (int64_t limit : {-1, 0}) {
+        tracker->set_limit(limit);
+        EXPECT_TRUE(tracker->check_limit(2048).ok()) << limit;
+        EXPECT_TRUE(tracker->check_memory_limit(2048, MemoryLimit::CheckScope::CHECK_TASK).ok())
+                << limit;
+        EXPECT_FALSE(tracker->exceeds_memory_limit(2048, MemoryLimit::CheckScope::CHECK_TASK))
+                << limit;
+    }
+    EXPECT_EQ(tracker->consumption(), 768);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, ProcessOnlyReservationStillAccountsTaskAndGroup) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 32);
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 102, .memory_limit = 64, .memory_high_watermark = 100});
+    rc->set_workload_group(wg);
+    SCOPED_ATTACH_TASK(rc);
+    const auto original_process_reserved = GlobalMemoryArbitrator::process_reserved_memory();
+
+    auto* mgr = thread_context()->thread_mem_tracker_mgr.get();
+    auto st = mgr->try_reserve(128, ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(tracker->consumption(), 128);
+    EXPECT_EQ(tracker->reserved_consumption(), 128);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 128);
+    EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), original_process_reserved + 128);
+
+    mgr->shrink_reserved();
+    EXPECT_EQ(tracker->consumption(), 0);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+    EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), original_process_reserved);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, SelectedAncestorChecksContinuePastDisabledQuery) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 32);
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 103, .memory_limit = 64, .memory_high_watermark = 100});
+    rc->set_workload_group(wg);
+    SCOPED_ATTACH_TASK(rc);
+    using Checks = MemoryLimit::CheckScope;
+
+    auto st = tracker->check_memory_limit(128, Checks::CHECK_TASK_AND_WORKLOAD_GROUP);
+    EXPECT_EQ(st.code(), ErrorCode::MEM_LIMIT_EXCEEDED) << st.to_string();
+    tracker->set_enable_check_limit(false);
+    EXPECT_TRUE(tracker->exceeds_memory_limit(128, Checks::CHECK_TASK_AND_WORKLOAD_GROUP));
+    EXPECT_FALSE(tracker->exceeds_memory_limit(128, Checks::CHECK_TASK));
+    st = tracker->check_memory_limit(128, Checks::CHECK_TASK_AND_WORKLOAD_GROUP);
+    EXPECT_EQ(st.code(), ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED) << st.to_string();
+    st = wg->check_memory_limit(128, Checks::CHECK_WORKLOAD_GROUP);
+    EXPECT_EQ(st.code(), ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED) << st.to_string();
+
+    auto write_tracker = tracker->write_tracker();
+    EXPECT_TRUE(write_tracker->check_limit(128).ok());
+    st = write_tracker->check_memory_limit(128, Checks::CHECK_TASK_AND_WORKLOAD_GROUP);
+    EXPECT_EQ(st.code(), ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED) << st.to_string();
+    // The process root uses physical memory, not the sum of child counters.
+    EXPECT_TRUE(MemoryLimit::process_memory_limit()->exceeds_memory_limit(MemInfo::mem_limit(),
+                                                                          Checks::CHECK_PROCESS));
+    st = MemoryLimit::process_memory_limit()->check_memory_limit(MemInfo::mem_limit(),
+                                                                 Checks::CHECK_PROCESS);
+    EXPECT_EQ(st.code(), ErrorCode::PROCESS_MEMORY_EXCEEDED) << st.to_string();
+    EXPECT_EQ(tracker->consumption(), 0);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, ProcessReservationFailureRollsBackDescendants) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query");
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 104, .memory_limit = 64, .memory_high_watermark = 100});
+    rc->set_workload_group(wg);
+    SCOPED_ATTACH_TASK(rc);
+    const auto original_process_reserved = GlobalMemoryArbitrator::process_reserved_memory();
+    auto* mgr = thread_context()->thread_mem_tracker_mgr.get();
+
+    // Skip the small WG budget so the process is the failing ancestor.
+    auto st = mgr->try_reserve(MemInfo::soft_mem_limit(),
+                               ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
+    EXPECT_EQ(st.code(), ErrorCode::PROCESS_MEMORY_EXCEEDED) << st.to_string();
+    EXPECT_EQ(tracker->consumption(), 0);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+    EXPECT_EQ(GlobalMemoryArbitrator::process_reserved_memory(), original_process_reserved);
+    EXPECT_EQ(mgr->reserved_mem(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, SiblingQueriesShareWorkloadGroupReservationBudget) {
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 105, .memory_limit = 256, .memory_high_watermark = 100});
+    auto first = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "first", 256);
+    auto second = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "second", 256);
+    auto first_rc = ResourceContext::create_shared();
+    auto second_rc = ResourceContext::create_shared();
+    first_rc->memory_context()->set_mem_tracker(first);
+    first_rc->set_workload_group(wg);
+    second_rc->memory_context()->set_mem_tracker(second);
+    second_rc->set_workload_group(wg);
+
+    SCOPED_ATTACH_TASK(first_rc);
+    ASSERT_TRUE(thread_context()->thread_mem_tracker_mgr->try_reserve(192).ok());
+    {
+        SCOPED_SWITCH_RESOURCE_CONTEXT(second_rc);
+        auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(128);
+        EXPECT_EQ(st.code(), ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED) << st.to_string();
+        EXPECT_EQ(second->consumption(), 0);
+        EXPECT_EQ(second->reserved_consumption(), 0);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 192);
+    }
+    thread_context()->thread_mem_tracker_mgr->shrink_reserved();
+    EXPECT_EQ(first->consumption(), 0);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, TemporaryLimiterKeepsAttachedTaskGroupForReservation) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 256);
+    auto cache = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::CACHE, "cache");
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 106, .memory_limit = 64, .memory_high_watermark = 100});
+    rc->set_workload_group(wg);
+    SCOPED_ATTACH_TASK(rc);
+    {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(cache);
+        auto* mgr = thread_context()->thread_mem_tracker_mgr.get();
+        auto st = mgr->try_reserve(128);
+        EXPECT_EQ(st.code(), ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED) << st.to_string();
+        EXPECT_EQ(cache->consumption(), 0);
+        EXPECT_EQ(cache->reserved_consumption(), 0);
+        ASSERT_TRUE(mgr->try_reserve(32).ok());
+        EXPECT_EQ(cache->consumption(), 32);
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 32);
+    }
+    EXPECT_EQ(cache->consumption(), 0);
+    EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+    EXPECT_EQ(cache->memory_limit_parent(), MemoryLimit::process_memory_limit());
+}
+
+TEST_F(ThreadMemTrackerMgrTest, WorkloadGroupCanBeBoundBeforeTrackerAndRemoved) {
+    auto rc = ResourceContext::create_shared();
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 107, .memory_limit = 64, .memory_high_watermark = 100});
+    rc->set_workload_group(wg);
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 32);
+    rc->memory_context()->set_mem_tracker(tracker);
+    EXPECT_EQ(tracker->memory_limit_parent(), wg);
+    EXPECT_EQ(tracker->write_tracker()->memory_limit_parent(), wg);
+
+    rc->set_workload_group(nullptr);
+    EXPECT_EQ(tracker->memory_limit_parent(), MemoryLimit::process_memory_limit());
+    EXPECT_EQ(tracker->write_tracker()->memory_limit_parent(), MemoryLimit::process_memory_limit());
+}
+
+TEST_F(ThreadMemTrackerMgrTest, TrackerOnlyAttachmentPreservesSharedQueryParent) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "query", 32);
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 108, .memory_limit = 64, .memory_high_watermark = 100});
+    rc->set_workload_group(wg);
+    {
+        SCOPED_ATTACH_TASK(tracker);
+        EXPECT_EQ(tracker->memory_limit_parent(), wg);
+        EXPECT_EQ(tracker->write_tracker()->memory_limit_parent(), wg);
+        // This attachment has no thread WG, so legacy reserve checks process
+        // directly even though the shared tracker belongs to a WG.
+        ASSERT_TRUE(
+                thread_context()
+                        ->thread_mem_tracker_mgr
+                        ->try_reserve(128, ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS)
+                        .ok());
+        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
+    }
+    EXPECT_EQ(tracker->consumption(), 0);
+    EXPECT_EQ(tracker->reserved_consumption(), 0);
+    EXPECT_EQ(tracker->memory_limit_parent(), wg);
+}
+
+TEST_F(ThreadMemTrackerMgrTest, WorkloadGroupBindingSupportsTrackerWithoutWriteSibling) {
+    auto tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::QUERY, "query", 32);
+    auto rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(tracker);
+    auto wg = _wg_manager->get_or_create_workload_group(
+            {.id = 109, .memory_limit = 64, .memory_high_watermark = 100});
+    rc->set_workload_group(wg);
+    EXPECT_EQ(tracker->memory_limit_parent(), wg);
+    EXPECT_EQ(tracker->write_tracker(), nullptr);
+    rc->set_workload_group(nullptr);
+    EXPECT_EQ(tracker->memory_limit_parent(), MemoryLimit::process_memory_limit());
 }
 
 } // end namespace doris

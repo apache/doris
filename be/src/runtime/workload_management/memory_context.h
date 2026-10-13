@@ -77,11 +77,7 @@ public:
     RuntimeProfile* stats_profile() { return stats_.profile(); }
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return mem_tracker_; }
-    void set_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-        mem_tracker_ = mem_tracker;
-        user_set_mem_limit_ = mem_tracker_->limit();
-        adjusted_mem_limit_ = mem_tracker_->limit();
-    }
+    void set_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
 
     void set_user_set_mem_limit(int64_t user_set_mem_limit) {
         user_set_mem_limit_ = user_set_mem_limit;
@@ -115,7 +111,8 @@ public:
 protected:
     friend class ResourceContext;
 
-    void set_resource_ctx(ResourceContext* resource_ctx) { resource_ctx_ = resource_ctx; }
+    void set_resource_ctx(ResourceContext* resource_ctx);
+    void refresh_memory_limit_parent(bool reset_to_process = false);
 
     Stats stats_;
     // MemTracker that is shared by all fragment instances running on this host.
