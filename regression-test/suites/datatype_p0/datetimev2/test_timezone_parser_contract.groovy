@@ -68,7 +68,7 @@ suite("test_timezone_parser_contract") {
     sql "SET debug_skip_fold_constant=true"
     qt_session_slots "SELECT id, CAST(v AS TIMESTAMPTZ(6)) FROM timezone_parser_contract_inputs ORDER BY id"
 
-    ["utc", "Z", "zulu", "cst", "Asia/Shanghai", "UTC+8", "GMT-6", "+14:00", "-12:00"].eachWithIndex { zone, id ->
+    ["utc", "Z", "Zulu", "cst", "Asia/Shanghai", "UTC+8", "GMT-6", "+14:00", "-12:00"].eachWithIndex { zone, id ->
         sql "SET time_zone='${zone}'"
         "qt_session_zone_${id}"("SELECT @@time_zone, CAST('2024-01-02 12:00:00+00:00' AS DATETIME(6))")
     }

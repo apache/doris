@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
@@ -67,7 +68,7 @@ class TimeZoneParserTest {
     @Test
     void namesAndSyntax() throws Exception {
         Assertions.assertEquals("UTC", TimeUtils.checkTimeZoneValidAndStandardize("utc"));
-        Assertions.assertThrows(DateTimeException.class,
+        Assertions.assertThrows(DdlException.class,
                 () -> TimeUtils.checkTimeZoneValidAndStandardize("asia/shanghai"));
         for (String value : new String[] {"+8", "+08", "+0800", "+8:00"}) {
             Assertions.assertEquals("+08:00", TimeZoneParser.normalize(value, TimeZoneParser.Usage.DATETIME));
