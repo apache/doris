@@ -850,6 +850,8 @@ public class TypeCoercionUtils {
      * process BoundFunction type coercion
      */
     public static Expression processBoundFunction(BoundFunction boundFunction) {
+        // prepare, before the legality check and the signature read the arguments
+        boundFunction = (BoundFunction) boundFunction.prepareBeforeTypeCoercion();
         if (boundFunction instanceof GreatestLeast || boundFunction instanceof NullIf) {
             checkNoVarbinaryComparison(boundFunction.getName(), boundFunction.children());
         }
