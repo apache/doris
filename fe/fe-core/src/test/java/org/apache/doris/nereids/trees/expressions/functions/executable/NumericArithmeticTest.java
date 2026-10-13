@@ -22,14 +22,15 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -158,17 +159,25 @@ public class NumericArithmeticTest {
                 new DoubleLiteral(-0.5), new IntegerLiteral(1))).getValue());
     }
 
-    // Expected behaviour once the shared literal comparison semantics treat the two signed zeros
-    // as equal, which is what BE does. Blocked on a separate change to NumericLiteral.compareTo
-    // (Double.compare makes -0.0 sort below +0.0) and Literal.equals (Objects.equals on boxed
-    // Doubles compares the bits), neither of which is part of this PR.
-    @Disabled("folded predicates and IN sets still treat -0.0 and +0.0 as different")
     @Test
     public void testFoldedPredicateTreatsSignedZerosAsEqual() {
         DoubleLiteral negativeZero = (DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(-0.5));
         DoubleLiteral positiveZero = new DoubleLiteral(0.0);
         Assertions.assertEquals(0, negativeZero.compareTo(positiveZero));
         Assertions.assertEquals(positiveZero, negativeZero);
+        // set dedup on the folded value must agree with equals
+        Assertions.assertTrue(Sets.newHashSet(positiveZero).contains(negativeZero));
+        Assertions.assertEquals(positiveZero.hashCode(), negativeZero.hashCode());
+
+        FloatLiteral negativeZeroFloat = new FloatLiteral(-0.0f);
+        FloatLiteral positiveZeroFloat = new FloatLiteral(0.0f);
+        Assertions.assertEquals(0, negativeZeroFloat.compareTo(positiveZeroFloat));
+        Assertions.assertEquals(positiveZeroFloat, negativeZeroFloat);
+        Assertions.assertEquals(positiveZeroFloat.hashCode(), negativeZeroFloat.hashCode());
+
+        // signbit stays sign sensitive: the expressions themselves are still distinct
+        Assertions.assertEquals(BooleanLiteral.TRUE, NumericArithmetic.signbit(negativeZero));
+        Assertions.assertEquals(BooleanLiteral.FALSE, NumericArithmetic.signbit(positiveZero));
     }
 
     private static boolean isNegativeZero(double value) {
