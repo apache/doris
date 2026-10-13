@@ -333,15 +333,15 @@ Corpus BuildCrossWindowTailCorpus() {
 // is byte-wise, matching the index's dict enumeration order.
 Corpus BuildCjkTailCorpus() {
     Corpus c;
-    const char* const tails[] = {"\xE7\xBB\x93\xE6\x9E\x9C\xE7\x94\xB2",  // 结果甲
-                                 "\xE7\xBB\x93\xE6\x9E\x9C\xE4\xB9\x99",  // 结果乙
-                                 "\xE7\xBB\x93\xE6\x9E\x9C\xE4\xB8\x99"}; // 结果丙
-    const std::string lead = "\xE8\xBF\x9E\xE6\x8E\xA5";                  // 连接
+    const char* const tails[] = {"\xE7\xBB\x93\xE6\x9E\x9C\xE7\x94\xB2",  // Result A
+                                 "\xE7\xBB\x93\xE6\x9E\x9C\xE4\xB9\x99",  // Result B
+                                 "\xE7\xBB\x93\xE6\x9E\x9C\xE4\xB8\x99"}; // Result C
+    const std::string lead = "\xE8\xBF\x9E\xE6\x8E\xA5";                  // Join
     c.docs.resize(120);
     for (uint32_t d = 0; d < c.docs.size(); ++d) {
         if (d % 20 == 3) {
             c.docs[d] = {lead, "\xE9\x97\xB4\xE9\x9A\x94",
-                         tails[d % 3]}; // 间隔 filler, not adjacent
+                         tails[d % 3]}; // Separating filler, not adjacent
         } else {
             c.docs[d] = {lead, tails[d % 3]};
         }
@@ -966,8 +966,8 @@ TEST(SniiPhrasePrefixMerge, CjkUnicodeTailsMatchOracle) {
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment, path);
 
-    const std::vector<std::string> terms = {"\xE8\xBF\x9E\xE6\x8E\xA5",  // 连接
-                                            "\xE7\xBB\x93\xE6\x9E\x9C"}; // 结果
+    const std::vector<std::string> terms = {"\xE8\xBF\x9E\xE6\x8E\xA5",  // Join
+                                            "\xE7\xBB\x93\xE6\x9E\x9C"}; // Result
     std::vector<uint32_t> got;
     ASSERT_TRUE(query::phrase_prefix_query(idx, terms, &got).ok());
     EXPECT_TRUE(std::ranges::is_sorted(got));

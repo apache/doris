@@ -48,17 +48,19 @@ public final class ConnectorScanRequest {
     private final Optional<ConnectorExpression> filter;
     private final long limit;
     private final List<String> requiredPartitions;
+    private final boolean partitionsPrunedToEmpty;
     private final boolean countPushdown;
     private final boolean explainOnly;
 
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
-            boolean countPushdown, boolean explainOnly) {
+            boolean partitionsPrunedToEmpty, boolean countPushdown, boolean explainOnly) {
         this.tableHandle = tableHandle;
         this.columns = columns;
         this.filter = filter;
         this.limit = limit;
         this.requiredPartitions = requiredPartitions;
+        this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
         this.countPushdown = countPushdown;
         this.explainOnly = explainOnly;
     }
@@ -108,6 +110,19 @@ public final class ConnectorScanRequest {
     }
 
     /**
+     * Whether FE pruning ran over a non-empty live partition universe and selected none of it.
+     *
+     * <p>This is distinct from an empty {@link #getRequiredPartitions()}, whose long-standing SPI
+     * meaning is "not restricted, scan all". Predicate-driven connectors may opt out of the engine's
+     * zero-partition short circuit because their own snapshot can contain history outside the live
+     * metastore universe; they still need this bit to avoid validating or scanning every live partition
+     * that the predicate excluded.</p>
+     */
+    public boolean isPartitionsPrunedToEmpty() {
+        return partitionsPrunedToEmpty;
+    }
+
+    /**
      * Whether a no-grouping {@code COUNT(*)} is being pushed into this scan, so BE is already in count mode.
      * A connector that can answer the count from metadata (a per-split precomputed row count) should emit it
      * instead of planning ranges that materialize rows; one that cannot ignores this and plans normally.
@@ -135,7 +150,7 @@ public final class ConnectorScanRequest {
     /** This request with the partition set replaced — the batched scan's per-batch request. */
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
         return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                normalizePartitions(partitions), countPushdown, explainOnly);
+                normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, explainOnly);
     }
 
     private static List<String> normalizePartitions(List<String> partitions) {
@@ -150,6 +165,7 @@ public final class ConnectorScanRequest {
         private Optional<ConnectorExpression> filter = Optional.empty();
         private long limit = -1;
         private List<String> requiredPartitions = Collections.emptyList();
+        private boolean partitionsPrunedToEmpty;
         private boolean countPushdown;
         private boolean explainOnly;
 
@@ -174,6 +190,12 @@ public final class ConnectorScanRequest {
             return this;
         }
 
+        /** Records a genuine FE prune-to-zero when planning must still reach the connector. */
+        public Builder partitionsPrunedToEmpty(boolean partitionsPrunedToEmpty) {
+            this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
+            return this;
+        }
+
         public Builder countPushdown(boolean countPushdown) {
             this.countPushdown = countPushdown;
             return this;
@@ -187,7 +209,7 @@ public final class ConnectorScanRequest {
 
         public ConnectorScanRequest build() {
             return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                    requiredPartitions, countPushdown, explainOnly);
+                    requiredPartitions, partitionsPrunedToEmpty, countPushdown, explainOnly);
         }
     }
 }

@@ -30,6 +30,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
+#include "runtime/runtime_state.h"
 #include "storage/compaction/compaction.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/iterators.h"
@@ -112,7 +113,11 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                      << ", version:" << read_params.version;
         return res;
     }
+    RuntimeState* runtime_state = read_params.runtime_state;
     for (const auto& rs_split : read_params.rs_splits) {
+        if (runtime_state != nullptr) {
+            RETURN_IF_CANCELLED(runtime_state);
+        }
         RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
         const auto rowset = rs_split.rs_reader->rowset();
         // segment iterator will be inited here
@@ -205,7 +210,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
                                                           _row_sources_buffer, _context_stats);
     }
     // init collect iterator
-    StorageReadOptions opts;
+    StorageReadOptions opts(_stats);
     opts.record_rowids = read_params.record_rowids;
     opts.use_insert_order_when_same = _reader_context.use_insert_order_when_same;
     if (read_params.batch_size > 0) {
@@ -265,13 +270,17 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
 Status VerticalBlockReader::init(const ReaderParams& read_params,
                                  CompactionSampleInfo* sample_info) {
-    StorageReadOptions opts;
+    StorageReadOptions opts(_stats);
     if (read_params.batch_size > 0) {
         _reader_context.batch_size = cast_set<int>(read_params.batch_size);
     } else {
         _reader_context.batch_size = opts.block_row_max;
     }
     RETURN_IF_ERROR(TabletReader::init(read_params));
+
+    RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(*_tablet_schema,
+                                                          /*merge_by_sequence_mapping=*/false,
+                                                          /*map_row_binlog_columns=*/false));
 
     auto status = _init_collect_iter(read_params, sample_info);
     if (!status.ok()) [[unlikely]] {

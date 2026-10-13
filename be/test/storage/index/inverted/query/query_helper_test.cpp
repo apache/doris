@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "common/be_mock_util.h"
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/similarity/similarity.h"
 #include "storage/index/inverted/util/mock_iterator.h"

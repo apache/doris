@@ -106,6 +106,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::IPV4;
     case PrimitiveType::TYPE_IPV6:
         return PGenericType::IPV6;
+    case PrimitiveType::TYPE_UUID:
+        return PGenericType::UUID;
     case PrimitiveType::TYPE_FLOAT:
         return PGenericType::FLOAT;
     case PrimitiveType::TYPE_DOUBLE:

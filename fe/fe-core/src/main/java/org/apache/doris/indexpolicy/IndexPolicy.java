@@ -59,7 +59,8 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     public static final String PROP_TOKEN_FILTER = "token_filter";
     public static final String PROP_CHAR_FILTER = "char_filter";
     public static final Set<String> BUILTIN_TOKENIZERS = ImmutableSet.of(
-            "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin");
+            "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin",
+            "ik_smart", "ik_max_word");
 
     public static final Set<String> BUILTIN_TOKEN_FILTERS = ImmutableSet.of(
             "empty", "asciifolding", "word_delimiter", "lowercase", "pinyin", "icu_normalizer");
@@ -123,14 +124,19 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
                 GsonUtils.GSON.toJson(this.properties));
     }
 
-    // 已从 BE 删除、但老版本镜像/edit log 里可能仍持久化着的 token filter 类型。
-    // 这类策略可以被加载（否则 FE 起不来），但不可再被 analyzer 引用。
+    // Token filter types removed from BE but possibly retained in older images or edit logs.
+    // Load these policies so FE can start, but reject analyzers that reference them.
     public static final Set<String> LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES =
             ImmutableSet.of("common_grams");
 
     public boolean isInvalid() {
-        return type == IndexPolicyTypeEnum.TOKEN_FILTER
+        boolean hasUnsupportedTokenFilter = type == IndexPolicyTypeEnum.TOKEN_FILTER
                 && properties != null
                 && LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES.contains(properties.get(PROP_TYPE));
+        boolean hasInvalidNgramTokenizer = type == IndexPolicyTypeEnum.TOKENIZER
+                && properties != null
+                && "ngram".equals(properties.get(PROP_TYPE))
+                && !NGramTokenizerValidator.isValidPolicy(properties);
+        return hasUnsupportedTokenFilter || hasInvalidNgramTokenizer;
     }
 }

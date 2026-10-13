@@ -45,6 +45,8 @@ import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
 
+    private static final String APACHE_DORIS_SERVER_IDENTITY = "apache_doris";
+
     private boolean convertDateToNull = false;
     private boolean isDoris = false;
 
@@ -57,10 +59,15 @@ public class JdbcMySQLClient extends JdbcClient {
         try {
             conn = super.getConnection();
             stmt = conn.createStatement();
-            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'server_identity'");
             if (rs.next()) {
-                String versionComment = rs.getString("Value");
-                isDoris = isDorisCompatibleVersionComment(versionComment);
+                isDoris = isDorisServerIdentity(rs.getString("Value"));
+            } else {
+                close(rs);
+                rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+                if (rs.next()) {
+                    isDoris = isDorisCompatibleVersionComment(rs.getString("Value"));
+                }
             }
         } catch (SQLException | JdbcClientException e) {
             closeClient();
@@ -76,14 +83,20 @@ public class JdbcMySQLClient extends JdbcClient {
         this.dbType = dbType;
     }
 
+    static boolean isDorisServerIdentity(String serverIdentity) {
+        return APACHE_DORIS_SERVER_IDENTITY.equalsIgnoreCase(serverIdentity);
+    }
+
     static boolean isDorisCompatibleVersionComment(String versionComment) {
         if (Strings.isNullOrEmpty(versionComment)) {
             return false;
         }
         String lowerVersionComment = versionComment.toLowerCase(Locale.ROOT);
+        // Enterprise releases can omit the optional "(Cloud Mode)" suffix.
         return lowerVersionComment.contains("doris")
                 || lowerVersionComment.contains("selectdb")
                 || lowerVersionComment.contains("velodb")
+                || lowerVersionComment.contains("enterprise version enterprise-")
                 || (lowerVersionComment.contains("enterprise version")
                     && lowerVersionComment.contains("cloud mode"));
     }
@@ -301,8 +314,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 if (convertDateToNull) {
                     fieldSchema.setAllowNull(true);
                 }
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
+                // MySQL TIMESTAMP is an instant; DATETIME below remains a wall-clock value.
+                return ScalarType.createTimeStampTzType(scale);
             }
             case "DATETIME": {
                 // mysql can support microsecond
@@ -336,8 +349,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "LONGBLOB":
             case "BINARY":
             case "VARBINARY":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             case "BIT":
                 if (fieldSchema.requiredColumnSize() == 1) {
                     return Type.BOOLEAN;

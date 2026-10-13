@@ -78,7 +78,8 @@ PhraseTermMapping build_phrase_term_mapping(const std::vector<std::string>& term
 }
 
 namespace {
-// 只读帧头估算工作量，不校验 crc：解码时才校验，坏帧在那里被拦下并保留已解码帧的统计。
+// Estimate work from frame headers without checking CRCs. Decoding rejects corrupt frames while
+// retaining statistics from frames already decoded.
 Status accumulate_frame_position_work(Slice frames, uint64_t* work) {
     ByteSource source(frames);
     while (!source.eof()) {

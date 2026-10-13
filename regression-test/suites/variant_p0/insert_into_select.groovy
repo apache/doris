@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_insert_into_select", "variant_type"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def table_name = "insert_into_select"
     sql """ set default_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS ${table_name}_var"
@@ -33,7 +33,7 @@ suite("regression_test_variant_insert_into_select", "variant_type"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name}_str (
             k bigint,
-            v string 
+            v string
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3

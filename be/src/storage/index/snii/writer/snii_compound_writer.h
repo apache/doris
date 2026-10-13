@@ -55,9 +55,9 @@ class SniiRewriteSnapshot;
 //   for each logical index, in add order:
 //     [Core metadata][SampledTermIndex blob][DICT block directory blob]
 //   [metadata directory]     raw SniiMetadataDirectoryPB bytes
-//   [block padding]          OPTIONAL run of zero bytes, see write_tail(). Written only for
-//                            containers of >= kMinPaddingLeverage cache blocks, and only when the
-//                            file cache is on, so that the container ends on a block boundary.
+//   [block padding]          OPTIONAL run of zero bytes, see write_tail(). Written only in cloud
+//                            mode and only for containers of >= kMinPaddingLeverage cache blocks,
+//                            so that the container ends on a block boundary.
 //                            Referenced by nothing and read by nobody -- but it means the metadata
 //                            directory is NOT necessarily adjacent to the tail pointer, and that
 //                            container length is not a pure function of the indexed content (two
@@ -131,8 +131,9 @@ public:
     // every rejection is terminal here because posting bytes may already have
     // entered the compound output; all later calls return the first error.
     Status push_term(StreamedTermPostings&& tp);
-    // 交付本目标段的 norms（compaction 在合并 postings 的同一趟里重建）。声明了
-    // write_norms 的会话在 finish 之前必须恰好调用一次；长度必须等于 doc_count。
+    // Supply this destination segment's norms, rebuilt alongside postings during compaction.
+    // Sessions declaring write_norms must call this exactly once before finish, with doc_count
+    // entries.
     Status set_encoded_norms(TrackedEncodedNorms encoded_norms);
     // Seals this index: flushes the trailing DICT block, streams the DICT region
     // right after the posting region and records the placements. A failed finish
@@ -222,7 +223,7 @@ public:
     // rejected while a session is unfinished, as is finish(). The returned
     // handle is owned by this writer and valid for its lifetime.
     Status begin_streamed_index(SniiIndexInput in, SniiStreamedIndexSession** session);
-    // in.write_norms=true 的会话在 finish 之前必须通过 set_encoded_norms 交付 norms。
+    // Sessions with in.write_norms=true must supply norms through set_encoded_norms before finish.
     Status begin_streamed_index(SniiIndexInput in, TrackedNullDocids null_docids,
                                 SniiStreamedIndexSession** session);
 
@@ -255,6 +256,7 @@ private:
         size_t core_length = 0;
         size_t sampled_term_index_length = 0;
         size_t dict_block_directory_length = 0;
+        bool dropped_postings = false;
     };
 
     // One registered blob logical index awaiting finish(). cold/hot refs are

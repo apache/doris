@@ -29,8 +29,6 @@ else ()
     list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/perf_counters_mac.cpp ${CMAKE_CURRENT_SOURCE_DIR}/disk_info_mac.cpp)
 endif()
 
-list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/libjvm_loader.cpp)
-
 if (ENABLE_TLS)
     list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/oss/client_connection_provider.cpp)
     list(APPEND UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/../${TLS_MODULE_DIR}/client_connection_provider.cpp)

@@ -17,6 +17,7 @@
 
 #include "storage/schema.h"
 
+#include <ranges>
 #include <utility>
 
 #include "common/config.h"
@@ -118,7 +119,7 @@ void ReadSchema::_init_before_column_ordinals() {
     }
 }
 
-void ReadSchema::init_row_binlog_column_mappings(const TabletSchema& tablet_schema) {
+void ReadSchema::_init_row_binlog_column_mappings(const TabletSchema& tablet_schema) {
     DORIS_CHECK_GE(_op_ordinal, 0);
     DORIS_CHECK_EQ(_before_column_ordinals.size(), _num_block_columns);
 
@@ -221,7 +222,24 @@ std::string ReadSchema::read_columns_to_string() const {
     return result;
 }
 
-Status ReadSchema::init_sequence_map(const TabletSchema& tablet_schema) {
+Status ReadSchema::init_from_tablet_schema(const TabletSchema& tablet_schema,
+                                           bool merge_by_sequence_mapping,
+                                           bool map_row_binlog_columns) {
+    DORIS_CHECK(!(merge_by_sequence_mapping && map_row_binlog_columns));
+    _tablet_has_sequence_map = tablet_schema.has_seq_map();
+    _tablet_has_extracted_variant_columns =
+            std::ranges::any_of(tablet_schema.columns(),
+                                [](const auto& column) { return column->is_extracted_column(); });
+    if (merge_by_sequence_mapping) {
+        RETURN_IF_ERROR(_init_sequence_map(tablet_schema));
+    }
+    if (map_row_binlog_columns) {
+        _init_row_binlog_column_mappings(tablet_schema);
+    }
+    return Status::OK();
+}
+
+Status ReadSchema::_init_sequence_map(const TabletSchema& tablet_schema) {
     if (tablet_schema.has_sequence_col()) {
         auto msg = "sequence columns conflict, both seq_col and seq_map are true!";
         LOG(WARNING) << msg;

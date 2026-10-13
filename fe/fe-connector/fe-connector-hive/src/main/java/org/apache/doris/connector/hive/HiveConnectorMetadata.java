@@ -611,6 +611,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE,
                     ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                    ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
                     ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE));
 
@@ -1528,6 +1529,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         // Hive's empty pin carries no scan options; the SPI default returns the handle unchanged.
         return handle;
+    }
+
+    @Override
+    public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            // Route a foreign (hudi) handle to its owning sibling: this answer decides whether fe-core pins the
+            // real partition set for a FOR TIME/VERSION AS OF query or an empty one, and only the sibling knows
+            // whether its listPartitions reads the pin. Answering for it would report the gateway's own
+            // snapshot-blindness and leave every time-travel query with partition=0/0.
+            return siblingMetadata(session, handle).listsPartitionsAtSnapshot(session, handle);
+        }
+        // Hive has no time travel at all (resolveTimeTravel above returns empty), so nothing ever asks this of
+        // a hive handle; false is the honest answer either way.
+        return false;
     }
 
     @Override

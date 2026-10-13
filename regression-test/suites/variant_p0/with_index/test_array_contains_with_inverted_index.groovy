@@ -16,9 +16,7 @@
 // under the License.
 
 suite("test_array_contains_with_inverted_index", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-    assertFalse(getFeConfig("enable_variant_v2").toBoolean())
-    def variantV2Function = ""
+    def variantV2Function = "parse_to_variant"
     // prepare test table
     def indexTblName = "tai"
     def typedInventors = "cast(inventors['inventors'] as array<text>)"
@@ -120,5 +118,5 @@ suite("test_array_contains_with_inverted_index", "p0,nonConcurrent") {
             order_qt_sql """ select /*+SET_VAR(enable_segment_limit_pushdown = false)*/ ${resultColumns} from tai where (${predicate} and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
         }
     }
-    }
+
 }

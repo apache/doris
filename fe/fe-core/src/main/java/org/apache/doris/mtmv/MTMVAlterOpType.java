@@ -22,5 +22,6 @@ public enum MTMVAlterOpType {
     ALTER_STATUS,
     ALTER_PROPERTY,
     ADD_TASK,
-    ALTER_IVM_INFO;
+    ALTER_IVM_INFO,
+    ALTER_PARTITION_STATES;
 }

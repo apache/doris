@@ -274,14 +274,13 @@ Status MergedPostingRuns::fill(uint32_t target_docs, writer::TermPostingBuffer* 
             *exhausted = true;
             return Status::OK();
         }
-        const size_t position_count = run.positions_flat.size();
         writer::MutableTermPostingSpan destination;
-        RETURN_IF_ERROR(out->grow_uninitialized(run.docids.size(), retain_positions_,
-                                                position_count, &destination));
+        RETURN_IF_ERROR(
+                out->grow_uninitialized(run.docids.size(), retain_positions_, 0, &destination));
         std::ranges::copy(run.docids, destination.docids.begin());
         if (retain_positions_) {
             std::ranges::copy(run.freqs, destination.freqs.begin());
-            std::ranges::copy(run.positions_flat, destination.positions_flat.begin());
+            RETURN_IF_ERROR(out->append_positions(run.positions_flat));
         }
 #ifdef BE_TEST
         posting_run_copied_document_counter.fetch_add(run.docids.size(), std::memory_order_relaxed);
@@ -363,8 +362,8 @@ Status MergedPostingRuns::select_run(ActivePostingChunk* active, size_t max_docs
                               : std::span<const uint32_t> {};
 
     if (!destination_doc_lengths_.empty()) {
-        // 重建 norms：每篇文档的长度 = 该文档在所有 term 上的词频之和（与 writer 的
-        // 词元计数逐字节一致，见 SniiIndexColumnWriter），按 u8 饱和累加，255 封顶。
+        // Rebuild norms by summing each document's frequencies across all terms, matching the
+        // token counts in SniiIndexColumnWriter byte for byte. Saturate the u8 sum at 255.
         std::vector<uint8_t>& lengths = destination_doc_lengths_[*active_destination_];
         for (size_t i = 0; i < document_count; ++i) {
             const uint32_t docid = run->docids[i];

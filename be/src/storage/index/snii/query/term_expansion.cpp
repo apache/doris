@@ -45,8 +45,8 @@ Status legacy_raw_prefix_exists(const reader::LogicalIndexReader& idx, std::stri
             cache);
 }
 
-// 空前缀会枚举整个词典：段里若存在内部命名空间的词项（phrase-bigram 标记），枚举结果会混入
-// 内部词项，此时整条查询绕过 SNII。
+// An empty prefix enumerates the entire dictionary. If the segment contains internal
+// phrase-bigram terms, bypass SNII for the whole query to avoid including those terms.
 Status prove_no_internal_terms(const reader::LogicalIndexReader& idx,
                                reader::DictBlockCache* cache) {
     bool exists = false;

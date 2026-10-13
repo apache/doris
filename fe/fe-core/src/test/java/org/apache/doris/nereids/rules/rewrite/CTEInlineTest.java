@@ -34,6 +34,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -93,6 +94,44 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
                         )
                 ).when(cte -> cte.getCteName().equals("yy"))
         );
+    }
+
+    @Test
+    public void inlineTransitiveRecursiveDependencies() {
+        boolean oldEnableCteMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        int oldCteInlineMode = connectContext.getSessionVariable().cteInlineMode;
+        int oldInlineCteReferencedThreshold = connectContext.getSessionVariable().inlineCTEReferencedThreshold;
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        connectContext.getSessionVariable().cteInlineMode = 0;
+        connectContext.getSessionVariable().inlineCTEReferencedThreshold = 1;
+        try {
+            for (String input : new String[] {"base", "middle"}) {
+                String sql = "with recursive "
+                        + "base as (select 1 as src, 2 as dst union all select 2, 3), "
+                        + "middle as (select * from base union all select * from base), "
+                        + "edges as (select * from " + input + " union all select * from " + input + "), "
+                        + "ordinary as (select id from cte_inline_tbl), "
+                        + "r1(n) as (select 1 union all "
+                        + "select e.dst from r1 r join edges e on r.n = e.src), "
+                        + "r2(n) as (select 2 union all "
+                        + "select e.dst from r2 r join edges e on r.n = e.src) "
+                        + "select r1.n, r2.n from r1 join r2 on r1.n = r2.n "
+                        + "join ordinary a on a.id = r1.n join ordinary b on b.id = r2.n";
+                LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+                NereidsPlanner planner = new NereidsPlanner(new StatementContext(connectContext,
+                        new OriginStatement(sql, 0)));
+                planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                        ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
+                List<LogicalCTEConsumer> consumers = planner.getRewrittenPlan()
+                        .collectToList(p -> p instanceof LogicalCTEConsumer);
+                Assertions.assertEquals(2, consumers.size());
+                Assertions.assertTrue(consumers.stream().allMatch(c -> c.getName().equals("ordinary")));
+            }
+        } finally {
+            connectContext.getSessionVariable().enableCTEMaterialize = oldEnableCteMaterialize;
+            connectContext.getSessionVariable().cteInlineMode = oldCteInlineMode;
+            connectContext.getSessionVariable().inlineCTEReferencedThreshold = oldInlineCteReferencedThreshold;
+        }
     }
 
     @Test

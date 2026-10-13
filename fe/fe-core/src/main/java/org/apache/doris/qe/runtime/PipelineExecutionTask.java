@@ -97,6 +97,10 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
     @Override
     public void execute() throws Exception {
         coordinatorContext.withLock(() -> {
+            Status status = coordinatorContext.readCloneStatus();
+            if (!status.ok()) {
+                throw new UserException(status.getErrorMsg());
+            }
             dispatchedBackendIdsForAudit.clear();
             sendAndWaitPhaseOneRpc();
             if (coordinatorContext.twoPhaseExecution()) {

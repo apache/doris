@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
 import org.apache.doris.connector.cache.ScopePath;
 
 import java.io.IOException;
@@ -130,23 +131,28 @@ public class CachingHmsClient implements HmsClient {
         Map<String, String> props = applyLegacyTtlCompatibility(
                 properties == null ? Collections.emptyMap() : properties);
         this.tableCache = newEntry(owner, "hive-table", props, ENTRY_TABLE, DEFAULT_TABLE_CAPACITY,
-                key -> ScopePath.table(key.dbName, key.tableName));
+                key -> ScopePath.table(key.dbName, key.tableName), HmsCacheSizeEstimator::estimateTable);
         this.partitionNamesCache = newEntry(owner, "hive-partition-names", props, ENTRY_PARTITION_NAMES,
                 DEFAULT_PARTITION_NAMES_CAPACITY,
-                key -> ScopePath.partitionCollection(key.dbName, key.tableName));
+                key -> ScopePath.partitionCollection(key.dbName, key.tableName),
+                HmsCacheSizeEstimator::estimatePartitionNames);
         this.partitionsCache = newEntry(owner, "hive-partition", props, ENTRY_PARTITION,
                 DEFAULT_PARTITION_CAPACITY,
-                key -> ScopePath.partition(key.dbName, key.tableName, key.values));
+                key -> ScopePath.partition(key.dbName, key.tableName, key.values),
+                HmsCacheSizeEstimator::estimatePartition);
         this.columnStatsCache = newEntry(owner, "hive-column-stats", props, ENTRY_COLUMN_STATS,
                 DEFAULT_COLUMN_STATS_CAPACITY,
-                key -> ScopePath.table(key.dbName, key.tableName));
+                key -> ScopePath.table(key.dbName, key.tableName), HmsCacheSizeEstimator::estimateColumnStats);
     }
 
     private static <K, V> MetaCache<K, V> newEntry(CatalogMetaCache owner, String name,
-            Map<String, String> props, String entry, long defaultCapacity, Function<K, ScopePath> scopeResolver) {
+            Map<String, String> props, String entry, long defaultCapacity, Function<K, ScopePath> scopeResolver,
+            MetaCacheSizeEstimator<K, V> sizeEstimator) {
         CacheSpec spec = CacheSpec.fromProperties(props, ENGINE, entry,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, defaultCapacity));
-        return owner.create(MetaCacheDefinition.<K, V>builder(name, spec, scopeResolver).build());
+        return owner.create(MetaCacheDefinition.<K, V>builder(name, spec, scopeResolver)
+                .sizeEstimator(sizeEstimator)
+                .build());
     }
 
     /** Legacy fe-core catalog knob ({@code ExternalCatalog.SCHEMA_CACHE_TTL_SECOND}) for the table/schema cache. */

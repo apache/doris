@@ -47,6 +47,7 @@ import java.util.function.Consumer;
 public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
 
     private static final Logger LOG = LogManager.getLogger(JdbcMySQLConnectorClient.class);
+    private static final String APACHE_DORIS_SERVER_IDENTITY = "apache_doris";
 
     private final boolean convertDateToNull;
     private boolean isDoris = false;
@@ -76,10 +77,15 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         try {
             conn = getConnection();
             stmt = conn.createStatement();
-            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'server_identity'");
             if (rs.next()) {
-                String versionComment = rs.getString("Value");
-                isDoris = isDorisCompatibleVersionComment(versionComment);
+                isDoris = isDorisServerIdentity(rs.getString("Value"));
+            } else {
+                closeResources(rs);
+                rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+                if (rs.next()) {
+                    isDoris = isDorisCompatibleVersionComment(rs.getString("Value"));
+                }
             }
         } catch (Exception e) {
             LOG.warn("Failed to detect if remote MySQL is Doris: {}", e.getMessage());
@@ -88,14 +94,20 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         }
     }
 
+    static boolean isDorisServerIdentity(String serverIdentity) {
+        return APACHE_DORIS_SERVER_IDENTITY.equalsIgnoreCase(serverIdentity);
+    }
+
     static boolean isDorisCompatibleVersionComment(String versionComment) {
         if (versionComment == null || versionComment.isEmpty()) {
             return false;
         }
         String lowerVersionComment = versionComment.toLowerCase(Locale.ROOT);
+        // Enterprise releases can omit the optional "(Cloud Mode)" suffix.
         return lowerVersionComment.contains("doris")
                 || lowerVersionComment.contains("selectdb")
                 || lowerVersionComment.contains("velodb")
+                || lowerVersionComment.contains("enterprise version enterprise-")
                 || (lowerVersionComment.contains("enterprise version")
                     && lowerVersionComment.contains("cloud mode"));
     }
@@ -320,6 +332,11 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         if (upperType.startsWith("ARRAY")) {
             // ARRAY<INNER_TYPE> -> extract inner type and recursively convert
             String innerType = upperType.substring(6, upperType.length() - 1).trim();
+            if (innerType.startsWith("VARBINARY")) {
+                // The remote returns an array as text that spells each VARBINARY element as 0x hex, and the scanner
+                // decodes array elements only into strings, so such an element stays STRING.
+                return ConnectorType.arrayOf(ConnectorType.of("STRING"));
+            }
             return ConnectorType.arrayOf(dorisTypeToConnectorType(innerType, null));
         }
 
@@ -408,8 +425,17 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 return ConnectorType.of("BITMAP");
             case "QUANTILE_STATE":
                 return ConnectorType.of("QUANTILE_STATE");
-            case "VARBINARY":
-                return ConnectorType.of("STRING");
+            case "VARBINARY": {
+                // Keep the remote Doris bytes and length, like the binary types of every other source.
+                if (openParen == -1) {
+                    if (fieldInfo != null) {
+                        return ConnectorType.of("VARBINARY", fieldInfo.requiredColumnSize(), -1);
+                    }
+                    return ConnectorType.of("VARBINARY");
+                }
+                int len = Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
+                return ConnectorType.of("VARBINARY", len, -1);
+            }
             default:
                 return ConnectorType.of("UNSUPPORTED");
         }

@@ -29,7 +29,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
@@ -303,7 +303,7 @@ protected:
         EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, 0);
         EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 1);
         EXPECT_EQ(execution.stats.inverted_index_query_cache_insert, 0);
-        // 命中发生在打开 logical reader 之前：searcher cache 完全没有被触碰。
+        // The hit occurs before opening the logical reader, without touching the searcher cache.
         EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, 0);
         EXPECT_EQ(execution.stats.inverted_index_searcher_cache_miss, 0);
     }
@@ -365,8 +365,8 @@ TEST(InvertedIndexRawQuerySemanticTest, CacheEnvelopeSeparatesSlashAndNulBoundar
     EXPECT_NE(nul_left.encode(), nul_right.encode());
 }
 
-// 结果缓存的键只有 (索引文件, 列, 查询类型, 原始查询字节)：命中发生在打开 segment 与
-// 任何分词之前，所以即使 analyzer provider 会失败，缓存命中也照常返回。
+// Result cache keys contain only (index file, column, query type, raw query bytes). Hits precede
+// opening the segment and analysis, so they succeed even if the analyzer provider would fail.
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiRawCacheHitHappensBeforeSegmentOpenAndAnalysis) {
     preload_legacy_searcher_cache_entries();
     expect_raw_cache_hit_after_segment_admission(
@@ -427,6 +427,31 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, PartialAnalysisFailureDoesNotPubl
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
             snii_provider, /*expected_query_cache_lookups=*/1);
     EXPECT_EQ(snii_provider->emitted_tokens->load(std::memory_order_relaxed), 1);
+}
+
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, ClassicReaderConvertsAnalyzerFailureToStatus) {
+    auto file_reader = std::make_shared<IndexFileReader>(
+            io::global_local_filesystem(), "./ut_dir/missing_classic_analysis_failure",
+            InvertedIndexStorageFormatPB::V2);
+    auto reader = FullTextIndexReader::create_shared(&_meta, file_reader);
+    auto emitted_tokens = std::make_shared<std::atomic<uint32_t>>(0);
+
+    QueryExecutionContext execution(/*scoring=*/false);
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    analyzer_ctx.analyzer = std::make_shared<PartialFailureAnalyzer>(emitted_tokens);
+    const Field query_value = Field::create_field<TYPE_STRING>("the history");
+    auto original_bitmap = std::make_shared<roaring::Roaring>();
+    original_bitmap->add(999);
+    std::shared_ptr<roaring::Roaring> bitmap = original_bitmap;
+
+    Status status;
+    EXPECT_NO_THROW(status = reader->query(execution.context, "content", query_value,
+                                           InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap,
+                                           &analyzer_ctx));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+    EXPECT_EQ(emitted_tokens->load(std::memory_order_relaxed), 1U);
+    EXPECT_EQ(bitmap, original_bitmap);
 }
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, RegexpAndWildcardBypassAnalyzer) {

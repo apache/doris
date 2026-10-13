@@ -22,10 +22,32 @@
 
 namespace doris::segment_v2::inverted_index {
 
+namespace {
+
+int32_t count_utf8_runes(std::string_view text) {
+    const auto length = static_cast<int32_t>(text.size());
+    const char* data = text.data();
+    int32_t offset = 0;
+    int32_t count = 0;
+    while (offset < length) {
+        UChar32 codepoint = U_UNASSIGNED;
+        U8_NEXT(data, offset, length, codepoint);
+        if (codepoint < 0) {
+            return -1;
+        }
+        ++count;
+    }
+    return count;
+}
+
+} // namespace
+
 ASCIIFoldingFilter::ASCIIFoldingFilter(const TokenStreamPtr& in, bool preserve_original)
         : DorisTokenFilter(in), _preserve_original(preserve_original), _output(512, 0) {}
 
 Token* ASCIIFoldingFilter::next(Token* t) {
+    _rune_count_changed = false;
+    _has_source_span = false;
     if (_state != std::nullopt) {
         assert(_preserve_original);
         set(t, std::string_view(_state->data(), _state->size()), 0);
@@ -43,6 +65,18 @@ Token* ASCIIFoldingFilter::next(Token* t) {
             }
             if (c >= 0x0080) {
                 fold_to_ascii(buffer, length);
+                // Rune counts only matter to a downstream provenance consumer. Malformed bytes
+                // are skipped while folding, so the upstream map no longer describes the output.
+                if (_source_byte_offsets_enabled) {
+                    const int32_t input_runes = count_utf8_runes(std::string_view(buffer, length));
+                    _rune_count_changed =
+                            input_runes < 0 || input_runes != count_utf8_runes(std::string_view(
+                                                                      _output.data(), _output_pos));
+                }
+                if (_rune_count_changed) {
+                    _has_source_span =
+                            get_delegated_source_byte_span(*t, _source_start, _source_end);
+                }
                 set_text(t, std::string_view(_output.data(), _output_pos));
                 break;
             }
@@ -55,6 +89,35 @@ Token* ASCIIFoldingFilter::next(Token* t) {
 void ASCIIFoldingFilter::reset() {
     DorisTokenFilter::reset();
     _state = std::nullopt;
+    _rune_count_changed = false;
+    _has_source_span = false;
+}
+
+std::span<const int32_t> ASCIIFoldingFilter::get_source_byte_offsets() const {
+    return _rune_count_changed ? std::span<const int32_t> {}
+                               : DorisTokenFilter::get_source_byte_offsets();
+}
+
+std::span<const int32_t> ASCIIFoldingFilter::get_source_byte_end_offsets() const {
+    return _rune_count_changed ? std::span<const int32_t> {}
+                               : DorisTokenFilter::get_source_byte_end_offsets();
+}
+
+bool ASCIIFoldingFilter::get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
+    if (!_rune_count_changed) {
+        return DorisTokenFilter::get_conservative_source_byte_span(start, end);
+    }
+    if (!_has_source_span) {
+        return false;
+    }
+    start = _source_start;
+    end = _source_end;
+    return true;
+}
+
+void ASCIIFoldingFilter::set_source_byte_offsets_enabled(bool enabled) {
+    _source_byte_offsets_enabled = enabled;
+    DorisTokenFilter::set_source_byte_offsets_enabled(enabled);
 }
 
 void ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t length) {

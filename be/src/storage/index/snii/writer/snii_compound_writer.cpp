@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
@@ -142,6 +143,7 @@ Status SniiCompoundWriter::inherit(const reader::SniiRewriteSnapshot& snapshot,
         DORIS_CHECK_EQ(group.metadata_group.size(), group.core_length +
                                                             group.sampled_term_index_length +
                                                             group.dict_block_directory_length);
+        group.dropped_postings = index.dropped_postings;
         inherited_.push_back(std::move(group));
     }
     return Status::OK();
@@ -374,7 +376,7 @@ Status SniiStreamedIndexSession::set_encoded_norms(TrackedEncodedNorms encoded_n
                 "compound: norms length {} differs from doc_count {}", encoded_norms.size(),
                 input_.doc_count);
     }
-    // writer_ 持有 input_.encoded_norms 的引用：就地移入即可，finalize 时按引用读取。
+    // writer_ references input_.encoded_norms; move into it here for finalize to read by reference.
     encoded_norms_reservation_ = std::move(encoded_norms.reservation_);
     input_.encoded_norms = std::move(encoded_norms.norms_);
     norms_set_ = true;
@@ -555,6 +557,10 @@ Status SniiCompoundWriter::write_tail() {
         entry.dict_block_directory = {
                 .offset = core_offset + group.core_length + group.sampled_term_index_length,
                 .length = group.dict_block_directory_length};
+        // The dictionary is copied byte for byte, locator-less stop-gram entries included, so
+        // this entry re-declares what the source index declared. Without it a reader that
+        // predates the feature would parse those entries instead of refusing the container.
+        entry.dropped_postings = group.dropped_postings;
         RETURN_IF_ERROR(append(group.metadata_group));
         DORIS_CHECK_EQ(out_->bytes_written(), core_offset + group.metadata_group.size());
         directory_entries.push_back(std::move(entry));
@@ -576,6 +582,9 @@ Status SniiCompoundWriter::write_tail() {
         LogicalIndexMetadataRef entry;
         entry.index_id = w.index_id();
         entry.index_suffix = w.index_suffix();
+        // Inherited groups are handled above: they carry the source container's declaration,
+        // because their dictionaries are copied rather than written here.
+        entry.dropped_postings = w.dropped_posting_terms() > 0;
         entry.core_metadata = {.offset = out_->bytes_written(), .length = group.core.size()};
         RETURN_IF_ERROR(append(group.core));
         DORIS_CHECK_EQ(out_->bytes_written(),
@@ -654,13 +663,14 @@ Status SniiCompoundWriter::write_tail() {
     // while the filler bytes stay on disk: strictly worse than never having padded, until
     // compaction rewrites the container.
     //
-    // Gated on enable_file_cache because the saving is realised only by CachedRemoteFileReader.
-    // That flag defaults to FALSE; without this check a storage-compute-coupled or local-filesystem
-    // deployment appends up to a block of zeros per container and never reads through a block cache
-    // at all. (exec_env_init only validates file_cache_each_block_size when the cache is on, so in
-    // that configuration the value here would also be entirely unvalidated.)
+    // Gated on cloud mode because the saving is realised only by CachedRemoteFileReader, and only
+    // in cloud mode is every container read through it. A storage-compute-coupled BE writes its
+    // containers to local disk and reads them through LocalFileReader whether enable_file_cache is
+    // on (the default) or not, so padding there would append up to a block of zeros per container
+    // that no block cache ever repays. Cloud mode always runs with the file cache on, so
+    // exec_env_init has validated file_cache_each_block_size before it is read here.
     const int64_t block = config::file_cache_each_block_size;
-    if (config::enable_file_cache && block > 0) {
+    if (config::is_cloud_mode() && block > 0) {
         const uint64_t unpadded = out_->bytes_written() + tail_sink.buffer().size();
         const auto block_size = static_cast<uint64_t>(block);
         const uint64_t pad = (block_size - unpadded % block_size) % block_size;

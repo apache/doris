@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "storage/index/snii/common/slice.h"
@@ -384,7 +385,7 @@ Status begin_scoring_session_from_local_input(SniiCompoundWriter* compound,
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = 4;
     input.null_docids = {1, 3};
-    // 流式会话的 norms 只能晚绑定（compaction 在合并 postings 之后才知道每 doc 长度）。
+    // Streaming norms are bound late: compaction learns document lengths after merging postings.
     input.write_norms = true;
     return compound->begin_streamed_index(std::move(input), session);
 }
@@ -396,16 +397,20 @@ Status begin_scoring_session_from_local_input(SniiCompoundWriter* compound,
 // compaction and load produce different images for the same input.
 TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) {
     const int64_t saved_block = doris::config::file_cache_each_block_size;
-    const bool saved_cache = doris::config::enable_file_cache;
+    const std::string saved_deploy_mode = doris::config::deploy_mode;
+    const std::string saved_cloud_unique_id = doris::config::cloud_unique_id;
     doris::Defer restore {[&] {
         doris::config::file_cache_each_block_size = saved_block;
-        doris::config::enable_file_cache = saved_cache;
+        doris::config::deploy_mode = saved_deploy_mode;
+        doris::config::cloud_unique_id = saved_cloud_unique_id;
     }};
+    doris::config::cloud_unique_id.clear();
 
-    // Measure the unpadded size first, then pick a block the gate must accept: the container
-    // spans at least kMinPaddingLeverage blocks (we start the search at 2x that leverage and walk
-    // the block size up), and pad is asserted to be both due and worth paying.
-    doris::config::enable_file_cache = false;
+    // Measure the unpadded size first, outside cloud mode where nothing is padded, then pick a
+    // block the gate must accept: the container spans at least kMinPaddingLeverage blocks (we start
+    // the search at 2x that leverage and walk the block size up), and pad is asserted to be both due
+    // and worth paying.
+    doris::config::deploy_mode = "";
     MemoryFile unpadded_file;
     assert_ok(write_streamed_index(representative_input(), &unpadded_file));
     const size_t unpadded = unpadded_file.data().size();
@@ -425,7 +430,7 @@ TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) 
     ASSERT_LT(2 * pad, block_size) << "the gate would decline this padding as not worth its cost";
     const auto block = static_cast<int64_t>(block_size);
 
-    doris::config::enable_file_cache = true;
+    doris::config::deploy_mode = "cloud";
     doris::config::file_cache_each_block_size = block;
     MemoryFile ordinary;
     MemoryFile streamed;
@@ -931,7 +936,8 @@ TEST(SniiStreamedWriterSessionTest, TerminalDrainReleasesLookupStateWithoutUnder
             ASSERT_EQ(terms.run_count_for_test(), 0);
         }
         const uint64_t before_drain = terms.resident_bytes_for_test();
-        ASSERT_EQ(reporter.current_bytes(), static_cast<int64_t>(before_drain));
+        ASSERT_EQ(reporter.current_bytes(),
+                  static_cast<int64_t>(before_drain + reporter.postings_current_bytes()));
         ASSERT_GT(before_drain, kReporterCap);
 
         bool saw_first_term = false;
@@ -1002,11 +1008,32 @@ TEST(SniiStreamedWriterSessionTest, ReusesTransferCapacityAcrossAdjacentTerms) {
                                                            {{.docid = 0, .positions = {1}},
                                                             {.docid = 2, .positions = {3}}})));
         }
-        const uint64_t reservations_after_warmup = positive_reservations;
-        assert_ok(push_materialized(session,
-                                    make_term("term_112", {{.docid = 0, .positions = {1}},
-                                                           {.docid = 2, .positions = {3}}})));
-        EXPECT_EQ(positive_reservations, reservations_after_warmup);
+        // Encoder scratch is now reserved too. Observe only source fills so
+        // this assertion continues to measure reuse of the transfer lanes.
+        class ObservedSource : public writer::TermPostingSource {
+        public:
+            ObservedSource(writer::TermPostingSource* source, const uint64_t* reservations)
+                    : source_(source), reservations_(reservations) {}
+            Status fill(uint32_t target_docs, writer::TermPostingBuffer* buffer,
+                        bool* exhausted) override {
+                const uint64_t before = *reservations_;
+                Status status = source_->fill(target_docs, buffer, exhausted);
+                fill_reservations += *reservations_ - before;
+                return status;
+            }
+            uint64_t fill_reservations = 0;
+
+        private:
+            writer::TermPostingSource* source_;
+            const uint64_t* reservations_;
+        };
+        auto term = make_term("term_112",
+                              {{.docid = 0, .positions = {1}}, {.docid = 2, .positions = {3}}});
+        writer::SpanTermPostingSource source(term.docids, term.freqs, term.positions_flat);
+        ObservedSource observed(&source, &positive_reservations);
+        assert_ok(session->push_term(
+                {.term = term.term, .retain_positions = true, .source = &observed}));
+        EXPECT_EQ(observed.fill_reservations, 0);
 
         assert_ok(session->finish());
         assert_ok(compound.finish());
@@ -1125,14 +1152,15 @@ TEST(SniiStreamedWriterSessionTest, ActiveAndFinishedSessionLifecycleIsEnforced)
     EXPECT_FALSE(exists);
 }
 
-// A2：compaction 的目标会话先声明 write_norms，postings 合并完毕后才把重建出来的 norms 交给
-// 会话；必须恰好交付一次、长度等于 doc_count，finish 之前缺失则整个 compound 中毒。
+// A2: A compaction destination declares write_norms before merging postings, then receives the
+// rebuilt norms exactly once, with doc_count entries. Missing norms at finish poison the entire
+// compound writer.
 TEST(SniiStreamedWriterSessionTest, EncodedNormsAreLateBoundExactlyOnceBeforeFinish) {
     MemoryFile file;
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
     SniiIndexInput input = empty_input(105, "late_norms", /*doc_count=*/2);
-    // norms 需要词频（BM25 的 tf 来自位置计数，存储上要求 freq 区存在）。
+    // Norms require frequencies: BM25 tf comes from position counts and requires a freq region.
     input.write_norms = true;
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
     ASSERT_NE(session, nullptr);

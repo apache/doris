@@ -16,8 +16,6 @@
 // under the License.
 
 suite("variant_compute_v2", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
@@ -261,7 +259,7 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
 
     qt_typed_scalar_is_not_a_document """
         SELECT CAST(${variantV2Function}('{"a":1}') AS STRING),
-               element_at(${variantV2Function}('{"a":1}'), 'a') IS NULL,
+               CAST(element_at(${variantV2Function}('{"a":1}'), 'a') AS INT),
                element_at(CAST(CAST(42 AS BIGINT) AS VARIANT), 0) IS NULL
     """
 
@@ -281,7 +279,7 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
     """
 
     qt_variant_selector_semantics """
-        SELECT CAST(element_at(${variantV2Function}('{"1":"object-key"}'), '1') AS STRING),
+        SELECT CAST(${variantV2Function}('{"1":"object-key"}')['1'] AS STRING),
                element_at(${variantV2Function}('{"1":"object-key"}'), 1) IS NULL
     """
 
@@ -798,5 +796,5 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
     """
 
     sql "DROP TABLE IF EXISTS ${segmentScanTable}"
-    }
+
 }

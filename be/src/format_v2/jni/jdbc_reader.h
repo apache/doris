@@ -38,7 +38,7 @@ public:
     Status prepare_split(const format::SplitReadOptions& options) override;
 
 protected:
-    std::string connector_class() const override;
+    Jni::PluginRef plugin_ref() const override;
     Status build_scanner_params(std::map<std::string, std::string>* params) const override;
     Status build_jni_columns(
             std::vector<format::JniTableReader::JniColumn>* columns) const override;

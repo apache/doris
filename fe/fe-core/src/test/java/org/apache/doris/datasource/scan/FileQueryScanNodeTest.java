@@ -38,6 +38,7 @@ import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -71,6 +72,7 @@ public class FileQueryScanNodeTest {
 
     private static class TestFileQueryScanNode extends FileQueryScanNode {
         private TableIf targetTable;
+        private boolean applyColumnDefaultsOnRead = true;
 
         TestFileQueryScanNode(SessionVariable sv) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "test", ScanContext.EMPTY, false, sv);
@@ -86,6 +88,15 @@ public class FileQueryScanNodeTest {
 
         void initSchemaParamsForTest() throws UserException {
             initSchemaParams();
+        }
+
+        void setApplyColumnDefaultsOnRead(boolean applyColumnDefaultsOnRead) {
+            this.applyColumnDefaultsOnRead = applyColumnDefaultsOnRead;
+        }
+
+        @Override
+        protected boolean applyColumnDefaultsOnRead() {
+            return applyColumnDefaultsOnRead;
         }
 
         @Override
@@ -184,6 +195,7 @@ public class FileQueryScanNodeTest {
         node.initSchemaParamsForTest();
 
         Assertions.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+        Assertions.assertEquals(1, node.getFileScanRangeParams().getParquetTimestampSemanticsVersion());
     }
 
     @Test
@@ -262,6 +274,47 @@ public class FileQueryScanNodeTest {
         node.initSchemaParamsForTest();
 
         Assertions.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+        Assertions.assertEquals(1, node.getFileScanRangeParams().getParquetTimestampSemanticsVersion());
+    }
+
+    @Test
+    public void testRowIdFetchRetainsCategoriesOfPrunedColumns() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable()) {
+            @Override
+            protected TColumnCategory classifyColumn(String name, List<String> partitionKeys) {
+                if (name.equals("_file") || name.equals("_pos")) {
+                    return TColumnCategory.SYNTHESIZED;
+                }
+                if (name.equals("generated_col")) {
+                    return TColumnCategory.GENERATED;
+                }
+                return super.classifyColumn(name, partitionKeys);
+            }
+        };
+        node.setTargetTable(table);
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor sortSlot = new SlotDescriptor(new SlotId(1), desc.getId());
+        sortSlot.setColumn(new Column("id", Type.INT));
+        desc.addSlot(sortSlot);
+        SlotDescriptor rowIdSlot = new SlotDescriptor(new SlotId(2), desc.getId());
+        rowIdSlot.setColumn(new Column(Column.GLOBAL_ROWID_COL, Type.STRING));
+        desc.addSlot(rowIdSlot);
+        List<Column> fullSchema = Arrays.asList(sortSlot.getColumn(), new Column("_file", Type.STRING),
+                new Column("_pos", Type.BIGINT), new Column("generated_col", Type.BIGINT));
+        Mockito.when(table.getBaseSchema(false)).thenReturn(fullSchema);
+        Mockito.when(table.getFullSchema()).thenReturn(fullSchema);
+
+        node.initSchemaParamsForTest();
+        UPDATE_REQUIRED_SLOTS_METHOD.invoke(node);
+
+        TFileScanRangeParams params = node.getFileScanRangeParams();
+        Assertions.assertEquals(2, params.getRequiredSlotsSize());
+        Assertions.assertEquals(Arrays.asList(0), params.getColumnIdxs());
+        Assertions.assertEquals(TColumnCategory.SYNTHESIZED, params.getColumnNameToCategory().get("_file"));
+        Assertions.assertEquals(TColumnCategory.SYNTHESIZED, params.getColumnNameToCategory().get("_pos"));
+        Assertions.assertEquals(TColumnCategory.GENERATED, params.getColumnNameToCategory().get("generated_col"));
+        Assertions.assertFalse(params.getColumnNameToCategory().containsKey("id"));
     }
 
     @Test
@@ -295,6 +348,29 @@ public class FileQueryScanNodeTest {
         Assertions.assertSame(slotInfo, updatedSlotInfo);
         Assertions.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assertions.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
+    }
+
+    @Test
+    public void testConnectorCanKeepColumnDefaultWriteOnly() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setTargetTable(table);
+        node.setApplyColumnDefaultsOnRead(false);
+
+        Column column = new Column("added_later", Type.INT, false, null, true, "7", "");
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), desc.getId());
+        slot.setColumn(column);
+        desc.addSlot(slot);
+        Mockito.when(table.getBaseSchema(false)).thenReturn(Collections.singletonList(column));
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.singletonList(column));
+
+        node.initSchemaParamsForTest();
+
+        TExpr missingColumnExpr = node.getFileScanRangeParams()
+                .getRequiredSlots().get(0).getDefaultValueExpr();
+        Assertions.assertEquals(TExprNodeType.NULL_LITERAL,
+                missingColumnExpr.getNodes().get(0).getNodeType());
     }
 
 }

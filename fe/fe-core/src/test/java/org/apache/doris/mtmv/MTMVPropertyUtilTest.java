@@ -107,6 +107,19 @@ class MTMVPropertyUtilTest {
     }
 
     @Test
+    void testHasPartitionSyncLimit() {
+        String key = PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT;
+        Assertions.assertFalse(MTMVPropertyUtil.hasPartitionSyncLimit(null));
+        Assertions.assertFalse(MTMVPropertyUtil.hasPartitionSyncLimit(ImmutableMap.of()));
+        Assertions.assertFalse(MTMVPropertyUtil.hasPartitionSyncLimit(ImmutableMap.of(key, "")));
+        // A limit that keeps nothing is not a limit: no base partition is filtered out by it.
+        Assertions.assertFalse(MTMVPropertyUtil.hasPartitionSyncLimit(ImmutableMap.of(key, "0")));
+        Assertions.assertFalse(MTMVPropertyUtil.hasPartitionSyncLimit(ImmutableMap.of(key, "-1")));
+        Assertions.assertTrue(MTMVPropertyUtil.hasPartitionSyncLimit(ImmutableMap.of(key, "1")));
+        Assertions.assertTrue(MTMVPropertyUtil.hasPartitionSyncLimit(ImmutableMap.of(key, "2")));
+    }
+
+    @Test
     void testGetPartitionWindowLimitNameMatching() {
         Map<TableNameInfo, Integer> windowLimits =
                 MTMVPropertyUtil.parsePartitionWindowLimit("s:10");

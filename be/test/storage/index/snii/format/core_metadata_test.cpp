@@ -26,12 +26,16 @@
 #include <vector>
 
 #include "gen_cpp/snii.pb.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/section_framer.h"
 
 namespace doris::snii::format {
 namespace {
+
+using segment_v2::gram::GramMode;
+using segment_v2::gram::GramScheme;
 
 CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
     CoreMetadata metadata;
@@ -46,7 +50,7 @@ CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
                              .norms = {},
                              .null_bitmap = {.offset = 41, .length = 42},
                              .bsbf = {.offset = 51, .length = 52}};
-    // norms 只对带位置的段合法（BM25 的词频来自位置）；docs-only 样本不带 norms。
+    // Norms require positions for BM25 frequencies; docs-only samples omit them.
     if (has_positions(index_config)) {
         metadata.section_refs.norms = {.offset = 31, .length = 32};
     }
@@ -107,9 +111,10 @@ void expect_core_eq(const CoreMetadata& expected, const CoreMetadata& actual) {
     EXPECT_EQ(expected.section_refs.null_bitmap.length, actual.section_refs.null_bitmap.length);
     EXPECT_EQ(expected.section_refs.bsbf.offset, actual.section_refs.bsbf.offset);
     EXPECT_EQ(expected.section_refs.bsbf.length, actual.section_refs.bsbf.length);
+    EXPECT_EQ(expected.gram_scheme, actual.gram_scheme);
 }
 
-// docs-only 段不能带 norms（norms 需要位置）：这是 A2 之后 core 元数据的一条硬约束。
+// Since A2, core metadata forbids norms on docs-only segments: norms require positions.
 TEST(SniiCoreMetadata, RejectsNormsOnDocsOnlyIndex) {
     auto metadata = sample_core();
     metadata.section_refs.norms = {.offset = 31, .length = 32};
@@ -132,11 +137,11 @@ TEST(SniiCoreMetadata, RoundTripsPositions) {
     expect_core_eq(expected, actual);
 }
 
-// CommonGrams 已删除：写过字段 4（CommonGrams 元数据）或字段 5（posting 策略）的段是墓碑，
-// 必须重建索引。生产 writer 从未写过这两个字段。
+// CommonGrams was removed: fields 4 (CommonGrams metadata) and 5 (posting policy) mark unsupported
+// segments that require an index rebuild. Production writers never emitted these fields.
 TEST(SniiCoreMetadata, RejectsLegacyCommonGramsMetadataFieldAsUnsupported) {
     auto payload = payload_of(encode(sample_core(IndexConfig::kDocsPositions)));
-    // 字段 4，length-delimited，任意内容。
+    // Field 4, length-delimited, with arbitrary contents.
     payload.push_back(static_cast<uint8_t>((4u << 3) | 2u));
     payload.push_back(3);
     payload.insert(payload.end(), {'c', 'g', '1'});
@@ -193,8 +198,9 @@ TEST(SniiCoreMetadata, RejectsUnsupportedIndexConfig) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// master 开发期曾用 index_config=2 表示"带打分 tier"；打分能力现在由 norms region 表达，
-// 该取值不再有意义，按不支持拒绝（从未进入生产，不存在兼容负担）。
+// During development on master, index_config=2 denoted a scoring tier. The norms region now
+// determines scoring capability, so reject this obsolete value. It was never deployed to
+// production and has no compatibility requirements.
 TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     auto payload = payload_of(encode(sample_core()));
     ByteSink field;
@@ -207,8 +213,8 @@ TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// 已上线的 3.1 系生产 writer 不写 stats.sum_total_term_freq 与
-// section_refs.norms：这种形态必须能打开，缺失的统计按 0、norms 按空 region 处理。
+// The deployed 3.1-series writer omits stats.sum_total_term_freq and section_refs.norms. Such
+// segments must remain readable, with missing statistics set to 0 and an empty norms region.
 TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
     const auto metadata = sample_core(IndexConfig::kDocsPositions);
     const auto payload = mutate_core_payload(metadata, [](auto* core) {
@@ -226,7 +232,7 @@ TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
     EXPECT_EQ(actual.section_refs.bsbf.length, metadata.section_refs.bsbf.length);
 }
 
-// 没有 norms 的段编码时不写 section_refs.norms（与生产 writer 的字节形态一致）。
+// Segments without norms omit section_refs.norms, matching the production writer's bytes.
 TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
     auto metadata = sample_core(IndexConfig::kDocsPositions);
     metadata.section_refs.norms = {};
@@ -244,7 +250,7 @@ TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
 
 TEST(SniiCoreMetadata, RejectsMissingEachStatsField) {
     const auto metadata = sample_core();
-    // sum_total_term_freq 是可选字段（生产 writer 不写），不在必填之列。
+    // sum_total_term_freq is optional and omitted by the production writer.
     for (const auto clear : std::array<void (doris::snii::SniiStatsPB::*)(), 4> {
                  &doris::snii::SniiStatsPB::clear_doc_count,
                  &doris::snii::SniiStatsPB::clear_indexed_doc_count,
@@ -297,6 +303,71 @@ TEST(SniiCoreMetadata, RejectsBadFrameTypeCrcAndTruncation) {
     std::vector<uint8_t> truncated(framed.begin(), framed.end() - 1);
     EXPECT_TRUE(decode_core_metadata(Slice(truncated), &actual)
                         .is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+TEST(SniiCoreMetadata, GramSchemeRoundTrip) {
+    auto expected = sample_core();
+    GramScheme scheme;
+    scheme.mode = GramMode::DENSE;
+    scheme.min_len = 3;
+    scheme.max_len = 3;
+    scheme.density_permille = 1000;
+    scheme.lower_case = true;
+    scheme.hash_version = 1;
+    expected.gram_scheme = scheme;
+
+    CoreMetadata actual;
+    ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
+    ASSERT_TRUE(actual.gram_scheme.has_value());
+    EXPECT_TRUE(*actual.gram_scheme == scheme);
+    expect_core_eq(expected, actual);
+
+    // A non-gram index has no tokenizer scheme to persist.
+    const auto none_framed = encode(sample_core());
+    CoreMetadata none_actual;
+    ASSERT_TRUE(decode_core_metadata(Slice(none_framed), &none_actual).ok());
+    EXPECT_FALSE(none_actual.gram_scheme.has_value());
+
+    const auto none_payload = payload_of(none_framed);
+    doris::snii::SniiCoreMetadataPB none_pb;
+    ASSERT_TRUE(none_pb.ParseFromArray(none_payload.data(), static_cast<int>(none_payload.size())));
+    EXPECT_FALSE(none_pb.has_gram_scheme());
+}
+
+TEST(SniiCoreMetadata, GramSchemeSparseRoundTrip) {
+    auto expected = sample_core();
+    expected.gram_scheme = GramScheme {}; // member defaults: SPARSE / 3 / 4 / 250 / lc0 / v1
+
+    CoreMetadata actual;
+    ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
+    ASSERT_TRUE(actual.gram_scheme.has_value());
+    EXPECT_EQ(actual.gram_scheme->mode, GramMode::SPARSE);
+    EXPECT_EQ(actual.gram_scheme->min_len, 3U);
+    EXPECT_EQ(actual.gram_scheme->max_len, 4U);
+    EXPECT_EQ(actual.gram_scheme->density_permille, 250U);
+    expect_core_eq(expected, actual);
+}
+
+// Decoding has to validate the whole scheme, not just glance at mode: an out-of-range scheme that
+// slips through would feed values such as min_len=0 straight into GramExtractor.
+TEST(SniiCoreMetadata, RejectsCorruptGramScheme) {
+    auto metadata = sample_core();
+    metadata.gram_scheme = GramScheme {};
+
+    // mode only allows 1 (DENSE) / 2 (SPARSE).
+    const auto bad_mode = mutate_core_payload(
+            metadata, [](auto* core) { core->mutable_gram_scheme()->set_mode(7); });
+    CoreMetadata actual;
+    auto status = decode_core_metadata(Slice(frame_payload(bad_mode)), &actual);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+
+    // A partial message: only mode is set, every other field defaults to 0 by PB semantics, and 0
+    // is not part of any valid scheme.
+    const auto partial = mutate_core_payload(sample_core(), [](auto* core) {
+        core->mutable_gram_scheme()->set_mode(static_cast<uint32_t>(GramMode::SPARSE));
+    });
+    status = decode_core_metadata(Slice(frame_payload(partial)), &actual);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }
 
 TEST(SniiCoreMetadata, ResetsOutputBeforeDecodeFailureAndNullOutputIsInvalid) {

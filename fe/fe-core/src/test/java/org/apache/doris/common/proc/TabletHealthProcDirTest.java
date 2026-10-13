@@ -159,7 +159,7 @@ public class TabletHealthProcDirTest extends TestWithFeService {
     }
 
     private RowBinlogTabletPair createRowBinlogTabletPair(String tableName) throws Exception {
-        createTable("CREATE TABLE " + tableName + " (k INT) DUPLICATE KEY(k) "
+        createTableWithRowBinlog("CREATE TABLE " + tableName + " (k INT) DUPLICATE KEY(k) "
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
                 + "'binlog.enable'='true','binlog.format'='ROW')");
         OlapTable table = (OlapTable) db.getTableOrMetaException(tableName);

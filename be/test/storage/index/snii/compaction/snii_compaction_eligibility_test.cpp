@@ -211,7 +211,7 @@ TEST(SniiCompactionEligibilityTest, RejectsPhysicalShapesOutsidePlainT2) {
     }
 }
 
-// 带 norms 的段（新 writer 对分词 + 带位置索引的产物）与不带 norms 的老段都是合法的 T2 源。
+// Both current segments with norms and older segments without norms are valid T2 sources.
 TEST(SniiCompactionEligibilityTest, AcceptsSourcesWithOrWithoutNorms) {
     auto with_norms = open_index(IndexShape {.has_norms = true});
     auto without_norms = open_index({});
@@ -223,8 +223,8 @@ TEST(SniiCompactionEligibilityTest, AcceptsSourcesWithOrWithoutNorms) {
     EXPECT_TRUE(compaction::validate_plain_t2_compaction_eligibility(sources, *destination).ok());
 }
 
-// A2：目标索引分词就写 norms（哪怕所有源都是没有 norms 的老段——合并时从 postings 重建）；
-// 不分词的 keyword 索引不写。
+// A2: An analyzed destination writes norms, rebuilt from postings even if all sources lack them.
+// Keyword indexes without analysis do not write norms.
 TEST(SniiCompactionEligibilityTest, DestinationWritesNormsExactlyWhenAnalyzed) {
     auto legacy = open_index({});
 
@@ -246,6 +246,42 @@ TEST(SniiCompactionEligibilityTest, DestinationWritesNormsExactlyWhenAnalyzed) {
                                                                  *keyword_destination, &keyword)
                         .ok());
     EXPECT_FALSE(keyword.destination_writes_norms);
+}
+
+// The destination follows the norms policy shared with fresh writes: the "norms" property, and on
+// a variant path inverted_index_skip_norms_for_variant, which wins over the property.
+TEST(SniiCompactionEligibilityTest, DestinationWritesNormsFollowSharedNormsPolicy) {
+    const bool original_skip_norms_for_variant =
+            doris::config::inverted_index_skip_norms_for_variant;
+    auto legacy = open_index({});
+    auto writes_norms = [&legacy](const std::map<std::string, std::string>& properties,
+                                  const std::string& index_suffix) {
+        auto source_meta = make_index(properties, doris::IndexType::INVERTED, 7, index_suffix);
+        auto destination = make_index(properties, doris::IndexType::INVERTED, 7, index_suffix);
+        std::vector sources {source(*legacy, *source_meta)};
+        compaction::SniiCompactionEligibility eligibility;
+        const Status status = compaction::validate_snii_compaction_eligibility(
+                sources, *destination, &eligibility);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        return eligibility.destination_writes_norms;
+    };
+    auto norms_off = plain_properties();
+    norms_off["norms"] = "false";
+    auto norms_on = plain_properties();
+    norms_on["norms"] = "true";
+
+    doris::config::inverted_index_skip_norms_for_variant = false;
+    EXPECT_TRUE(writes_norms(plain_properties(), ""));
+    EXPECT_FALSE(writes_norms(norms_off, ""));
+    EXPECT_TRUE(writes_norms(plain_properties(), "v.s_host"));
+    EXPECT_FALSE(writes_norms(norms_off, "v.s_host"));
+
+    doris::config::inverted_index_skip_norms_for_variant = true;
+    EXPECT_TRUE(writes_norms(plain_properties(), ""));
+    EXPECT_FALSE(writes_norms(plain_properties(), "v.s_host"));
+    EXPECT_FALSE(writes_norms(norms_on, "v.s_host"));
+
+    doris::config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
 }
 
 TEST(SniiCompactionEligibilityTest, RejectsLegacyBigramMarkerBeforeMergeExecution) {

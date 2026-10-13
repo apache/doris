@@ -42,6 +42,17 @@ struct ParquetColumnReaderProfile {
     RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
+    // Complete unshredded roots imported without rebuilding their Variant value tree. Bytes count
+    // the per-row metadata and value references presented to the direct importer.
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_bytes;
+    // Pure metadata+value roots can seek a requested path before constructing a root column.
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_bytes;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_prefix_reuse_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_subtree_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
@@ -178,6 +189,15 @@ struct ParquetProfile {
     RuntimeProfile::Counter* materialization_time = nullptr;
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
+    // These counters are persistent because direct import can happen after scanner teardown.
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_bytes;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_time;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_bytes;
+    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_prefix_reuse_rows;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_subtree_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;

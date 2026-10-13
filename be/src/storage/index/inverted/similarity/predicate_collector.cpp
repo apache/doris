@@ -41,7 +41,7 @@ using namespace segment_v2;
 
 namespace {
 
-InvertedIndexAnalyzerCtx analyzer_context_from_properties(
+InvertedIndexAnalyzerCtx build_analyzer_context(
         const std::map<std::string, std::string>& properties) {
     InvertedIndexAnalyzerConfig config;
     config.analyzer_name = get_analyzer_name_from_properties(properties);
@@ -61,14 +61,40 @@ InvertedIndexAnalyzerCtx analyzer_context_from_properties(
     return analyzer_ctx;
 }
 
-std::vector<TermInfo> analyze_plain_query(const std::string& value,
-                                          const InvertedIndexAnalyzerCtx& analyzer_ctx) {
+} // namespace
+
+Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
+        const std::map<std::string, std::string>& properties) {
+    // Replayed components can collide across policy families, so building the provider throws.
+    try {
+        return build_analyzer_context(properties);
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build scoring analyzer failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build scoring analyzer failed: {}", error.what()));
+    }
+}
+
+namespace {
+
+Result<std::vector<TermInfo>> analyze_plain_query(const std::string& value,
+                                                  const InvertedIndexAnalyzerCtx& analyzer_ctx) {
     DORIS_CHECK(analyzer_ctx.analyzer_provider != nullptr);
-    auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer();
-    auto reader =
-            inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
-    reader->init(value.data(), static_cast<int32_t>(value.size()), true);
-    return inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
+    try {
+        auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer();
+        auto reader =
+                inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
+        reader->init(value.data(), static_cast<int32_t>(value.size()), true);
+        return inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyze scoring query failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyze scoring query failed: {}", error.what()));
+    }
 }
 
 Status append_scoring_leaf(CollectInfo* collect_info, const std::vector<TermInfo>& term_infos) {
@@ -126,7 +152,8 @@ InvertedIndexQueryType search_query_type(std::string_view clause_type) {
 Result<const TabletIndex*> select_index_meta(const std::vector<const TabletIndex*>& index_metas,
                                              FieldType field_type,
                                              InvertedIndexQueryType query_type,
-                                             std::string_view analyzer_key) {
+                                             std::string_view analyzer_key,
+                                             std::string_view legacy_analyzer_key = {}) {
     std::vector<InvertedIndexSelectionCandidate> candidates;
     candidates.reserve(index_metas.size());
     InvertedIndexSelectionKeyIndex key_index;
@@ -144,7 +171,8 @@ Result<const TabletIndex*> select_index_meta(const std::vector<const TabletIndex
     }
 
     auto selection = select_best_inverted_index_candidate(
-            candidates, key_index, field_type, query_type, normalize_analyzer_key(analyzer_key));
+            candidates, key_index, field_type, query_type, normalize_analyzer_key(analyzer_key),
+            legacy_analyzer_key);
     if (!selection.has_value()) {
         return ResultError(std::move(selection.error()));
     }
@@ -376,8 +404,9 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     DORIS_CHECK(analyzer_ctx != nullptr);
     const auto query_type = match_query_type(expr->op());
     DORIS_CHECK(query_type != InvertedIndexQueryType::UNKNOWN_QUERY);
-    const auto* index_meta = DORIS_TRY(select_index_meta(
-            candidates.index_metas, candidates.field_type, query_type, analyzer_ctx->analyzer_key));
+    const auto* index_meta = DORIS_TRY(
+            select_index_meta(candidates.index_metas, candidates.field_type, query_type,
+                              analyzer_ctx->analyzer_key, analyzer_ctx->legacy_analyzer_key));
     if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
         !IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
         return Status::OK();
@@ -386,7 +415,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     DORIS_CHECK(analyzer_ctx->analyzer_provider != nullptr);
     auto options = DataTypeSerDe::get_default_format_options();
     options.timezone = &state->timezone_obj();
-    auto term_infos = analyze_plain_query(right_literal->value(options), *analyzer_ctx);
+    auto term_infos = DORIS_TRY(analyze_plain_query(right_literal->value(options), *analyzer_ctx));
     if (expr->op() == TExprOpcode::MATCH_PHRASE_PREFIX && !term_infos.empty()) {
         term_infos.pop_back();
     }
@@ -516,20 +545,24 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
     std::vector<TermInfo> term_infos;
     std::optional<InvertedIndexAnalyzerCtx> analyzer_ctx;
     if (InvertedIndexAnalyzer::should_analyzer(analysis_properties)) {
-        analyzer_ctx.emplace(analyzer_context_from_properties(analysis_properties));
+        auto built_ctx = analyzer_context_from_properties(analysis_properties);
+        if (!built_ctx.has_value()) {
+            return built_ctx.error();
+        }
+        analyzer_ctx.emplace(std::move(built_ctx.value()));
     }
 
     if (clause_type == "MATCH") {
         term_infos.emplace_back(value);
     } else if (category == ClauseTypeCategory::TOKENIZED) {
         if (analyzer_ctx.has_value()) {
-            term_infos = analyze_plain_query(value, *analyzer_ctx);
+            term_infos = DORIS_TRY(analyze_plain_query(value, *analyzer_ctx));
         } else {
             term_infos.emplace_back(value);
         }
     } else if (category == ClauseTypeCategory::NON_TOKENIZED) {
         if (clause_type == "TERM" && analyzer_ctx.has_value()) {
-            term_infos = analyze_plain_query(value, *analyzer_ctx);
+            term_infos = DORIS_TRY(analyze_plain_query(value, *analyzer_ctx));
         } else {
             term_infos.emplace_back(value);
         }

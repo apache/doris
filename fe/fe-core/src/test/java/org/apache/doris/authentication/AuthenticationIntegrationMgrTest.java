@@ -19,6 +19,7 @@ package org.apache.doris.authentication;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.DropAuthenticationIntegrationOperationLog;
 import org.apache.doris.persist.EditLog;
 
@@ -61,6 +62,7 @@ class AuthenticationIntegrationMgrTest {
         envMockedStatic = Mockito.mockStatic(Env.class);
         envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
 
+        Mockito.when(env.getAuth()).thenReturn(Mockito.mock(Auth.class));
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         Mockito.when(env.getAuthenticationIntegrationRuntime()).thenReturn(runtime);
         Mockito.when(env.getRoleMappingMgr()).thenReturn(roleMappingMgr);

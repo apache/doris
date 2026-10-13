@@ -937,6 +937,9 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     std::vector<TabletColumnPtr> read_columns(_base_tablet_schema->columns().begin(),
                                               _base_tablet_schema->columns().begin() + num_cols);
     ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(std::move(read_columns));
+    RETURN_IF_ERROR(read_schema->init_from_tablet_schema(*_base_tablet_schema,
+                                                         /*merge_by_sequence_mapping=*/false,
+                                                         /*map_row_binlog_columns=*/false));
     std::vector<uint32_t> cluster_key_idxes;
 
     DBUG_EXECUTE_IF("SchemaChangeJob::_do_process_alter_tablet.block", DBUG_BLOCK);
@@ -1046,7 +1049,6 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             read_schema->append_dropped_columns(std::move(dropped_columns));
 
             reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
-            reader_context.tablet_schema = _base_tablet_schema;
             reader_context.need_ordered_result = true;
             reader_context.delete_handler = &delete_handler;
             reader_context.read_schema = read_schema;

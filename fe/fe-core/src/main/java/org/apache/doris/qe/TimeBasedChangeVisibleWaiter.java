@@ -26,6 +26,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,6 +36,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceRequest;
 import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
+import org.apache.doris.thrift.TIncrWindowNotReady;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -55,7 +58,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * Establishes a closed upper fence before planning a time-based incremental read.
  *
- * <p>The master FE first captures its TSO, validates an explicit end timestamp, then captures a
+ * <p>Bounded, strongly consistent cloud reads use the master's durable committed TSO or wait for
+ * registered transactions involving the target tables before the requested end. Other reads
+ * retain the transaction drain: the master validates its TSO, then captures a
  * transaction ID watermark and drains earlier transactions involving the target tables. In classic
  * mode, it also synchronizes with transaction publishers through the target table locks and returns
  * a journal watermark for a follower FE to replay. In cloud mode, partition versions are refreshed
@@ -68,10 +73,20 @@ public class TimeBasedChangeVisibleWaiter {
     public static final class ChangeReadFence {
         private final long currentTso;
         private final long maxJournalId;
+        private final long committedTso;
 
         public ChangeReadFence(long currentTso, long maxJournalId) {
+            this(currentTso, maxJournalId, 0);
+        }
+
+        public ChangeReadFence(long currentTso, long maxJournalId, long committedTso) {
+            this.committedTso = committedTso;
             this.currentTso = currentTso;
             this.maxJournalId = maxJournalId;
+        }
+
+        public long getCommittedTso() {
+            return committedTso;
         }
 
         public long getCurrentTso() {
@@ -87,10 +102,16 @@ public class TimeBasedChangeVisibleWaiter {
     static final class ChangeReadInfo {
         private final Map<Long, List<Long>> dbToTableIds;
         private final Long maxEndTimestampMs;
+        private final boolean allEndsExplicit;
 
-        private ChangeReadInfo(Map<Long, List<Long>> dbToTableIds, Long maxEndTimestampMs) {
+        private ChangeReadInfo(Map<Long, List<Long>> dbToTableIds, Long maxEndTimestampMs, boolean allEndsExplicit) {
+            this.allEndsExplicit = allEndsExplicit;
             this.dbToTableIds = dbToTableIds;
             this.maxEndTimestampMs = maxEndTimestampMs;
+        }
+
+        boolean isAllEndsExplicit() {
+            return allEndsExplicit;
         }
 
         Map<Long, List<Long>> getDbToTableIds() {
@@ -124,7 +145,8 @@ public class TimeBasedChangeVisibleWaiter {
         boolean acquiredFromRemoteMaster = !context.getEnv().isMaster();
         if (!acquiredFromRemoteMaster) {
             fence = acquireFenceOnMaster(changeReadInfo.getDbToTableIds(),
-                    changeReadInfo.getMaxEndTimestampMs(), timeoutMs, waitForTransactions);
+                    changeReadInfo.getMaxEndTimestampMs(), timeoutMs, waitForTransactions,
+                    changeReadInfo.isAllEndsExplicit());
         } else {
             fence = acquireFenceFromMaster(context, changeReadInfo, timeoutMs, waitForTransactions);
         }
@@ -148,11 +170,24 @@ public class TimeBasedChangeVisibleWaiter {
      */
     public static ChangeReadFence acquireFenceOnMaster(Map<Long, List<Long>> dbToTableIds,
             Long maxEndTimestampMs, long timeoutMs, boolean waitForTransactions) throws UserException {
+        return acquireFenceOnMaster(dbToTableIds, maxEndTimestampMs, timeoutMs, waitForTransactions, false);
+    }
+
+    public static ChangeReadFence acquireFenceOnMaster(Map<Long, List<Long>> dbToTableIds,
+            Long maxEndTimestampMs, long timeoutMs, boolean waitForTransactions, boolean allEndsExplicit)
+            throws UserException {
         Env env = Env.getCurrentEnv();
         if (!env.isMaster()) {
             throw new UserException("time-based change read fence must be acquired on the master FE");
         }
 
+        if (Config.isCloudMode() && waitForTransactions && allEndsExplicit) {
+            Preconditions.checkArgument(maxEndTimestampMs != null, "bounded read requires an end timestamp");
+            TSOService.TSOStatusSnapshot ready = env.getTSOService().waitForReadableWindow(
+                    dbToTableIds, maxEndTimestampMs, timeoutMs);
+            // Partition versions are still refreshed from MS during planning.
+            return new ChangeReadFence(ready.getCurrentTso(), env.getMaxJournalId(), ready.getCommittedTso());
+        }
         TSOService.TSOStatusSnapshot tsoSnapshot = env.getTSOService().getStatusSnapshot();
         if (!tsoSnapshot.isInitialized()) {
             throw new UserException("TSO timestamp is not calibrated, please check");
@@ -182,6 +217,7 @@ public class TimeBasedChangeVisibleWaiter {
             Map<List<String>, TableIf> tables) {
         Map<Long, Set<Long>> dbToTableIdSets = new TreeMap<>();
         long[] maxEndTimestampMs = {-1L};
+        boolean[] allEndsExplicit = {true};
         plan.foreach(node -> {
             if (!(node instanceof UnboundRelation)) {
                 return;
@@ -203,13 +239,18 @@ public class TimeBasedChangeVisibleWaiter {
                         scanParams.getMapParams().get(OlapScanNode.OLAP_END_TIMESTAMP));
                 if (endTimestampMs > 0) {
                     maxEndTimestampMs[0] = Math.max(maxEndTimestampMs[0], endTimestampMs);
+                } else {
+                    allEndsExplicit[0] = false;
                 }
+            } else {
+                allEndsExplicit[0] = false;
             }
         });
 
         Map<Long, List<Long>> dbToTableIds = new TreeMap<>();
         dbToTableIdSets.forEach((dbId, tableIds) -> dbToTableIds.put(dbId, new ArrayList<>(tableIds)));
-        return new ChangeReadInfo(dbToTableIds, maxEndTimestampMs[0] < 0 ? null : maxEndTimestampMs[0]);
+        return new ChangeReadInfo(dbToTableIds, maxEndTimestampMs[0] < 0 ? null : maxEndTimestampMs[0],
+                allEndsExplicit[0]);
     }
 
     private static void validateEndTimestamp(Long maxEndTimestampMs, long currentTso) throws UserException {
@@ -297,6 +338,7 @@ public class TimeBasedChangeVisibleWaiter {
         request.setDbToTableIds(changeReadInfo.getDbToTableIds());
         request.setTimeoutMs(timeoutMs);
         request.setWaitForTransactions(waitForTransactions);
+        request.setAllEndsExplicit(changeReadInfo.isAllEndsExplicit());
         if (changeReadInfo.getMaxEndTimestampMs() != null) {
             request.setEndTimestampMs(changeReadInfo.getMaxEndTimestampMs());
         }
@@ -304,6 +346,10 @@ public class TimeBasedChangeVisibleWaiter {
         TNetworkAddress masterAddress = new TNetworkAddress(
                 context.getEnv().getMasterHost(), context.getEnv().getMasterRpcPort());
         int thriftTimeoutMs = (int) Math.min(Integer.MAX_VALUE, Math.max(1L, timeoutMs));
+        if (Config.isCloudMode() && waitForTransactions && changeReadInfo.isAllEndsExplicit()) {
+            // Let the master's typed wait-timeout response arrive before the socket times out.
+            thriftTimeoutMs = (int) Math.min(Integer.MAX_VALUE, (long) thriftTimeoutMs + 1000);
+        }
         FrontendService.Client client;
         try {
             client = ClientPool.frontendPool.borrowObject(masterAddress, thriftTimeoutMs);
@@ -315,6 +361,19 @@ public class TimeBasedChangeVisibleWaiter {
         try {
             TAcquireTimeBasedChangeReadFenceResult result = client.acquireTimeBasedChangeReadFence(request);
             returnToPool = true;
+            if (result.isSetWindowNotReady()) {
+                TIncrWindowNotReady error = result.getWindowNotReady();
+                int code = error.isSetErrorCode()
+                        ? error.getErrorCode() : ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode();
+                Preconditions.checkState(code == ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()
+                        || code == ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT.getCode(),
+                        "unsupported incremental window error code: %s", code);
+                throw new IncrWindowNotReadyException(code == ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT.getCode()
+                        ? ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT : ErrorCode.ERR_INCR_WINDOW_NOT_READY,
+                        error.isSetReason() ? error.getReason() : "WINDOW_NOT_READY",
+                        error.getRequestedEndTimestampMs(),
+                        error.getCurrentTso(), error.getCommittedTso(), error.getRetryAfterMs(), error.getTimeoutMs());
+            }
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 String error = result.getStatus().isSetErrorMsgs()
                         ? String.join(". ", result.getStatus().getErrorMsgs())
@@ -323,7 +382,7 @@ public class TimeBasedChangeVisibleWaiter {
             }
             Preconditions.checkState(result.isSetCurrentTso(), "master FE did not return current_tso");
             Preconditions.checkState(result.isSetMaxJournalId(), "master FE did not return max_journal_id");
-            return new ChangeReadFence(result.getCurrentTso(), result.getMaxJournalId());
+            return new ChangeReadFence(result.getCurrentTso(), result.getMaxJournalId(), result.getCommittedTso());
         } catch (UserException e) {
             throw e;
         } catch (Exception e) {

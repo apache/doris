@@ -34,6 +34,7 @@ class FileWriter;
 namespace writer {
 
 class MemoryReporter;
+class TermPostingBuffer;
 
 // Synchronously borrowed posting arrays for one canonical posting window.
 // position_offsets has docids.size()+1 entries when positions are present. The
@@ -44,12 +45,16 @@ struct PostingRunView {
     std::span<const uint32_t> freqs;
     std::span<const uint32_t> position_offsets;
     std::span<const uint32_t> positions_flat;
+    // When positions have spilled, offsets address this replayable source.
+    // positions_flat is empty and no complete document needs to be resident.
+    TermPostingBuffer* position_buffer = nullptr;
 };
 
 struct TermAggregateStats {
     uint32_t df = 0;
-    // 该 term 的总词频（有位置的 term = 位置个数；docs-only = 文档数或输入 freqs 之和），只进
-    // core 元数据的 sum_total_term_freq（BM25 的 avgdl），不进 dict entry。
+    // Total frequency of this term: position count, or document count / sum of input freqs for
+    // docs-only terms. Used only in core metadata's sum_total_term_freq (BM25 avgdl), not in
+    // dictionary entries.
     uint64_t total_freq = 0;
 };
 

@@ -32,16 +32,17 @@ import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -92,6 +93,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.originTvfProps = originTvfProps;
         this.cloudCluster = cloudCluster;
         this.auditEnabled = S3TableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
+        this.noRetry = CdcStreamTableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
     }
 
     @Override
@@ -116,11 +118,13 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
         baseCommand.setJobId(getTaskId());
-        StmtExecutor baseStmtExecutor =
-                new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
-        baseCommand.initPlan(ctx, baseStmtExecutor, false);
-        if (!baseCommand.getParsedPlan().isPresent()) {
-            throw new JobException("Can not get Parsed plan");
+        if (!S3TableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType())) {
+            StmtExecutor baseStmtExecutor =
+                    new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
+            baseCommand.initPlan(ctx, baseStmtExecutor, false);
+            if (!baseCommand.getParsedPlan().isPresent()) {
+                throw new JobException("Can not get Parsed plan");
+            }
         }
         this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset, getTaskId());
         this.taskCommand.setLabelName(Optional.of(labelName));
@@ -173,10 +177,11 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private String buildAuditSql() {
         TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
         new NereidsParser().parseForEncryption(sql, replacements);
-        List<UnboundTVFRelation> tvfRelations = taskCommand.getAllTVFRelation();
+        List<LogicalTVFRelation> tvfRelations = taskCommand.getLogicalQuery()
+                .collectToList(LogicalTVFRelation.class::isInstance);
         Preconditions.checkState(replacements.size() == 1 && tvfRelations.size() == 1,
                 "S3 streaming insert must contain exactly one TVF");
-        String rewrittenProperties = tvfRelations.get(0).getProperties().getMap().entrySet().stream()
+        String rewrittenProperties = tvfRelations.get(0).getFunction().getTVFProperties().getMap().entrySet().stream()
                 .map(entry -> SqlLiteralUtils.quoteStringLiteral(entry.getKey()) + " = "
                         + SqlLiteralUtils.quoteStringLiteral(entry.getValue()))
                 .collect(Collectors.joining(", "));

@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -28,6 +30,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "storage/binlog.h"
 #include "storage/schema.h"
+#include "util/json/path_in_data.h"
 
 namespace doris {
 namespace {
@@ -147,7 +150,11 @@ TEST(ReadSchemaTest, RowBinlogMappingsUsePhysicalSchemaOrdinals) {
     ReadSchema read_schema(project_columns_by_ordinal(
             tablet_schema->columns(), std::vector<ColumnId> {0, 2, 1, 4, 3, 5, 6, 7}));
 
-    read_schema.init_row_binlog_column_mappings(*tablet_schema);
+    EXPECT_TRUE(read_schema
+                        .init_from_tablet_schema(*tablet_schema,
+                                                 /*merge_by_sequence_mapping=*/false,
+                                                 /*map_row_binlog_columns=*/true)
+                        .ok());
 
     EXPECT_TRUE(read_schema.row_binlog_value_pairs_complete());
     EXPECT_EQ(read_schema.row_binlog_value_column_pairs(),
@@ -170,7 +177,10 @@ TEST(ReadSchemaTest, MalformedRowBinlogLayoutKeepsConservativeNameMapping) {
     tablet_schema.append_column(*create_int_column(16, BINLOG_OP_COL));
     ReadSchema read_schema(tablet_schema.columns());
 
-    read_schema.init_row_binlog_column_mappings(tablet_schema);
+    EXPECT_TRUE(read_schema
+                        .init_from_tablet_schema(tablet_schema, /*merge_by_sequence_mapping=*/false,
+                                                 /*map_row_binlog_columns=*/true)
+                        .ok());
 
     EXPECT_FALSE(read_schema.row_binlog_value_pairs_complete());
     EXPECT_TRUE(read_schema.row_binlog_value_column_pairs().empty());
@@ -178,4 +188,149 @@ TEST(ReadSchemaTest, MalformedRowBinlogLayoutKeepsConservativeNameMapping) {
 }
 
 } // namespace
+
+namespace {
+
+// key k(10), value v(11) governed by sequence column s(12).
+TabletSchemaSPtr create_sequence_mapped_schema() {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::UNIQUE_KEYS);
+    for (const auto& [uid, name, is_key] : {std::tuple<int32_t, const char*, bool> {10, "k", true},
+                                            {11, "v", false},
+                                            {12, "s", false}}) {
+        ColumnPB* column_pb = schema_pb.add_column();
+        column_pb->set_unique_id(uid);
+        column_pb->set_name(name);
+        column_pb->set_type("INT");
+        column_pb->set_length(4);
+        column_pb->set_index_length(4);
+        column_pb->set_is_key(is_key);
+        column_pb->set_is_nullable(!is_key);
+    }
+    ColumnGroupPB* group = schema_pb.mutable_seq_map()->add_cg();
+    group->set_sequence_column(12);
+    group->add_columns_in_group(11);
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+    return tablet_schema;
+}
+
+} // namespace
+
+// The two facts hold for the whole read: they are taken from the tablet schema, not from the
+// projection, so a column group that excludes the columns they are about still reports them.
+TEST(ReadSchemaTest, TabletHasSequenceMapIsIndependentOfTheProjection) {
+    auto tablet_schema = create_sequence_mapped_schema();
+
+    ReadSchema whole(tablet_schema->columns());
+    ASSERT_TRUE(whole.init_from_tablet_schema(*tablet_schema,
+                                              /*merge_by_sequence_mapping=*/false,
+                                              /*map_row_binlog_columns=*/false)
+                        .ok());
+    EXPECT_TRUE(whole.tablet_has_sequence_map());
+
+    // The key column alone: neither the sequence column nor the value it governs is projected.
+    ReadSchema key_only(
+            project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0}));
+    ASSERT_TRUE(key_only.init_from_tablet_schema(*tablet_schema,
+                                                 /*merge_by_sequence_mapping=*/false,
+                                                 /*map_row_binlog_columns=*/false)
+                        .ok());
+    EXPECT_TRUE(key_only.tablet_has_sequence_map());
+}
+
+TEST(ReadSchemaTest, TabletWithoutSequenceMap) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_column(10, "k", true));
+    tablet_schema->append_column(*create_int_column(11, "v"));
+
+    ReadSchema read_schema(tablet_schema->columns());
+    ASSERT_TRUE(read_schema
+                        .init_from_tablet_schema(*tablet_schema,
+                                                 /*merge_by_sequence_mapping=*/false,
+                                                 /*map_row_binlog_columns=*/false)
+                        .ok());
+    EXPECT_FALSE(read_schema.tablet_has_sequence_map());
+    EXPECT_FALSE(read_schema.tablet_has_extracted_variant_columns());
+}
+
+TEST(ReadSchemaTest, MergeBySequenceMappingBuildsTheMap) {
+    auto tablet_schema = create_sequence_mapped_schema();
+    ReadSchema read_schema(tablet_schema->columns());
+    ASSERT_TRUE(read_schema
+                        .init_from_tablet_schema(*tablet_schema,
+                                                 /*merge_by_sequence_mapping=*/true,
+                                                 /*map_row_binlog_columns=*/false)
+                        .ok());
+
+    // Ordinals are this ReadSchema's, not the tablet schema's column ids.
+    const auto& sequence_map = read_schema.sequence_map();
+    ASSERT_EQ(1, sequence_map.size());
+    auto group = sequence_map.find(2);
+    ASSERT_NE(group, sequence_map.end());
+    EXPECT_EQ((std::vector<ColumnId> {1}), group->second);
+
+    // Without the flag the layout is left alone, even though the tablet has one.
+    ReadSchema untouched(tablet_schema->columns());
+    ASSERT_TRUE(untouched
+                        .init_from_tablet_schema(*tablet_schema,
+                                                 /*merge_by_sequence_mapping=*/false,
+                                                 /*map_row_binlog_columns=*/false)
+                        .ok());
+    EXPECT_TRUE(untouched.sequence_map().empty());
+}
+
+// A tablet cannot have both a sequence column and a sequence mapping; asking to merge by the
+// mapping on such a schema must fail rather than build half a layout.
+TEST(ReadSchemaTest, SequenceColumnAndSequenceMapConflict) {
+    auto tablet_schema = create_sequence_mapped_schema();
+    tablet_schema->append_column(*create_int_column(13, SEQUENCE_COL));
+
+    ReadSchema read_schema(tablet_schema->columns());
+    auto st = read_schema.init_from_tablet_schema(*tablet_schema,
+                                                  /*merge_by_sequence_mapping=*/true,
+                                                  /*map_row_binlog_columns=*/false);
+    EXPECT_FALSE(st.ok()) << st;
+    EXPECT_TRUE(read_schema.sequence_map().empty());
+}
+
+TEST(ReadSchemaTest, HasExtractedVariantColumns) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_column(10, "k", true));
+
+    TabletColumn variant;
+    variant.set_unique_id(11);
+    variant.set_name("v");
+    variant.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant.set_is_nullable(true);
+    tablet_schema->append_column(variant);
+
+    ReadSchema without_extracted(tablet_schema->columns());
+    ASSERT_TRUE(without_extracted
+                        .init_from_tablet_schema(*tablet_schema,
+                                                 /*merge_by_sequence_mapping=*/false,
+                                                 /*map_row_binlog_columns=*/false)
+                        .ok());
+    EXPECT_FALSE(without_extracted.tablet_has_extracted_variant_columns());
+
+    TabletColumn extracted;
+    extracted.set_unique_id(-1);
+    extracted.set_name("v.a");
+    extracted.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    extracted.set_parent_unique_id(11);
+    extracted.set_path_info(PathInData("v.a"));
+    tablet_schema->append_column(extracted);
+
+    // Projected without the extracted column, which must not change the answer.
+    ReadSchema read_schema(
+            project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0}));
+    ASSERT_TRUE(read_schema
+                        .init_from_tablet_schema(*tablet_schema,
+                                                 /*merge_by_sequence_mapping=*/false,
+                                                 /*map_row_binlog_columns=*/false)
+                        .ok());
+    EXPECT_TRUE(read_schema.tablet_has_extracted_variant_columns());
+}
+
 } // namespace doris

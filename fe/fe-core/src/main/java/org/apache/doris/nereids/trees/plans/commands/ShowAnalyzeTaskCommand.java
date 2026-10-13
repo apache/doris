@@ -68,6 +68,9 @@ public class ShowAnalyzeTaskCommand extends ShowCommand {
                     + "in your FE conf file");
         }
         AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(jobId);
+        if (jobInfo == null) {
+            throw new UserException(String.format("Analyze job [%d] not exists", jobId));
+        }
         TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(jobId);
         List<List<String>> rows = new ArrayList<>();

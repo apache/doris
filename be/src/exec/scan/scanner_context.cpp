@@ -146,10 +146,8 @@ int ScannerContext::_available_pickup_scanner_count() {
         return _max_scan_concurrency;
     }
 
-    int min_scanners = std::max(1, _min_scan_concurrency);
     int max_scanners = _scanner_mem_limiter->available_scanner_count(_ins_idx);
     max_scanners = std::min(max_scanners, _max_scan_concurrency);
-    min_scanners = std::min(min_scanners, max_scanners);
     if (_ins_idx == 0) {
         // Adjust memory limit via memory share arbitrator
         _adjust_scan_mem_limit(_scanner_mem_limiter->get_arb_scanner_mem_bytes(),
@@ -166,14 +164,17 @@ int ScannerContext::_available_pickup_scanner_count() {
     P.adjust_scanners_last_timestamp = now;
     auto old_scanners = P.expected_scanners;
 
-    scanners = std::max(min_scanners, scanners);
-    scanners = std::min(max_scanners, scanners);
+    // The memory limiter is what adapts: its ceiling shrinks when blocks are estimated larger or
+    // the query's scan budget is shared by more scan nodes, and grows back when they are not. Take
+    // the whole ceiling. Clamping the previous value into [minimum, ceiling] instead never raises
+    // it above the minimum, since expected_scanners starts at zero, so every scan would keep a
+    // single scanner however much memory there is. The ceiling still wins over the minimum, and a
+    // scheduler without slack still holds the Context at its minimum in _get_margin() and
+    // can_admit_scan_task().
+    scanners = max_scanners;
     VLOG_DEBUG << fmt::format(
-            "_available_pickup_scanner_count. context = {}, old_scanners = {}, scanners = {} "
-            ", min_scanners: {}, max_scanners: {}",
-            debug_string(), old_scanners, scanners, min_scanners, max_scanners);
-
-    // TODO(gabriel): Scanners are scheduled adaptively based on the memory usage now.
+            "_available_pickup_scanner_count. context = {}, old_scanners = {}, scanners = {}",
+            debug_string(), old_scanners, scanners);
     return scanners;
 }
 
@@ -838,12 +839,15 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
     int32_t effective_max_concurrency = _max_scan_concurrency;
     if (_enable_adaptive_scanners) {
-        effective_max_concurrency = _adaptive_processor->expected_scanners > 0
-                                            ? _adaptive_processor->expected_scanners
-                                            : _max_scan_concurrency;
+        // _get_margin() has just refreshed expected_scanners, so zero is a real allocation here, as
+        // in can_admit_scan_task(), not a missing one. Reading it as _max_scan_concurrency let an
+        // instance whose allocation fell to zero keep every scanner it held.
+        effective_max_concurrency = _adaptive_processor->expected_scanners;
     }
 
-    if (current_concurrency >= effective_max_concurrency) {
+    // Keep one task progressing even when the adaptive limit is zero. Otherwise no worker can
+    // publish a result and wake the operator to make another scheduling decision.
+    if (current_concurrency > 0 && current_concurrency >= effective_max_concurrency) {
         VLOG_DEBUG << fmt::format(
                 "ScannerContext {} current concurrency {} >= effective_max_concurrency {}, skip "
                 "pull",

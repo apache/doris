@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.Coll
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -156,6 +157,17 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  s struct<`outer`: struct<`a`: string, `inner_f`: string>>\n"
                 + ") properties ('replication_num'='1')");
 
+        // Struct holding a nested struct plus a sibling field. The sibling makes the column
+        // prunable, while element_at(wrapper, 'payload') gives the TRY_CAST a derived child that
+        // is rebuilt (not just re-typed) when the sibling is pruned away.
+        createTable("create table try_cast_nested_tbl(\n"
+                + "  id int,\n"
+                + "  wrapper struct<\n"
+                + "    payload: struct<good: string, bad: string>,\n"
+                + "    unused: int\n"
+                + "  >\n"
+                + ") properties ('replication_num'='1')");
+
         // Tables for outer-join nullability test: verifying that synthetic nullability
         // from outer join does NOT cause META NULL paths on physically NOT NULL columns.
         createTable("create table driving_tbl(\n"
@@ -259,6 +271,26 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testTransformValuesPreservesValueOffsetMetaPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select transform_values((k, v) -> size(v), map_arr_col) from map_array_tbl",
+                ImmutableList.of(
+                        path("map_arr_col", "KEYS"),
+                        metaPath("map_arr_col", "VALUES", "OFFSET")),
+                ImmutableList.of(path("map_arr_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testTransformValuesPreservesValueNullMetaPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select transform_values((k, v) -> v is null, element_at(s, 'data')[1]) from tbl",
+                ImmutableList.of(
+                        path("s", "data", "*", "KEYS"),
+                        metaPath("s", "data", "*", "VALUES", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "VALUES", "NULL")));
+    }
+
+    @Test
     public void testFullFieldAccessKeepsExactMetadataPath() throws Exception {
         assertColumn("select element_at(s, 'city') from tbl "
                         + "where element_at(s, 'city') is null",
@@ -354,6 +386,23 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         ImmutableList.of("a"),
                         ImmutableList.of("b", "c")
                 ));
+    }
+
+    @Test
+    public void testVariantIntegerIndexStopsSubColumnPath() throws Exception {
+        // DORIS-28435: an integer index selects an array element, so only the object-key prefix becomes a storage
+        // sub-column; a sub-column items.1 would look up a missing object key and return NULL.
+        assertVariantSubColumnSlots("select element_at(element_at(v, 'items'), 1), v['items'][-1] from variant_tbl",
+                ImmutableList.of(ImmutableList.of("items")));
+    }
+
+    @Test
+    public void testVariantIntegerIndexPredicateStopsSubColumnPath() throws Exception {
+        // Filters stop at the integer index too, also when a string key follows it; the object-key sub-column
+        // items.1, spelled like the index, stays a separate slot.
+        assertVariantSubColumnSlots("select id from variant_tbl"
+                        + " where v['items'][1] = 2 and v['items'][-1]['k'] = 1 and v['items']['1'] = 'x'",
+                ImmutableList.of(ImmutableList.of("items"), ImmutableList.of("items", "1")));
     }
 
     @Test
@@ -543,6 +592,38 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         )
                 )
         );
+    }
+
+    @Test
+    public void testTryCastNotPrunedThroughFieldAccess() throws Exception {
+        // TRY_CAST of a composite type keeps whole-value semantics: the conversion fails
+        // (and TRY_CAST returns NULL) if ANY field conversion fails. An outer field access
+        // element_at(try_cast(s as struct<k:int,...>), 'k') must therefore not narrow the
+        // underlying read to the accessed field only — the whole struct is read and the
+        // cast target/identity are unchanged.
+        assertColumn(
+                "select element_at(try_cast(s as struct<k:int,l:array<map<int,struct<a:int,b:double>>>>), 'k')"
+                        + " from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testTryCastKeptWhenDerivedChildIsRebuilt() throws Exception {
+        // Unlike testTryCastNotPrunedThroughFieldAccess, the TRY_CAST child here is not the slot
+        // itself but a derived element_at. The whole-value context opened by visitTryCast records
+        // [wrapper, payload], which only pins the payload value: the sibling field wrapper.unused
+        // is still pruned away, the wrapper slot type changes, and SlotTypeReplacer therefore
+        // rebuilds the inner element_at. Rebuilding the cast over that changed child must not
+        // downgrade the whole-value TRY_CAST into a strict CAST.
+        String sql = "select element_at(try_cast(element_at(wrapper, 'payload') as struct<good:int,bad:int>),"
+                + " 'good') from try_cast_nested_tbl";
+        assertColumn(sql,
+                "struct<payload:struct<good:text,bad:text>>",
+                ImmutableList.of(path("wrapper", "payload")),
+                ImmutableList.of());
+        assertTryCastPreserved(sql, "STRUCT<good:INT,bad:INT>");
     }
 
     @Test
@@ -1154,6 +1235,20 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testVariantSubPathConstructionOrder() {
+        SlotReference root = new SlotReference("v", VariantType.INSTANCE);
+        List<String> subPath = ImmutableList.of("a", "b", "c");
+
+        Expression expression = VariantSubPathPruning.constructElementAt(root, subPath);
+
+        Assertions.assertInstanceOf(ElementAt.class, expression);
+        Pair<SlotReference, List<String>> extracted = VariantSubPathPruning.extractSlotToSubPathPair(
+                (ElementAt) expression);
+        Assertions.assertEquals(root, extracted.first);
+        Assertions.assertEquals(subPath, extracted.second);
+    }
+
+    @Test
     public void testDataTypeAccessTree() {
         List<Pair<SlotReference, DataTypeAccessTree>> trees = getDataTypeAccessTrees(
                 "select element_at(s, 'city') from (select id, s from tbl union all select 1, null) tmp");
@@ -1459,6 +1554,26 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
             List<ColumnAccessPath> expectAllAccessPaths,
             List<ColumnAccessPath> expectPredicateAccessPaths) throws Exception {
         assertColumns(sql, expectType == null ? null : ImmutableList.of(Triple.of(expectType, expectAllAccessPaths, expectPredicateAccessPaths)));
+    }
+
+    /** Assert the physical plan contains a TRY_CAST of the given target type and no plain CAST of it. */
+    private void assertTryCastPreserved(String sql, String expectTargetType) throws Exception {
+        PhysicalPlan physicalPlan = collectComplexSlots(sql).first;
+        List<String> casts = new ArrayList<>();
+        physicalPlan.foreachUp(plan -> {
+            for (Expression expression : ((PhysicalPlan) plan).getExpressions()) {
+                expression.foreach(e -> {
+                    if (e instanceof Cast) {
+                        Cast cast = (Cast) e;
+                        casts.add(cast.getClass().getSimpleName() + " -> " + cast.getDataType().toSql());
+                    }
+                });
+            }
+        });
+        Assertions.assertTrue(casts.contains("TryCast -> " + expectTargetType),
+                "expected TRY_CAST -> " + expectTargetType + " in the physical plan, but found " + casts);
+        Assertions.assertFalse(casts.contains("Cast -> " + expectTargetType),
+                "TRY_CAST was downgraded to a plain CAST: " + casts);
     }
 
     private void assertAllAccessPathsContain(String sql, List<ColumnAccessPath> expectContainAllAccessPaths,

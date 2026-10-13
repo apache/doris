@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.iceberg.DataFile;
@@ -131,38 +132,52 @@ final class IcebergManifestCache {
     }
 
     IcebergManifestCache() {
-        this(new CatalogMetaCache(), DEFAULT_MANIFEST_CACHE_CAPACITY);
+        this(CatalogMetaCache.unmanaged(), DEFAULT_MANIFEST_CACHE_CAPACITY);
     }
 
     IcebergManifestCache(CatalogMetaCache owner) {
-        this(owner, DEFAULT_MANIFEST_CACHE_CAPACITY);
+        this(owner, Collections.emptyMap());
+    }
+
+    IcebergManifestCache(CatalogMetaCache owner, Map<String, String> properties) {
+        this(owner, DEFAULT_MANIFEST_CACHE_CAPACITY, DEFAULT_STATS_TTL_SECONDS,
+                System::nanoTime, properties);
     }
 
     IcebergManifestCache(int maxSize) {
-        this(new CatalogMetaCache(), maxSize);
+        this(CatalogMetaCache.unmanaged(), maxSize);
     }
 
     private IcebergManifestCache(CatalogMetaCache owner, int maxSize) {
-        this(owner, maxSize, DEFAULT_STATS_TTL_SECONDS, System::nanoTime);
+        this(owner, maxSize, DEFAULT_STATS_TTL_SECONDS, System::nanoTime, Collections.emptyMap());
     }
 
     /** Visible for testing: injectable stats TTL + clock so the leak sweep is deterministic without sleeping. */
     IcebergManifestCache(int maxSize, long statsTtlSeconds, LongSupplier nanoClock) {
-        this(new CatalogMetaCache(), maxSize, statsTtlSeconds, nanoClock);
+        this(CatalogMetaCache.unmanaged(), maxSize, statsTtlSeconds, nanoClock);
     }
 
     private IcebergManifestCache(
             CatalogMetaCache owner, int maxSize, long statsTtlSeconds, LongSupplier nanoClock) {
+        this(owner, maxSize, statsTtlSeconds, nanoClock, Collections.emptyMap());
+    }
+
+    private IcebergManifestCache(
+            CatalogMetaCache owner, int maxSize, long statsTtlSeconds, LongSupplier nanoClock,
+            Map<String, String> properties) {
         this.owner = owner;
         // Always enabled, no expiry, capacity-bounded (CACHE_NO_TTL == -1 means "no expiration", enabled).
-        CacheSpec spec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, Math.max(1, maxSize));
+        CacheSpec defaultSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, Math.max(1, maxSize));
+        CacheSpec spec = CacheSpec.fromProperties(properties, "iceberg", "manifest", defaultSpec);
         this.entry = owner.create(MetaCacheDefinition
                 .<IcebergManifestEntryKey, ManifestCacheValue>builder(
                         "iceberg-manifest", spec, ignored -> ScopePath.catalog())
+                .sizeEstimator(IcebergCacheSizeEstimator::estimateManifestEntry)
                 .build());
         this.equalityDeleteFieldIds = owner.create(MetaCacheDefinition
                 .<SnapshotKey, Set<Integer>>builder(
-                        "iceberg-equality-delete-field-ids", spec, ignored -> ScopePath.catalog())
+                        "iceberg-equality-delete-field-ids", defaultSpec, ignored -> ScopePath.catalog())
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
         this.statsTtlNanos = TimeUnit.SECONDS.toNanos(Math.max(1L, statsTtlSeconds));
         this.nanoClock = nanoClock;
@@ -187,7 +202,8 @@ final class IcebergManifestCache {
      */
     ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table) {
         IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        return entry.get(key, k -> loadManifestCacheValue(manifest, table, k.getContent()));
+        return entry.get(key, k -> loadManifestCacheValue(
+                manifest, table, k.getContent(), entry.isWeightBounded()));
     }
 
     /**
@@ -207,7 +223,8 @@ final class IcebergManifestCache {
                 stats.misses++;
             }
         }
-        return entry.get(key, k -> loadManifestCacheValue(manifest, table, k.getContent()));
+        return entry.get(key, k -> loadManifestCacheValue(
+                manifest, table, k.getContent(), entry.isWeightBounded()));
     }
 
     /**
@@ -254,12 +271,12 @@ final class IcebergManifestCache {
     }
 
     private static ManifestCacheValue loadManifestCacheValue(ManifestFile manifest, Table table,
-            ManifestContent content) {
+            ManifestContent content, boolean estimateWeight) {
         try {
             if (content == ManifestContent.DELETES) {
-                return ManifestCacheValue.forDeleteFiles(loadDeleteFiles(manifest, table));
+                return ManifestCacheValue.forDeleteFiles(loadDeleteFiles(manifest, table), estimateWeight);
             }
-            return ManifestCacheValue.forDataFiles(loadDataFiles(manifest, table));
+            return ManifestCacheValue.forDataFiles(loadDataFiles(manifest, table), estimateWeight);
         } catch (IOException e) {
             throw new RuntimeException("Failed to read iceberg manifest " + manifest.path(), e);
         }

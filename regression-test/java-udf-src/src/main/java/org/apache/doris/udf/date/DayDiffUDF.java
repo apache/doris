@@ -22,7 +22,6 @@ package org.apache.doris.udf.date;
 
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDF;
-import org.apache.log4j.Logger;
 import org.joda.time.DateTime;
 import org.joda.time.Days;
 import org.joda.time.format.DateTimeFormatter;
@@ -40,7 +39,6 @@ import org.joda.time.format.DateTimeFormatter;
     value = " The difference in days of two YYYYMMDD dates"
 )
 public class DayDiffUDF extends UDF {
-    private static final Logger LOG = Logger.getLogger(DayDiffUDF.class);
     private static final DateTimeFormatter YYYYMMDD = org.joda.time.format.DateTimeFormat.forPattern("YYYYMMdd");
 
     public Integer evaluate(String date1Str, String date2Str) {
