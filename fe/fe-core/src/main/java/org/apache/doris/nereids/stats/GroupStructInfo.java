@@ -456,6 +456,17 @@ public class GroupStructInfo {
         return computed;
     }
 
+    /**
+     * The first logical expression of a group, or null when it holds none: {@link
+     * Group#getFirstLogicalExpression()} asserts that there is one, so a group which only holds
+     * physical expressions (an enforcer group, or a group a rule filled with physical plans) cannot be
+     * asked that way.
+     */
+    private static GroupExpression firstLogicalExpression(Group group) {
+        List<GroupExpression> logical = group.getLogicalExpressions();
+        return logical.isEmpty() ? null : logical.get(0);
+    }
+
     /** Why a group has nothing to describe: its chosen id and how many expressions it holds. */
     private static String describeGroupState(Group group) {
         return group.getGroupId().asInt()
@@ -476,7 +487,7 @@ public class GroupStructInfo {
         if (chosen != null) {
             return chosen;
         }
-        GroupExpression logical = group.getFirstLogicalExpression();
+        GroupExpression logical = firstLogicalExpression(group);
         if (logical != null) {
             return logical;
         }
@@ -507,12 +518,38 @@ public class GroupStructInfo {
             return invalidStructInfo("subtree scans=" + summary.getScanCount()
                     + " > hbo_max_scans_per_group=" + maxScansPerGroup);
         }
-        GroupExpression ge = representativeExpression(group);
-        if (ge == null) {
+        GroupExpression logical = firstLogicalExpression(group);
+        if (logical != null) {
+            GroupStructInfo described = describeExpression(group, logical, ctx);
+            if (described.isValid() || described.isRetryable()) {
+                return described;
+            }
+            GroupExpression chosen = group.getChosenGroupExpression().orElse(null);
+            if (chosen == null || chosen == logical) {
+                return described;
+            }
+            // The logical form cannot be described (it may be an alternative the optimizer did not
+            // choose, e.g. a pushed down top-n), while the plan which will run can be: describing that
+            // one is better than describing nothing. The logical form is tried first on purpose - the
+            // canonical form of a group has to stay the one an entry was pinned with, and the physical
+            // plan may hold nodes the logical plan abstracts away (the two stage aggregation of a
+            // `count(*)`, for instance), which would move the key of every such group.
+            Ctx retryCtx = new Ctx();
+            retryCtx.visited.addAll(ctx.visited);
+            GroupStructInfo retried = describeExpression(group, chosen, retryCtx);
+            return retried.isValid() ? retried : described;
+        }
+        GroupExpression representative = representativeExpression(group);
+        if (representative == null) {
             // a group without any expression (no logical one, no chosen or physical one, no enforcer):
             // there is nothing to describe
             return invalidStructInfo("no expression in group " + describeGroupState(group));
         }
+        return describeExpression(group, representative, ctx);
+    }
+
+    /** Describe one expression of a group: the body of {@link #build} without the choice of it. */
+    private static GroupStructInfo describeExpression(Group group, GroupExpression ge, Ctx ctx) {
         Canonical out = new Canonical();
         try {
             appendPlan(ge.getPlan(), ge, out, ctx);
