@@ -20,10 +20,15 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
@@ -161,5 +166,62 @@ public class GroupStructInfoCompositionTest {
         // and the two forms are cached independently: asking for the shape still walks the rope
         Assertions.assertTrue(root.getShape(NO_LITERAL).startsWith("J{inner"),
                 root.getShape(NO_LITERAL));
+    }
+
+    @Test
+    void testASetOperationSortsItsBranchesButKeepsTheMinuend() {
+        LogicalOlapScan t1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan t2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        Memo union = new Memo(null, new LogicalUnion(SetOperation.Qualifier.ALL,
+                ImmutableList.of(t2, t1)));
+        GroupStructInfo unionInfo = GroupStructInfo.describeGroup(union.getRoot());
+        Assertions.assertTrue(unionInfo.isValid(), unionInfo.getSkipReason());
+        String unionShape = unionInfo.getShape(NO_LITERAL);
+        Assertions.assertTrue(unionShape.startsWith("U{all,cols:["), unionShape);
+        // the memo reorders the branches of a set operation, so the shape has to be insensitive to it
+        String unionBranches = unionShape.substring(unionShape.indexOf("]}("));
+        Assertions.assertTrue(unionBranches.indexOf("t1") < unionBranches.indexOf("t2"), unionShape);
+
+        Memo except = new Memo(null, new LogicalExcept(SetOperation.Qualifier.ALL,
+                ImmutableList.of(t2, t1)));
+        GroupStructInfo exceptInfo = GroupStructInfo.describeGroup(except.getRoot());
+        Assertions.assertTrue(exceptInfo.isValid(), exceptInfo.getSkipReason());
+        String exceptShape = exceptInfo.getShape(NO_LITERAL);
+        Assertions.assertTrue(exceptShape.startsWith("E{all,cols:["), exceptShape);
+        // the first branch is the minuend: it keeps its position, only the subtrahends are sorted
+        String exceptBranches = exceptShape.substring(exceptShape.indexOf("]}("));
+        Assertions.assertTrue(exceptBranches.indexOf("t2") < exceptBranches.indexOf("t1"), exceptShape);
+    }
+
+    @Test
+    void testALimitBoundIsNotFoldedAway() {
+        LogicalOlapScan t1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan t2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        LogicalJoin<LogicalLimit<LogicalOlapScan>, LogicalOlapScan> five = new LogicalJoin<>(
+                JoinType.INNER_JOIN, new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, t1), t2, null);
+        LogicalJoin<LogicalLimit<LogicalOlapScan>, LogicalOlapScan> seven = new LogicalJoin<>(
+                JoinType.INNER_JOIN, new LogicalLimit<>(7, 0, LimitPhase.ORIGIN, t1), t2, null);
+        GroupStructInfo fiveInfo = GroupStructInfo.describeGroup(new Memo(null, five).getRoot());
+        GroupStructInfo sevenInfo = GroupStructInfo.describeGroup(new Memo(null, seven).getRoot());
+        Assertions.assertTrue(fiveInfo.isValid(), fiveInfo.getSkipReason());
+        Assertions.assertTrue(fiveInfo.getShape(NO_LITERAL).contains("L{5,0}"),
+                fiveInfo.getShape(NO_LITERAL));
+        // the bound changes the row count, so the constant agnostic mode must not fold it away
+        Assertions.assertNotEquals(fiveInfo.getFingerprint(NO_LITERAL), sevenInfo.getFingerprint(NO_LITERAL),
+                "two different limits share one key");
+        Assertions.assertEquals(fiveInfo.getFingerprint(WITH_LITERAL),
+                fiveInfo.getFingerprint(NO_LITERAL),
+                "a bound is written with the same text in both modes");
+    }
+
+    @Test
+    void testTheChainInfoOfAChainMemberIsMemoized() {
+        Memo memo = joinChainMemo();
+        GroupStructInfo root = GroupStructInfo.describeGroup(memo.getRoot());
+        Assertions.assertTrue(root.isValid(), root.getSkipReason());
+        // the chain of the members below the root is collected once and remembered on those groups
+        Assertions.assertTrue(memo.getGroups().stream()
+                        .anyMatch(group -> group.getHboChainInfoOrNull() != null),
+                "no group memoized the chain it is the root of");
     }
 }
