@@ -47,6 +47,8 @@ struct QueryExecutionContext {
     std::unordered_map<std::wstring, index_query::IndexSourcePtr> field_sources;
     std::unordered_map<std::string, FieldBindingContext> binding_fields;
     const NullBitmapResolver* null_resolver = nullptr;
+    // The rows are collected as a TopK, which keeps only the best of them.
+    bool top_k = false;
 };
 
 class Weight {

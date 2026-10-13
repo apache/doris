@@ -193,10 +193,11 @@ private:
     }
 
     // Groups term clauses by source for batched reads, unscored intersections or scored unions.
-    // Remaining clauses use their individual scorers.
+    // Remaining clauses use their individual scorers. A TopK streams the terms of a scored union
+    // on a source that does not batch its reads instead of listing every row and score first.
     std::vector<ListedTerms> listed_terms(const QueryExecutionContext& context, bool scoring) {
         const bool any_source = (_type == OperatorType::OP_AND && !scoring) ||
-                                (_type == OperatorType::OP_OR && scoring);
+                                (_type == OperatorType::OP_OR && scoring && !context.top_k);
         std::vector<ListedTerms> groups;
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
             const auto* term = dynamic_cast<const TermWeight*>(_sub_weights[i].get());

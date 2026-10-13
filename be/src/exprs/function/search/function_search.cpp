@@ -544,6 +544,7 @@ Status FunctionSearch::_evaluate_search_param(
     const bool three_valued =
             exec_ctx.null_resolver != nullptr && search_param.root.clause_type != "OCCUR_BOOLEAN";
     const bool top_k_path = enable_scoring && !is_asc && top_k > 0;
+    exec_ctx.top_k = top_k_path;
     {
         int64_t exec_dummy = 0;
         SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_exec_timer : &exec_dummy);

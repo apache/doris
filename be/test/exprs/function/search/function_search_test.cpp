@@ -3840,6 +3840,38 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheKeysExpansionsByTheirLimit) {
     expect_bitmap_eq(search_with_limit(1), {0});
 }
 
+// A TopK SEARCH streams the terms of a scored OR on a source that does not batch its reads,
+// instead of listing every matching row and score before it keeps the best ones.
+TEST_F(FunctionSearchTest, TestSearchTopKStreamsAScoredDisjunction) {
+    SniiBodyField body(28, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
+    auto& source = *body.reader->fake_source;
+    source.batches = false;
+    source.set_doc_count(4);
+    source.add("foo", {0, 2});
+    source.add("bar", {1, 2});
+    const auto search_param = body.search_param(
+            make_compound_clause(
+                    "OR", {make_leaf_clause("TERM", "foo"), make_leaf_clause("TERM", "bar")}),
+            "body:foo OR body:bar");
+
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    context->collection_statistics = std::make_shared<FixedSearchStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    context->query_limit = 1;
+    InvertedIndexResultBitmap result;
+    std::unordered_map<std::string, int> field_name_to_column_id;
+    const auto status = function_search->evaluate_inverted_index_with_search_param(
+            search_param, body.data_type_with_names, body.iterators, 4, result, true, nullptr,
+            field_name_to_column_id, context);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    // Row 2 holds both terms and scores highest.
+    ASSERT_NE(nullptr, result.get_data_bitmap());
+    expect_bitmap_eq(*result.get_data_bitmap(), {2});
+    EXPECT_EQ(source.live.peak, 2U);
+}
+
 // A prefix goes through the index's character filter before it is lowercased, as the indexed
 // text does: with '-' replaced by 'x', "A-B*" finds the terms written from "a-b...".
 TEST_F(FunctionSearchTest, TestSniiNativePrefixAppliesTheIndexCharacterFilter) {

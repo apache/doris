@@ -476,6 +476,33 @@ TEST_F(ListedTermsTest, AConjunctionChainsItsTermsFromTheCheapest) {
     EXPECT_EQ(listed->fetches, 0U);
 }
 
+// Collecting every row of a scored disjunction lists its terms one after another; a TopK on a
+// source that does not batch its reads streams them side by side instead of holding every
+// matching row and score first, and ranks the rows alike.
+TEST_F(ListedTermsTest, ATopKDisjunctionStreamsTheTermsOfAStreamingSource) {
+    const MakeQuery make_query = [&] {
+        return boolean(OperatorType::OP_OR, {term("a"), term("c")});
+    };
+    auto collected = source(false);
+    const auto all_rows = scored(make_query, collected);
+    EXPECT_EQ(collected->live.peak, 1U);
+
+    auto streamed = source(false);
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = streamed->doc_count();
+    exec_ctx.sources = {streamed};
+    exec_ctx.field_sources.emplace(kField, streamed);
+    exec_ctx.top_k = true;
+    std::map<uint32_t, float> pruned;
+    make_query()->weight(true)->for_each_pruning(exec_ctx, "", 0.0F,
+                                                 [&](uint32_t doc, float score) {
+                                                     pruned[doc] = score;
+                                                     return 0.0F;
+                                                 });
+    EXPECT_EQ(streamed->live.peak, 2U);
+    expect_scores_near(pruned, all_rows);
+}
+
 TEST_F(ListedTermsTest, ADisjunctionReadsItsTermsInOneRound) {
     auto listed = expect_alike(
             [&] {
