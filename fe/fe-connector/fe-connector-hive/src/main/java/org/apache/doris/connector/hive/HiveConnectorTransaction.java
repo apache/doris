@@ -38,6 +38,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
@@ -1142,7 +1143,17 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
                 }
                 deleteDir(dir);
             }
-            List<FileEntry> files = getFileSystem().listFiles(Location.of(targetPath));
+            // Storage implementations may treat listFiles arguments as globs. Overwrite must enumerate
+            // the literal target, or a table name such as table_{prod} can leave old rows behind.
+            List<FileEntry> files = new ArrayList<>();
+            try (FileIterator iterator = getFileSystem().list(Location.of(targetPath))) {
+                while (iterator.hasNext()) {
+                    FileEntry file = iterator.next();
+                    if (!file.isDirectory()) {
+                        files.add(file);
+                    }
+                }
+            }
             for (FileEntry file : files) {
                 deleteFile(file.location().uri());
             }

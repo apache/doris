@@ -296,20 +296,26 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 return Optional.empty();
             }
             allPartPaths = hmsPartitionPaths(hudiHandle, allPartPaths);
-            matchedPartPaths = prunePartitionPaths(allPartPaths, partKeyNames, partitionPredicates);
+            matchedPartPaths = prunePartitionPaths(allPartPaths, partKeyNames, partitionPredicates,
+                    urlEncodePartitioning(hudiHandle, allPartPaths));
         } else {
             // non-hive-sync (Hudi default), or any pinned read: list the RELATIVE storage paths from Hudi
             // metadata -- the SAME source the unpruned scan (resolvePartitions -> listAllPartitionPaths) uses --
             // under the plugin auth + TCCL pin. Net-neutral: resolvePartitions short-circuits once prunedPaths is
             // set, so a filtered query lists exactly once (here) instead of there. parsePartitionValues handles
             // the positional layout ("2024/01") and the hive-style one a hive-sync table has.
-            allPartPaths = metaClientExecutor.execute(() ->
-                    HudiScanPlanProvider.listAllPartitionPaths(
-                            HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath())));
+            Listing listing = metaClientExecutor.execute(() -> {
+                HoodieTableMetaClient metaClient =
+                        HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
+                return new Listing(HudiScanPlanProvider.listAllPartitionPaths(metaClient), 0, null,
+                        HudiScanPlanProvider.urlEncodePartitioning(metaClient));
+            });
+            allPartPaths = listing.rawPaths;
             if (allPartPaths == null || allPartPaths.isEmpty()) {
                 return Optional.empty();
             }
-            matchedPartPaths = prunePartitionPaths(allPartPaths, partKeyNames, partitionPredicates);
+            matchedPartPaths = prunePartitionPaths(allPartPaths, partKeyNames, partitionPredicates,
+                    listing.urlEncoded);
         }
         if (matchedPartPaths.size() == allPartPaths.size()) {
             // No pruning effect
@@ -799,8 +805,9 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 // HoodieTableMetaClient built just to read a timeline zone - plus a fallback that
                 // would have published epoch 0 as a partition's last-modified time for any
                 // non-numeric pin, the day it became reachable.
-                return buildPartitionInfos(hmsPartitionPaths(handle, hmsNames),
-                        partKeyNames, latestInstantMillis(handle));
+                List<String> paths = hmsPartitionPaths(handle, hmsNames);
+                PartitionState state = latestPartitionState(handle);
+                return buildPartitionInfos(paths, partKeyNames, state.lastModifiedMillis, state.urlEncoded);
             }
             LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
                     + "falling back to hudi metadata partition listing",
@@ -826,13 +833,14 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                     HudiScanPlanProvider.timelineZone(metaClient));
             PinnedListing pinned = queryInstant == null || rawPaths.isEmpty()
                     ? null : pinnedListing(metaClient, queryInstant, rawPaths);
-            return new Listing(rawPaths, lastModifiedMillis, pinned);
+            return new Listing(rawPaths, lastModifiedMillis, pinned,
+                    HudiScanPlanProvider.urlEncodePartitioning(metaClient));
         });
         List<ConnectorPartitionInfo> partitions =
-                buildPartitionInfos(listing.rawPaths, partKeyNames, listing.lastModifiedMillis);
+                buildPartitionInfos(listing.rawPaths, partKeyNames, listing.lastModifiedMillis, listing.urlEncoded);
         return listing.pinned == null
                 ? partitions
-                : restrictToPin(handle, partKeyNames, partitions, listing.pinned, queryInstant);
+                : restrictToPin(handle, partKeyNames, partitions, listing.pinned, queryInstant, listing.urlEncoded);
     }
 
     /**
@@ -843,17 +851,19 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         private final List<String> rawPaths;
         private final long lastModifiedMillis;
         private final PinnedListing pinned;
+        private final boolean urlEncoded;
 
-        private Listing(List<String> rawPaths, long lastModifiedMillis, PinnedListing pinned) {
+        private Listing(List<String> rawPaths, long lastModifiedMillis, PinnedListing pinned, boolean urlEncoded) {
             this.rawPaths = rawPaths;
             this.lastModifiedMillis = lastModifiedMillis;
             this.pinned = pinned;
+            this.urlEncoded = urlEncoded;
         }
     }
 
     /** The listing a metaClient visit produces for a table read at its latest instant. For tests. */
-    static Listing unpinnedListing(long lastModifiedMillis, List<String> rawPaths) {
-        return new Listing(rawPaths, lastModifiedMillis, null);
+    static Listing unpinnedListing(long lastModifiedMillis, List<String> rawPaths, boolean urlEncoded) {
+        return new Listing(rawPaths, lastModifiedMillis, null, urlEncoded);
     }
 
     /**
@@ -862,8 +872,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * {@link #restrictToPin}, which is otherwise reachable only behind a live metadata table.
      */
     static Listing pinnedListing(long lastModifiedMillis, List<String> rawPaths, long pinMillis,
-            List<String> rawPathsAtPin) {
-        return new Listing(rawPaths, lastModifiedMillis, new PinnedListing(pinMillis, rawPathsAtPin));
+            List<String> rawPathsAtPin, boolean urlEncoded) {
+        return new Listing(rawPaths, lastModifiedMillis, new PinnedListing(pinMillis, rawPathsAtPin), urlEncoded);
     }
 
     /** The pin rendered as epoch millis, and the raw paths that held data at it. */
@@ -908,10 +918,10 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * {@link #pinnedListing} computes it, on the metaClient the caller already built.
      */
     private List<ConnectorPartitionInfo> restrictToPin(HudiTableHandle handle, List<String> partKeyNames,
-            List<ConnectorPartitionInfo> partitions, PinnedListing pinned, String queryInstant) {
+            List<ConnectorPartitionInfo> partitions, PinnedListing pinned, String queryInstant, boolean urlEncoded) {
         Set<Map<String, String>> pinnedValues = new HashSet<>();
         for (String rawPath : pinned.rawPaths) {
-            pinnedValues.add(HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames));
+            pinnedValues.add(HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames, urlEncoded));
         }
         List<ConnectorPartitionInfo> atPin = new ArrayList<>(pinnedValues.size());
         for (ConnectorPartitionInfo partition : partitions) {
@@ -936,7 +946,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         }
         // Hive sync can register an already escaped Hudi value, which HMS escapes again in its name.
         // The storage location identifies the physical path regardless of the sync extractor's decoding
-        // policy. Decode that path only in parsePartitionValues, preserving literal percent sequences.
+        // policy. Interpret the physical path using the encoding flag persisted in hoodie.properties.
         // Name and object caches expire independently. A deleted encoded partition must not fail
         // a query before pruning; surviving objects must be associated by values, not list position.
         List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
@@ -991,12 +1001,12 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * this method only passes the value through. Static + package-private for offline unit testing.
      */
     static List<ConnectorPartitionInfo> buildPartitionInfos(
-            List<String> rawPaths, List<String> partKeyNames, long lastModifiedMillis) {
+            List<String> rawPaths, List<String> partKeyNames, long lastModifiedMillis, boolean urlEncoded) {
         List<ConnectorPartitionInfo> result = new ArrayList<>(rawPaths.size());
         for (String rawPath : rawPaths) {
             // Parse the unescaped values ONCE; render the hive-style name from the SAME values so the name and
             // the values map agree by construction (the name re-parses back to these values in fe-core).
-            Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames);
+            Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames, urlEncoded);
             String name = HudiScanPlanProvider.renderHiveStylePartitionName(partKeyNames, values);
             // Ordered values in partKeyNames (render) order; render/parse are exact inverses, so this equals
             // fe-core's legacy parse of `name`. Supplied so fe-core skips the parse.
@@ -1041,16 +1051,37 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     /**
      * The same pin as {@link #latestInstant}, expressed in epoch millis for the partition info's
      * last-modified field. Kept separate because the raw instant is what the snapshot id and time travel
-     * need - the two units must never be swapped for one another.
+     * need - the two units must never be swapped for one another. The encoding flag is read on the same
+     * metaClient so listing does not reopen the table just to interpret its paths.
      */
-    long latestInstantMillis(HudiTableHandle handle) {
+    PartitionState latestPartitionState(HudiTableHandle handle) {
         return metaClientExecutor.execute(() -> {
             HoodieTableMetaClient metaClient =
                     HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
-            return HudiScanPlanProvider.instantToEpochMillis(
+            return new PartitionState(HudiScanPlanProvider.instantToEpochMillis(
                     HudiScanPlanProvider.latestCompletedInstant(metaClient),
-                    HudiScanPlanProvider.timelineZone(metaClient));
+                    HudiScanPlanProvider.timelineZone(metaClient)),
+                    HudiScanPlanProvider.urlEncodePartitioning(metaClient));
         });
+    }
+
+    static final class PartitionState {
+        private final long lastModifiedMillis;
+        private final boolean urlEncoded;
+
+        PartitionState(long lastModifiedMillis, boolean urlEncoded) {
+            this.lastModifiedMillis = lastModifiedMillis;
+            this.urlEncoded = urlEncoded;
+        }
+    }
+
+    boolean urlEncodePartitioning(HudiTableHandle handle, List<String> paths) {
+        // Decoding cannot change percent-free paths. Avoid an extra table-config read for that common case.
+        if (paths.stream().noneMatch(path -> path.indexOf('%') >= 0)) {
+            return false;
+        }
+        return metaClientExecutor.execute(() -> HudiScanPlanProvider.urlEncodePartitioning(
+                HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath())));
     }
 
     private boolean useHiveSyncPartition() {
@@ -1445,10 +1476,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * package-private for offline unit testing.
      */
     static List<String> prunePartitionPaths(List<String> allPartPaths,
-            List<String> partKeyNames, Map<String, List<String>> predicates) {
+            List<String> partKeyNames, Map<String, List<String>> predicates, boolean urlEncoded) {
         List<String> matched = new ArrayList<>();
         for (String partPath : allPartPaths) {
-            Map<String, String> partValues = HudiScanPlanProvider.parsePartitionValues(partPath, partKeyNames);
+            Map<String, String> partValues = HudiScanPlanProvider.parsePartitionValues(
+                    partPath, partKeyNames, urlEncoded);
             if (matchesPredicates(partValues, predicates)) {
                 matched.add(partPath);
             }

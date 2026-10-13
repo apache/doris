@@ -35,6 +35,7 @@ import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.UploadPartResult;
+import org.apache.doris.filesystem.hdfs.DFSFileSystem;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RemoteObject;
@@ -52,8 +53,11 @@ import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -185,6 +189,45 @@ public class HiveConnectorTransactionTest {
     }
 
     // ─────────────────────────────── SPI identity ───────────────────────────────
+
+    @Test
+    public void overwriteWithRelativeStagingTreatsTargetAsLiteralPath(@TempDir Path warehouse) throws Exception {
+        for (String name : Arrays.asList("table_{prod}", "table_*", "table_?", "table_[ab]")) {
+            Path parent = Files.createTempDirectory(warehouse, "case");
+            Path target = Files.createDirectory(parent.resolve(name));
+            Path other = Files.createDirectory(parent.resolve("table_prod"));
+            Files.writeString(other.resolve("unrelated.txt"), "unrelated");
+            Files.writeString(target.resolve("old.txt"), "old");
+            Path staging = Files.createDirectories(target.resolve(".doris_staging/query"));
+            Files.writeString(staging.resolve("new.txt"), "new");
+            String targetPath = target.toString();
+            String writePath = staging.toString();
+            RecordingHmsClient client = new RecordingHmsClient();
+            client.table = HmsTableInfo.builder().dbName(DB).tableName(TBL).tableType("MANAGED_TABLE")
+                    .location(targetPath).columns(Collections.singletonList(col("c1", "int")))
+                    .partitionKeys(Collections.emptyList()).parameters(Collections.emptyMap()).build();
+            try (DFSFileSystem fs = new DFSFileSystem(Collections.emptyMap())) {
+                HiveConnectorTransaction txn = new HiveConnectorTransaction(42L, client,
+                        new FakeConnectorContext("test_catalog", CATALOG_ID, Collections.emptyMap()) {
+                            @Override
+                            public FileSystem getFileSystem(ConnectorSession session) {
+                                return fs;
+                            }
+                        });
+                txn.beginWrite(null, DB, TBL, new HiveWriteContext(WriteOperation.OVERWRITE, true,
+                        Collections.emptyMap(), "query", TFileType.FILE_HDFS, writePath));
+                THivePartitionUpdate update = pu("", TUpdateMode.OVERWRITE, writePath,
+                        Collections.singletonList("new.txt"), 3, 1);
+                update.getLocation().setTargetPath(targetPath);
+                txn.addCommitData(serialize(update));
+                txn.commit();
+                txn.close();
+            }
+            Assertions.assertFalse(Files.exists(target.resolve("old.txt")));
+            Assertions.assertEquals("new", Files.readString(target.resolve("new.txt")));
+            Assertions.assertEquals("unrelated", Files.readString(other.resolve("unrelated.txt")));
+        }
+    }
 
     @Test
     public void testProfileLabelAndTransactionId() {
