@@ -18,6 +18,7 @@
 
 import copy
 import io
+import itertools
 import json
 import subprocess
 import tempfile
@@ -53,10 +54,11 @@ class FinalReviewTest(unittest.TestCase):
         self.api = self.enterContext(mock.patch.object(submitter, "api", side_effect=self.fake_api))
         self.remaining = lambda: 60
 
-    def submission(self, priority=1):
+    def submission(self, priority=1, *, converged=True, rounds=1):
         return {"body": "All checkpoints reviewed.", "comments": [] if priority is None else [
             {"path": "file.py", "position": 12, "body": f"[P{priority}] Fix the verified issue"}
-        ], "existing_blocking_comment_ids": []}
+        ], "existing_blocking_comment_ids": [], "converged": converged, "rounds": rounds,
+            "incomplete_reason": "" if converged else "Round 3 found another candidate; coverage is not settled."}
 
     def fake_api(self, path, remaining, *, payload=None, paginated=False):
         if path == self.root:
@@ -104,6 +106,77 @@ class FinalReviewTest(unittest.TestCase):
                 result = self.submit(self.submission(level))
                 self.assertEqual("success", result["state"])
                 self.assertEqual("COMMENT", self.posts[-1]["event"])
+
+    def test_round_limit_delivers_verified_findings_without_passing(self):
+        submission = self.submission(2, converged=False, rounds=3)
+        result = self.submit(submission)
+        self.assertEqual(("failure", 0, 0), (result["state"], result["p0"], result["p1"]))
+        self.assertFalse(result["converged"])
+        self.assertEqual(3, result["rounds"])
+        self.assertEqual(submission["incomplete_reason"], result["incomplete_reason"])
+        self.assertEqual(submission["comments"], self.posts[0]["comments"])
+        self.assertEqual("COMMENT", self.posts[0]["event"])
+        self.assertIn("Review did not converge after 3 rounds", self.posts[0]["body"])
+        self.assertIn(submission["incomplete_reason"], self.posts[0]["body"])
+        self.assertEqual(result, self.verify())
+        self.assertEqual(result, self.submit(submission))
+        self.assertEqual(1, len(self.posts))
+
+    def test_convergence_metadata_is_bound_to_frozen_submission(self):
+        original = self.submission(None, converged=False, rounds=3)
+        self.submit(original)
+        changes = (
+            {"converged": True, "incomplete_reason": ""},
+            {"incomplete_reason": "A different gap"},
+        )
+        for changeset in changes:
+            with self.subTest(changeset=changeset), self.assertRaisesRegex(ValueError, "already declared"):
+                self.submit(dict(original, **changeset))
+        self.assertEqual(1, len(self.posts))
+
+    def test_convergence_statement_is_verified_by_api_readback(self):
+        self.submit(self.submission(None, converged=False, rounds=3))
+        self.reviews[0]["body"] = self.reviews[0]["body"].replace("did not converge", "converged")
+        with self.assertRaisesRegex(ValueError, "summary did not match"):
+            self.verify()
+
+    def test_nonconverged_submission_still_checks_live_head(self):
+        self.pr["head"]["sha"] = "c" * 40
+        with self.assertRaisesRegex(ValueError, "stale"):
+            self.submit(self.submission(None, converged=False, rounds=3))
+        self.assertEqual([], self.posts)
+
+    def test_nonconverged_post_with_lost_response_is_not_duplicated(self):
+        submission = self.submission(None, converged=False, rounds=3)
+        def lost_response(path, *args, **kwargs):
+            result = self.fake_api(path, *args, **kwargs)
+            if kwargs.get("payload") is not None:
+                raise subprocess.TimeoutExpired("gh", 30)
+            return result
+        self.api.side_effect = lost_response
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.submit(submission)
+        self.api.side_effect = self.fake_api
+        self.assertEqual("failure", self.submit(submission)["state"])
+        self.assertEqual(1, len(self.posts))
+
+    def test_convergence_schema_rejects_ambiguous_or_premature_results(self):
+        invalid = [
+            {"converged": "false"}, {"converged": 1}, {"converged": None},
+            {"rounds": True}, {"rounds": 0}, {"rounds": 4}, {"rounds": "3"}, {"rounds": 3.0},
+            {"incomplete_reason": None}, {"incomplete_reason": "still unresolved"},
+            {"converged": False, "rounds": 3, "incomplete_reason": " "},
+            {"converged": False, "rounds": 2, "incomplete_reason": "not settled"},
+        ]
+        for changes in invalid:
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.submit(dict(self.submission(None), **changes))
+        for field in ("converged", "rounds", "incomplete_reason"):
+            value = self.submission(None)
+            del value[field]
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                self.submit(value)
+        self.assertEqual([], self.posts)
 
     def test_existing_confirmed_blocker_is_counted_without_duplicate_inline(self):
         self.existing = [{"id": 101, "body": "[P0] Previously reported blocker"}]
@@ -235,11 +308,11 @@ class FinalReviewTest(unittest.TestCase):
         self.submit()
         self.assertEqual(1, len(self.posts))
 
-    def test_capacity_after_submission_completes_execution_and_gates_findings(self):
+    def test_delivery_completes_execution_and_gates_findings_and_convergence(self):
         # Reproduce #66227: final write/readback, then capacity (also on the last
         # allowed attempt). Run the real verifier and SHA-wide status resolver.
-        for level in (None, 0, 1, 2):
-            with self.subTest(priority=level), tempfile.TemporaryDirectory() as tmp:
+        for level, converged, capacity in itertools.product((None, 0, 1, 2), (True, False), (True, False)):
+            with self.subTest(priority=level, converged=converged, capacity=capacity), tempfile.TemporaryDirectory() as tmp:
                 context = Path(tmp)
                 (context / "codex_goal_prompt.txt").write_text("Review the PR")
                 args = SimpleNamespace(context_dir=context, cwd=context, **{
@@ -250,12 +323,13 @@ class FinalReviewTest(unittest.TestCase):
                 def attempt(command, events, stderr, timeout, reaper=None, watchdog=None):
                     run = json.loads((context / submitter.RUN_FILE).read_text())
                     submitter.verify_completion(context, run, self.remaining, submit=True,
-                                                submission=self.submission(level))
+                                                submission=self.submission(level, converged=converged, rounds=3))
                     events.write_text(json.dumps({"type": "thread.started", "thread_id":
                         "0199a213-81c0-7800-8aa1-bbab2a035a53"}) + "\n" + json.dumps({
-                        "type": "turn.failed", "error": {"message": runner.CAPACITY_MESSAGE}}) + "\n")
+                        "type": "turn.failed" if capacity else "turn.completed",
+                        "error": {"message": runner.CAPACITY_MESSAGE} if capacity else {}}) + "\n")
                     stderr.write_text("")
-                    return 1
+                    return 1 if capacity else 0
 
                 with mock.patch.object(runner, "run_attempt", side_effect=attempt), \
                      mock.patch.object(runner, "RETRY_DELAYS", ()), \
@@ -266,8 +340,13 @@ class FinalReviewTest(unittest.TestCase):
                 guard.assert_not_called()
                 sleep.assert_not_called()
                 result = json.loads((context / submitter.RESULT_FILE).read_text())
-                self.assertTrue(result["recovered_after_capacity"])
-                state = "failure" if level in (0, 1) else "success"
+                self.assertEqual(capacity, result["recovered_after_capacity"])
+                self.assertEqual(converged, result["converged"])
+                self.assertEqual(3, result["rounds"])
+                completion = runner.read_events(context / "codex-events.jsonl")[-1]
+                self.assertEqual("review.completed", completion["type"])
+                self.assertEqual(converged, completion["converged"])
+                state = "failure" if level in (0, 1) or not converged else "success"
                 self.assertEqual(state, result["state"])
                 resolution = resolve_status([self.pr], [{"id": 1, "state": result["state"],
                     "context": f"code-review/source/automated/pr-123/base-{self.run['base_sha']}"}],

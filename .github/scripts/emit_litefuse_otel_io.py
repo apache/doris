@@ -18,6 +18,7 @@
 
 import argparse
 import base64
+import gzip
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -1458,11 +1459,16 @@ def shrink_singleton_otlp_retry(
     return otlp_chunks(chunk, next_limit, trace_body)
 
 
-def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds):
+def post_payload_once(
+    endpoint, public_key, secret_key, payload, timeout_seconds, gzip_enabled=False
+):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
+    data = compact_json_bytes(payload)
+    if gzip_enabled:
+        data = gzip.compress(data, compresslevel=1, mtime=0)
     request = urllib.request.Request(
         endpoint,
-        data=compact_json_bytes(payload),
+        data=data,
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Basic {auth}",
@@ -1472,6 +1478,8 @@ def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds
         },
         method="POST",
     )
+    if gzip_enabled:
+        request.add_header("Content-Encoding", "gzip")
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
         body = response.read().decode()
         detail = json.loads(body) if body else {}
@@ -1493,6 +1501,7 @@ def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds
         return {
             "status": response.status,
             "success_count": otlp_span_count(payload),
+            "wire_bytes": len(data),
         }
 
 
@@ -1505,10 +1514,13 @@ def post_payload(
     timeout_seconds,
     retry_attempts,
     retry_sleep_seconds,
+    gzip_enabled=False,
 ):
+    upload_started = time.monotonic()
     statuses = []
     success_count = 0
     request_sizes = []
+    wire_request_sizes = []
     payload_too_large_retry_count = 0
     transport_retry_count = 0
     http_retry_count = 0
@@ -1522,7 +1534,8 @@ def post_payload(
         post_attempt_count += 1
         try:
             status = post_payload_once(
-                endpoint, public_key, secret_key, otlp_chunk, timeout_seconds
+                endpoint, public_key, secret_key, otlp_chunk, timeout_seconds,
+                gzip_enabled=gzip_enabled,
             )
         except urllib.error.HTTPError as exc:
             if exc.code in OTLP_RETRYABLE_HTTP_STATUS_CODES:
@@ -1597,11 +1610,16 @@ def post_payload(
         statuses.append(status["status"])
         success_count += int(status.get("success_count") or 0)
         request_sizes.append(request_size)
+        wire_request_sizes.append(status["wire_bytes"])
     return {
+        "compression": "gzip" if gzip_enabled else "none",
+        "upload_seconds": round(time.monotonic() - upload_started, 3),
         "statuses": statuses,
         "request_count": len(statuses),
         "post_attempt_count": post_attempt_count,
         "request_sizes": request_sizes,
+        # Like request_sizes, these sizes cover successful requests only.
+        "wire_request_sizes": wire_request_sizes,
         "max_request_size": max(request_sizes) if request_sizes else 0,
         "payload_too_large_retries": payload_too_large_retry_count,
         "transport_retries": transport_retry_count,
@@ -2024,6 +2042,10 @@ def parse_args():
     parser.add_argument("--post-timeout-seconds", type=int, default=120)
     parser.add_argument("--post-retry-attempts", type=int, default=5)
     parser.add_argument("--post-retry-sleep-seconds", type=int, default=5)
+    parser.add_argument(
+        "--gzip", action="store_true",
+        help="Gzip OTLP uploads; payload size limits still apply before compression",
+    )
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify-attempts", type=int, default=24)
@@ -2113,6 +2135,7 @@ def main():
         args.post_timeout_seconds,
         args.post_retry_attempts,
         args.post_retry_sleep_seconds,
+        gzip_enabled=args.gzip,
     )
     result["subagent_traces"] = []
     for subagent_payload in subagent_payloads:
@@ -2125,6 +2148,7 @@ def main():
             args.post_timeout_seconds,
             args.post_retry_attempts,
             args.post_retry_sleep_seconds,
+            gzip_enabled=args.gzip,
         )
         result["subagent_traces"].append(
             {
