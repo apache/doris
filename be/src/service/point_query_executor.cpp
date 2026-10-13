@@ -37,7 +37,6 @@
 #include "common/status.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_serde.h"
-#include "exec/common/variant_util.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -54,6 +53,7 @@
 #include "storage/row_cursor.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -617,12 +617,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     // default -- the same answer it gives once a load does bring the column in.
                     TabletColumn column_awaiting_a_load;
                     if (index < 0) {
-                        column_awaiting_a_load = variant_util::get_column_by_type(
-                                slot->type(), slot->col_name(),
-                                variant_util::ExtraInfo {.unique_id = slot->col_unique_id()});
-                        if (!slot->col_default_value().empty()) {
-                            column_awaiting_a_load.set_default_value(slot->col_default_value());
-                        }
+                        column_awaiting_a_load = ReadSchema::tablet_column_from_slot(*slot);
                     }
                     const TabletColumn& read_column =
                             index >= 0 ? tablet_schema->column(index) : column_awaiting_a_load;
