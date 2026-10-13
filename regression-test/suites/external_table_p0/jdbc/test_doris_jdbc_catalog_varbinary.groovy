@@ -37,6 +37,13 @@ suite("test_doris_jdbc_catalog_varbinary", "p0,external") {
         select 2, cast(null as varbinary(16))
     """
     order_qt_internal """select id, b from internal.${internal_db_name}.varbinary_view order by id"""
+    sql """drop view if exists ${internal_db_name}.varbinary_array_view"""
+    sql """
+        create view ${internal_db_name}.varbinary_array_view as
+        select 1 as id, array(cast('abc' as varbinary(16)), cast(null as varbinary(16)), cast('' as varbinary(16))) as a
+        union all
+        select 2, cast(null as array<varbinary(16)>)
+    """
 
     sql """drop catalog if exists ${catalog_name}"""
     sql """CREATE CATALOG `${catalog_name}` PROPERTIES (
@@ -53,4 +60,9 @@ suite("test_doris_jdbc_catalog_varbinary", "p0,external") {
     order_qt_desc """desc ${catalog_name}.${internal_db_name}.varbinary_view"""
     // The bytes read through the catalog are the remote ones.
     order_qt_select """select id, b, hex(b) from ${catalog_name}.${internal_db_name}.varbinary_view order by id"""
+
+    // The remote returns an array as text that spells each VARBINARY element as 0x hex, and the scanner decodes
+    // array elements only into strings, so a VARBINARY element stays STRING and reads as that text.
+    order_qt_array_desc """desc ${catalog_name}.${internal_db_name}.varbinary_array_view"""
+    order_qt_array_select """select id, a, a[1] from ${catalog_name}.${internal_db_name}.varbinary_array_view order by id"""
 }

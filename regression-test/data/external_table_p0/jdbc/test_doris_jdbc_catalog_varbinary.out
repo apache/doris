@@ -11,3 +11,11 @@ id	tinyint	No	true	\N
 1	0x616263	616263
 2	\N	\N
 
+-- !array_desc --
+a	array<text>	Yes	true	\N	
+id	tinyint	No	true	\N	
+
+-- !array_select --
+1	["0x616263", null, "0x"]	0x616263
+2	\N	\N
+

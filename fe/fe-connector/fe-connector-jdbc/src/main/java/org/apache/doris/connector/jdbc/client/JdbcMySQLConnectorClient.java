@@ -332,6 +332,11 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         if (upperType.startsWith("ARRAY")) {
             // ARRAY<INNER_TYPE> -> extract inner type and recursively convert
             String innerType = upperType.substring(6, upperType.length() - 1).trim();
+            if (innerType.startsWith("VARBINARY")) {
+                // The remote returns an array as text that spells each VARBINARY element as 0x hex, and the scanner
+                // decodes array elements only into strings, so such an element stays STRING.
+                return ConnectorType.arrayOf(ConnectorType.of("STRING"));
+            }
             return ConnectorType.arrayOf(dorisTypeToConnectorType(innerType, null));
         }
 
