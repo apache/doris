@@ -15,6 +15,13 @@
 
 -- !index_version_0 --
 
+-- !placeholder_index_version_3 --
+2	3
+
+-- !placeholder_index_version_in --
+1	2
+5	6
+
 -- !versions_after_index --
 1	2
 2	3

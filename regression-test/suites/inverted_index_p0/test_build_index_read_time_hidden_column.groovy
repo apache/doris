@@ -152,6 +152,34 @@ suite("test_build_index_read_time_hidden_column", "nonConcurrent") {
     order_qt_index_version_0 """
         select k, __DORIS_VERSION_COL__ from build_index_hidden_version where __DORIS_VERSION_COL__ = 0
     """
+
+    // An index that an online build wrote before builds read with the owning rowset's metadata
+    // holds the placeholder 0 for every row of the compacted rowset. The debug point makes the
+    // rebuild read that way, so the new index is such an index: the queries must still return the
+    // stored versions, and the profile must show the index filtering nothing because the scan
+    // recognizes the all-placeholder index and ignores it.
+    sql "drop index version_idx on build_index_hidden_version"
+    wait_for_latest_op_on_table_finish("build_index_hidden_version", timeout)
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs(
+                "IndexBuilder::set_read_time_hidden_column_options.placeholder")
+        sql "create index version_idx on build_index_hidden_version(__DORIS_VERSION_COL__) using inverted"
+        wait_for_latest_op_on_table_finish("build_index_hidden_version", timeout)
+        jobs_before_build = build_index_job_ids("build_index_hidden_version")
+        sql "build index version_idx on build_index_hidden_version"
+        wait_for_build_index_finish("build_index_hidden_version", jobs_before_build, timeout)
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs(
+                "IndexBuilder::set_read_time_hidden_column_options.placeholder")
+    }
+    // Distinct statement texts, so the profile lookup finds these queries and not the ones above.
+    def placeholder_index_version_3 = "select k, __DORIS_VERSION_COL__ as placeholder_index_version from build_index_hidden_version where __DORIS_VERSION_COL__ = 3"
+    order_qt_placeholder_index_version_3 placeholder_index_version_3
+    assert_rows_filtered_by_inverted_index(placeholder_index_version_3, 0)
+    def placeholder_index_version_in = "select k, __DORIS_VERSION_COL__ as placeholder_index_version from build_index_hidden_version where __DORIS_VERSION_COL__ in (2, 6)"
+    order_qt_placeholder_index_version_in placeholder_index_version_in
+    assert_rows_filtered_by_inverted_index(placeholder_index_version_in, 0)
+
     order_qt_versions_after_index """
         select k, __DORIS_VERSION_COL__ from build_index_hidden_version
     """

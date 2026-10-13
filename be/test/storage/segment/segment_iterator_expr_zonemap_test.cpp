@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <functional>
 #include <future>
 #include <memory>
 #include <set>
@@ -44,6 +45,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
@@ -76,6 +78,14 @@ const RowsetId kRowsetId {.version = 1};
 
 Field int_field(int32_t value) {
     return Field::create_field<TYPE_INT>(value);
+}
+
+// A compacted [2-3] rowset whose rows alternate between the two materialized versions.
+constexpr int64_t kRangeStartVersion = 2;
+constexpr int64_t kRangeEndVersion = 3;
+
+Field materialized_version(int rid) {
+    return Field::create_field<TYPE_BIGINT>(kRangeStartVersion + rid % 2);
 }
 
 class IntMaxAtLeastExpr final : public VExpr {
@@ -590,10 +600,21 @@ protected:
     // Writes a segment whose second column physically holds `hidden_value` in every row, the way
     // a load stores a read-time hidden column, together with the schema's Bloom filter and
     // inverted index over it.
+    void build_hidden_bigint_segment(const std::string& file_name, int num_rows,
+                                     uint32_t num_rows_per_block, const Field& hidden_value,
+                                     std::shared_ptr<Segment>* segment) {
+        ASSERT_NO_FATAL_FAILURE(build_hidden_bigint_segment(
+                file_name, num_rows, num_rows_per_block,
+                [&hidden_value](int) { return hidden_value; }, segment));
+    }
+
+    // Writes a segment whose second column physically holds `hidden_value_of(rid)` in row `rid`,
+    // together with the schema's Bloom filter and inverted index over it.
     // GTest assertion macros inflate the cognitive complexity of this segment-building fixture.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void build_hidden_bigint_segment(const std::string& file_name, int num_rows,
-                                     uint32_t num_rows_per_block, const Field& hidden_value,
+                                     uint32_t num_rows_per_block,
+                                     const std::function<Field(int)>& hidden_value_of,
                                      std::shared_ptr<Segment>* segment) {
         const auto path = std::string(kTestDir) + "/" + file_name;
         auto fs = io::global_local_filesystem();
@@ -617,7 +638,7 @@ protected:
         ASSERT_TRUE(st.ok()) << st;
         for (int rid = 0; rid < num_rows; ++rid) {
             row.mutable_field(0) = int_field(rid);
-            row.mutable_field(1) = hidden_value;
+            row.mutable_field(1) = hidden_value_of(rid);
             st = writer.append_row(row);
             ASSERT_TRUE(st.ok()) << st;
         }
@@ -636,6 +657,82 @@ protected:
                            segment);
         ASSERT_TRUE(st.ok()) << st;
         ASSERT_EQ(num_rows, (*segment)->num_rows());
+    }
+
+    // Writes the VERSION segment of a compacted [2-3] rowset, rows alternating between the
+    // materialized versions 2 and 3, and then the inverted index an online build wrote for it
+    // before index builds read with the owning rowset's metadata: the placeholder 0 for every row.
+    void build_version_segment_with_placeholder_index(std::shared_ptr<Segment>* segment) {
+        const std::string file_name = "version_placeholder_index_segment.dat";
+        // The segment writer indexes the column values it writes, so the data is written under
+        // the schema without the index and the placeholder index is added afterwards.
+        _tablet_schema = make_version_tablet_schema(false);
+        std::shared_ptr<Segment> data_segment;
+        ASSERT_NO_FATAL_FAILURE(build_hidden_bigint_segment(file_name, kNumRows, 1024,
+                                                            materialized_version, &data_segment));
+        data_segment.reset();
+
+        _tablet_schema = make_version_tablet_schema(true);
+        const auto path = std::string(kTestDir) + "/" + file_name;
+        auto fs = io::global_local_filesystem();
+        std::unique_ptr<IndexFileWriter> index_file_writer;
+        ASSERT_NO_FATAL_FAILURE(create_index_file_writer(fs, path, &index_file_writer));
+        ASSERT_NE(nullptr, index_file_writer);
+        const auto& column = _tablet_schema->column(kVersionCid);
+        const auto indexes = _tablet_schema->inverted_indexs(column);
+        ASSERT_EQ(1, indexes.size());
+        std::unique_ptr<IndexColumnWriter> index_writer;
+        auto st = IndexColumnWriter::create(&column, &index_writer, index_file_writer.get(),
+                                            indexes[0]);
+        ASSERT_TRUE(st.ok()) << st;
+        const std::vector<int64_t> placeholders(kNumRows, 0);
+        st = index_writer->add_values(column.name(), placeholders.data(), placeholders.size());
+        ASSERT_TRUE(st.ok()) << st;
+        st = index_writer->finish();
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NO_FATAL_FAILURE(close_index_file_writer(index_file_writer.get()));
+
+        st = Segment::open(fs, path, 100, 0, kRowsetId, _tablet_schema, io::FileReaderOptions {},
+                           segment);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(kNumRows, (*segment)->num_rows());
+    }
+
+    // Reads `segment` as the [2-3] rowset with `VERSION = 3` pushed down and the inverted index
+    // enabled, and checks that exactly the version-3 rows come back.
+    void assert_range_version_eq_end_rows(const std::shared_ptr<Segment>& segment) {
+        auto read_schema = make_read_schema(_tablet_schema);
+
+        TQueryOptions query_options;
+        query_options.__set_enable_inverted_index_query(true);
+        query_options.__set_enable_inverted_index_query_cache(false);
+        query_options.__set_enable_inverted_index_searcher_cache(false);
+        // A threshold of 0 disables the BKD hit-estimate bypass, so the index answers the predicate.
+        query_options.__set_inverted_index_skip_threshold(0);
+        _runtime_state.set_query_options(query_options);
+
+        auto predicate = make_version_eq_column_predicate(kVersionCid, kRangeEndVersion);
+        auto block_predicate = AndBlockColumnPredicate::create_shared();
+        block_predicate->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+
+        // Both columns are output, like a scan that projects the hidden column; otherwise the
+        // iterator skips reading a predicate column the index has fully answered.
+        const std::set<int32_t> output_column_uids {0, kVersionCid};
+        StorageReadOptions read_options(_stats);
+        read_options.runtime_state = &_runtime_state;
+        read_options.version = Version(kRangeStartVersion, kRangeEndVersion);
+        read_options.block_row_max = 1024;
+        read_options.column_predicates = {predicate};
+        read_options.col_id_to_predicates.emplace(kVersionCid, std::move(block_predicate));
+        read_options.output_columns = &output_column_uids;
+
+        std::unique_ptr<RowwiseIterator> iter;
+        auto st = segment->new_iterator(read_schema, read_options, &iter);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NE(nullptr, iter);
+        ASSERT_FALSE(iter->empty());
+        ASSERT_NO_FATAL_FAILURE(assert_hidden_column_values(iter.get(), read_options, read_schema,
+                                                            kNumRows / 2, kRangeEndVersion));
     }
 
     // Drains `iter` and checks that every row of the hidden column (ordinal 1) is non-NULL and
@@ -1495,6 +1592,33 @@ TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalInvertedInde
     ASSERT_FALSE(iter->empty());
     ASSERT_NO_FATAL_FAILURE(
             assert_hidden_column_values(iter.get(), read_options, read_schema, kNumRows, kVersion));
+    EXPECT_EQ(0, _stats.rows_inverted_index_filtered);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesMaterializedInvertedIndex) {
+    // Case: a compacted [2-3] rowset stores versions 2 and 3 per row and its index was written
+    // from those values. A multi-version rowset has no read-time constant, so the physical index
+    // answers `VERSION = 3` and filters the version-2 rows.
+    _tablet_schema = make_version_tablet_schema(true);
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_hidden_bigint_segment("version_materialized_index_segment.dat",
+                                                        kNumRows, 1024, materialized_version,
+                                                        &segment));
+
+    ASSERT_NO_FATAL_FAILURE(assert_range_version_eq_end_rows(segment));
+    EXPECT_EQ(kNumRows / 2, _stats.rows_inverted_index_filtered);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, RangeVersionIgnoresPlaceholderInvertedIndex) {
+    // Case: the same rowset, but an online index build that ran before builds read with the
+    // owning rowset's metadata indexed the placeholder 0 for every row. That index would answer
+    // `VERSION = 3` with no rows although the stored rows match; the iterator recognizes an index
+    // whose every row is 0 as such a placeholder index, drops it and evaluates the stored values.
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_version_segment_with_placeholder_index(&segment));
+
+    ASSERT_NO_FATAL_FAILURE(assert_range_version_eq_end_rows(segment));
     EXPECT_EQ(0, _stats.rows_inverted_index_filtered);
 }
 

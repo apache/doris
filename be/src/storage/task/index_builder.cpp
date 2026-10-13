@@ -66,6 +66,10 @@ namespace {
 // Read with the owning rowset's metadata instead.
 void set_read_time_hidden_column_options(const RowsetMeta& rowset_meta,
                                          StorageReadOptions& read_options) {
+    // Keeps the default options, which index the placeholder 0 for every row of a multi-version
+    // rowset the way builds did before this function existed; the regression checks that a scan
+    // ignores such an index (SegmentIterator::_drop_placeholder_hidden_column_index).
+    DBUG_EXECUTE_IF("IndexBuilder::set_read_time_hidden_column_options.placeholder", { return; });
     read_options.version = rowset_meta.version();
     read_options.commit_tso = rowset_meta.commit_tso();
 }
