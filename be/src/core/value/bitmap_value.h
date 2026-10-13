@@ -76,7 +76,7 @@ struct BitmapTypeCode {
         // RoaringBitmap containing only the lower 32 bits. Thus we could use
         // map<uint32_t, RoaringBitmap> to represent bitmap of 64-bits ints.
         //
-        // Since there is no standard format for 64-bits RoaringBitmap, we define our own as below
+        // Doris uses its own 64-bit payload, distinct from the portable Roaring 64-bit extension.
         // Payload := NumRoaring(vint64), { MapKey, MapValue }^NumRoaring
         // - MapKey := the shared high 32 bits in UInt32LittleEndian(4 byte)
         // - MapValue := the standard RoaringBitmap format
@@ -2596,7 +2596,8 @@ public:
         return true;
     }
 
-    // Accept either standard portable 32-bit Roaring or its map-based 64-bit extension.
+    // Accept portable 32-bit Roaring or the unsigned map-based 64-bit extension, including
+    // bytes produced by Go roaring64.Bitmap.WritePortableTo. Doris-tagged bytes use deserialize().
     bool deserialize_portable(const char* src, size_t size) {
         reset();
         const size_t roaring32_size =

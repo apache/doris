@@ -32,7 +32,10 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/** Decode a Base64-encoded portable Roaring 32- or 64-bit bitmap. */
+/**
+ * Decode Base64-encoded portable Roaring 32-bit or map-based 64-bit bytes, such as Go
+ * roaring64.Bitmap.WritePortableTo output. Doris bitmap_to_base64 output uses bitmap_from_base64.
+ */
 public class BitmapFromRoaringBase64 extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
 
