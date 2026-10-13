@@ -29,11 +29,13 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
+import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.RuntimeFilterId;
@@ -88,6 +91,10 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
         connectContext.getSessionVariable().setDisableJoinReorder(true);
+        createTable("CREATE TABLE variant_rf_a (k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+        createTable("CREATE TABLE variant_rf_b (k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
     }
 
     @Test
@@ -592,4 +599,91 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
         Assertions.assertEquals(0, filters.size());
     }
+
+    @Test
+    public void testVariantJoinKeyDoesNotGenerateRuntimeFilter() {
+        boolean originalEnableVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            // Control: the INT key of the same tables produces a runtime filter in this setup.
+            Assertions.assertFalse(getRuntimeFilters(
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.k = b.k").get().isEmpty());
+            // Scalar runtime filters cannot express Variant canonical equality.
+            for (String sql : ImmutableList.of(
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v = b.v",
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v <=> b.v",
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v['id'] = b.v['id']",
+                    "SELECT * FROM (SELECT CAST(k AS VARIANT) vv FROM variant_rf_a) x "
+                            + "JOIN variant_rf_b b ON x.vv = b.v")) {
+                Assertions.assertTrue(getRuntimeFilters(sql).get().isEmpty(), sql);
+            }
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
+        }
+    }
+
+    @Test
+    public void testVariantPushDownContextIsInvalidBeforeTraversal() {
+        boolean originalEnableVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            RuntimeFilterContext context = new RuntimeFilterContext(
+                    connectContext.getSessionVariable(), RuntimeFilterId.createGenerator());
+            AbstractPhysicalJoin builder = Mockito.mock(AbstractPhysicalJoin.class);
+            SlotReference scalar = new SlotReference("scalar", IntegerType.INSTANCE);
+            SlotReference variant = new SlotReference("variant", VariantType.INSTANCE);
+            Expression cast = new Cast(variant, IntegerType.INSTANCE);
+            PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
+            context.aliasTransferMapPut(scalar, Pair.of(scan, scalar));
+            context.aliasTransferMapPut(variant, Pair.of(scan, variant));
+            for (TRuntimeFilterType type : ImmutableList.of(
+                    TRuntimeFilterType.IN, TRuntimeFilterType.BLOOM,
+                    TRuntimeFilterType.MIN_MAX, TRuntimeFilterType.IN_OR_BLOOM)) {
+                Assertions.assertFalse(PushDownContext.createPushDownContextForHashJoin(
+                        variant, scalar, context, RuntimeFilterId.createGenerator(), type, builder, false, -1, 0).isValid());
+                Assertions.assertFalse(PushDownContext.createPushDownContextForHashJoin(
+                        scalar, variant, context, RuntimeFilterId.createGenerator(), type, builder, false, -1, 0).isValid());
+                Assertions.assertTrue(PushDownContext.createPushDownContextForHashJoin(
+                        scalar, cast, context, RuntimeFilterId.createGenerator(), type, builder, false, -1, 0).isValid());
+                Assertions.assertTrue(PushDownContext.createPushDownContextForHashJoin(
+                        cast, scalar, context, RuntimeFilterId.createGenerator(), type, builder, false, -1, 0).isValid());
+            }
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
+        }
+    }
+
+    @Test
+    public void testScalarCastOfVariantGeneratesRuntimeFilter() {
+        boolean originalEnableVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            for (String sql : ImmutableList.of(
+                    "SELECT * FROM variant_rf_a a JOIN variant_rf_b b "
+                            + "ON CAST(a.v AS INT) = CAST(b.v AS INT)",
+                    "SELECT * FROM (SELECT CAST(v AS INT) vv FROM variant_rf_a) a "
+                            + "JOIN variant_rf_b b ON a.vv = b.k")) {
+                Assertions.assertFalse(getRuntimeFilters(sql).get().isEmpty(), sql);
+            }
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
+        }
+    }
+
+    @Test
+    public void testVariantSetOperationDoesNotGenerateRuntimeFilter() {
+        boolean originalEnableVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            for (String sql : ImmutableList.of(
+                    "SELECT v FROM variant_rf_a INTERSECT SELECT v FROM variant_rf_b",
+                    "SELECT v FROM variant_rf_a EXCEPT SELECT v FROM variant_rf_b")) {
+                Assertions.assertTrue(getRuntimeFilters(sql).get().isEmpty(), sql);
+                Assertions.assertTrue(getSetOperationRuntimeFilters(sql).isEmpty(), sql);
+            }
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
+        }
+    }
+
 }

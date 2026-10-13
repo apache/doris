@@ -113,6 +113,8 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
 
     sql """ALTER TABLE ${table_name} drop index idx_var"""
     double_write.call()
+    // Light index changes can finish synchronously. Explicitly insert into the TEXT column.
+    sql insert_sql
     qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k, cast(v['id'] as bigint), cast(v['payload']['commits'] as string) limit 10"
 
     sql "set enable_two_phase_read_opt = false"

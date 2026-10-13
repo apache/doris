@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -81,8 +82,9 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             Alias alias = (Alias) expr;
             WindowExpression windowExpression = (WindowExpression) alias.child();
             List<OrderExpression> orderExpressions = windowExpression.getOrderKeys();
-            if (orderExpressions.stream().anyMatch((
-                    orderKey -> orderKey.getDataType().isObjectOrVariantType()))) {
+            if (orderExpressions.stream().anyMatch(orderKey ->
+                    orderKey.getDataType().isObjectType()
+                            || VariantType.isLegacyVariant(orderKey.getDataType()))) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
             List<OrderKey> orderKeys = new ArrayList<>();

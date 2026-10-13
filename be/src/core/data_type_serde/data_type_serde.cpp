@@ -144,13 +144,18 @@ Status DataTypeSerDe::default_from_string(StringRef& str, IColumn& column) const
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
-Status DataTypeSerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                       ColumnString& to_column) const {
+Status DataTypeSerDe::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+        const NullMap::value_type* source_null_map) const {
     const auto size = from_column.size();
     JsonbWriter writer;
     for (int i = 0; i < size; i++) {
+        if (source_null_map && source_null_map[i]) {
+            to_column.insert_default();
+            continue;
+        }
         writer.reset();
-        RETURN_IF_ERROR(serialize_column_to_jsonb(from_column, i, writer));
+        RETURN_IF_ERROR(serialize_column_to_jsonb(from_column, i, writer, options));
         to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     }
     return Status::OK();

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
@@ -224,11 +225,8 @@ public class TypeCoercionUtils {
             }
             return Optional.of(new StructType(newFields));
         } else if (input instanceof VariantType
-                && ((VariantType) input).isExecutionV2() && expected instanceof JsonType) {
-            // JSON functions require users to make this representation change explicit.
-            return Optional.empty();
-        } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
-            // variant could implicit cast to numric types and string like types
+                && (expected.isNumericType() || expected.isStringLikeType() || expected.isJsonType())) {
+            // variant could implicit cast to numric types, string like types and json
             return Optional.of(expected);
         } else {
             return implicitCastPrimitive(input, expected);
@@ -1400,16 +1398,29 @@ public class TypeCoercionUtils {
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
 
-        boolean leftIsVariantV2 = left.getDataType() instanceof VariantType
+        boolean leftIsVariant = left.getDataType() instanceof VariantType
                 && ((VariantType) left.getDataType()).isExecutionV2();
-        boolean rightIsVariantV2 = right.getDataType() instanceof VariantType
+        boolean rightIsVariant = right.getDataType() instanceof VariantType
                 && ((VariantType) right.getDataType()).isExecutionV2();
-        boolean isDirectVariantSubpathScalarComparison = leftIsVariantV2 != rightIsVariantV2
-                && ((leftIsVariantV2 && left instanceof ElementAt)
-                        || (rightIsVariantV2 && right instanceof ElementAt));
-        if ((leftIsVariantV2 || rightIsVariantV2)
+        // V2 equality is shared by scalar predicates and canonical hash join keys. Keep
+        // ordering and mixed Variant/scalar comparisons on their existing coercion paths.
+        if (leftIsVariant && rightIsVariant && comparisonPredicate instanceof EqualPredicate) {
+            return comparisonPredicate;
+        }
+        // A bare NULL has no type of its own, so it takes the Variant type of the other side and
+        // `v = NULL`, `v != NULL` and `v <=> NULL` become the Variant equality above.
+        if (comparisonPredicate instanceof EqualPredicate && leftIsVariant != rightIsVariant
+                && (leftIsVariant ? right : left).getDataType().isNullType()) {
+            DataType variantDataType = leftIsVariant ? left.getDataType() : right.getDataType();
+            return comparisonPredicate.withChildren(castIfNotSameType(left, variantDataType),
+                    castIfNotSameType(right, variantDataType));
+        }
+        boolean isDirectVariantSubpathScalarComparison = leftIsVariant != rightIsVariant
+                && ((leftIsVariant && left instanceof ElementAt)
+                        || (rightIsVariant && right instanceof ElementAt));
+        if ((leftIsVariant || rightIsVariant)
                 && !isDirectVariantSubpathScalarComparison) {
-            DataType variantDataType = leftIsVariantV2
+            DataType variantDataType = leftIsVariant
                     ? left.getDataType() : right.getDataType();
             throw new AnalysisException("data type " + variantDataType
                     + " could not used in ComparisonPredicate " + comparisonPredicate.toSql()

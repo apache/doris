@@ -24,6 +24,7 @@
 #include "core/value/jsonb_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_string.h"
+#include "runtime/runtime_state.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
@@ -133,7 +134,7 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
     }
 
     return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
+              uint32_t result, size_t input_rows_count, const NullMap::value_type* null_map) {
         CastParameters params;
         params.is_strict = context->enable_strict_mode();
 
@@ -231,13 +232,15 @@ WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const Dat
     }
 
     return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
+              uint32_t result, size_t input_rows_count, const NullMap::value_type* null_map) {
         // same as to_json function
         auto to_column = ColumnString::create();
         auto from_type_serde = block.get_by_position(arguments[0]).type->get_serde();
         auto from_column = block.get_by_position(arguments[0]).column;
-        RETURN_IF_ERROR(
-                from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column));
+        DataTypeSerDe::FormatOptions options;
+        options.timezone = &context->state()->timezone_obj();
+        RETURN_IF_ERROR(from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column,
+                                                                          options, null_map));
         block.get_by_position(result).column = std::move(to_column);
         return Status::OK();
     };

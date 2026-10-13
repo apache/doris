@@ -77,23 +77,14 @@ suite("test_variant_equality_contexts", "p0,nonConcurrent") {
         contains "EXCEPT"
     }
 
-    test {
-        sql "SELECT ${variantV2Function}('1') = ${variantV2Function}('1.0')"
-        exception "CAST to a concrete type first"
-    }
+    // V2 canonical equality is supported in scalar and join contexts.
+    qt_equals "SELECT ${variantV2Function}('1') = ${variantV2Function}('1.0')"
 
-    test {
-        sql "SELECT ${variantV2Function}('1') != ${variantV2Function}('1.0')"
-        exception "CAST to a concrete type first"
-    }
+    qt_not_equals "SELECT ${variantV2Function}('1') != ${variantV2Function}('1.0')"
 
-    test {
-        sql "SELECT ${variantV2Function}('1') <=> ${variantV2Function}('1.0')"
-        exception "CAST to a concrete type first"
-    }
+    qt_null_safe_equals "SELECT ${variantV2Function}('1') <=> ${variantV2Function}('1.0')"
 
-    test {
-        sql """
+    order_qt_equality_join """
             SELECT *
             FROM (SELECT CAST(CAST(number AS STRING) AS VARIANT) v
                   FROM numbers("number" = "2")) a
@@ -101,11 +92,8 @@ suite("test_variant_equality_contexts", "p0,nonConcurrent") {
                   FROM numbers("number" = "2")) b
             ON a.v = b.v
         """
-        exception "CAST to a concrete type first"
-    }
 
-    test {
-        sql """
+    order_qt_null_safe_equality_join """
             SELECT *
             FROM (SELECT CAST(CAST(number AS STRING) AS VARIANT) v
                   FROM numbers("number" = "2")) a
@@ -113,8 +101,6 @@ suite("test_variant_equality_contexts", "p0,nonConcurrent") {
                   FROM numbers("number" = "2")) b
             ON a.v <=> b.v
         """
-        exception "CAST to a concrete type first"
-    }
 
     order_qt_group_by """
         SELECT CAST(v AS STRING), COUNT(*)
