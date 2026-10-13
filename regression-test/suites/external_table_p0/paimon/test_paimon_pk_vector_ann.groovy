@@ -186,6 +186,64 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
         assertEquals(bruteTop5, noRewrite, "without FileScannerV2 the query must brute-force")
 
+        // ------------------------------------------------------------------
+        // Bounded-search soundness (review feedback on the rewrite):
+        // A predicate that cannot ride into the BE vector search must not be
+        // answered from a top-(LIMIT) fetch, so the rewrite declines for these
+        // shapes and the query runs with the distance computed in Doris. Every
+        // leg is a differential against the rust-disabled brute force.
+
+        // A predicate on the distance itself: the synthetic distance column is
+        // outside the paimon-rust predicate converter's field registry, and a
+        // residual applied after the bounded fetch would return the wrong rows
+        // (with candidate distances 0/2/3, `dis > 1 LIMIT 1` must return the
+        // distance-2 row, not an empty result).
+        def distanceLowerBound = {
+            sql "set enable_paimon_rust_reader=0"
+            def brute = idsOf(sql("""select id from ann_l2
+                    where l2_distance_approximate(embedding, ${probe}) > 1
+                    order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+            sql "set enable_paimon_rust_reader=1"
+            def ann = idsOf(sql("""select id from ann_l2
+                    where l2_distance_approximate(embedding, ${probe}) > 1
+                    order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+            assertEquals(brute, ann, "a distance predicate must not be served by a bounded fetch")
+        }
+        distanceLowerBound()
+
+        // An unconvertible data predicate (the ARRAY<FLOAT> vector column is not
+        // a paimon-rust predicate type): same soundness rule.
+        sql "set enable_paimon_rust_reader=0"
+        def bruteArrayPred = idsOf(sql("""select id from ann_l2
+                where embedding is not null
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        sql "set enable_paimon_rust_reader=1"
+        def annArrayPred = idsOf(sql("""select id from ann_l2
+                where embedding is not null
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        assertEquals(bruteArrayPred, annArrayPred,
+                "an unconvertible predicate must not be served by a bounded fetch")
+
+        // A pinned file-creation-time read state: the ordinary path drops manifest
+        // entries older than the bound, but a PK-vector search plans its own splits
+        // and never consults the bound -- so the rewrite declines and both legs
+        // must agree on the file-visible rows. A bound of 1 keeps every file; a
+        // far-future bound keeps none.
+        sql "set enable_paimon_rust_reader=0"
+        def bruteOld = idsOf(sql("""select id from ann_l2@options(
+                'scan.file-creation-time-millis'='1')
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        def bruteNone = idsOf(sql("""select count(*) from ann_l2@options(
+                'scan.file-creation-time-millis'='1791821967062000')"""))
+        sql "set enable_paimon_rust_reader=1"
+        def annOld = idsOf(sql("""select id from ann_l2@options(
+                'scan.file-creation-time-millis'='1')
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        def annNone = idsOf(sql("""select count(*) from ann_l2@options(
+                'scan.file-creation-time-millis'='1791821967062000')"""))
+        assertEquals(bruteOld, annOld, "a file-creation-time bound must be honored on the vector path")
+        assertEquals(bruteNone, annNone, "a far-future file bound must exclude all files on both paths")
+
         // -------------------------------------------------------- inner product
         compareTopN("ann_ip", true, 5)
     } finally {

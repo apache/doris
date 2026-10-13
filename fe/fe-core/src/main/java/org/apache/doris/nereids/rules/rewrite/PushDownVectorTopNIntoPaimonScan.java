@@ -17,19 +17,25 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.source.PaimonVectorSearch;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
@@ -47,10 +53,17 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TVectorMetric;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypeRoot;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.MultisetType;
+import org.apache.paimon.types.RowType;
 
 import java.util.List;
 import java.util.Map;
@@ -89,6 +102,12 @@ import java.util.Set;
  * never falls back merely because the vector is read.
  */
 public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
+
+    /** Doris column types the BE paimon-rust predicate converter can push; see
+     *  PaimonRustPredicateConverter._is_supported_slot_type on the BE side. */
+    private static final Set<Type> VECTOR_FILTER_SUPPORTED_COLUMN_TYPES = ImmutableSet.of(
+            Type.BOOLEAN, Type.TINYINT, Type.SMALLINT, Type.INT, Type.BIGINT,
+            Type.STRING, Type.DATE, Type.DATEV2);
 
     @Override
     public List<Rule> buildRules() {
@@ -138,7 +157,43 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         // incremental scan the user requested, with the distance computed in Doris.
         // (The scan node's vector gate keeps !isIncremental as the authoritative
         // backstop for any path that produces a vector split regardless.)
-        if (scan.getScanParams().isPresent() && scan.getScanParams().get().incrementalRead()) {
+        //
+        // The same holds for a pinned file-creation-time read state: the ordinary
+        // path enforces `scan.file-creation-time-millis` by dropping manifest
+        // entries older than the bound, but the vector search plans its own splits
+        // and never consults that bound, so old files' nearest neighbors could leak
+        // into the result. Snapshot/tag/version selectors are fine -- they are
+        // resolved into the table handle before the vector search -- so only the
+        // file-level bound forces the decline.
+        if (scan.getScanParams().isPresent()) {
+            TableScanParams scanParams = scan.getScanParams().get();
+            if (scanParams.incrementalRead()) {
+                return null;
+            }
+            Map<String, String> rawParams = scanParams.getMapParams();
+            if (rawParams.containsKey(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())) {
+                return null;
+            }
+        }
+
+        // A bounded vector top-N is only correct when every filter conjunct is
+        // applied inside the search, before the limit is exhausted. The BE
+        // paimon-rust predicate converter skips conjuncts it cannot represent (and
+        // the synthetic distance column is not in its field registry at all), and
+        // the engine re-applies those residuals on the returned block -- after the
+        // top-K rows were already selected. A skipped residual can therefore drop
+        // rows out of a bounded result: with candidate distances 0, 2 and 3, a
+        // `WHERE dis > 1 ORDER BY dis LIMIT 1` would fetch only the distance-0 row,
+        // filter it out and return nothing instead of the distance-2 row. So the
+        // rewrite only fires when each conjunct is provably of a form the converter
+        // pushes: a simple comparison / IN / null-check on a table column whose
+        // Doris type is in the converter's supported set (see
+        // PaimonRustPredicateConverter._is_supported_slot_type on BE). Anything
+        // else -- an expression predicate, a predicate on the distance itself, an
+        // unsupported column type -- declines the rewrite and the query runs as an
+        // ordinary scan with the distance computed in Doris, which is always
+        // correct.
+        if (optionalFilter.isPresent() && !conjunctsRideIntoVectorSearch(optionalFilter.get())) {
             return null;
         }
 
@@ -169,6 +224,13 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
             return null;
         }
 
+        // The indexed column must be a direct slot reference. A Cast chain over the
+        // column is NOT stripped: a legal cast can change vector values (for example
+        // an ARRAY<FLOAT> -> ARRAY<INT> -> ARRAY<FLOAT> round trip loses precision),
+        // and searching the original vectors while the query means the casted ones
+        // changes both the distance and the row order. Doris's implicit coercions do
+        // not produce a cast here for a matching ARRAY<FLOAT> column, so anything
+        // wrapped in a Cast simply declines the rewrite.
         Expression left;
         Expression right;
         if (l2Dist) {
@@ -177,9 +239,6 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         } else {
             left = ((InnerProductApproximate) orderKeyExpr).left();
             right = ((InnerProductApproximate) orderKeyExpr).right();
-        }
-        while (left instanceof Cast) {
-            left = ((Cast) left).child();
         }
         if (!(left instanceof SlotReference && right.isConstant() && right instanceof ArrayLiteral)) {
             return null;
@@ -213,6 +272,22 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         if (!expectedMetric.equals(metric)) {
             return null;
         }
+
+        // Pre-flight the projection-dependent bounds the vector split would hit at
+        // the scan node: a PK-vector split has no JNI fallback (it would return an
+        // empty distance column), so a query whose projected columns would set
+        // projectedVariant -- or an ORC table with TIMESTAMP_LTZ in its schema, the
+        // orc-ltz-shape bound -- must not be rewritten at all. Without the rewrite
+        // those queries run through the ordinary paths, where they are supported.
+        try {
+            if (projectedColumnsContainVariant(project, optionalFilter)
+                    || orcSchemaContainsTimestampLtz(paimonTable)) {
+                return null;
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+
         // The thrift-level enum the AnnTopNInfo will carry. expectedMetric is kept as a
         // string for the comparison above (coreOptions returns a string), but the
         // AnnTopNInfo / wire contract uses TVectorMetric, so map once here. DOT_PRODUCT
@@ -309,5 +384,130 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
                 .replaceNamedExpressions(project.getProjects(), replaceMap);
         LogicalProject<?> newProject = project.withProjectsAndChild(newProjections, plan);
         return topN.withChildren(newProject);
+    }
+
+    /**
+     * Whether every filter conjunct provably rides into the BE vector search (see
+     * the call site for the bounded-top-N correctness argument). Conservative by
+     * design: forms outside this whitelist may well be convertible, but the query
+     * then simply runs un-rewritten, which is always correct.
+     */
+    private static boolean conjunctsRideIntoVectorSearch(LogicalFilter<?> filter) {
+        for (Expression conjunct : filter.getConjuncts()) {
+            if (!conjunctRidesIntoVectorSearch(conjunct)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean conjunctRidesIntoVectorSearch(Expression conjunct) {
+        if (conjunct instanceof ComparisonPredicate) {
+            ComparisonPredicate compare = (ComparisonPredicate) conjunct;
+            return (isVectorFilterColumnSlot(compare.left()) && compare.right() instanceof Literal)
+                    || (compare.left() instanceof Literal && isVectorFilterColumnSlot(compare.right()));
+        }
+        if (conjunct instanceof InPredicate) {
+            InPredicate in = (InPredicate) conjunct;
+            return isVectorFilterColumnSlot(in.getCompareExpr())
+                    && in.getOptions().stream().allMatch(Literal.class::isInstance);
+        }
+        if (conjunct instanceof IsNull) {
+            return isVectorFilterColumnSlot(((IsNull) conjunct).child());
+        }
+        if (conjunct instanceof Not && ((Not) conjunct).child() instanceof IsNull) {
+            return isVectorFilterColumnSlot(((IsNull) ((Not) conjunct).child()).child());
+        }
+        return false;
+    }
+
+    private static boolean isVectorFilterColumnSlot(Expression expr) {
+        if (!(expr instanceof SlotReference)) {
+            return false;
+        }
+        SlotReference slot = (SlotReference) expr;
+        return slot.getOriginalColumn().isPresent()
+                && VECTOR_FILTER_SUPPORTED_COLUMN_TYPES.contains(
+                        slot.getOriginalColumn().get().getType());
+    }
+
+    /**
+     * Mirrors the scan node's projectedVariant bound (PaimonScanNode: any slot whose
+     * Doris type contains a Variant keeps the query off the rust reader, and a
+     * PK-vector split has no non-rust fallback): any projected or filtered column
+     * containing Variant declines the rewrite so the query stays on an ordinary
+     * supported path.
+     */
+    private static boolean projectedColumnsContainVariant(
+            LogicalProject<?> project, Optional<LogicalFilter<?>> optionalFilter) {
+        List<Expression> expressions = new java.util.ArrayList<>();
+        expressions.addAll((project.getProjects()));
+        optionalFilter.ifPresent(filter -> expressions.addAll(filter.getConjuncts()));
+        for (Expression expression : expressions) {
+            Set<SlotReference> slots = expression.collect(SlotReference.class::isInstance);
+            for (SlotReference slotRef : slots) {
+                if (!slotRef.getOriginalColumn().isPresent()) {
+                    continue;
+                }
+                if (PaimonUtil.containsVariant(slotRef.getOriginalColumn().get().getType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Mirrors the scan node's orc-ltz-schema bound: paimon-rust's ORC
+     * TIMESTAMP_LTZ decoding is not equivalent to Doris semantics yet, and a vector
+     * split would materialize rows through that decoder with no fallback. Snapshot
+     * selection is irrelevant here -- this is a physical-file property.
+     */
+    private static boolean orcSchemaContainsTimestampLtz(PaimonExternalTable paimonTable) {
+        try {
+            Table baseTable = paimonTable.getPaimonTable(Optional.empty());
+            if (!(baseTable instanceof FileStoreTable)) {
+                return false;
+            }
+            FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
+            // Paimon's default file format is ORC; only a PARQUET table is known to
+            // be free of the orc-ltz shape (an unset key falls to the default).
+            String fileFormat = CoreOptions.fromMap(fileStoreTable.options()).fileFormatString();
+            if (!CoreOptions.FILE_FORMAT_PARQUET.equalsIgnoreCase(String.valueOf(fileFormat))) {
+                return fileStoreTable.schema().fields().stream()
+                        .anyMatch(field -> containsTimestampLtz(field.type()));
+            }
+            return false;
+        } catch (Throwable t) {
+            // The table might genuinely be unreadable; the ordinary path will surface
+            // the real error, and declining the rewrite is the safe answer here.
+            return true;
+        }
+    }
+
+    /** Mirrors PaimonScanNode.containsTimestampLtz (package-private there). */
+    private static boolean containsTimestampLtz(DataType type) {
+        if (type == null) {
+            return false;
+        }
+        if (type.getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            return true;
+        }
+        if (type instanceof ArrayType) {
+            return containsTimestampLtz(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            MapType mapType = (MapType) type;
+            return containsTimestampLtz(mapType.getKeyType())
+                    || containsTimestampLtz(mapType.getValueType());
+        }
+        if (type instanceof MultisetType) {
+            return containsTimestampLtz(((MultisetType) type).getElementType());
+        }
+        if (type instanceof RowType) {
+            return ((RowType) type).getFields().stream()
+                    .anyMatch(field -> containsTimestampLtz(field.type()));
+        }
+        return false;
     }
 }

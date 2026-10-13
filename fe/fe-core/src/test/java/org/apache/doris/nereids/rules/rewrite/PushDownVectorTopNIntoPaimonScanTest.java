@@ -30,7 +30,9 @@ import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
@@ -273,10 +275,16 @@ public class PushDownVectorTopNIntoPaimonScanTest {
     }
 
     @Test
-    public void testFilterConjunctReusesScore() {
+    public void testDistancePredicateFilterNotPushedDown() {
         // WHERE l2_distance_approximate(vec, q) < 10 ORDER BY the same expression.
-        // Mirroring the internal-table rule, the conjunct is rewritten to reuse the index value
-        // instead of recomputing the distance from the raw vector.
+        // A predicate on the distance cannot ride into the BE vector search (the
+        // synthetic distance column is not in the paimon-rust predicate converter's
+        // field registry), so it would run as a residual AFTER the bounded top-N
+        // fetch -- with candidate distances 0, 2 and 3, a `dis > 1 LIMIT 1` would
+        // fetch only the distance-0 row, filter it out and return nothing instead
+        // of the distance-2 row. An upper bound happens to be monotone in the
+        // ASC order, but the rewrite cannot rely on residual monotonicity, so the
+        // rewrite declines and the query computes the distance in Doris.
         LogicalFileScan scan = paimonScan(ImmutableMap.of(
                 "pk-vector.index.columns", "vec",
                 "fields.vec.pk-vector.distance.metric", "l2"));
@@ -288,21 +296,74 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         LogicalTopN<Plan> topN = topN(
                 new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true);
 
+        assertNotPushedDown(topN);
+    }
+
+    @Test
+    public void testSimpleColumnFilterStillPushedDown() {
+        // WHERE tag < 3 ORDER BY dis: a comparison on a plain supported-type column
+        // provably rides into the BE vector search (PaimonRustPredicateConverter
+        // pushes comparisons on BOOLEAN..BIGINT/STRING/DATE/DATEV2 columns), so the
+        // bounded top-N sees the predicate and the rewrite stays sound.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference vec = vecSlot(scan);
+        SlotReference tag = (SlotReference) scan.getOutput().get(3);
+        Assertions.assertEquals("tag", tag.getName());
+        LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(new LessThan(tag, new IntegerLiteral(3))), scan);
+        Alias dis = new Alias(new L2DistanceApproximate(vec, queryVector()), "dis");
+        LogicalTopN<Plan> topN = topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true);
+
         Plan rewritten = applyRule(1, topN);
         Assertions.assertNotSame(topN, rewritten);
-
         LogicalProject<?> project = (LogicalProject<?>) rewritten.child(0);
-        LogicalFilter<?> newFilter = (LogicalFilter<?>) project.child(0);
-        LogicalFileScan newScan = (LogicalFileScan) newFilter.child(0);
-        Assertions.assertTrue(newScan.getAnnTopN().isPresent());
+        LogicalFileScan newScan = (LogicalFileScan) ((LogicalFilter<?>) project.child(0)).child(0);
+        Assertions.assertTrue(newScan.getAnnTopN().isPresent(),
+                "the simple column filter must not block the bounded ANN rewrite");
+    }
 
-        Assertions.assertEquals(1, newFilter.getConjuncts().size());
-        Expression conjunct = newFilter.getConjuncts().iterator().next();
-        Assertions.assertFalse(containsDistanceFunction(conjunct),
-                "the filter must not recompute the distance from the raw vector");
-        Assertions.assertEquals(
-                new LessThan(distanceSlotOf(newScan), new IntegerLiteral(10)),
-                conjunct);
+    @Test
+    public void testUnsupportedColumnTypeFilterNotPushedDown() {
+        // WHERE score < 1.5 with score being a DOUBLE column: the paimon-rust
+        // predicate converter keeps IEEE-ordering types (DOUBLE/FLOAT/DECIMAL/
+        // VARCHAR/DATETIME) residual, and a residual after the bounded top-N is
+        // unsound, so the rewrite declines.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference vec = vecSlot(scan);
+        SlotReference score = (SlotReference) scan.getOutput().get(4);
+        Assertions.assertEquals("score", score.getName());
+        Assertions.assertEquals(Type.DOUBLE, score.getOriginalColumn().get().getType());
+        LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(new LessThan(score, new FloatLiteral(1.5f))), scan);
+        Alias dis = new Alias(new L2DistanceApproximate(vec, queryVector()), "dis");
+        LogicalTopN<Plan> topN = topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true);
+
+        assertNotPushedDown(topN);
+    }
+
+    @Test
+    public void testExpressionFilterNotPushedDown() {
+        // WHERE id + 1 < 10: an arithmetic expression cannot ride into the vector
+        // search, so the rewrite declines instead of filtering after the limit.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference vec = vecSlot(scan);
+        SlotReference id = idSlot(scan);
+        LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(new LessThan(
+                        new Add(id, new IntegerLiteral(1)), new IntegerLiteral(10))), scan);
+        Alias dis = new Alias(new L2DistanceApproximate(vec, queryVector()), "dis");
+        LogicalTopN<Plan> topN = topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true);
+
+        assertNotPushedDown(topN);
     }
 
     @Test
@@ -404,11 +465,13 @@ public class PushDownVectorTopNIntoPaimonScanTest {
     }
 
     @Test
-    public void testPredicateOnAliasedDistanceIsRewritten() {
+    public void testPredicateOnAliasedDistanceNotPushedDown() {
         // SELECT id, l2_distance_approximate(vec, q) AS dis
         // FROM xx WHERE l2_distance_approximate(vec, q) < 1 ORDER BY dis
-        // The filter conjunct uses the bare distance function, which the rule
-        // replaces with the index-produced distance slot.
+        // The predicate is on the distance: it cannot ride into the BE vector
+        // search (the synthetic distance column is outside the paimon-rust
+        // predicate converter's field registry), and applying it as a residual
+        // after the bounded top-N fetch is unsound, so the rewrite declines.
         LogicalFileScan scan = paimonScan(ImmutableMap.of(
                 "pk-vector.index.columns", "vec",
                 "fields.vec.pk-vector.distance.metric", "l2"));
@@ -420,49 +483,30 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         LogicalTopN<Plan> topN = topN(
                 new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true);
 
-        Plan rewritten = applyRule(1, topN);
-        Assertions.assertNotSame(topN, rewritten);
-
-        LogicalProject<?> project = (LogicalProject<?>) rewritten.child(0);
-        LogicalFilter<?> newFilter = (LogicalFilter<?>) project.child(0);
-        LogicalFileScan newScan = (LogicalFileScan) newFilter.child(0);
-        Assertions.assertTrue(newScan.getAnnTopN().isPresent());
-
-        // The filter conjunct now references the distance slot, not the function call.
-        Assertions.assertEquals(1, newFilter.getConjuncts().size());
-        Expression conjunct = newFilter.getConjuncts().iterator().next();
-        Assertions.assertFalse(containsDistanceFunction(conjunct),
-                "filter must not recompute the distance from the raw vector");
-        Assertions.assertEquals(
-                new LessThan(distanceSlotOf(newScan), new FloatLiteral(1.0f)),
-                conjunct);
-
-        // The alias output name stays "dis".
-        Alias rewrittenDis = (Alias) project.getProjects().get(1);
-        Assertions.assertEquals("dis", rewrittenDis.getName());
+        assertNotPushedDown(topN);
     }
 
     @Test
     public void testMergedSubqueryRewriteStillTriggers() {
         // SELECT id, dis FROM (
         //     SELECT id, l2_distance_approximate(vec, q) AS dis FROM xx
-        // ) WHERE dis < 1 ORDER BY dis
+        // ) WHERE tag < 3 ORDER BY dis
         //
         // After MergeProjects / MergeFilters runs in the planner, the inner and outer
-        // projects collapse, and the filter's reference to the `dis` alias is resolved
-        // back to the underlying L2DistanceApproximate. The rule then sees:
+        // projects collapse. The rule then sees:
         //   TopN -> Project[id, dis := l2_distance_approximate(vec,q)]
-        //        -> Filter[l2_distance_approximate(vec,q) < 1]
+        //        -> Filter[tag < 3]
         //        -> PaimonScan
-        // which matches the second rule variant (with filter).
+        // which matches the second rule variant (with filter). The simple column
+        // comparison rides into the vector search, so the rewrite stays sound.
         LogicalFileScan scan = paimonScan(ImmutableMap.of(
                 "pk-vector.index.columns", "vec",
                 "fields.vec.pk-vector.distance.metric", "l2"));
         SlotReference vec = vecSlot(scan);
-        Expression distanceExpr = new L2DistanceApproximate(vec, queryVector());
+        SlotReference tag = (SlotReference) scan.getOutput().get(3);
         LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(
-                ImmutableSet.of(new LessThan(distanceExpr, new FloatLiteral(1.0f))), scan);
-        Alias dis = new Alias(distanceExpr, "dis");
+                ImmutableSet.of(new LessThan(tag, new IntegerLiteral(3))), scan);
+        Alias dis = new Alias(new L2DistanceApproximate(vec, queryVector()), "dis");
         LogicalTopN<Plan> topN = topN(
                 new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true);
 
@@ -477,12 +521,10 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         Assertions.assertTrue(newScan.getAnnTopN().isPresent());
         Assertions.assertEquals(TVectorMetric.L2, newScan.getAnnTopN().get().getMetric());
 
-        // The filter now uses the distance slot.
+        // The filter keeps its column predicate (nothing to replace).
         Expression conjunct = newFilter.getConjuncts().iterator().next();
         Assertions.assertFalse(containsDistanceFunction(conjunct));
-        Assertions.assertEquals(
-                new LessThan(distanceSlotOf(newScan), new FloatLiteral(1.0f)),
-                conjunct);
+        Assertions.assertEquals(new LessThan(tag, new IntegerLiteral(3)), conjunct);
 
         // The alias keeps its user name "dis" and wraps the distance slot.
         Alias rewrittenDis = (Alias) project.getProjects().get(1);
@@ -603,6 +645,82 @@ public class PushDownVectorTopNIntoPaimonScanTest {
                 new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
     }
 
+    @Test
+    public void testFileCreationTimeScanNotPushedDown() {
+        // t@options('scan.file-creation-time-millis'='...'): the ordinary path drops
+        // manifest entries older than the bound, but the PK-vector search plans its
+        // own splits and never consults that bound -- old files' nearest neighbors
+        // would leak into the bounded result. Snapshot/tag selectors are resolved
+        // into the table before the vector search and stay eligible; only the
+        // file-level bound declines.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"),
+                Optional.of(new TableScanParams("options",
+                        ImmutableMap.of("scan.file-creation-time-millis", "1791793167062"),
+                        ImmutableList.of())));
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
+    @Test
+    public void testSnapshotScanStillPushedDown() {
+        // t@options('scan.snapshot-id'='1'): snapshot selectors are resolved into
+        // the table handle before the vector search plans its splits, so they do
+        // not block the rewrite (contrast with the file-creation-time bound).
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"),
+                Optional.of(new TableScanParams("options",
+                        ImmutableMap.of("scan.snapshot-id", "1"), ImmutableList.of())));
+        SlotReference vec = vecSlot(scan);
+        Alias dis = new Alias(new L2DistanceApproximate(vec, queryVector()), "dis");
+        Plan rewritten = applyRule(0, topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+        Assertions.assertNotSame(scan, ((LogicalProject<?>) rewritten.child(0)).child(0));
+        Assertions.assertTrue(((LogicalFileScan) ((LogicalProject<?>) rewritten.child(0))
+                .child(0)).getAnnTopN().isPresent());
+    }
+
+    @Test
+    public void testCastOnIndexedVectorNotPushedDown() {
+        // l2_distance_approximate(CAST(vec AS ARRAY<DOUBLE>), q): a legal cast chain
+        // can change vector values (an ARRAY<FLOAT> -> ARRAY<INT> -> ARRAY<FLOAT>
+        // round trip loses precision), so searching the original vectors while the
+        // query means the casted ones would change the ranking and the distance.
+        // The rewrite only accepts a direct indexed column slot.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference vec = vecSlot(scan);
+        Cast castVec = new Cast(vec, org.apache.doris.nereids.types.ArrayType.of(
+                org.apache.doris.nereids.types.DoubleType.INSTANCE));
+        Alias dis = new Alias(new L2DistanceApproximate(castVec, queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
+    @Test
+    public void testVariantProjectionNotPushedDown() {
+        // SELECT payload, dis ... ORDER BY dis with a VARIANT payload column: the
+        // rust reader has no Variant decoder, so the scan node's projectedVariant
+        // bound would reject the vector split -- and a vector split has no JNI
+        // fallback, so the rewrite would turn a supported query into an error.
+        // Pre-flight the projection and decline instead; the query then scans
+        // through the ordinary path.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference vec = vecSlot(scan);
+        SlotReference payload = (SlotReference) scan.getOutput().get(5);
+        Assertions.assertEquals("payload", payload.getName());
+        Assertions.assertTrue(payload.getOriginalColumn().get().getType().isVariantType());
+        Alias dis = new Alias(new L2DistanceApproximate(vec, queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), payload, dis), scan), dis, true));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private Plan applyRule(int ruleIndex, LogicalTopN<Plan> topN) {
@@ -645,7 +763,10 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         List<Column> schema = ImmutableList.of(
                 new Column("id", Type.INT, true),
                 new Column("vec", new ArrayType(Type.FLOAT), true),
-                new Column("vec2", new ArrayType(Type.FLOAT), true));
+                new Column("vec2", new ArrayType(Type.FLOAT), true),
+                new Column("tag", Type.INT, true),
+                new Column("score", Type.DOUBLE, true),
+                new Column("payload", Type.VARIANT, true));
 
         PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
         Mockito.when(table.getName()).thenReturn("paimon_tbl");
@@ -669,6 +790,12 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         Mockito.when(paimonTable.schema()).thenReturn(null);
         Mockito.when(table.getPaimonTable(Mockito.<Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>>any()))
                 .thenReturn(paimonTable);
+        // An options-type TableScanParams binds its schema through
+        // getFullSchema(TableScanParams) (the relation-option path inside
+        // PaimonExternalTable, which would otherwise hit the unmocked package
+        // private helpers). Stub it directly so the options tests get real
+        // output slots; the rule itself only reads the params' raw map.
+        Mockito.when(table.getFullSchema(Mockito.<TableScanParams>any())).thenReturn(schema);
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
