@@ -113,7 +113,7 @@ suite("bitmap_allowlist_scan", "p2,nonConcurrent") {
             warmUp true
             executeTimes 5
             skipFailure false
-            sqls [bitmapQuery, joinQuery, joinQuery, bitmapQuery]
+            sqls([bitmapQuery, joinQuery, joinQuery, bitmapQuery])
         }
     }
 }

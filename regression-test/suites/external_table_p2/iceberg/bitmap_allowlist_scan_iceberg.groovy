@@ -134,7 +134,7 @@ suite("bitmap_allowlist_scan_iceberg", "p2,external,iceberg,external_docker,exte
             warmUp true
             executeTimes 5
             skipFailure false
-            sqls [bitmapQuery, joinQuery, joinQuery, bitmapQuery]
+            sqls([bitmapQuery, joinQuery, joinQuery, bitmapQuery])
         }
     }
 }
