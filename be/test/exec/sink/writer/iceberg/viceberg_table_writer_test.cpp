@@ -22,11 +22,19 @@
 #include <thrift/transport/TBufferTransports.h>
 
 #include "common/exception.h"
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "format/table/iceberg/partition_spec_parser.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/types.h"
@@ -74,8 +82,10 @@ TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
     state.set_timezone("America/New_York");
     writer._state = &state;
     writer._schema = schema;
+    writer._partition_spec = std::move(spec);
+    // Retain the real spec for static validation; top-level sources have no nested child path.
     writer._iceberg_partition_columns.emplace_back(
-            spec->fields()[0], TYPE_TIMESTAMPTZ, 0,
+            writer._partition_spec->fields()[0], TYPE_TIMESTAMPTZ, 0, std::vector<size_t> {},
             std::make_unique<IdentityPartitionColumnTransform>(type));
     auto column = ColumnTimeStampTz::create();
     TimestampTzValue first;
@@ -150,9 +160,10 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         VExprContextSPtrs exprs;
         VIcebergTableWriter writer(data_sink, exprs);
         writer._schema = schema;
+        writer._partition_spec = std::move(spec);
         auto type = make_nullable(std::make_shared<DataTypeVarbinary>());
         writer._iceberg_partition_columns.emplace_back(
-                spec->fields()[0], TYPE_VARBINARY, 0,
+                writer._partition_spec->fields()[0], TYPE_VARBINARY, 0, std::vector<size_t> {},
                 std::make_unique<IdentityPartitionColumnTransform>(type));
         ASSERT_NO_THROW(writer._init_static_partition_values());
         EXPECT_TRUE(writer._is_full_static_partition);
@@ -172,7 +183,7 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         // Partition columns retain a reference to their spec field throughout dispatch.
         iceberg::PartitionField dynamic_field(2, 1001, "id", "identity");
         writer._iceberg_partition_columns.emplace_back(
-                dynamic_field, TYPE_INT, 1,
+                dynamic_field, TYPE_INT, 1, std::vector<size_t> {},
                 std::make_unique<IdentityPartitionColumnTransform>(
                         std::make_shared<DataTypeInt32>()));
         ASSERT_NO_THROW(writer._init_static_partition_values());
@@ -214,8 +225,9 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     VExprContextSPtrs exprs;
     VIcebergTableWriter writer(data_sink, exprs);
     writer._schema = schema;
+    writer._partition_spec = std::move(spec);
     writer._iceberg_partition_columns.emplace_back(
-            spec->fields()[0], TYPE_VARBINARY, 0,
+            writer._partition_spec->fields()[0], TYPE_VARBINARY, 0, std::vector<size_t> {},
             std::make_unique<IdentityPartitionColumnTransform>(type));
     auto column = type->create_column();
     const std::string bytes("\xDE\xAD", 2);
@@ -239,7 +251,7 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     // Add a dynamic field to exercise hybrid routing with the same static binary value.
     iceberg::PartitionField dynamic_field(2, 1001, "id", "identity");
     writer._iceberg_partition_columns.emplace_back(
-            dynamic_field, TYPE_INT, 1,
+            dynamic_field, TYPE_INT, 1, std::vector<size_t> {},
             std::make_unique<IdentityPartitionColumnTransform>(std::make_shared<DataTypeInt32>()));
     writer._init_static_partition_values();
     EXPECT_FALSE(writer._is_full_static_partition);
@@ -288,8 +300,9 @@ TEST(VIcebergTableWriterTest, UuidStaticPartitionAcceptsCanonicalText) {
     VExprContextSPtrs exprs;
     VIcebergTableWriter writer(data_sink, exprs);
     writer._schema = schema;
+    writer._partition_spec = std::move(spec);
     writer._iceberg_partition_columns.emplace_back(
-            spec->fields()[0], TYPE_VARBINARY, 0,
+            writer._partition_spec->fields()[0], TYPE_VARBINARY, 0, std::vector<size_t> {},
             std::make_unique<IdentityPartitionColumnTransform>(
                     std::make_shared<DataTypeVarbinary>()));
     writer._init_static_partition_values();
@@ -297,6 +310,64 @@ TEST(VIcebergTableWriterTest, UuidStaticPartitionAcceptsCanonicalText) {
     EXPECT_EQ(std::vector<std::string>({"0x00112233445566778899aabbccddeeff"}),
               writer._static_partition_value_list);
     writer._t_sink.iceberg_table_sink.static_partition_values["key"] = "invalid";
+    EXPECT_THROW(writer._init_static_partition_values(), Exception);
+}
+
+TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource) {
+    std::vector<iceberg::NestedField> children;
+    children.emplace_back(true, 2, "part", std::make_unique<iceberg::IntegerType>(), std::nullopt);
+    std::vector<iceberg::NestedField> columns;
+    columns.emplace_back(true, 1, "payload",
+                         std::make_unique<iceberg::StructType>(std::move(children)), std::nullopt);
+    auto schema = std::make_shared<iceberg::Schema>(std::move(columns));
+    const std::string spec_json = R"({"spec-id":1,"fields":[{"name":"part","transform":"identity",)"
+                                  R"("source-id":2,"field-id":1000}]})";
+    auto child_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {child_type}, Strings {"part"}));
+    VExprContextSPtrs output_exprs {
+            VExprContext::create_shared(VSlotRef::create_shared(0, 0, -1, struct_type, "payload"))};
+
+    TIcebergTableSink iceberg_sink;
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(iceberg_sink);
+    VIcebergTableWriter writer(data_sink, output_exprs);
+    writer._schema = schema;
+    writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
+
+    auto partition_columns = writer._to_iceberg_partition_columns();
+    ASSERT_EQ(partition_columns.size(), 1);
+    EXPECT_EQ(partition_columns[0].source_idx(), 0);
+    EXPECT_EQ(partition_columns[0].child_indices(), std::vector<size_t>({0}));
+    EXPECT_EQ(partition_columns[0].source_type(), TYPE_INT);
+
+    auto child_data = ColumnInt32::create();
+    child_data->insert_value(7);
+    child_data->insert_value(8);
+    auto child_nulls = ColumnUInt8::create(2, 0);
+    auto child_column = ColumnNullable::create(std::move(child_data), std::move(child_nulls));
+    Columns children_columns {std::move(child_column)};
+    auto struct_column = ColumnStruct::create(std::move(children_columns));
+    auto parent_nulls = ColumnUInt8::create(2, 0);
+    parent_nulls->get_data()[1] = 1;
+    auto parent_column = ColumnNullable::create(std::move(struct_column), std::move(parent_nulls));
+    Block block;
+    block.insert({std::move(parent_column), struct_type, "payload"});
+
+    auto source = writer._nested_partition_source(block, partition_columns[0]);
+    const auto* nullable_source = check_and_get_column<ColumnNullable>(source.column.get());
+    ASSERT_NE(nullable_source, nullptr);
+    ASSERT_EQ(nullable_source->size(), 2);
+    EXPECT_EQ(nullable_source->get_null_map_data()[0], 0);
+    EXPECT_EQ(nullable_source->get_null_map_data()[1], 1);
+    const auto* source_data =
+            check_and_get_column<ColumnInt32>(nullable_source->get_nested_column_ptr().get());
+    ASSERT_NE(source_data, nullptr);
+    EXPECT_EQ(source_data->get_data()[0], 7);
+    EXPECT_EQ(source_data->get_data()[1], 8);
+
+    // A static label must not override the nested leaf actually stored in the row.
+    writer._t_sink.iceberg_table_sink.__set_static_partition_values({{"part", "9"}});
     EXPECT_THROW(writer._init_static_partition_values(), Exception);
 }
 

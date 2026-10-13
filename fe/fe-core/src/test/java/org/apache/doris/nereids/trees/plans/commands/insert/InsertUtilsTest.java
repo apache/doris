@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
@@ -29,6 +30,8 @@ import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -149,6 +152,50 @@ public class InsertUtilsTest {
                 .withInitialDefault(Literal.of(value))
                 .withWriteDefault(Literal.of(value))
                 .build();
+    }
+
+    @Test
+    public void testInsertPlanRetryPreservesInjectedSnapshotAndReloadsPlannerSnapshot() {
+        StatementContext statementContext = new StatementContext();
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getName()).thenReturn("table");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot newerSnapshot = Mockito.mock(MvccSnapshot.class);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(newerSnapshot);
+        statementContext.setSnapshot(new MvccTableInfo(table), snapshot);
+
+        InsertIntoTableCommand.prepareMvccSnapshotsForPlanAttempt(statementContext, 1);
+
+        Assertions.assertSame(snapshot,
+                statementContext.loadSnapshots(table, Optional.empty(), Optional.empty())
+                        .orElseThrow(AssertionError::new));
+        Mockito.verify(table, Mockito.never()).loadSnapshot(Optional.empty(), Optional.empty());
+        IcebergExternalTable plannerTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(plannerTable.getName()).thenReturn("planner_table");
+        Mockito.when(plannerTable.getDatabase()).thenReturn(database);
+        Mockito.when(plannerTable.loadSnapshot(Optional.empty(), Optional.empty()))
+                .thenReturn(snapshot, newerSnapshot);
+        Assertions.assertSame(snapshot, statementContext.loadSnapshots(
+                plannerTable, Optional.empty(), Optional.empty()).orElseThrow(AssertionError::new));
+
+        // Target-schema retries must keep the source generation selected for the MTMV refresh.
+        for (int attempt = 2; attempt <= 3; attempt++) {
+            InsertIntoTableCommand.prepareMvccSnapshotsForPlanAttempt(statementContext, attempt);
+            Assertions.assertSame(snapshot, statementContext.loadSnapshots(
+                    table, Optional.empty(), Optional.empty()).orElseThrow(AssertionError::new));
+            Assertions.assertSame(newerSnapshot, statementContext.loadSnapshots(
+                    plannerTable, Optional.empty(), Optional.empty()).orElseThrow(AssertionError::new));
+        }
+        Mockito.verify(table, Mockito.never()).loadSnapshot(Optional.empty(), Optional.empty());
+        statementContext.resetMvccSnapshots();
+        Assertions.assertSame(newerSnapshot, statementContext.loadSnapshots(
+                table, Optional.empty(), Optional.empty()).orElseThrow(AssertionError::new));
     }
 
     private String generateString(int length) {

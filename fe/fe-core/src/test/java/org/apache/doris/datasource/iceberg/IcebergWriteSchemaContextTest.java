@@ -41,7 +41,9 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
@@ -74,6 +76,21 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class IcebergWriteSchemaContextTest {
+
+    @Test
+    public void testWriterMetadataAcceptsNestedPartitionSource() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "payload",
+                Types.StructType.of(Types.NestedField.optional(2, "part", Types.IntegerType.get()))));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("payload.part", 8).build();
+
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                schema, 2, spec, SortOrder.unsorted(), FileFormat.PARQUET,
+                MetricsConfig.getDefault(), "zstd", "s3://bucket/table/data",
+                ImmutableMap.of(), true, true);
+
+        Assertions.assertEquals(2, context.getPartitionSpec().fields().get(0).sourceId());
+        Assertions.assertEquals(2, context.getColumns().get(0).getChildren().get(0).getUniqueId());
+    }
 
     @Test
     public void testReadAndWriteBindingsPreserveNestedTypesWithLegacyFlags() {
