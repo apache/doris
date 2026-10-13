@@ -290,6 +290,47 @@ public class MysqlProtoTest {
     }
 
     @Test
+    public void testNegotiateSetsClientMultiStatementsWhenTheClientAsksForIt() throws Exception {
+        // The client echoes the advertised capabilities, which carry CLIENT_MULTI_STATEMENTS: what
+        // Connector/J 8 and 9 with allowMultiQueries send, since they mask the flags they ask for
+        // with the advertised ones.
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = new ConnectContext(streamConnection);
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assert.assertTrue(context.getCapability().isClientMultiStatements());
+        new Verifications() {
+            {
+                channel.setClientMultiStatements();
+                times = 1;
+            }
+        };
+    }
+
+    @Test
+    public void testNegotiateLeavesClientMultiStatementsWhenTheClientDoesNotAskForIt() throws Exception {
+        int clientFlags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                & ~MysqlCapability.Flag.CLIENT_MULTI_STATEMENTS.getFlagBit();
+        mockChannel("user", true, clientFlags);
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = new ConnectContext(streamConnection);
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assert.assertFalse(context.getCapability().isClientMultiStatements());
+        new Verifications() {
+            {
+                channel.setClientMultiStatements();
+                times = 0;
+            }
+        };
+    }
+
+    @Test
     public void testNegotiateUsesClientServerCapabilityIntersection() throws Exception {
         int clientFlags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
                 & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();

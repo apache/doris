@@ -43,6 +43,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.io.File;
 import java.util.UUID;
@@ -109,6 +110,17 @@ public class VariableMgrTest {
         SetVar setVar = new SetVar(SetType.SESSION, "version_comment", null);
         VariableMgr.setVar(null, setVar);
         Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testAuthenticationPolicyIsTheReadOnlyMysqlDefault() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        VariableExpr variableExpr = new VariableExpr(GlobalVariable.AUTHENTICATION_POLICY);
+        VariableMgr.fillValue(sessionVariable, variableExpr);
+        Assertions.assertEquals("*,,", VariableMgr.getValue(sessionVariable, variableExpr));
+
+        SetVar setVar = new SetVar(SetType.GLOBAL, GlobalVariable.AUTHENTICATION_POLICY, new StringLiteral("*,"));
+        Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVar(sessionVariable, setVar));
     }
 
     @Test
