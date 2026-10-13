@@ -656,7 +656,20 @@ public class GroupStructInfo {
         List<Leaf> leaves = new ArrayList<>();
         collectJoinConditions(join, conditions, conditionsNoLiteral);
         for (int i = 0; i < ge.arity(); i++) {
-            collectJoinChain(ge.child(i), conditions, conditionsNoLiteral, leaves, ctx);
+            ChainInfo child = chainInfoOf(ge.child(i));
+            if (!child.valid) {
+                if (child.retryable) {
+                    transientFailure(ctx);
+                } else {
+                    invalid(ctx, child.skipReason);
+                }
+                return;
+            }
+            conditions.addAll(child.conditions);
+            conditionsNoLiteral.addAll(child.conditionsNoLiteral);
+            if (!composeChain(child, leaves, ctx)) {
+                return;
+            }
         }
         if (!ctx.valid) {
             return;
@@ -678,59 +691,126 @@ public class GroupStructInfo {
     }
 
     /**
-     * Collect one member of an inner / cross join chain: either descend into another join of the
-     * chain (associativity), or take the memoized parts of the whole sub tree as one chain leaf.
-     * The group of {@code group} is already marked visited by the caller.
+     * The conditions and the leaves of a join chain, memoized per group: a chain of n joins used to walk
+     * its own sub tree once per member (O(n^2) condition renderings for the whole query), while the
+     * structure of a chain does not depend on the build which reads it - only the bookkeeping of a sub
+     * tree which is reached more than once does, and that is done while composing the chain.
      */
-    private static void collectJoinChain(Group group, TreeSet<String> conditions,
-            TreeSet<String> conditionsNoLiteral, List<Leaf> leaves, Ctx ctx) {
-        if (!ctx.valid) {
-            return;
+    public static final class ChainInfo {
+        private final TreeSet<String> conditions;
+        private final TreeSet<String> conditionsNoLiteral;
+        /** the groups the chain is made of, without its leaves: they detect a chain which is reused */
+        private final List<Group> members;
+        /** the groups which are not flattened into the chain, in traversal order */
+        private final List<Group> leaves;
+        private final boolean valid;
+        private final boolean retryable;
+        private final String skipReason;
+
+        private ChainInfo(TreeSet<String> conditions, TreeSet<String> conditionsNoLiteral,
+                List<Group> members, List<Group> leaves, boolean valid, boolean retryable, String skipReason) {
+            this.conditions = conditions;
+            this.conditionsNoLiteral = conditionsNoLiteral;
+            this.members = members;
+            this.leaves = leaves;
+            this.valid = valid;
+            this.retryable = retryable;
+            this.skipReason = skipReason;
         }
-        if (!ctx.visited.add(group)) {
-            // the group is already part of this chain: describe it again as a leaf (see describeGroup)
-            GroupStructInfo memoized = group.getHboStructInfoOrNull();
-            if (memoized == null) {
-                invalid(ctx, "sharing=group " + group.getGroupId().asInt() + " reached twice");
-                return;
-            }
-            if (!memoized.isValid()) {
-                invalid(ctx, memoized.getSkipReason());
-                return;
-            }
-            leaves.add(new Leaf(memoized, true));
-            return;
+
+        private static ChainInfo of(TreeSet<String> conditions, TreeSet<String> conditionsNoLiteral,
+                List<Group> members, List<Group> leaves) {
+            return new ChainInfo(conditions, conditionsNoLiteral, members, leaves, true, false, "");
         }
+
+        private static ChainInfo failed(boolean retryable, String skipReason) {
+            return new ChainInfo(new TreeSet<>(), new TreeSet<>(), new ArrayList<>(), new ArrayList<>(),
+                    false, retryable, skipReason);
+        }
+    }
+
+    /** The memoized chain info of a group, computed at most once per query. */
+    private static ChainInfo chainInfoOf(Group group) {
+        ChainInfo memoized = group.getHboChainInfoOrNull();
+        if (memoized != null) {
+            return memoized;
+        }
+        ChainInfo computed = buildChainInfo(group);
+        group.setHboChainInfo(computed);
+        return computed;
+    }
+
+    /**
+     * The chain structure of a group: a flattenable join contributes its own conditions and the chains
+     * of its children, a transparent operator contributes the chain below it, anything else is a leaf.
+     */
+    private static ChainInfo buildChainInfo(Group group) {
         GroupExpression ge = representativeExpression(group);
         if (ge == null) {
-            invalid(ctx, "no logical expression in group " + group.getGroupId().asInt());
-            return;
+            return ChainInfo.failed(false, "no logical expression in group " + group.getGroupId().asInt());
         }
         Plan plan = ge.getPlan();
         if (plan instanceof Join && isFlattenableJoinType(((Join) plan).getJoinType())) {
+            TreeSet<String> conditions = new TreeSet<>();
+            TreeSet<String> conditionsNoLiteral = new TreeSet<>();
+            List<Group> members = new ArrayList<>();
+            List<Group> leaves = new ArrayList<>();
+            members.add(group);
             collectJoinConditions((Join) plan, conditions, conditionsNoLiteral);
             for (int i = 0; i < ge.arity(); i++) {
-                collectJoinChain(ge.child(i), conditions, conditionsNoLiteral, leaves, ctx);
+                ChainInfo child = chainInfoOf(ge.child(i));
+                if (!child.valid) {
+                    return ChainInfo.failed(child.retryable, child.skipReason);
+                }
+                conditions.addAll(child.conditions);
+                conditionsNoLiteral.addAll(child.conditionsNoLiteral);
+                members.addAll(child.members);
+                leaves.addAll(child.leaves);
             }
-            return;
+            return ChainInfo.of(conditions, conditionsNoLiteral, members, leaves);
         }
         if ((plan instanceof Project || plan instanceof Sort || plan instanceof Window)
                 && ge.arity() == 1) {
-            // keep descending through the transparent operators so that a project / sort between two
-            // joins cannot break the chain in one expression and not in another
-            collectJoinChain(ge.child(0), conditions, conditionsNoLiteral, leaves, ctx);
-            return;
-        }
-        GroupStructInfo leaf = describeVisited(group, ctx);
-        if (!leaf.isValid()) {
-            if (leaf.isRetryable()) {
-                transientFailure(ctx);
-            } else {
-                invalid(ctx, leaf.getSkipReason());
+            ChainInfo child = chainInfoOf(ge.child(0));
+            if (!child.valid) {
+                return child;
             }
-            return;
+            List<Group> members = new ArrayList<>();
+            members.add(group);
+            members.addAll(child.members);
+            return ChainInfo.of(child.conditions, child.conditionsNoLiteral, members, child.leaves);
         }
-        leaves.add(new Leaf(leaf));
+        List<Group> leaves = new ArrayList<>();
+        leaves.add(group);
+        return ChainInfo.of(new TreeSet<>(), new TreeSet<>(), new ArrayList<>(), leaves);
+    }
+
+    /**
+     * Add the leaves of a chain to the leaves of the build which is being described: a sub tree which the
+     * build already reached contributes its canonical form again, but not its scans (its tables are read
+     * once), and a chain which is reused makes all of its leaves repeated.
+     */
+    private static boolean composeChain(ChainInfo chain, List<Leaf> leaves, Ctx ctx) {
+        boolean firstUse = true;
+        for (Group member : chain.members) {
+            if (!ctx.visited.add(member)) {
+                firstUse = false;
+            }
+        }
+        for (Group group : chain.leaves) {
+            boolean repeated = !firstUse || !ctx.visited.add(group);
+            GroupStructInfo leaf = describeVisited(group, ctx);
+            if (!leaf.isValid()) {
+                if (leaf.isRetryable()) {
+                    transientFailure(ctx);
+                } else {
+                    invalid(ctx, leaf.getSkipReason());
+                }
+                return false;
+            }
+            leaves.add(new Leaf(leaf, repeated));
+        }
+        return true;
     }
 
     /** One leaf of a flattened join chain: the memoized description of that sub tree. */

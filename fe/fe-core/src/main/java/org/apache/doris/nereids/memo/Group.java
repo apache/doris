@@ -94,6 +94,7 @@ public class Group {
      * not supported by the simplified struct info.
      */
     private GroupStructInfo hboStructInfo;
+    private GroupStructInfo.ChainInfo hboChainInfo;
     /** The mode independent structural summary of this group, computed on first hbo lookup. */
     private GroupStructInfo.HboStructSummary hboStructSummary;
 
@@ -198,9 +199,19 @@ public class Group {
         return hboStructInfo;
     }
 
+    /** The memoized conditions and leaves of the join chain this group is the root of. */
+    public GroupStructInfo.ChainInfo getHboChainInfoOrNull() {
+        return hboChainInfo;
+    }
+
     /** Cache the struct info of this group; only called by the one build which describes it. */
     public void setHboStructInfo(GroupStructInfo structInfo) {
         hboStructInfo = structInfo;
+    }
+
+    /** Memoize the join chain info of this group. */
+    public void setHboChainInfo(GroupStructInfo.ChainInfo chainInfo) {
+        hboChainInfo = chainInfo;
     }
 
     /**
@@ -768,6 +779,7 @@ public class Group {
         // group while the best plan is still unknown) would describe an alternative the optimizer did
         // not choose, so drop it and let the next reader describe the chosen expression
         this.hboStructInfo = null;
+        this.hboChainInfo = null;
     }
 
     /**
