@@ -122,6 +122,8 @@ Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& argu
             continue;
         }
         for (size_t row = 0; row < column->size(); ++row) {
+            // A nullable spatial NULL has an empty nested payload; parsing it would
+            // spuriously reject a valid NULL row as malformed WKB.
             if (column->is_null_at(row)) {
                 continue;
             }
@@ -445,6 +447,8 @@ struct StAngle {
         auto& null_map_data = null_map->get_data();
 
         for (size_t row = 0; row < size; ++row) {
+            // Propagate NULL before using nested placeholders; a NULL geometry has an
+            // empty payload, not a WKB shape.
             if (any_geo_argument_is_null(block, arguments, row)) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -500,6 +504,8 @@ struct StAzimuth {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
         for (size_t row = 0; row < size; ++row) {
+            // Propagate NULL before using nested placeholders; a NULL geometry has an
+            // empty payload, not a WKB shape.
             if (any_geo_argument_is_null(block, arguments, row)) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -553,6 +559,8 @@ struct StAreaSquareMeters {
         std::unique_ptr<GeoShape> shape;
 
         for (size_t row = 0; row < size; ++row) {
+            // Propagate NULL before using nested placeholders; a NULL geometry has an
+            // empty payload, not a WKB shape.
             if (any_geo_argument_is_null(block, arguments, row)) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -601,6 +609,8 @@ struct StAreaSquareKm {
         std::unique_ptr<GeoShape> shape;
 
         for (size_t row = 0; row < size; ++row) {
+            // Propagate NULL before using nested placeholders; a NULL geometry has an
+            // empty payload, not a WKB shape.
             if (any_geo_argument_is_null(block, arguments, row)) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -696,6 +706,8 @@ struct StRelationFunction {
         auto& null_map_data = null_map->get_data();
 
         for (size_t row = 0; row < size; ++row) {
+            // Propagate NULL before using nested placeholders; a NULL geometry has an
+            // empty payload, not a WKB shape.
             if (any_geo_argument_is_null(block, arguments, row)) {
                 null_map_data[row] = 1;
                 continue;
@@ -959,6 +971,8 @@ struct StAsBinary {
         std::unique_ptr<GeoShape> shape;
 
         for (size_t row = 0; row < size; ++row) {
+            // NULL has no shape bytes: preserve its null bit instead of decoding the
+            // empty nested payload as an invalid geometry.
             if (col->is_null_at(row)) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -1010,6 +1024,8 @@ struct StLength {
 
         std::unique_ptr<GeoShape> shape;
         for (size_t row = 0; row < size; ++row) {
+            // Propagate NULL before using nested placeholders; a NULL geometry has an
+            // empty payload, not a WKB shape.
             if (any_geo_argument_is_null(block, arguments, row)) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -1148,6 +1164,8 @@ struct StDistance {
         bool left_decoded = false;
         bool right_decoded = false;
         for (size_t row = 0; row < size; ++row) {
+            // Propagate NULL before using nested placeholders; a NULL geometry has an
+            // empty payload, not a WKB shape.
             if (any_geo_argument_is_null(block, arguments, row)) {
                 null_map_data[row] = 1;
                 res->insert_default();

@@ -687,6 +687,13 @@ DataTypePtr DataTypeFactory::create_data_type(
         } else if (primitive_type == TYPE_AGG_STATE) {
             // Do nothing
             nested = std::make_shared<DataTypeAggState>();
+        } else if (primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY) {
+            // PTypeDesc must retain parameter identity, e.g. EPSG:3857 must not become CRS84.
+            // Missing optional metadata represents the default type from an older sender.
+            nested = std::make_shared<DataTypeSpatial>(
+                    primitive_type,
+                    scalar_type.has_spatial_crs() ? scalar_type.spatial_crs() : "OGC:CRS84",
+                    primitive_type == TYPE_GEOGRAPHY ? scalar_type.spatial_algorithm() : "");
         } else if (primitive_type == TYPE_VARBINARY) {
             // Serialized execution types must retain VARBINARY(n)'s byte limit across RPCs.
             return create_data_type(primitive_type, is_nullable, 0, 0,

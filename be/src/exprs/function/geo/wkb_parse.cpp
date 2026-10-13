@@ -56,6 +56,8 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type) {
                                                 : ByteOrderValues::ENDIAN_BIG);
     auto encoded = ctx.dis.readUnsigned();
     constexpr uint32_t ewkb_metadata_flags = 0x80000000 | 0x40000000 | WKB_SRID_FLAG;
+    // Typed XY rejects dimension/SRID metadata; e.g. EWKB SRID 4326 is legacy-only.
+    // Historical STRING constructors enable this gate to retain SRID compatibility.
     if (!ctx.allow_ewkb_srid &&
         ((encoded & ewkb_metadata_flags) != 0 || (encoded >= 1000 && encoded < 4000))) {
         return GEO_PARSE_WKB_UNSUPPORTED_METADATA;

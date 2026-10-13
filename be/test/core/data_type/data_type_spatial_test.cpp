@@ -31,6 +31,7 @@
 #include "core/column/column_spatial.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/sip_hash.h"
@@ -267,6 +268,48 @@ TEST(DataTypeSpatialTest, FullBlockRoundTripPreservesParameterizedSpatialColumns
                 expect_spatial_block_round_trip(type, wkb, constant);
             }
         }
+    }
+}
+
+TEST(DataTypeSpatialTest, PTypeDescRoundTripPreservesSpatialParametersAndNullability) {
+    const std::array<DataTypePtr, 4> types {
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "OGC:CRS84"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "VINCENTY")};
+    for (const auto& type : types) {
+        for (bool nullable : {false, true}) {
+            const DataTypePtr expected = nullable ? make_nullable(type) : type;
+            PTypeDesc serialized;
+            expected->to_protobuf(&serialized);
+            int index = 0;
+            auto restored = DataTypeFactory::instance().create_data_type(serialized.types(), &index,
+                                                                         nullable);
+            EXPECT_TRUE(restored->equals(*expected))
+                    << expected->get_name() << " became " << restored->get_name();
+        }
+        const DataTypePtr expected = std::make_shared<DataTypeArray>(make_nullable(type));
+        PTypeDesc serialized;
+        expected->to_protobuf(&serialized);
+        int index = 0;
+        auto restored =
+                DataTypeFactory::instance().create_data_type(serialized.types(), &index, false);
+        EXPECT_TRUE(restored->equals(*expected))
+                << expected->get_name() << " became " << restored->get_name();
+    }
+}
+
+TEST(DataTypeSpatialTest, PTypeDescMissingOptionalMetadataRestoresDefaultIdentity) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        const auto expected = DataTypeFactory::instance().create_data_type(primitive, false);
+        PTypeDesc serialized;
+        expected->to_protobuf(&serialized);
+        serialized.mutable_types(0)->mutable_scalar_type()->clear_spatial_crs();
+        serialized.mutable_types(0)->mutable_scalar_type()->clear_spatial_algorithm();
+        int index = 0;
+        auto restored =
+                DataTypeFactory::instance().create_data_type(serialized.types(), &index, false);
+        EXPECT_TRUE(restored->equals(*expected));
     }
 }
 
