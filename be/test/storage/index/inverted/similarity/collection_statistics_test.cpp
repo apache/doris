@@ -45,6 +45,7 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/similarity/predicate_collector.h"
@@ -461,7 +462,7 @@ protected:
         RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
                 &tablet_schema->column(0), &column_writer, &file_writer, index_metas[0]));
         std::vector<Slice> values {Slice("alpha beta")};
-        RETURN_IF_ERROR(column_writer->add_values("content", values.data(), values.size()));
+        RETURN_IF_ERROR(add_slices(*column_writer, values.data(), values.size()));
         RETURN_IF_ERROR(column_writer->finish());
         RETURN_IF_ERROR(file_writer.begin_close());
         return file_writer.finish_close();

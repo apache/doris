@@ -22,14 +22,20 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <bit>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
@@ -202,9 +208,7 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesSuccess) {
 
     std::vector<size_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
 }
 
@@ -219,8 +223,59 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesEmptyRows) {
     ASSERT_TRUE(writer->init().ok());
 
     // Test with zero rows
-    Status status = writer->add_array_values(sizeof(float), nullptr, nullptr, nullptr, 0);
+    Status status = add_float_arrays(*writer, nullptr, nullptr, 0);
     EXPECT_TRUE(status.ok());
+}
+
+// A batch's vectors start at first_item, read through the Nullable the items arrive in.
+TEST_F(AnnIndexWriterTest, TestAddArrayValuesFromFirstItem) {
+    auto writer =
+            std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(), _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+
+    // Row 0 belongs to an earlier batch; the batch is rows [1, 3). The offsets are rebased to
+    // the item writer, so they do not say where the batch starts.
+    auto floats = ColumnFloat32::create();
+    for (int i = 1; i <= 12; ++i) {
+        floats->insert_value(static_cast<float>(i));
+    }
+    const auto items = ColumnNullable::create(std::move(floats), ColumnUInt8::create(12, 0));
+    const std::vector<uint64_t> offsets {100, 104, 108};
+    ASSERT_TRUE(writer->add_array(*items, 4, offsets.data(), 2).ok());
+
+    const std::vector<float> buffered(writer->_buffered_vectors.begin(),
+                                      writer->_buffered_vectors.end());
+    EXPECT_EQ(buffered, (std::vector<float> {5, 6, 7, 8, 9, 10, 11, 12}));
+}
+
+// Every NaN is buffered as the quiet NaN, as the item writer stores it.
+TEST_F(AnnIndexWriterTest, TestAddArrayValuesBuffersTheQuietNaN) {
+    auto writer =
+            std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(), _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+
+    auto floats = ColumnFloat32::create();
+    for (const float value : {1.0F, -std::numeric_limits<float>::quiet_NaN(), 3.0F, 4.0F}) {
+        floats->insert_value(value);
+    }
+    const auto items = ColumnNullable::create(std::move(floats), ColumnUInt8::create(4, 0));
+    const std::vector<uint64_t> offsets {0, 4};
+    ASSERT_TRUE(writer->add_array(*items, 0, offsets.data(), 1).ok());
+
+    ASSERT_EQ(writer->_buffered_vectors.size(), 4);
+    EXPECT_EQ(std::bit_cast<uint32_t>(writer->_buffered_vectors[1]),
+              std::bit_cast<uint32_t>(std::numeric_limits<float>::quiet_NaN()));
+    EXPECT_EQ(writer->_buffered_vectors[3], 4.0F);
 }
 
 TEST_F(AnnIndexWriterTest, TestAddArrayValuesWrongDimension) {
@@ -242,14 +297,12 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesWrongDimension) {
 
     std::vector<size_t> offsets = {0, 3, 6}; // Each row has 3 elements instead of 4
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
 }
 
-TEST_F(AnnIndexWriterTest, TestAddValues) {
+TEST_F(AnnIndexWriterTest, TestAddScalarRows) {
     auto writer =
             std::make_unique<AnnIndexColumnWriter>(_index_file_writer.get(), _tablet_index.get());
 
@@ -259,9 +312,10 @@ TEST_F(AnnIndexWriterTest, TestAddValues) {
 
     ASSERT_TRUE(writer->init().ok());
 
-    // This method currently returns OK without doing anything
-    Status status = writer->add_values("test", nullptr, 0);
-    EXPECT_TRUE(status.ok());
+    // An ANN index is only built on array columns, so scalar rows are an error
+    Status status = writer->add(*ColumnFloat32::create(), 0, 0);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>());
 }
 
 TEST_F(AnnIndexWriterTest, TestAddNulls) {
@@ -338,9 +392,7 @@ TEST_F(AnnIndexWriterTest, TestFinish) {
 
     std::vector<size_t> offsets = {0, 4, 8};
 
-    ASSERT_TRUE(writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                         reinterpret_cast<const uint8_t*>(offsets.data()), num_rows)
-                        .ok());
+    ASSERT_TRUE(add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows).ok());
 
     // Finish should save the index
     Status status = writer->finish();
@@ -368,10 +420,7 @@ TEST_F(AnnIndexWriterTest, TestFullWorkflow) {
         std::vector<float> vectors = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
         std::vector<size_t> offsets = {0, 4, 8};
 
-        ASSERT_TRUE(writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                             reinterpret_cast<const uint8_t*>(offsets.data()),
-                                             num_rows)
-                            .ok());
+        ASSERT_TRUE(add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows).ok());
     }
 
     // Batch 2
@@ -381,10 +430,7 @@ TEST_F(AnnIndexWriterTest, TestFullWorkflow) {
                                       15.0f, 16.0f, 17.0f, 18.0f, 19.0f, 20.0f};
         std::vector<size_t> offsets = {0, 4, 8, 12};
 
-        ASSERT_TRUE(writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                             reinterpret_cast<const uint8_t*>(offsets.data()),
-                                             num_rows)
-                            .ok());
+        ASSERT_TRUE(add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows).ok());
     }
 
     // 3. Finish
@@ -460,9 +506,7 @@ TEST_F(AnnIndexWriterTest, TestNoTrainIndexAddsAtFinish) {
             offsets.push_back(row * dim);
         }
 
-        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
-                                                 batch_rows);
+        Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), batch_rows);
         EXPECT_TRUE(status.ok());
     }
     EXPECT_EQ(writer->buffered_vector_rows(dim), 2 * batch_rows);
@@ -517,9 +561,7 @@ TEST_F(AnnIndexWriterTest, TestNoTrainIndexSkipsWhenRowsLessThanMinSegmentRows) 
         offsets.push_back(row * dim);
     }
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);
 
@@ -561,9 +603,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexUsesEffectiveMinSegmentRows) {
         offsets.push_back(row * dim);
     }
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);
 
@@ -616,9 +656,7 @@ TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {
 
     std::vector<size_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
 
-    status = column_writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                             reinterpret_cast<const uint8_t*>(offsets.data()),
-                                             num_rows);
+    status = add_float_arrays(*column_writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
 
     ASSERT_TRUE(column_writer->finish().ok());
@@ -654,9 +692,7 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesIVF) {
 
     std::vector<size_t> offsets = {0, 4, 8, 12}; // Each row has 4 elements
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
 }
 
@@ -697,9 +733,7 @@ TEST_F(AnnIndexWriterTest, TestSmallTrainRequiredIndexUsesMemoryBuffer) {
         offsets.push_back(row * dim);
     }
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
@@ -761,9 +795,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsOnceAndAddsAllRows) {
         };
         std::vector<size_t> offsets = {0, 4, 8, 12, 16, 20, 24};
 
-        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
-                                                 num_rows);
+        Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
         EXPECT_TRUE(status.ok());
     }
 
@@ -779,9 +811,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsOnceAndAddsAllRows) {
         };
         std::vector<size_t> offsets = {0, 4, 8, 12, 16, 20, 24};
 
-        Status status = writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                                 reinterpret_cast<const uint8_t*>(offsets.data()),
-                                                 num_rows);
+        Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
         EXPECT_TRUE(status.ok());
     }
 
@@ -834,9 +864,7 @@ TEST_F(AnnIndexWriterTest, TestTrainRequiredIndexTrainsWithAllBufferedRows) {
         offsets.push_back(row * dim);
     }
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);
     EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(mock_index.get()));
@@ -892,9 +920,7 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanMinTrainRows) {
         offsets.push_back(row * dim);
     }
 
-    Status status =
-            writer->add_array_values(sizeof(float), vectors.data(), nullptr,
-                                     reinterpret_cast<const uint8_t*>(offsets.data()), num_rows);
+    Status status = add_float_arrays(*writer, vectors.data(), offsets.data(), num_rows);
     EXPECT_TRUE(status.ok());
 
     EXPECT_EQ(writer->buffered_vector_rows(dim), num_rows);

@@ -17,6 +17,9 @@
 
 #include "storage/task/index_builder.h"
 
+#include <CLucene.h>
+#include <CLucene/config/repl_wchar.h>
+#include <CLucene/index/IndexReader.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -26,10 +29,12 @@
 
 #include "common/config.h"
 #include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/snii/query/term_query.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
@@ -412,6 +417,133 @@ protected:
         RETURN_IF_ERROR(builder.do_build_inverted_index());
         *output_rowsets = builder._output_rowsets;
         return Status::OK();
+    }
+
+    // More [] rows than one BUILD INDEX read batch (block_row_max) holds, so the builder's
+    // first block is all [].
+    static int32_t empty_rows_before_items() {
+        return static_cast<int32_t>(StorageReadOptions().block_row_max) + 32;
+    }
+
+    // A tablet whose NOT NULL ARRAY<VARCHAR> column `tags` (unique id 2) holds
+    // empty_rows_before_items() rows of [], then ["a"] and ["b", "a"], in one rowset.
+    void create_rows_after_all_empty_block(InvertedIndexStorageFormatPB format, int64_t id,
+                                           TabletSharedPtr* tablet) {
+        const auto tablet_path = _absolute_dir + "/" + std::to_string(id);
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(format);
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+
+        TabletColumn key_column;
+        key_column.set_unique_id(1);
+        key_column.set_name("k1");
+        key_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+        key_column.set_length(4);
+        key_column.set_index_length(4);
+        key_column.set_is_key(true);
+        key_column.set_is_nullable(false);
+        tablet_schema->append_column(key_column);
+
+        TabletColumn array_column;
+        array_column.set_unique_id(2);
+        array_column.set_name("tags");
+        array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+        array_column.set_is_nullable(false);
+        TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                 FieldType::OLAP_FIELD_TYPE_VARCHAR, true);
+        item_column.set_length(64);
+        array_column.add_sub_column(item_column);
+        tablet_schema->append_column(array_column);
+
+        ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, tablet).ok());
+
+        RowsetWriterContext writer_context;
+        writer_context.rowset_id.init(id);
+        writer_context.tablet_id = (*tablet)->tablet_id();
+        writer_context.tablet_schema_hash = (*tablet)->schema_hash();
+        writer_context.partition_id = 10;
+        writer_context.rowset_type = BETA_ROWSET;
+        writer_context.tablet_path = tablet_path;
+        writer_context.rowset_state = VISIBLE;
+        writer_context.tablet_schema = tablet_schema;
+        writer_context.version = Version(10, 10);
+        auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+        ASSERT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+
+        const int32_t empty_rows = empty_rows_before_items();
+        Block block = tablet_schema->create_storage_block();
+        auto columns = std::move(block).mutate_columns();
+        for (int32_t i = 0; i < empty_rows + 2; ++i) {
+            columns[0]->insert_data(reinterpret_cast<const char*>(&i), sizeof(i));
+            Array arr;
+            if (i == empty_rows) {
+                arr.push_back(Field::create_field<TYPE_STRING>("a"));
+            } else if (i == empty_rows + 1) {
+                arr.push_back(Field::create_field<TYPE_STRING>("b"));
+                arr.push_back(Field::create_field<TYPE_STRING>("a"));
+            }
+            columns[1]->insert(Field::create_field<TYPE_ARRAY>(arr));
+        }
+        block = tablet_schema->create_storage_block();
+        block.set_columns(std::move(columns));
+        ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+        ASSERT_TRUE(rowset_writer->flush().ok());
+        RowsetSharedPtr source_rowset;
+        ASSERT_TRUE(rowset_writer->build(source_rowset).ok());
+        ASSERT_TRUE((*tablet)->add_rowset(source_rowset).ok());
+    }
+
+    // Every term of the CLucene index index_id on rowset's first segment, in term order, each
+    // with the documents holding it.
+    static std::vector<std::pair<std::string, std::vector<int>>> clucene_terms(
+            const RowsetSharedPtr& rowset, int32_t column_unique_id, int64_t index_id) {
+        std::vector<std::pair<std::string, std::vector<int>>> terms;
+        const TabletIndex* index_meta = nullptr;
+        for (const auto* candidate : rowset->tablet_schema()->inverted_indexs(column_unique_id)) {
+            if (candidate->index_id() == index_id) {
+                index_meta = candidate;
+            }
+        }
+        EXPECT_NE(index_meta, nullptr) << "index " << index_id << " missing from the schema";
+        auto segment_path = rowset->segment_path(0);
+        EXPECT_TRUE(segment_path.has_value()) << segment_path.error();
+        if (index_meta == nullptr || !segment_path.has_value()) {
+            return terms;
+        }
+        segment_v2::IndexFileReader reader(
+                io::global_local_filesystem(),
+                std::string {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        segment_path.value())},
+                rowset->tablet_schema()->get_inverted_index_storage_format());
+        EXPECT_TRUE(reader.init().ok());
+        auto directory = reader.open(index_meta);
+        EXPECT_TRUE(directory.has_value()) << directory.error();
+        if (!directory.has_value()) {
+            return terms;
+        }
+        lucene::index::IndexReader* index_reader =
+                lucene::index::IndexReader::open(directory.value().get());
+        lucene::index::TermEnum* term_enum = index_reader->terms();
+        while (term_enum->next()) {
+            lucene::index::Term* term = term_enum->term(false);
+            std::vector<int> docs;
+            lucene::index::TermDocs* term_docs = index_reader->termDocs(term);
+            while (term_docs->next()) {
+                docs.push_back(term_docs->doc());
+            }
+            term_docs->close();
+            _CLLDELETE(term_docs);
+            terms.emplace_back(lucene_wcstoutf8string(term->text(), term->textLength()),
+                               std::move(docs));
+        }
+        term_enum->close();
+        _CLLDELETE(term_enum);
+        index_reader->close();
+        _CLLDELETE(index_reader);
+        return terms;
     }
 
     static std::string snii_index_path_of(const RowsetSharedPtr& rowset) {
@@ -2697,7 +2829,7 @@ TEST_F(IndexBuilderTest, NonNullIndexDataTest) {
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 
-    // 9. Build index - should trigger _add_data rather than _add_nullable
+    // 9. Build index - should take _add_column without a null map
     status = builder.do_build_inverted_index();
     EXPECT_TRUE(status.ok()) << status.to_string();
 
@@ -3254,6 +3386,108 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
         EXPECT_TRUE(io::global_local_filesystem()->exists(index_path, &exists).ok());
         EXPECT_TRUE(exists) << "Index file not found: " << index_path;
     }
+}
+
+// The values an index writer is fed, std::nullopt for a NULL row or item.
+class RecordingIndexColumnWriter final : public segment_v2::IndexColumnWriter {
+public:
+    Status init() override { return Status::OK(); }
+    Status add(const IColumn& column, size_t row_pos, size_t n) override {
+        for (size_t i = 0; i < n; ++i) {
+            values.emplace_back(column.get_data_at(row_pos + i).to_string());
+        }
+        return Status::OK();
+    }
+    Status add_array(const IColumn& items, size_t first_item, const uint64_t* offsets,
+                     size_t num_rows) override {
+        const uint8_t* null_map = nullptr;
+        const IColumn& strings = peel_nullable(items, first_item, &null_map);
+        for (uint64_t j = 0; j < offsets[num_rows] - offsets[0]; ++j) {
+            if (null_map != nullptr && null_map[j] != 0) {
+                values.emplace_back(std::nullopt);
+            } else {
+                values.emplace_back(strings.get_data_at(first_item + j).to_string());
+            }
+        }
+        return Status::OK();
+    }
+    Status add_nulls(uint32_t count) override {
+        values.insert(values.end(), count, std::nullopt);
+        return Status::OK();
+    }
+    Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+        return Status::OK();
+    }
+    Status finish() override { return Status::OK(); }
+    int64_t size() const override { return 0; }
+    void close_on_error() override {}
+
+    std::vector<std::optional<std::string>> values;
+};
+
+// BUILD INDEX reads CHAR back without its padding, so it pads the rows for a CLucene index, and
+// the items of an ARRAY<CHAR> for every index, to their length, as a load does. The value under a
+// NULL is longer than the CHAR, as load lets it be, and is not read.
+TEST_F(IndexBuilderTest, BuildIndexFeedsCharPaddedToItsLength) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    TabletColumn char_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_CHAR, true);
+    char_column.set_unique_id(1);
+    char_column.set_name("c_char");
+    char_column.set_length(4);
+    tablet_schema->append_column(char_column);
+    TabletColumn array_column;
+    array_column.set_unique_id(2);
+    array_column.set_name("c_array_char");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_CHAR, true);
+    item_column.set_length(4);
+    array_column.add_sub_column(item_column);
+    tablet_schema->append_column(array_column);
+
+    std::vector<TOlapTableIndex> indexes(2);
+    for (int32_t i = 0; i < 2; ++i) {
+        indexes[i].index_id = i + 1;
+        indexes[i].index_name = fmt::format("index_{}", i + 1);
+        indexes[i].columns = {tablet_schema->column(i).name()};
+        indexes[i].column_unique_ids = {i + 1};
+        indexes[i].index_type = TIndexType::type::INVERTED;
+    }
+    IndexBuilder builder(*_engine_ref, nullptr, {}, indexes, false);
+    auto chars = std::make_unique<RecordingIndexColumnWriter>();
+    auto items = std::make_unique<RecordingIndexColumnWriter>();
+    const auto& char_values = chars->values;
+    const auto& item_values = items->values;
+    builder._index_column_writers.emplace(std::make_pair(0, 1), std::move(chars));
+    builder._index_column_writers.emplace(std::make_pair(0, 2), std::move(items));
+
+    Block block = tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
+    auto& nullable_chars = assert_cast<ColumnNullable&>(*columns[0]);
+    for (const auto& [value, is_null] : std::vector<std::pair<std::string, uint8_t>> {
+                 {"ab", 0}, {"longer than four", 1}, {"cd", 0}}) {
+        nullable_chars.get_nested_column().insert_data(value.data(), value.size());
+        nullable_chars.get_null_map_data().push_back(is_null);
+    }
+    for (const auto& row : std::vector<std::vector<std::optional<std::string>>> {
+                 {"x"}, {"ab", std::nullopt}, {"abcd"}}) {
+        Array array;
+        for (const auto& item : row) {
+            array.push_back(item ? Field::create_field<TYPE_STRING>(*item) : Field());
+        }
+        columns[1]->insert(Field::create_field<TYPE_ARRAY>(array));
+    }
+    block.set_columns(std::move(columns));
+
+    const Status st = builder._write_inverted_index_data(tablet_schema, 0, &block);
+    ASSERT_TRUE(st.ok()) << st;
+    using Values = std::vector<std::optional<std::string>>;
+    EXPECT_EQ(char_values,
+              (Values {std::string("ab\0\0", 4), std::nullopt, std::string("cd\0\0", 4)}));
+    EXPECT_EQ(item_values,
+              (Values {std::string("x\0\0\0", 4), std::string("ab\0\0", 4), std::nullopt, "abcd"}));
 }
 
 TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
@@ -4089,6 +4323,38 @@ TEST_F(IndexBuilderTest, SniiBuildFailureCommitsNoRowset) {
     auto rowset = tablet->get_rowset_by_version(Version(10, 10));
     ASSERT_NE(rowset, nullptr);
     EXPECT_EQ(rowset->rowset_id(), source_rowset->rowset_id());
+}
+
+// A NOT NULL array block whose rows are all [] adds no term but still owns its
+// row ids; the rows of the next block must not slide back onto them.
+TEST_F(IndexBuilderTest, SniiBuildArrayIndexAfterAllEmptyBlock) {
+    TabletSharedPtr tablet;
+    ASSERT_NO_FATAL_FAILURE(
+            create_rows_after_all_empty_block(InvertedIndexStorageFormatPB::SNII, 15701, &tablet));
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet, {create_build_index(1, "idx_tags", "tags", 2, {})},
+                                 &output_rowsets)
+                        .ok());
+    ASSERT_EQ(output_rowsets.size(), 1U);
+    const auto first = static_cast<uint32_t>(empty_rows_before_items());
+    assert_snii_term(output_rowsets.front(), tablet->tablet_id(), 2, 1, "a", {first, first + 1});
+    assert_snii_term(output_rowsets.front(), tablet->tablet_id(), 2, 1, "b", {first + 1});
+}
+
+// The same through a CLucene index, which numbers a document for every row it is given.
+TEST_F(IndexBuilderTest, BuildArrayIndexAfterAllEmptyBlock) {
+    TabletSharedPtr tablet;
+    ASSERT_NO_FATAL_FAILURE(
+            create_rows_after_all_empty_block(InvertedIndexStorageFormatPB::V2, 15702, &tablet));
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet, {create_build_index(1, "idx_tags", "tags", 2, {})},
+                                 &output_rowsets)
+                        .ok());
+    ASSERT_EQ(output_rowsets.size(), 1U);
+    const int first = empty_rows_before_items();
+    EXPECT_EQ(clucene_terms(output_rowsets.front(), 2, 1),
+              (std::vector<std::pair<std::string, std::vector<int>>> {{"a", {first, first + 1}},
+                                                                      {"b", {first + 1}}}));
 }
 
 } // namespace doris

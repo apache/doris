@@ -34,6 +34,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
@@ -157,7 +158,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -216,7 +217,7 @@ public:
 
         // Add some regular values
         std::vector<Slice> values = {Slice("apple"), Slice("banana")};
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Add more NULL values
@@ -279,7 +280,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
-        status = column_writer->add_values("c1", values.data(), values.size());
+        status = add_cells(*column_writer, column.type(), values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -3036,7 +3037,7 @@ public:
             // proxy, so `auto`/`&value` would give a __bit_reference/__bit_iterator
             // rather than a real pointer. Use the container's value_type.
             typename std::decay_t<decltype(values)>::value_type v = value;
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&v), 1);
+            status = add_cells(*column_writer, column.type(), &v, 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 
@@ -3829,7 +3830,7 @@ public:
             // proxy, so `auto`/`&value` would give a __bit_reference/__bit_iterator
             // rather than a real pointer. Use the container's value_type.
             typename std::decay_t<decltype(values)>::value_type v = value;
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&v), 1);
+            status = add_cells(*column_writer, column.type(), &v, 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 

@@ -48,6 +48,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/snii/bkd/bkd_format.h"
@@ -145,7 +146,7 @@ roaring::Roaring null_rows(const std::vector<Row>& rows) {
 }
 
 // Drives the adapter exactly the way the segment writer does: consecutive
-// non-null rows arrive as ONE add_values call over a contiguous CppType array,
+// non-null rows arrive as ONE add() call over the column,
 // and each NULL run as one add_nulls.
 void write_segment(const std::string& prefix, const TabletIndex& meta,
                    const std::vector<Row>& rows) {
@@ -173,7 +174,7 @@ void write_segment(const std::string& prefix, const TabletIndex& meta,
             for (size_t k = i; k < j; ++k) {
                 run.push_back(rows[k].value);
             }
-            assert_ok(writer.add_values("c1", run.data(), run.size()));
+            assert_ok(add_cells(writer, kFieldType, run.data(), run.size()));
         }
         i = j;
     }
@@ -318,7 +319,7 @@ TEST_F(SniiBkdAdapterTest, SealingDrainsTheStagedDataWhileTheProducerIsStillAliv
             values.push_back(row.value);
         }
     }
-    assert_ok(writer.add_values("c1", values.data(), values.size()));
+    assert_ok(add_cells(writer, kFieldType, values.data(), values.size()));
     assert_ok(writer.finish());
     // Sanity: its absence below must mean the seal drained it, not that it was
     // never staged.
@@ -415,7 +416,7 @@ TEST_F(SniiBkdAdapterTest, EncodesThroughTheIndexFieldTypeNotTheWidestOne) {
     assert_ok(writer.init());
     // Straddles zero so the sign-bit flip is the thing under test.
     const std::vector<int32_t> values = {-2147483648, -1, 0, 1, 2147483647, -5, 5};
-    assert_ok(writer.add_values("c1", values.data(), values.size()));
+    assert_ok(add_cells(writer, FieldType::OLAP_FIELD_TYPE_INT, values.data(), values.size()));
     assert_ok(writer.finish());
     assert_ok(index_file_writer.begin_close());
     assert_ok(index_file_writer.finish_close());
@@ -665,23 +666,24 @@ TEST_F(SniiBkdAdapterTest, WriterFactoryStillRefusesNonIndexableTypes) {
 // the builder keys on (value, doc_id) rather than assuming one value per doc.
 //
 // The reference for these semantics is the CLucene numeric array branch
-// (inverted_index_writer.cpp add_array_values): it walks elements with a
+// (inverted_index_writer.cpp add_array): it walks elements with a
 // running counter, skips nested nulls, advances the row id once per row, and
 // records NO null for a row whose array is empty. Array-level NULLs come from
 // add_array_nulls and nowhere else.
 // ---------------------------------------------------------------------------
 
 // Drives the adapter's array entry points directly, the way the segment writer
-// does: one add_array_values over the whole block, then add_array_nulls over
+// does: one add_array over the whole block, then add_array_nulls over
 // the SAME rows.
 struct ArrayBlock {
     std::vector<int64_t> elements;
     std::vector<uint8_t> element_nulls; // nested null map, per element
     std::vector<uint64_t> offsets;      // count+1 entries
     std::vector<uint8_t> row_nulls;     // array-level null map, per row
+    size_t first_item = 0;              // index in `elements` of the batch's first element
 };
 
-// `base` reproduces the olap_convertor behaviour the CLucene writer warns
+// `base` reproduces the rebase_offsets() behaviour the CLucene writer warns
 // about: offsets accumulate from a base that is NOT necessarily zero, while the
 // element and null arrays always start at zero. Indexing elements by offsets[i]
 // instead of by a running count silently reads the wrong elements.
@@ -711,10 +713,11 @@ void write_array_segment(const std::string& prefix, const TabletIndex& meta,
     SniiBkdIndexColumnWriter writer(&index_file_writer, &meta, kFieldType);
     assert_ok(writer.init());
     const size_t rows = block.offsets.size() - 1;
-    assert_ok(writer.add_array_values(
-            sizeof(int64_t), block.elements.data(),
-            block.element_nulls.empty() ? nullptr : block.element_nulls.data(),
-            reinterpret_cast<const uint8_t*>(block.offsets.data()), rows));
+    const size_t n = block.elements.size();
+    assert_ok(writer.add_array(
+            *with_item_nulls(column_of_cells(kFieldType, block.elements.data(), n),
+                             block.element_nulls.empty() ? nullptr : block.element_nulls.data(), n),
+            block.first_item, block.offsets.data(), rows));
     assert_ok(writer.add_array_nulls(block.row_nulls.data(), rows));
     assert_ok(writer.finish());
     assert_ok(index_file_writer.begin_close());
@@ -768,6 +771,38 @@ TEST_F(SniiBkdAdapterTest, ArrayOffsetsMayStartFromANonZeroBase) {
     }
 }
 
+// ArrayColumnWriter hands add_array the block's whole item column and the
+// index of the batch's first element. The elements before it, and their nested
+// null flags, belong to earlier batches.
+TEST_F(SniiBkdAdapterTest, ArrayBatchStartsAtFirstItem) {
+    ArrayBlock block = make_array_block({{10, 20}, {30}}, /*base=*/0);
+    block.elements.insert(block.elements.begin(), {1, 2, 3});
+    block.element_nulls = {1, 0, 0, 0, 1, 0}; // the batch's own rows: [10, NULL], [30]
+    block.first_item = 3;
+    const std::string path = test_path("array_first_item");
+    write_array_segment(path, _meta, block);
+
+    OpenedIndex opened;
+    ASSERT_NO_FATAL_FAILURE(open_index(path, &opened));
+    EXPECT_EQ(opened.reader->point_count(), 2U);
+    EXPECT_EQ(opened.reader->doc_count(), 2U);
+    for (const auto& [value, row] : std::vector<std::pair<int64_t, uint32_t>> {{10, 0}, {30, 1}}) {
+        SCOPED_TRACE("value " + std::to_string(value));
+        const std::string encoded = encode(value);
+        roaring::Roaring hits;
+        assert_ok(opened.reader->range(slice_of(encoded), true, slice_of(encoded), true, &hits));
+        roaring::Roaring expected;
+        expected.add(row);
+        EXPECT_TRUE(hits == expected);
+    }
+    for (const int64_t absent : {1, 2, 3, 20}) {
+        const std::string encoded = encode(absent);
+        roaring::Roaring hits;
+        assert_ok(opened.reader->range(slice_of(encoded), true, slice_of(encoded), true, &hits));
+        EXPECT_TRUE(hits.isEmpty()) << "value " << absent << " is not in the batch";
+    }
+}
+
 // An EMPTY array is not NULL. It owns no point -- there is nothing to compare --
 // but marking it NULL would make `col IS NULL` true for a row that holds [].
 TEST_F(SniiBkdAdapterTest, EmptyArrayOwnsNoPointAndIsNotNull) {
@@ -811,7 +846,7 @@ TEST_F(SniiBkdAdapterTest, NestedNullsAreSkippedWithoutNullingTheRow) {
     }
 }
 
-// add_array_nulls covers the SAME rows add_array_values just walked, so it must
+// add_array_nulls covers the SAME rows add_array just walked, so it must
 // record them without advancing the row id again.
 TEST_F(SniiBkdAdapterTest, ArrayLevelNullsAreRecordedWithoutAdvancingTheRowId) {
     ArrayBlock block = make_array_block({{1}, {2}, {3}}, /*base=*/0);

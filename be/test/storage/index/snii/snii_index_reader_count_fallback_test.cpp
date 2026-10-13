@@ -551,7 +551,7 @@ constexpr uint32_t kArrayNullPayloadNullDocid = 1;
 // A segment shaped the way a nullable ARRAY column really lands on disk when the
 // nested payload survives under the outer null map: docid 1 is NULL, and
 // "alpha"'s posting contains it anyway. That is not a corrupt image --
-// ArrayColumnWriter::append_nullable feeds add_array_values() every row of the
+// feed_array_index() hands add_array() every row of the
 // batch (the offsets come from the nested ColumnArray, which the outer null map
 // never touches) and the add_array_nulls() that follows only records the null row
 // id. Reachable from SQL because

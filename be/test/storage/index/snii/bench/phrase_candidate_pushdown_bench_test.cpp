@@ -56,6 +56,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -257,7 +258,7 @@ protected:
                                               index_file_writer.get(), &_meta)
                             .ok());
         std::vector<Slice> values(docs.begin(), docs.end());
-        EXPECT_TRUE(column_writer->add_values("c2", values.data(), values.size()).ok());
+        EXPECT_TRUE(add_slices(*column_writer, values.data(), values.size()).ok());
         EXPECT_TRUE(column_writer->finish().ok());
         EXPECT_TRUE(index_file_writer->begin_close().ok());
         EXPECT_TRUE(index_file_writer->finish_close().ok());

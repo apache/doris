@@ -44,6 +44,7 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/snii/snii_index_reader.h"
@@ -153,7 +154,7 @@ protected:
             segment_v2::SniiIndexColumnWriter writer(&index_file_writer, index,
                                                      FieldType::OLAP_FIELD_TYPE_VARCHAR);
             RETURN_IF_ERROR(writer.init());
-            RETURN_IF_ERROR(writer.add_values("p", slices.data(), slices.size()));
+            RETURN_IF_ERROR(segment_v2::add_slices(writer, slices.data(), slices.size()));
             RETURN_IF_ERROR(writer.finish());
         }
         RETURN_IF_ERROR(index_file_writer.begin_close());

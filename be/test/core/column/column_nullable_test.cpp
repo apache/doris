@@ -492,4 +492,30 @@ TEST(ColumnNullableTest, ScalaTypeNullStringTest2erase) {
     }
 }
 
+// The null bits come back offset to row_pos, so a batch reads its own rows' flags from
+// index 0; a column that is not Nullable has none.
+TEST(ColumnNullableTest, PeelNullableOffsetsTheNullBitsToTheBatch) {
+    auto values = ColumnInt32::create();
+    values->insert_value(1);
+    values->insert_value(2);
+    values->insert_value(3);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    nulls->insert_value(1);
+    nulls->insert_value(0);
+    const auto nullable = ColumnNullable::create(std::move(values), std::move(nulls));
+
+    const uint8_t* null_map = nullptr;
+    const IColumn& peeled = peel_nullable(*nullable, 1, &null_map);
+    EXPECT_EQ(&peeled, &nullable->get_nested_column());
+    ASSERT_NE(null_map, nullptr);
+    EXPECT_EQ(null_map[0], 1);
+    EXPECT_EQ(null_map[1], 0);
+
+    auto plain = ColumnInt32::create();
+    plain->insert_value(1);
+    EXPECT_EQ(&peel_nullable(*plain, 0, &null_map), plain.get());
+    EXPECT_EQ(null_map, nullptr);
+}
+
 } // namespace doris

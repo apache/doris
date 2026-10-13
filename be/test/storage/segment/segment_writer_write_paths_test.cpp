@@ -33,16 +33,20 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/consts.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/field.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/primary_key_index.h"
+#include "storage/index/short_key_index.h"
 #include "storage/iterators.h"
 #include "storage/merger.h"
+#include "storage/olap_define.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
@@ -57,6 +61,9 @@ static const std::string kSegmentDir = "./ut_dir/segment_writer_write_paths_test
 // Small enough that kNumRows fills several primary key index data pages.
 static constexpr int32_t kPrimaryKeyDataPageSize = 1024;
 static constexpr size_t kNumRows = 512;
+// A short key every 64 rows, so a segment holds several and the later ones come from
+// the rows of appends past the first.
+static constexpr uint32_t kRowsPerShortKey = 64;
 static constexpr int64_t kTabletId = 10000;
 
 namespace {
@@ -91,11 +98,41 @@ TabletColumnPtr create_seq_column(int32_t id) {
     return column;
 }
 
+TabletColumn create_child(int32_t id, FieldType type, int32_t length) {
+    TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type,
+                        /*is_nullable=*/true);
+    column.set_unique_id(id);
+    column.set_name(std::to_string(id));
+    column.set_length(length);
+    column.set_index_length(length);
+    return column;
+}
+
+TabletColumnPtr create_complex_value(int32_t id, FieldType type, int32_t length,
+                                     std::vector<TabletColumn> children) {
+    auto column = create_int_value(id);
+    column->_type = type;
+    column->_length = length;
+    column->_index_length = length;
+    for (auto& child : children) {
+        column->add_sub_column(child);
+    }
+    return column;
+}
+
+bool is_complex(const TabletColumn& column) {
+    return column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY ||
+           column.type() == FieldType::OLAP_FIELD_TYPE_MAP ||
+           column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT;
+}
+
 // One key column and two value columns, so a column group split has something
 // to split. A sequence column goes last, so the key group it joins holds it at
-// another position than the schema does.
+// another position than the schema does. The complex columns are an ARRAY<INT>,
+// a MAP<INT, INT>, a STRUCT<CHAR(4), INT> and an ARRAY<CHAR(4)>.
 TabletSchemaSPtr create_schema(KeysType keys_type, bool with_cluster_key,
-                               bool with_key_column = true, bool with_seq = false) {
+                               bool with_key_column = true, bool with_seq = false,
+                               bool with_complex = false) {
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
     if (with_key_column) {
         schema->append_column(*create_int_key(0));
@@ -106,6 +143,22 @@ TabletSchemaSPtr create_schema(KeysType keys_type, bool with_cluster_key,
     schema->append_column(*create_int_value(2));
     if (with_seq) {
         schema->append_column(*create_seq_column(3));
+    }
+    if (with_complex) {
+        constexpr auto INT = FieldType::OLAP_FIELD_TYPE_INT;
+        constexpr auto CHAR = FieldType::OLAP_FIELD_TYPE_CHAR;
+        schema->append_column(*create_complex_value(4, FieldType::OLAP_FIELD_TYPE_ARRAY,
+                                                    OLAP_ARRAY_MAX_LENGTH,
+                                                    {create_child(41, INT, 4)}));
+        schema->append_column(
+                *create_complex_value(5, FieldType::OLAP_FIELD_TYPE_MAP, OLAP_MAP_MAX_LENGTH,
+                                      {create_child(51, INT, 4), create_child(52, INT, 4)}));
+        schema->append_column(
+                *create_complex_value(6, FieldType::OLAP_FIELD_TYPE_STRUCT, OLAP_STRUCT_MAX_LENGTH,
+                                      {create_child(61, CHAR, 4), create_child(62, INT, 4)}));
+        schema->append_column(*create_complex_value(7, FieldType::OLAP_FIELD_TYPE_ARRAY,
+                                                    OLAP_ARRAY_MAX_LENGTH,
+                                                    {create_child(71, CHAR, 4)}));
     }
     schema->_keys_type = keys_type;
     schema->_num_short_key_columns = with_key_column ? 1 : 0;
@@ -119,6 +172,49 @@ TabletSchemaSPtr create_schema(KeysType keys_type, bool with_cluster_key,
 // Every fifth row has a NULL sequence value.
 bool seq_is_null(size_t row) {
     return row % 5 == 0;
+}
+
+// Row `row` of a complex column: NULL every seventh row, otherwise up to two elements, some of
+// them NULL, so the offsets, the items and both levels of null bits change from row to row.
+Field complex_value(const TabletColumn& column, size_t row) {
+    if (row % 7 == 0) {
+        return {};
+    }
+    const auto r = static_cast<int32_t>(row);
+    const auto int_item = [](int32_t value) {
+        return value % 5 == 0 ? Field() : Field::create_field<TYPE_INT>(value);
+    };
+    const auto char_item = [](int32_t value) {
+        return value % 4 == 0 ? Field()
+                              : Field::create_field<TYPE_STRING>(std::to_string(value % 1000));
+    };
+    switch (column.type()) {
+    case FieldType::OLAP_FIELD_TYPE_ARRAY: {
+        Array items;
+        for (int32_t i = 0; i < r % 3; ++i) {
+            items.push_back(column.get_sub_column(0).type() == FieldType::OLAP_FIELD_TYPE_CHAR
+                                    ? char_item(r + i)
+                                    : int_item(r * 10 + i));
+        }
+        return Field::create_field<TYPE_ARRAY>(items);
+    }
+    case FieldType::OLAP_FIELD_TYPE_MAP: {
+        Array keys;
+        Array values;
+        for (int32_t i = 0; i < r % 3; ++i) {
+            keys.push_back(Field::create_field<TYPE_INT>(r * 10 + i));
+            values.push_back(int_item(r * 100 + i));
+        }
+        return Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(keys),
+                                                  Field::create_field<TYPE_ARRAY>(values)});
+    }
+    default: {
+        Struct fields;
+        fields.push_back(char_item(r));
+        fields.push_back(int_item(r));
+        return Field::create_field<TYPE_STRUCT>(fields);
+    }
+    }
 }
 
 // Rows in the order the segment stores them: the key column descends and the
@@ -153,6 +249,16 @@ Block create_block(const TabletSchemaSPtr& schema, bool sorted_by_value) {
             }
         }
         block.replace_by_position(seq_idx, std::move(seq_column));
+    }
+    for (size_t cid = 0; cid < schema->num_columns(); ++cid) {
+        if (!is_complex(schema->column(cid))) {
+            continue;
+        }
+        auto values = block.get_by_position(cid).column->assert_mutable();
+        for (size_t row = 0; row < kNumRows; ++row) {
+            values->insert(complex_value(schema->column(cid), row));
+        }
+        block.replace_by_position(cid, std::move(values));
     }
     return block;
 }
@@ -215,6 +321,8 @@ protected:
         // in index order, with the sequence and row id suffixes still attached
         std::string rows;
         std::vector<std::string> primary_key_entries;
+        // the short key index entries of a table without a primary key index
+        std::vector<std::string> short_key_entries;
         // the primary key index fits in one data page
         bool primary_key_index_single_page = true;
     };
@@ -240,6 +348,7 @@ protected:
         holder->rowset_ctx.tablet_schema = schema;
         holder->opts.enable_unique_key_merge_on_write = mow;
         holder->opts.rowset_ctx = &holder->rowset_ctx;
+        holder->opts.num_rows_per_block = kRowsPerShortKey;
         holder->writer = std::make_unique<VerticalSegmentWriter>(holder->file_writer.get(),
                                                                  /*segment_id=*/0, schema, nullptr,
                                                                  nullptr, holder->opts, nullptr);
@@ -294,6 +403,13 @@ protected:
             out->primary_key_index_single_page = segment->_pk_index_meta->primary_key_index()
                                                          .ordinal_index_meta()
                                                          .is_root_data_page();
+        } else {
+            ASSERT_TRUE(segment->load_index(&stats).ok());
+            const auto* short_keys = segment->get_short_key_index();
+            ASSERT_NE(short_keys, nullptr);
+            for (uint32_t i = 0; i < short_keys->num_items(); ++i) {
+                out->short_key_entries.push_back(short_keys->key(i).to_string());
+            }
         }
     }
 
@@ -366,9 +482,9 @@ protected:
 
     void expect_both_shapes_agree(KeysType keys_type, bool mow, bool with_cluster_key,
                                   const std::string& name, size_t append_batches = 1,
-                                  bool with_seq = false) {
-        auto schema =
-                create_schema(keys_type, with_cluster_key, /*with_key_column=*/true, with_seq);
+                                  bool with_seq = false, bool with_complex = false) {
+        auto schema = create_schema(keys_type, with_cluster_key, /*with_key_column=*/true, with_seq,
+                                    with_complex);
         Block block = create_block(schema, with_cluster_key);
         WrittenSegment grouped;
         WrittenSegment whole;
@@ -384,6 +500,10 @@ protected:
         EXPECT_EQ(grouped.rows, block.dump_data(0, block.rows())) << name;
         EXPECT_EQ(whole.rows, block.dump_data(0, block.rows())) << name;
         EXPECT_EQ(grouped.primary_key_entries, whole.primary_key_entries) << name;
+        EXPECT_EQ(grouped.short_key_entries, whole.short_key_entries) << name;
+        if (!mow) {
+            EXPECT_EQ(whole.short_key_entries.size(), kNumRows / kRowsPerShortKey) << name;
+        }
         if (with_seq) {
             // Entry i holds the i-th smallest key, and its sequence suffix
             // starts after the key marker and the four key bytes.
@@ -413,6 +533,27 @@ private:
 
 TEST_F(VerticalSegmentWriterWritePathsTest, DupKeysColumnGroupsMatchWholeSchema) {
     expect_both_shapes_agree(DUP_KEYS, /*mow=*/false, /*with_cluster_key=*/false, "dup");
+}
+
+// Every append after the first hands the writer a row_pos past zero: the short keys
+// must come from the rows from row_pos on, not from the start of the block.
+TEST_F(VerticalSegmentWriterWritePathsTest, DupKeysSeveralAppendsMatchWholeSchema) {
+    expect_both_shapes_agree(DUP_KEYS, /*mow=*/false, /*with_cluster_key=*/false, "dup_appends",
+                             /*append_batches=*/3);
+}
+
+// From the second append on, each ARRAY, MAP and STRUCT writer gets a row_pos past zero and
+// child writers already holding the earlier rows' elements: the offsets, the elements, the
+// padded CHAR items and the null bits must carry on from them.
+TEST_F(VerticalSegmentWriterWritePathsTest, ComplexColumnsSeveralAppendsMatchWholeSchema) {
+    expect_both_shapes_agree(DUP_KEYS, /*mow=*/false, /*with_cluster_key=*/false, "complex_appends",
+                             /*append_batches=*/3, /*with_seq=*/false,
+                             /*with_complex=*/true);
+}
+
+TEST_F(VerticalSegmentWriterWritePathsTest, AggKeysSeveralAppendsMatchWholeSchema) {
+    expect_both_shapes_agree(AGG_KEYS, /*mow=*/false, /*with_cluster_key=*/false, "agg_appends",
+                             /*append_batches=*/3);
 }
 
 TEST_F(VerticalSegmentWriterWritePathsTest, MowColumnGroupsMatchWholeSchema) {

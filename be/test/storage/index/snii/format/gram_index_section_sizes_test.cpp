@@ -40,6 +40,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
@@ -194,7 +195,7 @@ TEST(GramIndexSectionSizesTest, ReportsDictAndPostingSplit) {
         for (const auto& r : corpus) {
             slices.emplace_back(*r);
         }
-        assert_ok(writer.add_values("c1", slices.data(), slices.size()));
+        assert_ok(add_slices(writer, slices.data(), slices.size()));
         assert_ok(writer.finish());
         assert_ok(ifw.begin_close());
         assert_ok(ifw.finish_close());

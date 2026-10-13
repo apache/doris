@@ -54,7 +54,9 @@ public:
         segment_v2::PageBuilder* builder = nullptr;
         ASSERT_TRUE(PageBuilderType::create(&builder, builder_options).ok());
         std::unique_ptr<segment_v2::PageBuilder> rle_page_builder(builder);
-        EXPECT_TRUE(rle_page_builder->add(reinterpret_cast<const uint8_t*>(src), &size).ok());
+        EXPECT_TRUE(static_cast<segment_v2::FixedWidthPageBuilder<Type>*>(rle_page_builder.get())
+                            ->add_cells(src, &size)
+                            .ok());
         OwnedSlice s;
         EXPECT_TRUE(rle_page_builder->finish(&s).ok());
         EXPECT_EQ(size, rle_page_builder->count());
@@ -150,7 +152,10 @@ TEST_F(RlePageTest, TestRleInt32BlockEncoderSize) {
                                                                                    builder_options)
                         .ok());
     std::unique_ptr<segment_v2::PageBuilder> rle_page_builder(builder);
-    EXPECT_TRUE(rle_page_builder->add(reinterpret_cast<const uint8_t*>(ints.get()), &size).ok());
+    EXPECT_TRUE(static_cast<segment_v2::FixedWidthPageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
+                        rle_page_builder.get())
+                        ->add_cells(ints.get(), &size)
+                        .ok());
     OwnedSlice s;
     EXPECT_TRUE(rle_page_builder->finish(&s).ok());
     // 4 bytes header
@@ -191,7 +196,10 @@ TEST_F(RlePageTest, TestRleBoolBlockEncoderSize) {
                                                                                     builder_options)
                         .ok());
     std::unique_ptr<segment_v2::PageBuilder> rle_page_builder(builder);
-    EXPECT_TRUE(rle_page_builder->add(reinterpret_cast<const uint8_t*>(bools.get()), &size).ok());
+    EXPECT_TRUE(static_cast<segment_v2::FixedWidthPageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>*>(
+                        rle_page_builder.get())
+                        ->add_cells(bools.get(), &size)
+                        .ok());
     OwnedSlice s;
     EXPECT_TRUE(rle_page_builder->finish(&s).ok());
     // 4 bytes header

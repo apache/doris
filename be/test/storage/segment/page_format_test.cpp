@@ -61,11 +61,11 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/olap_common.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/coding.h"
@@ -767,18 +767,10 @@ Result<WrittenColumn> write_column(const PageFormatCase& page_case, const CaseIn
     }
     RETURN_IF_ERROR_RESULT(writer->init());
 
-    OlapBlockDataConvertor convertor;
-    convertor.add_column_data_convertor(input.column);
     const size_t rows = input.rows();
     for (size_t row_pos = 0, block = 0; row_pos < rows; ++block) {
         const size_t block_rows = std::min(kBlockRows[block % kBlockRows.size()], rows - row_pos);
-        RETURN_IF_ERROR_RESULT(convertor.set_source_content_with_specifid_column(
-                input.data, row_pos, block_rows, 0));
-        auto [status, accessor] = convertor.convert_column_data(0);
-        RETURN_IF_ERROR_RESULT(status);
-        RETURN_IF_ERROR_RESULT(
-                writer->append(accessor->get_nullmap(), accessor->get_data(), block_rows));
-        convertor.clear_source_content();
+        RETURN_IF_ERROR_RESULT(writer->append(*input.data.column, row_pos, block_rows));
         row_pos += block_rows;
     }
     RETURN_IF_ERROR_RESULT(writer->finish());
@@ -795,44 +787,49 @@ Result<WrittenColumn> write_column(const PageFormatCase& page_case, const CaseIn
     return written;
 }
 
-bool is_slice_cell(FieldType type) {
+// A row's stored value: what the column writer stores for it.
+std::string storage_value(FieldType type, const IColumn& column, size_t row,
+                          PaddedPODArray<char>& tmp_buffer) {
     switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_CHAR:
-    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
-    case FieldType::OLAP_FIELD_TYPE_STRING:
-    case FieldType::OLAP_FIELD_TYPE_JSONB:
-    case FieldType::OLAP_FIELD_TYPE_HLL:
-    case FieldType::OLAP_FIELD_TYPE_BITMAP:
-    case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
-    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
-        return true;
+#define M(FT)                                                                     \
+    case FieldType::FT: {                                                         \
+        const auto value = StorageLayout<FieldType::FT>::storage_at(column, row); \
+        return {reinterpret_cast<const char*>(&value), sizeof(value)};            \
+    }
+        DORIS_APPLY_FOR_FIXED_WIDTH_STORAGE_LAYOUT_TYPES(M)
+#undef M
+#define M(FT)                                                                                      \
+    case FieldType::FT: {                                                                          \
+        const StringRef value = StorageLayout<FieldType::FT>::storage_at(column, row, tmp_buffer); \
+        return {value.data, value.size};                                                           \
+    }
+        M(OLAP_FIELD_TYPE_CHAR)
+        M(OLAP_FIELD_TYPE_VARCHAR)
+        M(OLAP_FIELD_TYPE_STRING)
+        M(OLAP_FIELD_TYPE_JSONB)
+        M(OLAP_FIELD_TYPE_HLL)
+        M(OLAP_FIELD_TYPE_BITMAP)
+        M(OLAP_FIELD_TYPE_QUANTILE_STATE)
+#undef M
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
+        const StringRef value = StorageLayout<FieldType::OLAP_FIELD_TYPE_AGG_STATE>::storage_at_of(
+                column)(column, row, tmp_buffer);
+        return {value.data, value.size};
+    }
     default:
-        return false;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "no storage layout for type {}", int(type));
     }
 }
 
-// The values the column writer receives for these rows; NULL rows are left empty.
-Result<std::vector<std::string>> storage_cells(const TabletColumn& column,
-                                               const ColumnWithTypeAndName& data) {
-    OlapBlockDataConvertor convertor;
-    convertor.add_column_data_convertor(column);
-    const size_t rows = data.column->size();
-    RETURN_IF_ERROR_RESULT(convertor.set_source_content_with_specifid_column(data, 0, rows, 0));
-    auto [status, accessor] = convertor.convert_column_data(0);
-    RETURN_IF_ERROR_RESULT(status);
-    const UInt8* null_map = accessor->get_nullmap();
-    const size_t cell_size = field_type_size(column.type());
-    std::vector<std::string> cells(rows);
-    for (size_t row = 0; row < rows; ++row) {
-        if (null_map != nullptr && null_map[row]) {
-            continue;
-        }
-        if (is_slice_cell(column.type())) {
-            const auto& slice = static_cast<const Slice*>(accessor->get_data())[row];
-            cells[row].assign(slice.data, slice.size);
-        } else {
-            cells[row].assign(static_cast<const char*>(accessor->get_data()) + row * cell_size,
-                              cell_size);
+// The stored values of these rows; NULL rows are left empty.
+std::vector<std::string> storage_cells(FieldType type, const IColumn& data) {
+    const auto* nullable = check_and_get_column<ColumnNullable>(data);
+    const IColumn& values = nullable != nullptr ? nullable->get_nested_column() : data;
+    PaddedPODArray<char> tmp_buffer;
+    std::vector<std::string> cells(data.size());
+    for (size_t row = 0; row < data.size(); ++row) {
+        if (nullable == nullptr || !nullable->is_null_at(row)) {
+            cells[row] = storage_value(type, values, row, tmp_buffer);
         }
     }
     return cells;
@@ -872,20 +869,12 @@ Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
             return Status::InternalError("the NULL rows read back differ from the ones written");
         }
     }
-    ColumnWithTypeAndName read_data = input.data;
-    read_data.column = std::move(read);
-    auto expected = storage_cells(input.column, input.data);
-    if (!expected.has_value()) {
-        return expected.error();
-    }
-    auto actual = storage_cells(input.column, read_data);
-    if (!actual.has_value()) {
-        return actual.error();
-    }
+    auto expected = storage_cells(input.column.type(), *input.data.column);
+    auto actual = storage_cells(input.column.type(), *read);
     // Reading turns a single-value bitmap into a one-value set, which is written differently, so
     // bitmaps are compared by value.
     if (check_and_get_column<ColumnBitmap>(*remove_nullable(input.data.column)) != nullptr) {
-        for (auto* cells : {&expected.value(), &actual.value()}) {
+        for (auto* cells : {&expected, &actual}) {
             for (auto& cell : *cells) {
                 if (!cell.empty()) {
                     cell = BitmapValue(cell.data()).to_string();
@@ -893,9 +882,22 @@ Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
             }
         }
     }
+    // CHAR is written padded to its length and read back without the padding, which loading a page
+    // strips, except from a PREFIX page, which no writer writes for CHAR: its rows read back
+    // padded.
+    if (input.column.type() == FieldType::OLAP_FIELD_TYPE_CHAR &&
+        written.meta.encoding() == PREFIX_ENCODING) {
+        const auto& null_map =
+                assert_cast<const ColumnNullable&>(*input.data.column).get_null_map_data();
+        for (size_t row = 0; row < expected.size(); ++row) {
+            if (null_map[row] == 0) {
+                expected[row].resize(input.column.length(), '\0');
+            }
+        }
+    }
     const auto [actual_cell, expected_cell] =
-            std::mismatch(actual.value().begin(), actual.value().end(), expected.value().begin());
-    if (actual_cell != actual.value().end()) {
+            std::mismatch(actual.begin(), actual.end(), expected.begin());
+    if (actual_cell != actual.end()) {
         auto hex = [](const std::string& cell) {
             std::string text;
             for (const char byte : cell.substr(0, 64)) {
@@ -904,8 +906,8 @@ Status verify_read_back(const CaseInput& input, const WrittenColumn& written,
             return text;
         };
         return Status::InternalError("row {} reads back as {} instead of {}",
-                                     std::distance(actual.value().begin(), actual_cell),
-                                     hex(*actual_cell), hex(*expected_cell));
+                                     std::distance(actual.begin(), actual_cell), hex(*actual_cell),
+                                     hex(*expected_cell));
     }
     return Status::OK();
 }
