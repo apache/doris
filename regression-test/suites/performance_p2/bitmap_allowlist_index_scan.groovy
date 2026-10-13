@@ -258,6 +258,18 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
 
     String plainFact = "bitmap_allowlist_plain_fact"
     String indexedFact = "bitmap_allowlist_index_fact"
+    def logSubqueryProfile = { long size, String shape, String query ->
+        sql "SET enable_profile = true"
+        String token = "bitmap_subquery_${shape}_${size}_${UUID.randomUUID()}"
+        sql "/* ${token} */ ${query}"
+        String profile = new ProfileAction(context).getProfileBySql(token, ["RowsRead"])
+        logger.info("Subquery bitmap size ${size} ${shape} profile:\n" + profile.readLines()
+                .findAll { line -> ["RowsRead:", "RowsExprPredInput:", "UncompressedBytesRead:",
+                        "WaitForRuntimeFilter:", "PeakMemoryUsage:", "RowsBitmapAllowlistFiltered:"].any {
+                    line.contains(it)
+                } }.take(35).join("\n"))
+        sql "SET enable_profile = false"
+    }
     for (long size : [250000L, 1000000L, 5000000L, 10000000L]) {
         test {
             sql """
@@ -338,5 +350,49 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
             sqls([plainBitmap, plainJoin, indexedJoin, indexedBitmap,
                   indexedBitmap, indexedJoin, plainJoin, plainBitmap])
         }
+        String subqueryBitmap = """
+            SELECT COUNT(*) AS n, SUM(resource_id) AS s FROM bitmap_allowlist_index_fact
+            WHERE org_id = 101
+              AND resource_id IN (
+                  SELECT bitmap_agg(resource_id) FROM bitmap_allowlist_index_ids
+                  WHERE first_size <= ${size})
+              AND payload LIKE '%needle%'
+        """
+        test {
+            sql """
+                SELECT b.n FROM (${subqueryBitmap}) b, (${indexedJoin}) j
+                WHERE b.n <> j.n OR b.s <> j.s
+            """
+            rowNum 0
+        }
+        logger.info("Subquery bitmap size ${size}: default compressed bitmap join")
+        benchmark {
+            warmUp true
+            executeTimes 5
+            skipFailure false
+            sqls([subqueryBitmap])
+        }
+        if (size == 250000L || size == 10000000L) {
+            logSubqueryProfile(size, "default", subqueryBitmap)
+        }
+        sql "SET enable_bitmap_subquery_hash_join = true"
+        test {
+            sql """
+                SELECT b.n FROM (${subqueryBitmap}) b, (${indexedJoin}) j
+                WHERE b.n <> j.n OR b.s <> j.s
+            """
+            rowNum 0
+        }
+        logger.info("Subquery bitmap size ${size}: expanded hash semi join")
+        benchmark {
+            warmUp true
+            executeTimes 5
+            skipFailure false
+            sqls([subqueryBitmap])
+        }
+        if (size == 250000L || size == 10000000L) {
+            logSubqueryProfile(size, "expanded", subqueryBitmap)
+        }
+        sql "SET enable_bitmap_subquery_hash_join = false"
     }
 }

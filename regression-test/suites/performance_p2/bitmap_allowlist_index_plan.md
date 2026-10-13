@@ -48,9 +48,28 @@ The 250,000-ID indexed profile reported `RowsInvertedIndexFiltered = 19,750,000`
 
 The full-index traversal remains removed. A small constant bitmap now uses BKD point lookups when an inverted index is available, with a limit of 16 values; larger bitmaps retain the column prepass. The focused regression suite passes and checks that a two-ID bitmap query reports inverted-index filtering. This path is intended for selective point lists, not the 250,000 to 10 million ID benchmark cases.
 
-Subquery-produced bitmaps normally become a semi-join with `bitmap_contains`; its nested-loop plan does not push a runtime filter into the fact scan. An opt-in `enable_bitmap_subquery_hash_join` rewrite expands the bitmap into IDs and uses a hash semi join, which produces the existing scan runtime filter. The regression suite checks the default and opt-in plans, runtime-filter presence, matching rows, empty bitmaps, nullable resource IDs, and IDs above `2^32`. This is a functional baseline for scan delivery, not a measured win for large bitmaps: expanding millions of IDs can consume substantial memory and should remain opt-in until benchmarked. The exact hash join remains the final membership check.
+Subquery-produced bitmaps normally become a semi-join with `bitmap_contains`; its nested-loop plan does not push a runtime filter into the fact scan. An opt-in `enable_bitmap_subquery_hash_join` rewrite expands the bitmap into IDs and uses a hash semi join, which produces the existing scan runtime filter. The regression suite checks the default and opt-in plans, runtime-filter presence, matching rows, empty bitmaps, nullable resource IDs, and IDs above `2^32`. The exact hash join remains the final membership check.
+
+## Bitmap subquery evaluation
+
+The same 30-million-row indexed native table now compares `resource_id IN (SELECT bitmap_agg(resource_id) ...)` with the default compressed nested-loop plan and the opt-in expanded hash semi join. Both query shapes include bitmap construction, `org_id = 101`, and `payload LIKE '%needle%'`. Each has a warmup and five timed executions; count and sum are checked against the ordinary `IN (subquery)` result. Warm local macOS arm64 Release FE/BE averages in milliseconds from the 2026-10-14 run:
+
+| Allowlist IDs | Base64 characters | Compressed nested-loop | Expanded hash semi join |
+| ---: | ---: | ---: | ---: |
+| 250,000 | 669,952 | 103.0 | 32.0 |
+| 1,000,000 | 2,669,952 | 108.8 | 50.2 |
+| 5,000,000 | 3,342,376 | 129.2 | 151.6 |
+| 10,000,000 | 3,345,620 | 137.8 | 228.4 |
+
+Profiles for the indexed fact scan showed `RowsExprPredInput = 20,000,000` under the nested-loop plan at both 250,000 and 10 million IDs. With the expanded hash join it was about 250,512 and 10,031,148 respectively. Both plans still read about 1.67 GB of uncompressed fact data. The hash plan waited about 7 ms for its scan runtime filter at 250,000 IDs and 176 ms at 10 million IDs. These profiles were separate executions from the timings; they show that the runtime filter reduces downstream work but does not save fact-column I/O on this scattered layout. Peak memory and distributed transfer cost have not yet been measured.
+
+This is a measured crossover, not a universal threshold. It supports retaining both query shapes while evaluating a compressed scan filter, and it makes expansion of every bitmap into hash-join rows a poor default for multi-million-ID allowlists.
 
 `bitmap_count` or the bitmap object's cardinality can guide a **runtime** choice after the subquery has produced the bitmap. The FE cannot know that cardinality while planning a data-dependent subquery. An adaptive path would keep the bitmap in compressed form, select point lookups only for very small cardinality, use a scan bitmap filter when selective, and leave dense lists to the normal join/scan path. That requires a distributed runtime-filter representation and memory limits; it is not implemented by the opt-in rewrite.
+
+As of 2026-10-14, upstream [PR #64314](https://github.com/apache/doris/pull/64314) had removed the old bitmap runtime-filter planner and BE predicate path, leaving its Thrift IDs deprecated for compatibility. A search of open Doris issues and PRs found no replacement roaring/compressed-bitmap runtime filter. Open [PR #66145](https://github.com/apache/doris/pull/66145) pushes late scalar runtime filters into segment iterators but explicitly leaves complex-type filters at the scanner; [PR #66742](https://github.com/apache/doris/pull/66742) caches the cardinality of the segment's **row-position** bitmap, not an allowlist bitmap. Neither supplies a compressed resource-ID runtime filter.
+
+The next prototype should use a new runtime-filter kind carrying Doris `BitmapValue` bytes from the bitmap-producing subquery to the fact scan, rather than reviving the deprecated path or exploding values. Producers must union partial bitmaps before publishing an exact allowlist; scanners must apply it to the `BIGINT` resource-ID column, handle nulls and late arrival, and retain the semi-join predicate while validating equivalence. The scan should choose point probes only for very small cardinality and otherwise use vectorized membership, with an adaptive dense-list fallback. A new wire kind and payload need optional fields and cross-branch ID review under `gensrc/AGENTS.md`. Benchmark that implementation against both shapes above, including filter build, merge and transfer time, peak memory, scan I/O and end-to-end latency for each cardinality.
 
 ## Implementation order
 
