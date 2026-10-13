@@ -18,14 +18,20 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarBinaryType;
 
 import com.google.common.io.BaseEncoding;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * Represents varbinary literal
@@ -73,8 +79,28 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
         return byteValues;
     }
 
+    /**
+     * BE casts VARBINARY to a string type by keeping the bytes as they are, so CAST(X'616263' AS STRING) is
+     * 'abc', not the hex text '616263'. A Java string carries those bytes only when they are valid UTF-8; for
+     * other bytes, such as X'FF', this throws, and FoldConstantRuleOnFE.visitCast then leaves the cast for BE
+     * to evaluate (it turns only a CastException into NULL).
+     */
+    @Override
     protected String castValueToString() {
-        return toString();
+        return toUtf8String().orElseThrow(() -> new AnalysisException(
+                "Cannot cast VARBINARY " + computeToSql() + " to a string type on FE: it is not valid UTF-8"));
+    }
+
+    /** The bytes decoded as UTF-8, or empty when they are not valid UTF-8 and only BE can cast them. */
+    public Optional<String> toUtf8String() {
+        try {
+            return Optional.of(StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(byteValues)).toString());
+        } catch (CharacterCodingException e) {
+            return Optional.empty();
+        }
     }
 
     @Override

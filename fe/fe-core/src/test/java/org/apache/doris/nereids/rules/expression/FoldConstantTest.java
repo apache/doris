@@ -123,6 +123,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BooleanType;
@@ -132,6 +133,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
@@ -144,6 +146,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
@@ -316,6 +319,28 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Cast timestampNsToDouble = new Cast(timestampNsToVariant.child(), DoubleType.INSTANCE);
         rewritten = executor.rewrite(timestampNsToDouble, context);
         Assertions.assertEquals(new DoubleLiteral(20240229123456D), rewritten);
+    }
+
+    @Test
+    void testCastVarBinaryToStringFold() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+
+        // BE keeps the bytes of a VARBINARY cast to a string type, so FE folds to those bytes, not to
+        // their hex text '616263'.
+        VarBinaryLiteral abc = new VarBinaryLiteral("abc".getBytes(StandardCharsets.UTF_8));
+        Assertions.assertEquals(new StringLiteral("abc"),
+                executor.rewrite(new Cast(abc, StringType.INSTANCE), context));
+        Assertions.assertEquals(new VarcharLiteral("abc", 16),
+                executor.rewrite(new Cast(abc, VarcharType.createVarcharType(16)), context));
+        VarBinaryLiteral multiByte = new VarBinaryLiteral("中文".getBytes(StandardCharsets.UTF_8));
+        Assertions.assertEquals(new StringLiteral("中文"),
+                executor.rewrite(new Cast(multiByte, StringType.INSTANCE), context));
+
+        // 0xFF is not valid UTF-8, so no FE string literal carries it; the cast is left for BE.
+        Cast notUtf8 = new Cast(new VarBinaryLiteral(new byte[] {(byte) 0xFF}), StringType.INSTANCE);
+        Assertions.assertEquals(notUtf8, executor.rewrite(notUtf8, context));
     }
 
     @Test
