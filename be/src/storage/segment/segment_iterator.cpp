@@ -797,8 +797,8 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             continue;
         }
         std::unique_ptr<ColumnIterator> iter;
-        RETURN_IF_ERROR(
-                _segment->new_column_iterator(*col, &iter, &_opts, &_variant_sparse_column_cache));
+        RETURN_IF_ERROR(_segment->new_column_iterator(*col, _seek_schema->data_type(i), &iter,
+                                                      &_opts, &_variant_sparse_column_cache));
         ColumnIteratorOptions iter_opts {
                 .use_page_cache = _opts.use_page_cache,
                 .file_reader = _file_reader.get(),
@@ -1904,9 +1904,9 @@ Status SegmentIterator::_init_column_iterators() {
         }
 
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(*_schema->column(cid),
-                                                          &_column_iterators[cid], &_opts,
-                                                          &_variant_sparse_column_cache));
+            RETURN_IF_ERROR(_segment->new_column_iterator(
+                    *_schema->column(cid), _schema->data_type(cid), &_column_iterators[cid], &_opts,
+                    &_variant_sparse_column_cache));
             ColumnIteratorOptions iter_opts {
                     .use_page_cache = _opts.use_page_cache,
                     // If the col is predicate column, then should read the last page to check

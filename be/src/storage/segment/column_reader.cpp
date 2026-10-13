@@ -43,8 +43,11 @@
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/decimal12.h"
 #include "core/string_ref.h"
@@ -738,6 +741,92 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
 
     *matched = _zone_map_match_condition(zone_map, col_predicates);
     return Status::OK();
+}
+
+namespace {
+
+// Keep only the nested values of `field` that `read_type` materializes. FE nested pruning keeps
+// the declared field order, never prunes MAP keys and leaves scalars untouched, so a STRUCT is
+// rebuilt from the read field names while ARRAY items and MAP values recurse.
+Status project_field_to_read_type(const DataTypePtr& declared_type, const DataTypePtr& read_type,
+                                  Field& field) {
+    switch (field.get_type()) {
+    case PrimitiveType::TYPE_ARRAY: {
+        const auto& declared_item =
+                assert_cast<const DataTypeArray*>(remove_nullable(declared_type).get())
+                        ->get_nested_type();
+        const auto& read_item = assert_cast<const DataTypeArray*>(remove_nullable(read_type).get())
+                                        ->get_nested_type();
+        Array items;
+        items.reserve(field.get<TYPE_ARRAY>().size());
+        for (const auto& item : field.get<TYPE_ARRAY>()) {
+            Field projected = item;
+            RETURN_IF_ERROR(project_field_to_read_type(declared_item, read_item, projected));
+            items.push_back(std::move(projected));
+        }
+        field = Field::create_field<TYPE_ARRAY>(std::move(items));
+        return Status::OK();
+    }
+    case PrimitiveType::TYPE_MAP: {
+        const auto& declared_value =
+                assert_cast<const DataTypeMap*>(remove_nullable(declared_type).get())
+                        ->get_value_type();
+        const auto& read_value =
+                assert_cast<const DataTypeMap*>(remove_nullable(read_type).get())->get_value_type();
+        // A MAP Field holds its keys and its values as two ARRAY Fields.
+        const auto& map = field.get<TYPE_MAP>();
+        DORIS_CHECK_EQ(map.size(), 2);
+        Array values;
+        values.reserve(map[1].get<TYPE_ARRAY>().size());
+        for (const auto& value : map[1].get<TYPE_ARRAY>()) {
+            Field projected = value;
+            RETURN_IF_ERROR(project_field_to_read_type(declared_value, read_value, projected));
+            values.push_back(std::move(projected));
+        }
+        field = Field::create_field<TYPE_MAP>(
+                Map {map[0], Field::create_field<TYPE_ARRAY>(std::move(values))});
+        return Status::OK();
+    }
+    case PrimitiveType::TYPE_STRUCT: {
+        const auto& tuple = field.get<TYPE_STRUCT>();
+        // The `{}` default means every field takes its own default, which ColumnStruct::insert
+        // applies to whatever fields the destination keeps.
+        if (tuple.empty()) {
+            return Status::OK();
+        }
+        const auto* declared_struct =
+                assert_cast<const DataTypeStruct*>(remove_nullable(declared_type).get());
+        const auto* read_struct =
+                assert_cast<const DataTypeStruct*>(remove_nullable(read_type).get());
+        DORIS_CHECK_EQ(tuple.size(), declared_struct->get_elements().size());
+        Struct projected_tuple;
+        const size_t read_fields = read_struct->get_elements().size();
+        projected_tuple.reserve(read_fields);
+        for (size_t i = 0; i < read_fields; ++i) {
+            const auto position =
+                    declared_struct->try_get_position_by_name(read_struct->get_name_by_position(i));
+            DORIS_CHECK(position.has_value())
+                    << "read struct field " << read_struct->get_name_by_position(i)
+                    << " is not declared by " << declared_struct->get_name();
+            Field projected = tuple[*position];
+            RETURN_IF_ERROR(project_field_to_read_type(declared_struct->get_element(*position),
+                                                       read_struct->get_element(i), projected));
+            projected_tuple.push_back(std::move(projected));
+        }
+        field = Field::create_field<TYPE_STRUCT>(std::move(projected_tuple));
+        return Status::OK();
+    }
+    default:
+        // A scalar or NULL has no nested value to prune.
+        return Status::OK();
+    }
+}
+
+} // namespace
+
+Status ConstantColumnIterator::project_to_read_type(const DataTypePtr& declared_type,
+                                                    const DataTypePtr& read_type) {
+    return project_field_to_read_type(declared_type, read_type, _value);
 }
 
 Status ConstantColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates,

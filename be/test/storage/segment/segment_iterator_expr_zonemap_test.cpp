@@ -322,7 +322,9 @@ protected:
     void read_column(const std::shared_ptr<Segment>& segment, int32_t cid,
                      const StorageReadOptions& read_options, MutableColumnPtr* dst) {
         ColumnIteratorUPtr iter;
-        auto st = segment->new_column_iterator(_tablet_schema->column(cid), &iter, &read_options);
+        auto st = segment->new_column_iterator(_tablet_schema->column(cid),
+                                               _tablet_schema->column(cid).get_vec_type(), &iter,
+                                               &read_options);
         ASSERT_TRUE(st.ok()) << st;
         ASSERT_NE(nullptr, iter);
 
@@ -351,7 +353,9 @@ protected:
     void expect_missing_commit_tso_error(const std::shared_ptr<Segment>& segment, int32_t cid,
                                          const StorageReadOptions& read_options) {
         ColumnIteratorUPtr iter;
-        auto st = segment->new_column_iterator(_tablet_schema->column(cid), &iter, &read_options);
+        auto st = segment->new_column_iterator(_tablet_schema->column(cid),
+                                               _tablet_schema->column(cid).get_vec_type(), &iter,
+                                               &read_options);
         EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
         EXPECT_NE(st.to_string().find("requires a valid commit tso"), std::string::npos) << st;
     }
@@ -887,7 +891,7 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingVariantDocBucketsDefaultToNull) {
         auto column =
                 variant_util::create_doc_value_compaction_column(_tablet_schema->column(1), bucket);
         ColumnIteratorUPtr iter;
-        auto st = segment->new_column_iterator(column, &iter, &read_options);
+        auto st = segment->new_column_iterator(column, column.get_vec_type(), &iter, &read_options);
         ASSERT_TRUE(st.ok()) << st;
         ColumnIteratorOptions opts;
         opts.stats = &_stats;
@@ -948,7 +952,8 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingVariantSeparatesValueAndPhysicalRe
     // Reading a generated child path must use the missing root's logical NULL value. It must not
     // attempt to cast the ConstantColumnReader to VariantColumnReader or search sparse metadata.
     ColumnIteratorUPtr path_iterator;
-    st = segment->new_column_iterator(added_path, &path_iterator, &read_options);
+    st = segment->new_column_iterator(added_path, declared_path_type, &path_iterator,
+                                      &read_options);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_NE(nullptr, path_iterator);
     ColumnIteratorOptions iterator_options;
