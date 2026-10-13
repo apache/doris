@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "storage/index/snii/common/slice.h"
@@ -396,16 +397,20 @@ Status begin_scoring_session_from_local_input(SniiCompoundWriter* compound,
 // compaction and load produce different images for the same input.
 TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) {
     const int64_t saved_block = doris::config::file_cache_each_block_size;
-    const bool saved_cache = doris::config::enable_file_cache;
+    const std::string saved_deploy_mode = doris::config::deploy_mode;
+    const std::string saved_cloud_unique_id = doris::config::cloud_unique_id;
     doris::Defer restore {[&] {
         doris::config::file_cache_each_block_size = saved_block;
-        doris::config::enable_file_cache = saved_cache;
+        doris::config::deploy_mode = saved_deploy_mode;
+        doris::config::cloud_unique_id = saved_cloud_unique_id;
     }};
+    doris::config::cloud_unique_id.clear();
 
-    // Measure the unpadded size first, then pick a block the gate must accept: the container
-    // spans at least kMinPaddingLeverage blocks (we start the search at 2x that leverage and walk
-    // the block size up), and pad is asserted to be both due and worth paying.
-    doris::config::enable_file_cache = false;
+    // Measure the unpadded size first, outside cloud mode where nothing is padded, then pick a
+    // block the gate must accept: the container spans at least kMinPaddingLeverage blocks (we start
+    // the search at 2x that leverage and walk the block size up), and pad is asserted to be both due
+    // and worth paying.
+    doris::config::deploy_mode = "";
     MemoryFile unpadded_file;
     assert_ok(write_streamed_index(representative_input(), &unpadded_file));
     const size_t unpadded = unpadded_file.data().size();
@@ -425,7 +430,7 @@ TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) 
     ASSERT_LT(2 * pad, block_size) << "the gate would decline this padding as not worth its cost";
     const auto block = static_cast<int64_t>(block_size);
 
-    doris::config::enable_file_cache = true;
+    doris::config::deploy_mode = "cloud";
     doris::config::file_cache_each_block_size = block;
     MemoryFile ordinary;
     MemoryFile streamed;

@@ -107,6 +107,38 @@ class JdbcTimestampSemanticsTest {
     }
 
     @Test
+    void testMySqlWriterInitializesUtcBeforePreparingInsert(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir)
+            throws Exception {
+        // Drive the production open path through the shared data-source cache instead of a test-only seam.
+        String driverUrl = java.nio.file.Files.createFile(dir.resolve("driver.jar")).toUri().toString();
+        java.util.Map<String, String> params = new java.util.HashMap<>();
+        params.put("table_type", "MYSQL");
+        params.put("jdbc_url", "jdbc:mysql://localhost/test");
+        params.put("jdbc_driver_url", driverUrl);
+        params.put("insert_sql", "INSERT INTO t VALUES (?)");
+        JdbcJniWriter writer = new JdbcJniWriter(1, params);
+        com.zaxxer.hikari.HikariDataSource dataSource = Mockito.mock(com.zaxxer.hikari.HikariDataSource.class);
+        java.sql.Connection connection = Mockito.mock(java.sql.Connection.class);
+        java.sql.Statement timezoneStatement = Mockito.mock(java.sql.Statement.class);
+        Mockito.when(dataSource.getConnection()).thenReturn(connection);
+        Mockito.when(connection.createStatement()).thenReturn(timezoneStatement);
+        Mockito.when(connection.prepareStatement(Mockito.anyString()))
+                .thenReturn(Mockito.mock(java.sql.PreparedStatement.class));
+        String cacheKey = JdbcDataSource.createCacheKey(0L, "jdbc:mysql://localhost/test", "", "", driverUrl,
+                "", "", 1, 10, 1800000, 5000, false);
+        JdbcDataSource.getDataSource().putSource(cacheKey, dataSource);
+        try {
+            writer.openInternal();
+            org.mockito.InOrder order = Mockito.inOrder(connection, timezoneStatement);
+            order.verify(connection).createStatement();
+            order.verify(timezoneStatement).execute("SET SESSION time_zone = '+00:00'");
+            order.verify(connection).prepareStatement("INSERT INTO t VALUES (?)");
+        } finally {
+            JdbcDataSource.getDataSource().getSourcesMap().remove(cacheKey);
+        }
+    }
+
+    @Test
     void testMySqlTimestampWriteUsesUtcSessionFields() throws Exception {
         MySQLTypeHandler executor = new MySQLTypeHandler("MYSQL");
         java.sql.PreparedStatement preparedStatement = Mockito.mock(java.sql.PreparedStatement.class);

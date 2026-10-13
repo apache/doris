@@ -473,6 +473,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_BUCKET_PRUNE =
             "enable_runtime_filter_bucket_prune";
 
+    public static final String ENABLE_SCAN_KEY_BUCKET_PRUNE = "enable_scan_key_bucket_prune";
+
     public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
 
     static final String SESSION_CONTEXT = "session_context";
@@ -2191,6 +2193,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_BUCKET_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterBucketPrune = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_SCAN_KEY_BUCKET_PRUNE, needForward = true, fuzzy = true,
+            description = "Prune exact VARCHAR scan keys by their HASH distribution bucket.")
+    public boolean enableScanKeyBucketPrune = true;
+
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
      * For example, trace_id can be passed to trace the query request sent by the user.
@@ -2357,7 +2363,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = "Set wether to use file cache. "
             + "This variable takes effect only if the BE config enable_file_cache=true. "
             + "The cache is not used when BE config enable_file_cache=false.")
-    public boolean enableFileCache = false;
+    public boolean enableFileCache = true;
 
     // Specify base path for file cache, or chose a random path.
     @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = "Specify the storage path of "

@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.jni.spi.vec.ColumnType;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
@@ -407,6 +408,29 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testFallbackWrapperOrderMatchesPaimonFactoryPrecedence() {
+        // Capping a fallback pair rebuilds the wrapper, and Paimon has no accessor for its read order,
+        // so isWrappedFirst recovers FileStoreTableFactory's decision from the options. A wrong answer
+        // swaps which branch is read first.
+
+        // A fallback branch wins over a configured primary branch.
+        Assertions.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_FALLBACK_BRANCH.key(), "fallback",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assertions.assertFalse(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        // A blank primary branch is unset for the factory.
+        Assertions.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "  "))));
+        // A chain table is built before the primary-branch selector is consulted.
+        Assertions.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.CHAIN_TABLE_ENABLED.key(), "true",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        // Old FE payloads only represented fallback reads and may not carry either selector.
+        Assertions.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(Collections.emptyMap())));
+    }
+
+    @Test
     public void testOldFeSystemWrapperPreservesIndependentFallbackLimits() throws Exception {
         FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
@@ -494,6 +518,12 @@ public class PaimonJniScannerTest {
     private static FileStoreTable serializableFileStoreTable(Map<String, String> options) {
         return (FileStoreTable) Proxy.newProxyInstance(FileStoreTable.class.getClassLoader(),
                 new Class[] {FileStoreTable.class}, new SerializableTableHandler(options));
+    }
+
+    private static FallbackReadFileStoreTable fallbackTable(Map<String, String> options) {
+        return new FallbackReadFileStoreTable(
+                serializableFileStoreTable(options),
+                serializableFileStoreTable(Collections.emptyMap()), true);
     }
 
     @Test
