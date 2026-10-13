@@ -30,6 +30,7 @@ struct WkbParseContext;
 
 namespace doris {
 
+class Status;
 class GeoShape;
 class GeoLine;
 class GeoPoint;
@@ -43,6 +44,7 @@ public:
     static GeoParseStatus parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape);
     static GeoParseStatus validate_wkb_bytes(const char* data, size_t size,
                                              bool geographic = false);
+    static Status validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row);
     static GeoParseStatus wkb_to_wkt(const char* data, size_t size, std::string* wkt);
     static GeoParseStatus point_coordinates(const char* data, size_t size, double* x, double* y);
     static GeoParseStatus geometry_type(const char* data, size_t size, std::string* type);

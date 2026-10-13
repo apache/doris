@@ -238,6 +238,37 @@ TEST(VGeoFunctionsTest, ConstantGeographyDistancePreservesNullableEvaluation) {
     expect_constant_geography_distance(false, true);
 }
 
+TEST(VGeoFunctionsTest, GeographyAngleRejectsUnsupportedArgumentsRegardlessOfOrder) {
+    const std::string point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    const auto line = std::string("\x01\x02\x00\x00\x00\x02\x00\x00\x00", 9) + point.substr(5) +
+                      std::string(
+                              "\x00\x00\x00\x00\x00\x00\x08\x40"
+                              "\x00\x00\x00\x00\x00\x00\x10\x40",
+                              16);
+    const auto multi = std::string("\x01\x04\x00\x00\x00\x01\x00\x00\x00", 9) + point;
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    ColumnsWithTypeAndName arguments;
+    for (const auto& wkb : {line, multi, point}) {
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        arguments.emplace_back(std::move(column), type, "geography");
+    }
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_angle", arguments, result_type);
+    ASSERT_NE(function, nullptr);
+    Block block;
+    for (const auto& argument : arguments) {
+        block.insert(argument);
+    }
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0, 1, 2}, 3, 1);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("does not support this Geography WKB shape"),
+              std::string::npos);
+}
+
 TEST(VGeoFunctionsTest, function_geo_st_point_test) {
     std::string func_name = "st_point";
 

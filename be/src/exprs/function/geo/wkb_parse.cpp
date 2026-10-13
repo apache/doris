@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "common/status.h"
 #include "core/custom_allocator.h"
 #include "exprs/function/geo/ByteOrderDataInStream.h"
 #include "exprs/function/geo/ByteOrderValues.h"
@@ -423,6 +424,20 @@ GeoParseStatus WkbParse::validate_wkb_bytes(const char* data, size_t size, bool 
         return GEO_PARSE_WKB_SYNTAX_ERROR;
     }
     return RawWkbReader(ctx, geographic).read();
+}
+
+Status WkbParse::validate_spatial_wkb(const char* data, size_t size, bool geographic, size_t row) {
+    const auto status = validate_wkb_bytes(data, size, geographic);
+    if (status == GEO_PARSE_WKB_UNSUPPORTED_METADATA) {
+        return Status::NotSupported(
+                "WKB dimensions or embedded SRID are not supported for spatial inputs at row {}",
+                row);
+    }
+    if (status != GEO_PARSE_OK) {
+        return Status::InvalidArgument("Invalid WKB in spatial input at row {}: {}", row,
+                                       to_string(status));
+    }
+    return Status::OK();
 }
 
 void WkbParse::read_hex(std::istream& is, WkbParseContext& ctx) {

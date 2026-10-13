@@ -21,7 +21,6 @@
 
 #include "core/column/column_spatial.h"
 #include "core/data_type/data_type.h"
-#include "core/data_type_serde/data_type_varbinary_serde.h"
 
 namespace doris {
 
@@ -65,9 +64,7 @@ public:
     FieldWithDataType get_field_with_data_type(const IColumn& column,
                                                size_t row_num) const override;
     bool equals(const IDataType& rhs) const override;
-    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeVarbinarySerDe>(nesting_level);
-    }
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override;
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override;

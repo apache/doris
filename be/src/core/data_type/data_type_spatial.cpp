@@ -24,10 +24,45 @@
 #include "core/assert_cast.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/field.h"
 #include "core/string_view.h"
+#include "exprs/function/geo/wkb_parse.h"
 
 namespace doris {
+
+namespace {
+
+class SpatialParquetSerDe final : public DataTypeVarbinarySerDe {
+public:
+    SpatialParquetSerDe(int nesting_level, bool geographic)
+            : DataTypeVarbinarySerDe(nesting_level), _geographic(geographic) {}
+
+    Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                    const ParquetDecodeContext& context, size_t num_values,
+                                    ParquetMaterializationState& state) const override {
+        const auto start = column.size();
+        RETURN_IF_ERROR(DataTypeVarbinarySerDe::read_column_from_parquet(column, source, context,
+                                                                         num_values, state));
+        // Validate materialized values, not unselected dictionary entries. NULL runs
+        // are appended by the reader outside the leaf SerDe.
+        for (size_t row = start; row < column.size(); ++row) {
+            const auto value = column.get_data_at(row);
+            RETURN_IF_ERROR(
+                    WkbParse::validate_spatial_wkb(value.data, value.size, _geographic, row));
+        }
+        return Status::OK();
+    }
+
+private:
+    const bool _geographic;
+};
+
+} // namespace
+
+DataTypeSerDeSPtr DataTypeSpatial::get_serde(int nesting_level) const {
+    return std::make_shared<SpatialParquetSerDe>(nesting_level, requires_geographic_coordinates());
+}
 
 doris::FieldType DataTypeSpatial::get_storage_field_type() const {
     throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

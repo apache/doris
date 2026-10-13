@@ -127,18 +127,8 @@ Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& argu
             }
             const auto value = column->get_data_at(row);
             const auto& spatial = assert_cast<const DataTypeSpatial&>(*remove_nullable(type));
-            const auto parse_status = WkbParse::validate_wkb_bytes(
-                    value.data, value.size, spatial.requires_geographic_coordinates());
-            if (parse_status == GEO_PARSE_WKB_UNSUPPORTED_METADATA) {
-                return Status::NotSupported(
-                        "WKB dimensions or embedded SRID are not supported for spatial inputs at "
-                        "row {}",
-                        row);
-            }
-            if (parse_status != GEO_PARSE_OK) {
-                return Status::InvalidArgument("Invalid WKB in spatial input at row {}: {}", row,
-                                               to_string(parse_status));
-            }
+            RETURN_IF_ERROR(WkbParse::validate_spatial_wkb(
+                    value.data, value.size, spatial.requires_geographic_coordinates(), row));
         }
     }
     return Status::OK();
@@ -461,26 +451,15 @@ struct StAngle {
                 continue;
             }
             std::unique_ptr<GeoShape> point1;
-            RETURN_IF_ERROR(decode_calculation_shape(p1->get_data_at(row), p1_type, &point1, NAME));
-            auto* pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
-            if (pt1 == nullptr) {
-                null_map_data[row] = 1;
-                res->insert_default();
-                continue;
-            }
-
             std::unique_ptr<GeoShape> point2;
-            RETURN_IF_ERROR(decode_calculation_shape(p2->get_data_at(row), p2_type, &point2, NAME));
-            auto* pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
-            if (pt2 == nullptr) {
-                null_map_data[row] = 1;
-                res->insert_default();
-                continue;
-            }
             std::unique_ptr<GeoShape> point3;
+            RETURN_IF_ERROR(decode_calculation_shape(p1->get_data_at(row), p1_type, &point1, NAME));
+            RETURN_IF_ERROR(decode_calculation_shape(p2->get_data_at(row), p2_type, &point2, NAME));
             RETURN_IF_ERROR(decode_calculation_shape(p3->get_data_at(row), p3_type, &point3, NAME));
+            auto* pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
+            auto* pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
             auto* pt3 = point3 ? dynamic_cast<GeoPoint*>(point3.get()) : nullptr;
-            if (pt3 == nullptr) {
+            if (pt1 == nullptr || pt2 == nullptr || pt3 == nullptr) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
