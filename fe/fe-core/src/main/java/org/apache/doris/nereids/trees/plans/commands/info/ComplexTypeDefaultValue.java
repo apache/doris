@@ -27,6 +27,8 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -34,8 +36,10 @@ import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -56,12 +60,13 @@ import java.util.StringJoiner;
  * (see {@link LiteralBuilder}), and every nested value is then cast to the declared nested type, so a
  * type mismatch is rejected at DDL time instead of when old rows are read. The
  * canonical text only contains plain nested values (unquoted numbers, double quoted strings, nested
- * brackets and NULL). BE parses the stored text in two places that must agree: the complex SerDe
- * {@code from_fe_string} used by the default value iterator and schema change, and the
- * string-to-complex cast used when INSERT fills an unmentioned column. Neither of them decodes
- * escape sequences, and the DDL parser keeps the text of a default value verbatim when SHOW CREATE
- * TABLE output is replayed, so string values containing quotes or backslashes are rejected instead
- * of stored.
+ * brackets and lower case null). BE parses the stored text in three places that must agree: the
+ * complex SerDe {@code from_fe_string} used by the default value iterator and schema change, the
+ * string-to-complex cast used when INSERT fills an unmentioned column, and the JSON parser
+ * {@code default_from_string} that fills the omitted columns of a partial update, which only
+ * recognizes a lower case nested null. None of them decodes escape sequences, and the DDL parser
+ * keeps the text of a default value verbatim when SHOW CREATE TABLE output is replayed, so string
+ * values containing quotes or backslashes are rejected instead of stored.
  */
 public class ComplexTypeDefaultValue {
     private ComplexTypeDefaultValue() {
@@ -114,7 +119,7 @@ public class ComplexTypeDefaultValue {
 
     private static String render(Literal literal, DataType type) throws AnalysisException {
         if (literal instanceof NullLiteral) {
-            return "NULL";
+            return "null";
         }
         if (type.isArrayType()) {
             if (!(literal instanceof ArrayLiteral)) {
@@ -167,29 +172,51 @@ public class ComplexTypeDefaultValue {
             }
             return joiner.toString();
         }
-        return renderScalar((Literal) literal.checkedCastTo(type), type);
+        return renderScalar(literal, type);
     }
 
     private static String renderScalar(Literal literal, DataType type) throws AnalysisException {
+        if (type.isStringLikeType()) {
+            // The cast to VARCHAR(n) silently truncates a longer value, while a scalar VARCHAR(n) column
+            // rejects such a default, so cast to STRING and check the length against the declared type.
+            String value = ((Literal) literal.checkedCastTo(StringType.INSTANCE)).getStringValue();
+            int maxLength = ((CharacterType) type).getLen();
+            if (maxLength >= 0 && value.length() > maxLength) {
+                throw new AnalysisException("Default value is too long: " + value);
+            }
+            return renderQuoted(literal, value);
+        }
+        literal = (Literal) literal.checkedCastTo(type);
         if (type.isBooleanType()) {
             return ((BooleanLiteral) literal).getValue() ? "1" : "0";
         }
         if (type.isNumericType()) {
-            if (type.isFloatLikeType() && !Double.isFinite(((Number) literal.getValue()).doubleValue())) {
-                throw new AnalysisException(literal.toSql() + " is not a finite number");
+            if (type.isFloatLikeType()) {
+                double value = ((Number) literal.getValue()).doubleValue();
+                if (!Double.isFinite(value)) {
+                    throw new AnalysisException(literal.toSql() + " is not a finite number");
+                }
+                // A SQL numeric literal has no negative zero: replaying the "-0.0" of SHOW CREATE TABLE
+                // output parses it through BigDecimal and stores 0.0, so render -0.0 as 0.0 from the start.
+                if (value == 0) {
+                    literal = type.isFloatType() ? new FloatLiteral(0.0f) : new DoubleLiteral(0.0);
+                }
             }
             return literal.getStringValue();
         }
-        if (type.isStringLikeType() || type.isDateType() || type.isDateV2Type() || type.isDateTimeType()
-                || type.isDateTimeV2Type() || type.isIPType()) {
-            String value = literal.getStringValue();
-            if (value.indexOf('"') >= 0 || value.indexOf('\'') >= 0 || value.indexOf('\\') >= 0) {
-                throw new AnalysisException("string value " + literal.toSql()
-                        + " must not contain quote or backslash");
-            }
-            return "\"" + value + "\"";
+        if (type.isDateType() || type.isDateV2Type() || type.isDateTimeType() || type.isDateTimeV2Type()
+                || type.isIPType()) {
+            return renderQuoted(literal, literal.getStringValue());
         }
         throw new AnalysisException(type.toSql() + " is not supported as a nested type of a default value");
+    }
+
+    private static String renderQuoted(Literal literal, String value) throws AnalysisException {
+        if (value.indexOf('"') >= 0 || value.indexOf('\'') >= 0 || value.indexOf('\\') >= 0) {
+            throw new AnalysisException("string value " + literal.toSql()
+                    + " must not contain quote or backslash");
+        }
+        return "\"" + value + "\"";
     }
 
     /**

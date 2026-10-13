@@ -729,7 +729,9 @@ protected:
         options.commit_tso = rowset->rowset_meta()->commit_tso();
         options.io_ctx.reader_type = ReaderType::READER_QUERY;
         segment_v2::ColumnIteratorUPtr iter;
-        st = segment->new_column_iterator(rowset->tablet_schema()->column(2), &iter, &options);
+        st = segment->new_column_iterator(rowset->tablet_schema()->column(2),
+                                          rowset->tablet_schema()->column(2).get_vec_type(), &iter,
+                                          &options);
         // Published singleton rowsets with absent or [-1, -1] TSOs must reject reads,
         // even though index build/drop must preserve that metadata unchanged.
         if (!tso.has_value() || tso->end_tso() == -1) {

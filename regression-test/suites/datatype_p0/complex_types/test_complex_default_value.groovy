@@ -24,6 +24,7 @@ suite("test_complex_default_value") {
     sql "DROP TABLE IF EXISTS test_complex_default_value_bad_alter"
     sql "DROP TABLE IF EXISTS test_complex_default_value_replace_value"
     sql "DROP TABLE IF EXISTS test_complex_default_value_mapping"
+    sql "DROP TABLE IF EXISTS test_complex_default_value_partial_update"
 
     def createTableRejects = { String columnDef, String message ->
         test {
@@ -64,6 +65,11 @@ suite("test_complex_default_value") {
     createTableRejects.call("""STRUCT<f1:ARRAY<DATEV2>> DEFAULT '{[DATEV2 "2024-01-01", 1]}'""", "Invalid default value")
     // map keys that only collide after the cast to the key type are rejected
     createTableRejects.call("""MAP<INT, INT> DEFAULT '{"01": 1, "1": 2}'""", "map key 1 is repeated after casting to INT")
+    // a nested value longer than the declared VARCHAR(n)/CHAR(n) is rejected like a scalar default instead of
+    // being truncated
+    createTableRejects.call("""ARRAY<VARCHAR(2)> DEFAULT '["abc"]'""", "Default value is too long: abc")
+    createTableRejects.call("""ARRAY<CHAR(2)> DEFAULT '["abc"]'""", "Default value is too long: abc")
+    createTableRejects.call("""STRUCT<f1:VARCHAR(2)> DEFAULT '{123}'""", "Default value is too long: 123")
 
     // nested string values are stored as plain double quoted text, so quotes and backslashes are rejected
     createTableRejects.call("""ARRAY<STRING> DEFAULT '["a""b"]'""", "must not contain quote or backslash")
@@ -104,6 +110,10 @@ suite("test_complex_default_value") {
         sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v MAP<STRING, DATEV2> DEFAULT '{"a": DATEV2 "2024-01-01", "b": 1}'"""
         exception "Invalid default value"
     }
+    test {
+        sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v ARRAY<VARCHAR(2)> DEFAULT '["abc"]'"""
+        exception "Default value is too long: abc"
+    }
 
     sql """
         CREATE TABLE test_complex_default_value_literal (
@@ -123,7 +133,9 @@ suite("test_complex_default_value") {
             arr_decimal ARRAY<DECIMAL(10, 2)> DEFAULT '[1.234]',
             arr_string ARRAY<STRING> DEFAULT '["x,y", "[z]", "{k:v}", "null", ""]',
             map_repeated_key MAP<STRING, INT> DEFAULT '{"a": 1, "a": 2}',
-            arr_nested ARRAY<ARRAY<INT>> DEFAULT '[[1], [], NULL]'
+            arr_nested ARRAY<ARRAY<INT>> DEFAULT '[[1], [], NULL]',
+            arr_varchar ARRAY<VARCHAR(2)> DEFAULT '["ab", 1]',
+            arr_negative_zero ARRAY<DOUBLE> DEFAULT '["-0", -0.0, "-1.5"]'
         )
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -146,6 +158,11 @@ suite("test_complex_default_value") {
     assertTrue(createSql.contains('`arr_bool` array<boolean> NULL DEFAULT "[1, 0]"'))
     assertTrue(createSql.contains('`map_repeated_key` map<text,int> NULL DEFAULT \'{"a":2}\''))
     assertTrue(createSql.contains('`arr_string` array<text> NULL DEFAULT \'["x,y", "[z]", "{k:v}", "null", ""]\''))
+    // nested NULL is stored in lower case, the only spelling every BE consumer of the text accepts
+    assertTrue(createSql.contains('`arr_nested_null` array<int> NULL DEFAULT "[null, null, 5]"'))
+    assertTrue(createSql.contains('`struct_nested_null` struct<f1:int,f2:text,f3:int> NULL DEFAULT "{null, null, 7}"'))
+    // a SQL numeric literal has no negative zero, so -0.0 is stored as 0.0 and replays unchanged
+    assertTrue(createSql.contains('`arr_negative_zero` array<double> NULL DEFAULT "[0.0, 0.0, -1.5]"'))
     sql "CREATE TABLE test_complex_default_value_like LIKE test_complex_default_value_literal"
     sql "INSERT INTO test_complex_default_value_like(k) VALUES (1)"
     order_qt_like_default """
@@ -198,7 +215,10 @@ suite("test_complex_default_value") {
         ADD COLUMN arr_decimal ARRAY<DECIMAL(10, 2)> DEFAULT '[1.234]',
         ADD COLUMN arr_string ARRAY<STRING> DEFAULT '["x,y", "[z]", "{k:v}", "null", ""]',
         ADD COLUMN map_repeated_key MAP<STRING, INT> DEFAULT '{"a": 1, "a": 2}',
-        ADD COLUMN arr_nested ARRAY<ARRAY<INT>> DEFAULT '[[1], [], NULL]'
+        ADD COLUMN arr_nested ARRAY<ARRAY<INT>> DEFAULT '[[1], [], NULL]',
+        ADD COLUMN struct_empty STRUCT<f1:INT, f2:STRING> DEFAULT '{}',
+        ADD COLUMN arr_struct ARRAY<STRUCT<f1:INT, f2:STRING>> DEFAULT '[{1, "p"}, {2, "q"}]',
+        ADD COLUMN map_struct MAP<STRING, STRUCT<f1:INT, f2:STRING>> DEFAULT '{"k": {3, "r"}}'
     """
     waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='test_complex_default_value_alter_base' ORDER BY createtime DESC LIMIT 1"""
@@ -212,6 +232,18 @@ suite("test_complex_default_value") {
     sql "INSERT INTO test_complex_default_value_alter_base(k) VALUES (2)"
     order_qt_alter_default_after_insert """
         SELECT * FROM test_complex_default_value_alter_base ORDER BY k
+    """
+    // nested column pruning reads only the accessed STRUCT fields, so the default of an old row is
+    // projected onto the pruned STRUCT, also inside ARRAY items and MAP values
+    order_qt_alter_default_pruned """
+        SELECT k,
+               struct_element(struct_added, 'f2'),
+               struct_element(struct_empty, 'f2'),
+               array_map(x -> struct_element(x, 'f2'), arr_struct),
+               struct_element(element_at(map_struct, 'k'), 'f2'),
+               size(arr_struct),
+               struct_added IS NULL
+        FROM test_complex_default_value_alter_base ORDER BY k
     """
 
     // direct schema change materializes the defaults into the rewritten rows
@@ -303,4 +335,32 @@ suite("test_complex_default_value") {
         """
         exception "map key 1 is repeated after casting to INT"
     }
+
+    // a partial update of a new key fills the omitted complex columns from their defaults through the
+    // BE JSON default parser, which must read a nested null the same way as the default value iterator
+    sql """
+        CREATE TABLE test_complex_default_value_partial_update (
+            k INT,
+            v INT,
+            arr_nested_null ARRAY<STRING> DEFAULT '[NULL, "null", "x"]',
+            map_nested_null MAP<STRING, STRING> DEFAULT '{"a": NULL, "b": "y"}',
+            struct_nested_null STRUCT<f1:INT, f2:STRING> DEFAULT '{NULL, NULL}',
+            struct_literal STRUCT<f1:INT, f2:STRING> DEFAULT '{7, "x"}',
+            arr_literal ARRAY<INT> DEFAULT '[1, 2]'
+        )
+        UNIQUE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES('replication_num'='1', 'enable_unique_key_merge_on_write'='true')
+    """
+    sql "INSERT INTO test_complex_default_value_partial_update(k, v) VALUES (1, 1)"
+    sql "SET enable_unique_key_partial_update = true"
+    sql "SET enable_insert_strict = false"
+    sql "INSERT INTO test_complex_default_value_partial_update(k) VALUES (2)"
+    sql "SET enable_unique_key_partial_update = false"
+    sql "SET enable_insert_strict = true"
+    order_qt_partial_update_default """
+        SELECT k, arr_nested_null, array_contains(arr_nested_null, NULL), map_nested_null,
+               struct_nested_null, struct_element(struct_nested_null, 'f2') IS NULL, struct_literal, arr_literal
+        FROM test_complex_default_value_partial_update ORDER BY k
+    """
 }

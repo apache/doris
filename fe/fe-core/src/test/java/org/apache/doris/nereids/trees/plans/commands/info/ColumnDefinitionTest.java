@@ -24,10 +24,12 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
@@ -38,6 +40,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.UuidType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.SessionVariable;
 
@@ -188,7 +191,9 @@ public class ColumnDefinitionTest {
         ArrayType intArray = ArrayType.of(IntegerType.INSTANCE);
         assertCanonicalDefaultValue(intArray, "[]", "[]");
         assertCanonicalDefaultValue(intArray, "[1, 2]", "[1, 2]");
-        assertCanonicalDefaultValue(intArray, "[NULL, nUlL, 5]", "[NULL, NULL, 5]");
+        // nested NULL is rendered in lower case: the BE JSON parser that fills the omitted columns of a
+        // partial update only recognizes `null`, and `NULL` would be stored as the string "NULL"
+        assertCanonicalDefaultValue(intArray, "[NULL, nUlL, 5]", "[null, null, 5]");
         assertCanonicalDefaultValue(intArray, "[\"7\", 1e3]", "[7, 1000]");
         assertRejectsDefaultValue(intArray, "{}", "only supports array literals or DEFAULT NULL");
         assertRejectsDefaultValue(intArray, "[1 + 1]", "only supports array literals or DEFAULT NULL");
@@ -208,6 +213,11 @@ public class ColumnDefinitionTest {
                 "[[DATEV2 \"2024-01-01\"], [1]]", "Invalid default value");
         assertCanonicalDefaultValue(ArrayType.of(BooleanType.INSTANCE), "[true, false]", "[1, 0]");
         assertCanonicalDefaultValue(ArrayType.of(DoubleType.INSTANCE), "[1.5, 2]", "[1.5, 2.0]");
+        // a SQL numeric literal has no negative zero, so the canonical text never contains -0.0
+        assertCanonicalDefaultValue(ArrayType.of(DoubleType.INSTANCE), "[\"-0\", -0.0, \"-0.0\"]",
+                "[0.0, 0.0, 0.0]");
+        assertCanonicalDefaultValue(ArrayType.of(FloatType.INSTANCE), "[\"-0\", -0.0]", "[0.0, 0.0]");
+        assertCanonicalDefaultValue(ArrayType.of(DoubleType.INSTANCE), "[\"-1.5\"]", "[-1.5]");
         assertCanonicalDefaultValue(ArrayType.of(DecimalV3Type.createDecimalV3Type(10, 2)), "[1.234]", "[1.23]");
         assertCanonicalDefaultValue(ArrayType.of(StringType.INSTANCE), "['x,y', \"[z]\", \"{k:v}\", '']",
                 "[\"x,y\", \"[z]\", \"{k:v}\", \"\"]");
@@ -217,11 +227,22 @@ public class ColumnDefinitionTest {
                 "must not contain quote or backslash");
         assertRejectsDefaultValue(ArrayType.of(StringType.INSTANCE), "['a\\\\b']",
                 "must not contain quote or backslash");
-        assertCanonicalDefaultValue(ArrayType.of(intArray), "[[1], [], NULL]", "[[1], [], NULL]");
+        assertCanonicalDefaultValue(ArrayType.of(intArray), "[[1], [], NULL]", "[[1], [], null]");
+        // a nested VARCHAR(n)/CHAR(n) value longer than n is rejected like a scalar default, instead of
+        // being truncated by the cast to VARCHAR(n)
+        assertCanonicalDefaultValue(ArrayType.of(VarcharType.createVarcharType(2)), "[\"ab\", 1]",
+                "[\"ab\", \"1\"]");
+        assertRejectsDefaultValue(ArrayType.of(VarcharType.createVarcharType(2)), "[\"abc\"]",
+                "Default value is too long: abc");
+        assertRejectsDefaultValue(ArrayType.of(VarcharType.createVarcharType(2)), "[123]",
+                "Default value is too long: 123");
+        assertCanonicalDefaultValue(ArrayType.of(CharType.createCharType(2)), "[\"ab\"]", "[\"ab\"]");
+        assertRejectsDefaultValue(ArrayType.of(CharType.createCharType(2)), "[\"abc\"]",
+                "Default value is too long: abc");
 
         MapType stringIntMap = MapType.of(StringType.INSTANCE, IntegerType.INSTANCE);
         assertCanonicalDefaultValue(stringIntMap, "{}", "{}");
-        assertCanonicalDefaultValue(stringIntMap, "{\"a\": 1, \"b\": NULL}", "{\"a\":1, \"b\":NULL}");
+        assertCanonicalDefaultValue(stringIntMap, "{\"a\": 1, \"b\": NULL}", "{\"a\":1, \"b\":null}");
         assertCanonicalDefaultValue(stringIntMap, "{\"a\": 1, \"a\": 2}", "{\"a\":2}");
         assertRejectsDefaultValue(stringIntMap, "[]", "only supports map literals or DEFAULT NULL");
         assertRejectsDefaultValue(stringIntMap, "{\"a\": \"bad\"}", "Invalid default value");
@@ -242,7 +263,7 @@ public class ColumnDefinitionTest {
                 new StructField("f2", StringType.INSTANCE, true, "")));
         assertCanonicalDefaultValue(structType, "{}", "{}");
         assertCanonicalDefaultValue(structType, "{1, \"a\"}", "{1, \"a\"}");
-        assertCanonicalDefaultValue(structType, "{NULL, 2}", "{NULL, \"2\"}");
+        assertCanonicalDefaultValue(structType, "{NULL, 2}", "{null, \"2\"}");
         assertRejectsDefaultValue(structType, "{\"f1\": 1, \"f2\": \"a\"}",
                 "only supports struct literals or DEFAULT NULL");
         assertRejectsDefaultValue(structType, "{1}", "struct literal has 1 fields but the column has 2");
