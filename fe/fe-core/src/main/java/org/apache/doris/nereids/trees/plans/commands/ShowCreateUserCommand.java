@@ -24,9 +24,12 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -69,10 +72,6 @@ public class ShowCreateUserCommand extends ShowCommand {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
         }
-        if (userIdent != null && !Env.getCurrentEnv().getAccessManager().getAuth().doesUserExist(userIdent)) {
-            throw new AnalysisException(String.format("User: %s does not exist", userIdent));
-        }
-
         // get all user identity
         List<List<String>> infos = new ArrayList<>();
 
@@ -86,31 +85,43 @@ public class ShowCreateUserCommand extends ShowCommand {
     }
 
     @VisibleForTesting
-    protected String toSql(UserIdentity user) {
+    protected String toSql(UserIdentity user) throws AnalysisException {
         if (user == null) {
             return "";
         }
+        Pair<User, List<List<String>>> snapshot = Env.getCurrentEnv().getAuth().getUserForShowCreate(user);
+        User entry = snapshot.first;
+        List<List<String>> policies = snapshot.second;
         StringBuilder sb = new StringBuilder("CREATE USER ");
 
         // user identity
-        sb.append(user);
+        sb.append(entry.getUserIdentity());
 
         // user password
-        sb.append(" IDENTIFIED BY *** ");
+        boolean bound = entry.isAuthenticationBound();
+        if (bound) {
+            sb.append(" IDENTIFIED WITH AUTHENTICATION INTEGRATION `")
+                    .append(entry.getAuthIntegration().replace("`", "``")).append("`");
+            if (entry.getAuthIdentity() != null) {
+                sb.append(" AS ").append(SqlLiteralUtils.quoteStringLiteral(entry.getAuthIdentity()));
+            }
+        } else {
+            sb.append(" IDENTIFIED BY *** ");
+        }
 
-        // tls requirements
-        if (user.hasSanRequirement()) {
-            sb.append(" REQUIRE SAN '").append(user.getSanRequirementSql()).append("'");
+        if (bound) {
+            if (policies.size() > 8 && "true".equalsIgnoreCase(policies.get(8).get(1))) {
+                sb.append(" ACCOUNT_LOCK");
+            }
         }
 
         // password policy
-        if (Env.getCurrentEnv().getAuth().getPasswdPolicyManager() != null) {
+        if (!bound) {
             // policies are : <expirePolicy, historyPolicy, failedLoginPolicy>
             // expirePolicy has two lists: <EXPIRATION_SECONDS>, <PASSWORD_CREATION_TIME>
             // historyPolicy has two lists: <HISTORY_NUM>, <HISTORY_PASSWORDS>
             // failedLoginPolicy has four lists :
             // <NUM_FAILED_LOGIN>, <PASSWORD_LOCK_SECONDS>, <FAILED_LOGIN_COUNTER>, <LOCK_TIME>
-            List<List<String>> policies = Env.getCurrentEnv().getAuth().getPasswdPolicyManager().getPolicyInfo(user);
             if (policies != null) {
                 // historyPolicy: <HISTORY_NUM>, <HISTORY_PASSWORDS>; use HISTORY_NUM only
                 if (policies.size() > 3) {
@@ -154,12 +165,16 @@ public class ShowCreateUserCommand extends ShowCommand {
             }
         }
 
+        // TLS requirements follow password/account options in CREATE USER syntax.
+        UserIdentity tlsIdentity = entry.getUserIdentity();
+        if (tlsIdentity.hasSanRequirement()) {
+            sb.append(" REQUIRE SAN '").append(tlsIdentity.getSanRequirementSql()).append("'");
+        }
+
         // comment
-        if (Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user) != null) {
-            String comment = Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user).getComment();
-            if (comment != null) {
-                sb.append(" COMMENT ").append("\"").append(comment).append("\"");
-            }
+        String comment = entry.getComment();
+        if (comment != null) {
+            sb.append(" COMMENT ").append("\"").append(comment).append("\"");
         }
         return sb.toString();
     }
