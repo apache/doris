@@ -758,10 +758,38 @@ public class Group {
         this.chosenProperties = chosenProperties;
     }
 
+    /** Record the group expression which is chosen as the best one for this group. */
     public void setChosenGroupExpressionId(int chosenGroupExpressionId) {
         Preconditions.checkArgument(this.chosenGroupExpressionId == -1,
                 "chosenGroupExpressionId is already set");
         this.chosenGroupExpressionId = chosenGroupExpressionId;
+        // the struct info of a group is built from the expression which was chosen once the plan choice
+        // has been made: a description which was built before it (the read side of a query describes a
+        // group while the best plan is still unknown) would describe an alternative the optimizer did
+        // not choose, so drop it and let the next reader describe the chosen expression
+        this.hboStructInfo = null;
+    }
+
+    /**
+     * The group expression which was chosen as the best one. Empty before the plan choice has been
+     * made, and for a group whose best expression is an enforcer (enforcers are recorded separately,
+     * see {@link #addChosenEnforcerId}).
+     */
+    public Optional<GroupExpression> getChosenGroupExpression() {
+        if (chosenGroupExpressionId == -1) {
+            return Optional.empty();
+        }
+        for (GroupExpression groupExpression : logicalExpressions) {
+            if (groupExpression.getId().asInt() == chosenGroupExpressionId) {
+                return Optional.of(groupExpression);
+            }
+        }
+        for (GroupExpression groupExpression : physicalExpressions) {
+            if (groupExpression.getId().asInt() == chosenGroupExpressionId) {
+                return Optional.of(groupExpression);
+            }
+        }
+        return Optional.empty();
     }
 
     public void addChosenEnforcerProperties(PhysicalProperties chosenEnforcerProperties) {

@@ -29,13 +29,13 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.Sort;
+import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
 
@@ -431,6 +431,17 @@ public class GroupStructInfo {
     }
 
     /**
+     * The expression which describes a group: the one which was chosen for the final plan as soon as the
+     * choice has been made, the first logical expression before that. The chosen expression may be a
+     * physical one, and it is the plan which will actually run - describing an alternative the optimizer
+     * did not choose (a pushed down top-n for instance, or a CTE consumer which only exists in the memo)
+     * would hide the struct info of nodes which are perfectly describable.
+     */
+    private static GroupExpression representativeExpression(Group group) {
+        return group.getChosenGroupExpression().orElseGet(group::getFirstLogicalExpression);
+    }
+
+    /**
      * Describe one group by composing the descriptions of its children (which are memoized, so each
      * group of a plan is described exactly once per query), in both literal modes at once.
      */
@@ -450,7 +461,7 @@ public class GroupStructInfo {
             // physical only group: there is no expression to describe
             return invalidStructInfo("no logical expression in group " + group.getGroupId().asInt());
         }
-        GroupExpression ge = group.getFirstLogicalExpression();
+        GroupExpression ge = representativeExpression(group);
         Canonical out = new Canonical();
         try {
             appendPlan(ge.getPlan(), ge, out, ctx);
@@ -487,18 +498,20 @@ public class GroupStructInfo {
         if (!ctx.valid) {
             return;
         }
-        if (plan instanceof LogicalOlapScan) {
-            appendScan((LogicalOlapScan) plan, out, ctx);
-        } else if (plan instanceof LogicalFilter) {
-            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+        // the dispatch is written against the algebra interfaces, so that the description of a group can
+        // follow the expression which was chosen for the final plan (a physical one) as well as a logical
+        // expression while the plan choice has not been made yet
+        if (plan instanceof OlapScan) {
+            appendScan((OlapScan) plan, out, ctx);
+        } else if (plan instanceof Filter) {
+            Filter filter = (Filter) plan;
             StringBuilder withLiteralHeader = new StringBuilder("F{");
             StringBuilder noLiteralHeader = new StringBuilder("F{");
             appendNormalizedSorted(filter.getConjuncts(), withLiteralHeader, noLiteralHeader);
             out.modes(withLiteralHeader.append("}(").toString(), noLiteralHeader.append("}(").toString());
             appendChild(ge, 0, out, ctx);
             out.same(")");
-        } else if (plan instanceof LogicalProject || plan instanceof LogicalSort
-                || plan instanceof LogicalWindow) {
+        } else if (plan instanceof Project || plan instanceof Sort || plan instanceof Window) {
             // a project, a sort and a window are transparent for structure matching: none of them
             // changes the number of rows, and the parameters of a sort / window do not influence a row
             // count either, so the nodes above them are described by the shape below and they must not
@@ -508,10 +521,10 @@ public class GroupStructInfo {
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
-        } else if (plan instanceof LogicalJoin) {
-            appendJoin((LogicalJoin<?, ?>) plan, ge, out, ctx);
-        } else if (plan instanceof LogicalAggregate) {
-            appendAggregate((LogicalAggregate<?>) plan, ge, out, ctx);
+        } else if (plan instanceof Join) {
+            appendJoin((Join) plan, ge, out, ctx);
+        } else if (plan instanceof Aggregate) {
+            appendAggregate((Aggregate<?>) plan, ge, out, ctx);
         } else {
             // unsupported head operator (topn/limit/union/intersect/except/cte/tvf/generate/...)
             invalid(ctx, "unsupported=" + plan.getClass().getSimpleName());
@@ -538,7 +551,7 @@ public class GroupStructInfo {
         out.append(child);
     }
 
-    private static void appendJoin(LogicalJoin<?, ?> join, GroupExpression ge, Canonical out, Ctx ctx) {
+    private static void appendJoin(Join join, GroupExpression ge, Canonical out, Ctx ctx) {
         if (isFlattenableJoinType(join.getJoinType())) {
             appendJoinChain(join, ge, out, ctx);
             return;
@@ -568,7 +581,7 @@ public class GroupStructInfo {
      * produces the same descriptor. Cross joins are merged with inner joins because a cross join is
      * exactly an inner join without condition, and both have the same output row count.
      */
-    private static void appendJoinChain(LogicalJoin<?, ?> join, GroupExpression ge, Canonical out, Ctx ctx) {
+    private static void appendJoinChain(Join join, GroupExpression ge, Canonical out, Ctx ctx) {
         TreeSet<String> conditions = new TreeSet<>();
         TreeSet<String> conditionsNoLiteral = new TreeSet<>();
         List<Leaf> leaves = new ArrayList<>();
@@ -609,21 +622,21 @@ public class GroupStructInfo {
             invalid(ctx, "sharing=group " + group.getGroupId().asInt() + " reached twice");
             return;
         }
-        GroupExpression ge = group.getFirstLogicalExpression();
+        GroupExpression ge = representativeExpression(group);
         if (ge == null) {
             invalid(ctx, "no logical expression in group " + group.getGroupId().asInt());
             return;
         }
         Plan plan = ge.getPlan();
-        if (plan instanceof LogicalJoin && isFlattenableJoinType(((LogicalJoin<?, ?>) plan).getJoinType())) {
-            collectJoinConditions((LogicalJoin<?, ?>) plan, conditions, conditionsNoLiteral);
+        if (plan instanceof Join && isFlattenableJoinType(((Join) plan).getJoinType())) {
+            collectJoinConditions((Join) plan, conditions, conditionsNoLiteral);
             for (int i = 0; i < ge.arity(); i++) {
                 collectJoinChain(ge.child(i), conditions, conditionsNoLiteral, leaves, ctx);
             }
             return;
         }
-        if ((plan instanceof LogicalProject || plan instanceof LogicalSort
-                || plan instanceof LogicalWindow) && ge.arity() == 1) {
+        if ((plan instanceof Project || plan instanceof Sort || plan instanceof Window)
+                && ge.arity() == 1) {
             // keep descending through the transparent operators so that a project / sort between two
             // joins cannot break the chain in one expression and not in another
             collectJoinChain(ge.child(0), conditions, conditionsNoLiteral, leaves, ctx);
@@ -663,7 +676,7 @@ public class GroupStructInfo {
         return joinType == JoinType.INNER_JOIN || joinType == JoinType.CROSS_JOIN;
     }
 
-    private static void appendAggregate(LogicalAggregate<?> agg, GroupExpression ge, Canonical out, Ctx ctx) {
+    private static void appendAggregate(Aggregate<?> agg, GroupExpression ge, Canonical out, Ctx ctx) {
         // Only the grouping keys and the child take part: the output row count of an aggregation is
         // the number of groups, which the aggregate functions and the output expressions cannot
         // change, so keeping them would only split one plan pattern into several cache entries.
@@ -693,7 +706,7 @@ public class GroupStructInfo {
         ctx.retryable = true;
     }
 
-    private static void appendScan(LogicalOlapScan scan, Canonical out, Ctx ctx) {
+    private static void appendScan(OlapScan scan, Canonical out, Ctx ctx) {
         try {
             // the scan token is the table plus the data state of the scan (baseline). Its shape form
             // is the table alone and is written by this very call, so the fingerprint input is never
@@ -783,7 +796,7 @@ public class GroupStructInfo {
      * hash conjunct or as an other conjunct depends on the grouping of the chain, so that
      * classification cannot be part of a canonical form that has to be insensitive to the grouping.
      */
-    private static void collectJoinConditions(LogicalJoin<?, ?> join,
+    private static void collectJoinConditions(Join join,
             Set<String> conditions, Set<String> conditionsNoLiteral) {
         for (Expression conjunct : join.getHashJoinConjuncts()) {
             addCondition(conjunct, conditions, conditionsNoLiteral);
@@ -1034,13 +1047,16 @@ public class GroupStructInfo {
             // inserts one) has nothing to describe, and getFirstLogicalExpression would throw
             return new HboStructSummary(0, Collections.emptyList());
         }
-        GroupExpression ge = logicalExpressions.get(0);
+        GroupExpression ge = representativeExpression(group);
+        if (ge == null) {
+            return new HboStructSummary(0, Collections.emptyList());
+        }
         Plan plan = ge.getPlan();
         List<String> relations = new ArrayList<>();
         int scanCount = 0;
-        if (plan instanceof LogicalOlapScan) {
+        if (plan instanceof OlapScan) {
             scanCount = 1;
-            relations.add(((LogicalOlapScan) plan).getTable().getNameWithFullQualifiers());
+            relations.add(((OlapScan) plan).getTable().getNameWithFullQualifiers());
         }
         for (int i = 0; i < ge.arity(); i++) {
             Group child = ge.child(i);
