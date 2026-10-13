@@ -910,7 +910,8 @@ TEST_F(SpillFileS3Test, PublishedPartRemainsBillableWhenCloseAndCleanupFail) {
 
 // Retrying failed remote deletions is bounded by the GC work time: with a slow object store one
 // round tries one directory and keeps the others queued for the next round, ahead of the one
-// that failed, so a directory that keeps failing slowly does not starve the others.
+// that failed, so a directory that keeps failing slowly does not starve the others. Shutdown
+// does not retry remote deletions at all.
 TEST_F(SpillFileS3Test, PendingRemoteDeletesAreBoundedByGcWorkTime) {
     _create_manager();
     std::mt19937 rng(128);
@@ -923,7 +924,17 @@ TEST_F(SpillFileS3Test, PendingRemoteDeletesAreBoundedByGcWorkTime) {
     }
     _manager->stop();
     mock_store().fail_deletes = true;
+    // Released in order, so the queue order is known.
+    for (auto& file : files) {
+        file.reset();
+    }
     files.clear();
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 3);
+
+    // stop() does not wait for the object store: the remote directories stay queued.
+    const auto deletes_before_stop = mock_store().delete_requests.load();
+    _manager->stop();
+    ASSERT_EQ(mock_store().delete_requests.load(), deletes_before_stop);
     ASSERT_EQ(_manager->pending_delete_dir_count(), 3);
 
     // A slow object store where the first directory keeps failing: every round tries one

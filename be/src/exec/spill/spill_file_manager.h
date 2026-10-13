@@ -174,12 +174,14 @@ private:
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
     Status _try_delete_spill_directory(const PendingSpillDirectory& pending_directory);
-    /// Retry the queued failed deletions until `max_work_time_ns` has passed on `watch`, at least
-    /// one of them; the rest stay queued for the next round.
-    void _retry_pending_spill_directories(const MonotonicStopWatch& watch,
-                                          int64_t max_work_time_ns);
-    /// Retry the queued failed deletions for at most spill_gc_work_time_ms.
-    void _retry_pending_spill_directories_bounded();
+    /// Retry the queued failed deletions, at least one, until `max_work_time_ns` has passed on
+    /// `watch`; a remote one can take longer, since it waits for the object store. Remote ones
+    /// are only retried when `retry_remote` is set. The rest stay queued for the next round.
+    void _retry_pending_spill_directories(const MonotonicStopWatch& watch, int64_t max_work_time_ns,
+                                          bool retry_remote);
+    /// Retry every queued failed deletion of a local store, for shutdown: it does not wait for
+    /// the object store.
+    void _retry_pending_local_spill_directories();
     void _gc_spill_store(LocalSpillDataDir* store_dir, const MonotonicStopWatch& watch,
                          int64_t max_work_time_ns, SpillGcStats* stats);
     /// Queue a failed deletion, merged with a pending ancestor or absorbing pending descendants
