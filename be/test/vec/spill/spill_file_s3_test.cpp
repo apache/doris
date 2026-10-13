@@ -755,8 +755,8 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
 }
 
 // Without spill_s3_storage_vault_id an instance without storage vaults spills to its latest
-// file system and an instance with storage vaults to the S3 vault with the smallest ID, so
-// that adding a vault does not move spill. A configured ID always wins.
+// file system and an instance with storage vaults to the S3 vault with the largest ID, the
+// newest one. A configured ID always wins.
 TEST_F(SpillFileS3Test, SelectVaultFileSystem) {
     auto make_fs = [](const std::string& id) {
         S3Conf conf;
@@ -784,12 +784,14 @@ TEST_F(SpillFileS3Test, SelectVaultFileSystem) {
     }};
     auto latest = make_fs("latest");
 
-    // Storage vault mode: smallest numeric ID, not the lexicographically smallest one ("10").
-    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", nullptr), vaults[9]);
-    // Adding a vault with a larger ID keeps the selection.
-    put_storage_resource(int64_t {11}, StorageResource {make_fs("11")}, 1);
-    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", nullptr), vaults[9]);
-    delete_storage_resource(11);
+    // Storage vault mode: largest numeric ID, not the lexicographically largest one ("9").
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", nullptr), vaults[100]);
+    // A newer vault, which has a larger ID, is selected once it is added.
+    auto newer = make_fs("101");
+    put_storage_resource(int64_t {101}, StorageResource {newer}, 1);
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", nullptr), newer);
+    delete_storage_resource(101);
+    EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", nullptr), vaults[100]);
     // An instance without storage vaults has a latest file system.
     EXPECT_EQ(RemoteSpillDataDir::select_vault_fs("", latest), latest);
     // A configured ID wins over both, and an unknown one selects nothing.
