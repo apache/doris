@@ -79,8 +79,8 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
     io::FileWriterPtr file_writer;
     ASSERT_TRUE(fs->create_file(path, &file_writer).ok());
     RuntimeState state;
-    ParquetFileOptions options {TParquetCompressionType::UNCOMPRESSED,
-                                TParquetVersion::PARQUET_2_LATEST};
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_2_LATEST};
     VIcebergParquetWriter writer(&state, file_writer.get(), contexts,
                                  std::vector<std::string> {"u", "a", "f"}, false, options,
                                  &schema_json, *schema);
@@ -172,8 +172,8 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations
     auto reader = ::parquet::ParquetFileReader::OpenFile(path, false);
     const auto metadata = reader->metadata();
     ASSERT_EQ(metadata->num_columns(), 2);
-    const auto shape = metadata->schema()->Column(0);
-    const auto place = metadata->schema()->Column(1);
+    const auto* const shape = metadata->schema()->Column(0);
+    const auto* const place = metadata->schema()->Column(1);
     EXPECT_TRUE(shape->logical_type()->is_geometry());
     EXPECT_EQ("EPSG:3857",
               static_cast<const ::parquet::GeometryLogicalType&>(*shape->logical_type()).crs());
