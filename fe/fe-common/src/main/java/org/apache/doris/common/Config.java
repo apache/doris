@@ -2017,9 +2017,13 @@ public class Config extends ConfigBase {
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
     // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
     public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
+    // Older backends do not recognize PAIMON_TABLE_SINK and cannot execute Paimon writes.
+    public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION = 16;
+    // Older backends serialize map_agg_v2 keys with the legacy padded frame format.
+    public static final int MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION = 17;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2404,6 +2408,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static boolean ssl_force_client_auth = false;
+
+    /**
+     * Which MySQL clients that announce caching_sha2_password are authenticated with it (through its
+     * full-authentication exchange, the password is still checked against the stored native hash):
+     * "auto" - clients announcing caching_sha2_password with _client_version 9 or later
+     * (such as mysql / mysqldump 9.x); every other client is switched to mysql_native_password
+     * as before. "all" - every client announcing caching_sha2_password. "none" - no client;
+     * every client is switched to mysql_native_password, the behavior before this option.
+     */
+    @ConfField(mutable = true, masterOnly = false, options = {"auto", "all", "none"},
+            callback = OptionsConfHandler.class)
+    public static String mysql_caching_sha2_password_clients = "auto";
 
     /**
      * ssl connection needs to authenticate client's certificate store type.
@@ -3556,7 +3572,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
                     + "use the legacy modulo placement. Restart-only.")
-    public static boolean enable_cloud_colocate_consistent_hash = true;
+    public static boolean enable_cloud_colocate_consistent_hash = false;
 
     @ConfField(mutable = true, description = "Whether to enable the automatic start-stop feature in cloud model, "
             + "default is true.")

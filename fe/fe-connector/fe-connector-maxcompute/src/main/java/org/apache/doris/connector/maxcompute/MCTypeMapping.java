@@ -87,6 +87,8 @@ public final class MCTypeMapping {
             case DATETIME:
                 return ConnectorType.of("DATETIMEV2", 3, 0);
             case TIMESTAMP:
+                // MaxCompute TIMESTAMP is an instant; TIMESTAMP_NTZ remains a wall clock.
+                return ConnectorType.of("TIMESTAMPTZ", 6, 0);
             case TIMESTAMP_NTZ:
                 return ConnectorType.of("DATETIMEV2", 6, 0);
             case ARRAY:
@@ -197,6 +199,8 @@ public final class MCTypeMapping {
             case "DATETIME":
             case "DATETIMEV2":
                 return TypeInfoFactory.DATETIME;
+            case "TIMESTAMPTZ":
+                return TypeInfoFactory.TIMESTAMP;
             default:
                 throw new DorisConnectorException(
                         "Unsupported type for MaxCompute: " + type);

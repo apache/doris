@@ -64,7 +64,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     private static void assertOptions(Map<String, String> expected, Map<String, String> input,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         Assertions.assertEquals(new TreeMap<>(expected),
-                new TreeMap<>(IcebergCatalogFactory.buildCatalogProperties(IcebergCatalogProperties.of(input), chosenS3)));
+                new TreeMap<>(IcebergCatalogFactory.buildCatalogProperties(IcebergCatalogProperties.of(input), chosenS3, false)));
     }
 
     private static Optional<S3CompatibleFileSystemProperties> s3(FakeS3CompatibleStorageProperties fake) {
@@ -586,7 +586,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
                         "s3.role_arn", "arn:aws:iam::1:role/ignored")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")
-                        .accessKey("AK").secretKey("SK").roleArn("arn:aws:iam::1:role/ignored")));
+                        .accessKey("AK").secretKey("SK").roleArn("arn:aws:iam::1:role/ignored")), false);
         Assertions.assertEquals(new TreeMap<>(expected), new TreeMap<>(actual));
     }
 
@@ -601,7 +601,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                 IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables",
                         "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
                         "s3.region", "us-east-1")),
-                Optional.empty());
+                Optional.empty(), false);
         Assertions.assertEquals(new TreeMap<>(expected), new TreeMap<>(actual));
     }
 }

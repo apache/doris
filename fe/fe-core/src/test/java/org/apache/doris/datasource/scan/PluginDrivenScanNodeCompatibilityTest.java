@@ -18,12 +18,17 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -155,6 +160,26 @@ public class PluginDrivenScanNodeCompatibilityTest {
         Assertions.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
         Assertions.assertTrue(tuple.getSlots().get(0).getType().toThrift()
                 .types.get(1).scalar_type.variant_is_v2);
+    }
+
+    @Test
+    public void projectsComputeVariantFollowsTheEffectiveSlotType() {
+        // Nested-column pruning narrows the slot type but keeps the original Column, so a scan that pruned
+        // the Variant child away decodes no Variant and must not be fenced off old backends.
+        // MUTATION: deciding from the slot's Column instead of its effective type -> red.
+        StructType full = new StructType(
+                new StructField("label", Type.STRING),
+                new StructField("payload", new ConnectorComputeVariantType()));
+        StructType pruned = new StructType(new StructField("label", Type.STRING));
+        TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), tuple.getId());
+        slot.setColumn(new Column("info", full));
+        tuple.addSlot(slot);
+
+        slot.setType(pruned);
+        Assertions.assertFalse(PluginDrivenScanNode.projectsComputeVariant(tuple));
+        slot.setType(full);
+        Assertions.assertTrue(PluginDrivenScanNode.projectsComputeVariant(tuple));
     }
 
     @Test

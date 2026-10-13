@@ -35,8 +35,12 @@ public class User implements Comparable<User>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(User.class);
     @SerializedName(value = "userIdentity")
     private UserIdentity userIdentity;
+    @SerializedName(value = "domainUserIdentity")
     private UserIdentity domainUserIdentity;
-    private boolean isSetByDomainResolver = false;
+    @SerializedName(value = "isSetByDomainResolver")
+    // Legacy images did not store resolver provenance. Preserve that ambiguity until the
+    // administrator recreates an IP entry, rather than treating an old alias as an explicit user.
+    private Boolean isSetByDomainResolver;
     // host is not case sensitive
     protected PatternMatcher hostPattern;
     protected boolean isAnyHost = false;
@@ -48,6 +52,28 @@ public class User implements Comparable<User>, GsonPostProcessable {
 
     @SerializedName(value = "comment")
     private String comment;
+
+    @SerializedName(value = "authIntegration")
+    private String authIntegration;
+    @SerializedName(value = "authIdentity")
+    private String authIdentity;
+
+    public String getAuthIntegration() {
+        return authIntegration;
+    }
+
+    public String getAuthIdentity() {
+        return authIdentity;
+    }
+
+    public boolean isAuthenticationBound() {
+        return authIntegration != null;
+    }
+
+    public void setAuthenticationBinding(String integration, String identity) {
+        authIntegration = integration;
+        authIdentity = identity;
+    }
 
     public User() {
     }
@@ -111,7 +137,11 @@ public class User implements Comparable<User>, GsonPostProcessable {
     }
 
     public boolean isSetByDomainResolver() {
-        return isSetByDomainResolver;
+        return Boolean.TRUE.equals(isSetByDomainResolver);
+    }
+
+    public boolean hasKnownDomainResolverOrigin() {
+        return isSetByDomainResolver != null;
     }
 
     public void setSetByDomainResolver(boolean setByDomainResolver) {

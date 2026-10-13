@@ -113,6 +113,10 @@ DEFINE_Int32(brpc_num_threads, "256");
 // the default value is set to -1, which means never close idle connection.
 DEFINE_Int32(brpc_idle_timeout_sec, "-1");
 
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+// brpc 1.4 defaults this flag to 0, which disables all MultiDimension metrics.
+DEFINE_String(bvar_max_dump_multi_dimension_metric_num, "5000");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -1224,7 +1228,7 @@ DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
 // block file cache
-DEFINE_Bool(enable_file_cache, "false");
+DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
 // Whether S3 storage write paths populate file cache while writing data to object storage.
 // Disable this for tests that need load and compaction output to bypass file cache while keeping
@@ -1566,6 +1570,19 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
 // default max to 2048 connections
 DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DEFINE_mInt32(lookup_connection_cache_block_pool_size, "1");
+DEFINE_Validator(lookup_connection_cache_block_pool_size,
+                 [](int32_t value) -> bool { return value >= 1 && value <= 32; });
+static std::atomic<size_t> atomic_lookup_connection_cache_block_pool_size {1};
+DEFINE_ON_UPDATE(lookup_connection_cache_block_pool_size, [](int32_t, int32_t value) {
+    atomic_lookup_connection_cache_block_pool_size.store(static_cast<size_t>(value),
+                                                         std::memory_order_relaxed);
+});
+
+size_t get_lookup_connection_cache_block_pool_size() {
+    return atomic_lookup_connection_cache_block_pool_size.load(std::memory_order_relaxed);
+}
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
@@ -2404,6 +2421,9 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     }
     published_inverted_index_candidate_pushdown_ratio.store(
             inverted_index_candidate_pushdown_ratio);
+    atomic_lookup_connection_cache_block_pool_size.store(
+            static_cast<size_t>(lookup_connection_cache_block_pool_size),
+            std::memory_order_relaxed);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)

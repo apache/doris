@@ -766,7 +766,8 @@ Status DataTypeMapSerDe::from_string_strict_mode(StringRef& str, IColumn& column
 }
 
 Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                   JsonbWriter& writer) const {
+                                                   JsonbWriter& writer,
+                                                   const FormatOptions& options) const {
     const auto& map_column = assert_cast<const ColumnMap&>(from_column);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
 
@@ -800,7 +801,7 @@ Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, i
             return Status::InternalError("writeKey failed : {}", key_str.to_string());
         }
         // write value
-        RETURN_IF_ERROR(value_serde->serialize_column_to_jsonb(values_column, i, writer));
+        RETURN_IF_ERROR(value_serde->serialize_column_to_jsonb(values_column, i, writer, options));
     }
 
     if (!writer.writeEndObject()) {

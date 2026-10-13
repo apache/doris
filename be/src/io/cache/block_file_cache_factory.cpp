@@ -241,6 +241,12 @@ Status FileCacheFactory::create_file_caches(
             return result.status;
         }
     }
+    // get_by_path() picks an instance by hashing modulo the instance count, so an empty factory
+    // would crash the first cached read or rowset cleanup. Refuse to start instead, as doris_main
+    // does when every storage or spill path is broken.
+    if (std::ranges::all_of(results, [](const BuildResult& result) { return result.skip; })) {
+        return Status::InternalError("All {} file cache paths are broken", results.size());
+    }
 
     {
         std::lock_guard lock(_mtx);

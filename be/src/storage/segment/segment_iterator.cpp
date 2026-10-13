@@ -163,6 +163,7 @@ void SegmentIterator::_init_row_bitmap_by_condition_cache() {
 
             // Increment search count when digest != 0
             DorisMetrics::instance()->condition_cache_search_count->increment(1);
+            _opts.stats->condition_cache_lookup_count++;
 
             ConditionCacheHandle handle;
             _find_condition_cache = condition_cache->lookup(cache_key, &handle);

@@ -54,7 +54,18 @@ import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.AfterEach;
@@ -96,6 +107,57 @@ public class PluginDrivenMvccExternalTableTest {
     private static final long PINNED_SNAPSHOT_ID = 4242L;
     private static final long TS_2024_01_01 = 1_700_000_000_000L;
     private static final long TS_2024_02_02 = 1_800_000_000_000L;
+
+    @Test
+    public void transformedBinaryPartitionTypesPreserveCounts() {
+        ConnectorPartitionInfo bucket = new ConnectorPartitionInfo("dt_bucket=3",
+                Collections.singletonMap("dt", "3"), Collections.emptyMap(), -1, -1, -1, -1,
+                Collections.singletonList("3"), Collections.singletonList(false),
+                Collections.singletonList(ConnectorType.of("INT")));
+        Fixture f = Fixture.with(Collections.singletonList(bucket), Type.VARBINARY);
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        Assertions.assertEquals(1, pin.getNameToPartitionItem().size());
+        ListPartitionItem item = (ListPartitionItem) pin.getNameToPartitionItem().get("dt_bucket=3");
+        Assertions.assertEquals(PrimitiveType.INT, item.getItems().get(0).getKeys().get(0).getType().getPrimitiveType());
+    }
+
+    @Test
+    public void unpartitionedViewDoesNotPruneTransformedValuesAsSourceColumns() {
+        Fixture f = Fixture.rangeView(ConnectorMvccPartitionView.unpartitioned());
+        Optional<MvccSnapshot> pin = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        withContextSnapshot(f.table, pin.get(), () -> {
+            SlotReference slot = new SlotReference("dt", DateV2Type.INSTANCE);
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(1), f.table,
+                    Collections.singletonList("db"), Collections.emptyList(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.of(Collections.singletonList(slot)));
+            LogicalFilter<?> filter = new LogicalFilter<>(
+                    Collections.singleton(new EqualTo(slot, new DateV2Literal(2024, 1, 1))), scan);
+            CascadesContext context = CascadesContext.initContext(
+                    ConnectContext.get().getStatementContext(), filter,
+                    PhysicalProperties.ANY);
+            Plan rewritten = new PruneFileScanPartition().build().transform(filter, context).get(0);
+            LogicalFileScan result = (LogicalFileScan) rewritten.child(0);
+            // Enumeration is for counts; the connector must receive the original predicate for pruning.
+            Assertions.assertFalse(result.getSelectedPartitions().isPruned);
+            Assertions.assertEquals(2, result.getSelectedPartitions().totalPartitionNum);
+            Assertions.assertEquals(2, result.getSelectedPartitions().selectedPartitions.size());
+        });
+    }
+
+    @Test
+    public void sourceColumnPruningUsesTheRetainedPartitionView() {
+        Fixture f = Fixture.partitioned();
+        Optional<MvccSnapshot> listPin = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
+                .thenReturn(Optional.of(ConnectorMvccPartitionView.unpartitioned()));
+        Optional<MvccSnapshot> rawPin = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertTrue(f.table.supportInternalPartitionPruned(listPin));
+        Assertions.assertFalse(f.table.supportInternalPartitionPruned(rawPin));
+        Fixture range = Fixture.rangeView(rangeView(rangePart("p1", "2024-01-01", "2024-01-02", FRESH_555)));
+        Optional<MvccSnapshot> rangePin = Optional.of(range.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertTrue(range.table.supportInternalPartitionPruned(rangePin));
+    }
 
     @AfterEach
     public void cleanup() {
@@ -1382,6 +1444,35 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testRangeViewTimestamptzBoundsStayUtcInEverySessionZone() throws AnalysisException {
+        // Transform bounds are UTC instants, and the NULL-min sentinel must stay below them: parsing it as a
+        // wall-clock date would underflow year zero in a positive-offset session.
+        Type timestamptz = org.apache.doris.catalog.ScalarType.createTimeStampTzType(6);
+        for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.getSessionVariable().setTimeZone(zone);
+            ctx.setThreadLocalInfo();
+            try {
+                Fixture f = Fixture.rangeView(rangeView(
+                        rangePart("pnull", "0000-01-01", null, FRESH_555),
+                        rangePart("p0", "1970-01-01 00:00:00+00:00", "1970-01-02 00:00:00+00:00", FRESH_777)),
+                        timestamptz);
+                Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
+                com.google.common.collect.Range<PartitionKey> nullRange =
+                        ((RangePartitionItem) items.get("pnull")).getItems();
+                com.google.common.collect.Range<PartitionKey> dayZero =
+                        ((RangePartitionItem) items.get("p0")).getItems();
+                Assertions.assertFalse(nullRange.isEmpty(), zone);
+                Assertions.assertTrue(nullRange.upperEndpoint().compareTo(dayZero.lowerEndpoint()) < 0, zone);
+                Assertions.assertEquals(0, dayZero.lowerEndpoint().getKeys().get(0).compareLiteral(
+                        new org.apache.doris.analysis.DateLiteral(1970, 1, 1, 0, 0, 0, 0, timestamptz)), zone);
+            } finally {
+                ConnectContext.remove();
+            }
+        }
+    }
+
+    @Test
     public void testRangeViewPartitionSnapshotIsSnapshotId() throws AnalysisException {
         Fixture f = Fixture.rangeView(rangeView(
                 rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555)));
@@ -1647,7 +1738,13 @@ public class PluginDrivenMvccExternalTableTest {
          * the snapshot-consistent enumeration. The partition column is the default DATEV2 {@code dt}.
          */
         static Fixture rangeView(ConnectorMvccPartitionView view) {
-            Fixture f = partitioned();
+            return rangeView(view, Type.DATEV2);
+        }
+
+        static Fixture rangeView(ConnectorMvccPartitionView view, Type partitionColType) {
+            Fixture f = with(Arrays.asList(
+                    cpi("dt=2024-01-01", TS_2024_01_01),
+                    cpi("dt=2024-02-02", TS_2024_02_02)), partitionColType);
             Mockito.when(f.metadata.applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any()))
                     .thenReturn(f.pinnedHandle);
             Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))

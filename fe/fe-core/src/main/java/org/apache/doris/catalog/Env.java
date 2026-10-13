@@ -36,6 +36,7 @@ import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
+import org.apache.doris.binlog.RowBinlogTtlDiscovery;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -567,6 +568,7 @@ public class Env {
     private ConstraintManager constraintManager;
 
     private BinlogGcer binlogGcer;
+    private final RowBinlogTtlDiscovery rowBinlogTtlDiscovery = new RowBinlogTtlDiscovery();
 
     private QueryCancelWorker queryCancelWorker;
 
@@ -1891,6 +1893,11 @@ public class Env {
             // so no need to check 'isReady' flag in this method
             postProcessAfterMetadataReplayed(false);
 
+            // Replicate legacy type mapping markers before queries/checkpoints can expose a local-only
+            // upgrade. Followers consume the ordinary ALTER records even on older binaries.
+            toMasterProgress = "migrate catalog type mappings";
+            catalogMgr.migrateVarbinaryMappingProperties();
+
             insertOverwriteManager.allTaskFail();
 
             toMasterProgress = "start daemon threads";
@@ -2076,6 +2083,9 @@ public class Env {
 
         // binlog gcer
         binlogGcer.start();
+        if (Config.isCloudMode()) {
+            rowBinlogTtlDiscovery.start();
+        }
         columnIdFlusher.start();
         insertOverwriteManager.start();
         dictionaryManager.start();
@@ -6413,6 +6423,7 @@ public class Env {
     public void updateBinlogConfig(Database db, OlapTable table, BinlogConfig newBinlogConfig) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         table.setBinlogConfig(newBinlogConfig);
+        getSqlCacheManager().invalidateAboutTable(table);
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         newBinlogConfig.toProperties());
@@ -6462,6 +6473,7 @@ public class Env {
                     BinlogConfig newBinlogConfig = new BinlogConfig();
                     newBinlogConfig.mergeFromProperties(properties, true);
                     olapTable.setBinlogConfig(newBinlogConfig);
+                    getSqlCacheManager().invalidateAboutTable(olapTable);
                     break;
                 default:
                     break;

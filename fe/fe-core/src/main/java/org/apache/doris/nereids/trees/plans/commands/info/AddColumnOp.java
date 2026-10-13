@@ -36,6 +36,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Sets;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -119,7 +120,29 @@ public class AddColumnOp extends AlterTableOp {
 
     @Override
     public boolean needChangeMTMVState() {
-        return false;
+        // The name the column adds can be the one a view's query reaches a column by, and the column it
+        // reaches is the nearest one in the query's scopes: one added there answers for the name from then
+        // on, and the rows the view holds are the ones of the column that used to. That is the view's query
+        // to judge, see {@link AlterOp#queryJudgedColumnNames}.
+        return true;
+    }
+
+    @Override
+    public boolean hasReachedTheTable(OlapTable table) {
+        // The column has to be in the table: a change that is not a light one is applied by a job, and a
+        // query judged before that job has run is judged against the table from before the change -- which
+        // is the one that cannot be answered about at all.
+        for (String columnName : queryJudgedColumnNames()) {
+            if (table.getColumn(columnName) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public Set<String> queryJudgedColumnNames() {
+        return Collections.singleton(getColumnDef().getName());
     }
 
     @Override

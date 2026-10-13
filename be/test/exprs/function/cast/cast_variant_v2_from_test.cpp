@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
@@ -416,11 +417,7 @@ TEST(CastVariantV2FromTest, TypedStringValidatesOnlyVisibleDateRows) {
 
 TEST(CastVariantV2FromTest, EOnlyScalarStringRulesStayJsonQuoted) {
     const std::array<char, 2> binary {0, 1};
-    std::array<uint8_t, 16> uuid {};
-    for (size_t index = 0; index < uuid.size(); ++index) {
-        uuid[index] = static_cast<uint8_t>(index);
-    }
-    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 3});
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 2});
     {
         auto row = builder.begin_row();
         row.add_binary(StringRef(binary.data(), binary.size()));
@@ -431,18 +428,12 @@ TEST(CastVariantV2FromTest, EOnlyScalarStringRulesStayJsonQuoted) {
         row.add_time_ntz_micros(1);
         row.finish();
     }
-    {
-        auto row = builder.begin_row();
-        row.add_uuid(uuid);
-        row.finish();
-    }
     CastResult cast = execute_from_variant(finish(&builder), std::make_shared<DataTypeString>());
     ASSERT_TRUE(cast.status.ok()) << cast.status;
     const auto& nullable = nullable_result(cast.column);
     const auto& strings = assert_cast<const ColumnString&>(nullable.get_nested_column());
     EXPECT_EQ(strings.get_data_at(0), StringRef(R"("AAE=")"));
     EXPECT_EQ(strings.get_data_at(1), StringRef(R"("00:00:00.000001")"));
-    EXPECT_EQ(strings.get_data_at(2), StringRef(R"("00010203-0405-0607-0809-0a0b0c0d0e0f")"));
     EXPECT_FALSE(nullable.has_null());
 }
 
@@ -876,6 +867,84 @@ TEST(CastVariantV2FromTest, EncodedUuidPreservesAllBitsAndNulls) {
     cast = execute_from_variant(source, type, nulls.data());
     ASSERT_TRUE(cast.status.ok()) << cast.status;
     EXPECT_TRUE(nullable_result(cast.column).is_null_at(0));
+}
+
+TEST(CastVariantV2FromTest, EncodedUuidStringMatchesTypedUuidString) {
+    // UUID has a Doris type, so an encoded UUID converts to STRING through the concrete UUID cast,
+    // as a typed UUID does, instead of keeping the JSON text of scalars that have no Doris type.
+    const std::array<uint8_t, 16> bytes {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    const StringRef expected("00112233-4455-6677-8899-aabbccddeeff");
+    const auto string_type = std::make_shared<DataTypeString>();
+
+    auto values = ColumnUUID::create();
+    values->insert_value(UUIDValue::from_big_endian(bytes.data()));
+    ColumnPtr typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 0)),
+            std::make_shared<DataTypeUUID>());
+    CastResult cast = execute_from_variant(typed, string_type);
+    ASSERT_TRUE(cast.status.ok()) << cast.status;
+    EXPECT_EQ(nullable_result(cast.column).get_nested_column().get_data_at(0), expected);
+
+    // An all-UUID column takes the whole-column concrete cast.
+    VariantBatchBuilder uuid_only;
+    {
+        auto row = uuid_only.begin_row();
+        row.add_uuid(bytes);
+        row.finish();
+    }
+    cast = execute_from_variant(finish(&uuid_only), string_type);
+    ASSERT_TRUE(cast.status.ok()) << cast.status;
+    EXPECT_EQ(nullable_result(cast.column).get_nested_column().get_data_at(0), expected);
+
+    // A mixed column puts the concrete UUID rows back in order with the JSON fallback rows.
+    VariantBatchBuilder mixed(VariantBatchBuilder::ReserveHint {.rows = 3});
+    {
+        auto row = mixed.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("a"));
+        row.add_int(1);
+        object.finish();
+        row.finish();
+    }
+    {
+        auto row = mixed.begin_row();
+        row.add_uuid(bytes);
+        row.finish();
+    }
+    {
+        auto row = mixed.begin_row();
+        row.add_null();
+        row.finish();
+    }
+    cast = execute_from_variant(finish(&mixed), string_type);
+    ASSERT_TRUE(cast.status.ok()) << cast.status;
+    const auto& nullable = nullable_result(cast.column);
+    const auto& strings = assert_cast<const ColumnString&>(nullable.get_nested_column());
+    ASSERT_EQ(strings.size(), 3);
+    EXPECT_EQ(strings.get_data_at(0), StringRef(R"({"a":1})"));
+    EXPECT_EQ(strings.get_data_at(1), expected);
+    EXPECT_EQ(strings.get_data_at(2), StringRef("null"));
+    EXPECT_FALSE(nullable.has_null());
+
+    // ARRAY<STRING> converts its elements with the same rule.
+    VariantBatchBuilder array_of_uuid;
+    {
+        auto row = array_of_uuid.begin_row();
+        auto array = row.start_array();
+        row.add_uuid(bytes);
+        array.finish();
+        row.finish();
+    }
+    cast = execute_from_variant(finish(&array_of_uuid),
+                                std::make_shared<DataTypeArray>(string_type));
+    ASSERT_TRUE(cast.status.ok()) << cast.status;
+    const auto& arrays =
+            assert_cast<const ColumnArray&>(nullable_result(cast.column).get_nested_column());
+    ASSERT_EQ(arrays.size_at(0), 1);
+    const auto& elements = assert_cast<const ColumnNullable&>(arrays.get_data());
+    EXPECT_EQ(assert_cast<const ColumnString&>(elements.get_nested_column()).get_data_at(0),
+              expected);
 }
 
 } // namespace doris::CastWrapper

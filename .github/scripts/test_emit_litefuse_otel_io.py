@@ -192,6 +192,23 @@ class LitefuseOtelExporterTest(unittest.TestCase):
         self.assertEqual("failed", turn["output"]["status"])
         self.assertEqual("ERROR", turn["level"])
 
+    def test_superseded_outcome_is_distinct_from_verified_completion(self):
+        args = SimpleNamespace(
+            repository="apache/doris", workflow="Code Review", run_id="123", pr_number="123",
+            head_sha="a" * 40, base_sha="b" * 40, reasoning_effort="xhigh",
+            max_json_chars=20000, max_context_json_chars=0, trace_name="review",
+            session_id="123", environment="test", model="gpt-6-sol",
+        )
+        outcome = {"state": "superseded", "head_sha": "a" * 40, "superseding_head_sha": "c" * 40}
+        _, payload, _ = MODULE.build_ingestion_payload(args, "review", "Superseded by new head", [
+            {"type": "turn.failed", "error": {"message": "capacity"}},
+            {"type": "review.superseded", **outcome},
+        ])
+        trace = payload["batch"][0]["body"]
+        self.assertEqual(outcome, trace["metadata"]["review_superseded"])
+        self.assertNotIn("review_completion", trace["metadata"])
+        self.assertIn("Superseded by new head", trace["output"])
+
     def test_bounds_and_shrinks_failed_turn_status_message(self):
         args = SimpleNamespace(
             repository="apache/doris",

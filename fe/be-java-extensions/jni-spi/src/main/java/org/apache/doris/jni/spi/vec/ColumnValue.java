@@ -82,6 +82,14 @@ public interface ColumnValue {
         return UUID.fromString(getString());
     }
 
+    default byte[] getVariantMetadata() {
+        throw new UnsupportedOperationException("Variant metadata is not available");
+    }
+
+    default byte[] getVariantValue() {
+        throw new UnsupportedOperationException("Variant value is not available");
+    }
+
     void unpackArray(List<ColumnValue> values);
 
     void unpackMap(List<ColumnValue> keys, List<ColumnValue> values);

@@ -26,7 +26,6 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -261,22 +260,6 @@ public class VariantType extends PrimitiveType {
         return predefinedFields;
     }
 
-    /**
-     * Find the first matching VariantField for the given field name.
-     * The matching is done in definition order, so the first matching pattern wins.
-     *
-     * @param fieldName the field name to match
-     * @return Optional containing the matching VariantField, or empty if no match
-     */
-    public Optional<VariantField> findMatchingField(String fieldName) {
-        for (VariantField field : predefinedFields) {
-            if (field.matches(fieldName)) {
-                return Optional.of(field);
-            }
-        }
-        return Optional.empty();
-    }
-
     public int getVariantMaxSubcolumnsCount() {
         return variantMaxSubcolumnsCount;
     }
@@ -328,7 +311,8 @@ public class VariantType extends PrimitiveType {
                 || dataType.isDecimalV2Type()
                 || dataType.isDateLikeType()
                 || dataType.isStringLikeType()
-                || dataType.isIPType();
+                || dataType.isIPType()
+                || dataType.isUuidType();
     }
 
 }

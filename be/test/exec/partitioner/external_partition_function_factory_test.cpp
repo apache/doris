@@ -62,4 +62,20 @@ TEST(ExternalPartitionFunctionFactoryTest, DirectHashRejectsOpaqueOptions) {
     EXPECT_NE(status.to_string().find("does not accept options"), std::string::npos);
 }
 
+TEST(ExternalPartitionFunctionFactoryTest, PaimonFixedBucketValidatesOptions) {
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_partition_function("paimon_fixed_bucket");
+    info.__set_partition_function_options({{"num_buckets", "4"},
+                                           {"partition_field_indexes", ""},
+                                           {"bucket_field_indexes", "0"},
+                                           {"unexpected", "value"}});
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
+    std::unique_ptr<PartitionFunction> function;
+
+    Status status =
+            create_external_partition_function(info, 3, ShuffleHashMethod::CRC32, {}, &function);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("requires num_buckets"), std::string::npos);
+}
+
 } // namespace doris

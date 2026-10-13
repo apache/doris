@@ -480,7 +480,6 @@ if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_
 fi
 
 # build thirdparty libraries if necessary. check last thirdparty lib installation
-source "${DORIS_HOME}/thirdparty/lance-install.sh"
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
 else
@@ -496,21 +495,10 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
       ! -f "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
       ! -s "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
       ! -s "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
-      -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ]] ||
-        ! lance_c_install_is_current "${DORIS_HOME}/thirdparty" "${DORIS_THIRDPARTY}/installed"; then
-    # External trees can be partially updated or pinned to another revision. Preserve
-    # the existing prefix unless their build inputs can produce the requested Lance version.
-    for input in build-thirdparty.sh download-thirdparty.sh vars.sh lance-install.sh patches/lance-c-foyer.patch; do
-        if [[ ! -f "${DORIS_THIRDPARTY}/${input}" || ! -r "${DORIS_THIRDPARTY}/${input}" ]]; then
-            echo "Third-party dependencies require a rebuild, but ${input} is missing or unreadable." >&2
-            echo "Refresh the compilation image or set DORIS_THIRDPARTY to a complete third-party source tree." >&2
-            exit 1
-        fi
-    done
-    if ! expected_lance_fingerprint="$(lance_c_install_fingerprint "${DORIS_HOME}/thirdparty")" ||
-       ! rebuild_lance_fingerprint="$(lance_c_install_fingerprint "${DORIS_THIRDPARTY}")" ||
-       [[ "${rebuild_lance_fingerprint}" != "${expected_lance_fingerprint}" ]]; then
-        echo "Lance rebuild sources do not match this checkout; installed dependencies have been preserved." >&2
+      -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ]]; then
+    # Compilation images may contain only installed artifacts; never erase them without a rebuild source.
+    if [[ ! -f "${DORIS_THIRDPARTY}/build-thirdparty.sh" ]]; then
+        echo "Third-party dependencies require a rebuild, but build-thirdparty.sh is missing." >&2
         echo "Refresh the compilation image or set DORIS_THIRDPARTY to a complete third-party source tree." >&2
         exit 1
     fi
@@ -522,11 +510,6 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
         bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
     else
         bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
-    fi
-    # An external build script can itself be stale. Never link its old output silently.
-    if ! lance_c_install_is_current "${DORIS_HOME}/thirdparty" "${DORIS_THIRDPARTY}/installed"; then
-        echo "Lance dependency revision does not match this checkout. Refresh the third-party build tree." >&2
-        exit 1
     fi
 fi
 
@@ -901,6 +884,8 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     # plugin directories. -am would reach them, but they are named here so this list stays a
     # complete enumeration.
     modules+=("be-java-extensions/plugin-toolkit")
+    modules+=("be-java-extensions/fluss-client-patch")
+    modules+=("be-java-extensions/paimon-common-patch")
     modules+=("be-java-extensions/hive-udf-shade")
     modules+=("be-java-extensions/hive-apache-shade")
 
