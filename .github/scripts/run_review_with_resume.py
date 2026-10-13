@@ -568,6 +568,7 @@ def run_review(args, reaper=None):
                 print(
                     f"Verified final review {result['review_id']}: "
                     f"P0={result['p0']}, P1={result['p1']}, "
+                    f"converged={result['converged']}, rounds={result['rounds']}, "
                     f"recovered_after_capacity={result['recovered_after_capacity']}",
                     file=sys.stderr, flush=True,
                 )

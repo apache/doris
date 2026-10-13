@@ -118,6 +118,7 @@ class ResumeReviewTest(unittest.TestCase):
         self.verification = self.enterContext(mock.patch.object(
             runner, "verify_completion", return_value={
                 "state": "success", "p0": 0, "p1": 0, "review_id": 123,
+                "converged": True, "rounds": 1, "incomplete_reason": "",
             }
         ))
 
@@ -1362,6 +1363,7 @@ else:
                 mock.patch.object(runner, "check_resume_target"),
                 mock.patch.object(runner, "verify_completion", return_value={
                     "state": "success", "p0": 0, "p1": 0, "review_id": 123,
+                    "converged": True, "rounds": 1, "incomplete_reason": "",
                 }),
             ):
                 self.assertEqual(0, runner.run_review(args))
