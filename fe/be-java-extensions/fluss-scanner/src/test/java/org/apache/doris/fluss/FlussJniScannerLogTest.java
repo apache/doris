@@ -53,6 +53,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -430,26 +431,122 @@ public class FlussJniScannerLogTest {
     // ---------------------------------------------------------------- lifecycle and fail-loud
 
     /**
-     * A fluss connection owns netty and metadata-updater threads that outlive the query if the scanner
-     * leaks it — and a BE runs scanners for the life of the process.
+     * A fluss connection owns netty and metadata-updater threads, and a BE runs scanners for the life of
+     * the process. Ranges read one after another borrow one connection from the pool instead of opening
+     * one each; the pool keeps it, threads and all, while it is idle, and once the pool closes it the
+     * threads go.
      */
     @Test
-    public void closingTheScannerReleasesItsClientThreads() throws Exception {
+    public void rangesReadOneAfterAnotherShareAConnectionWhoseThreadsGoWhenItIsClosed() throws Exception {
         TablePath tablePath = TablePath.of(db, "threads");
         createIntTable(tablePath);
         appendInts(tablePath, 0, 3);
-        int before = countClientThreads();
+        // Start from an empty pool - earlier tests leave their connections idle in it - so that the
+        // first range below has to open the connection the others borrow.
+        FlussConnectionPool.INSTANCE.closeIdleLongerThan(0);
+        int before = settledClientThreads();
 
-        for (int i = 0; i < 3; i++) {
-            scanAll(tablePath, columns("id", "int"), 0, 3, 1024);
+        List<String> opened = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            FlussJniScanner scanner = new FlussJniScanner(1024, params(tablePath, columns("id", "int"), 0, 3));
+            scanner.open();
+            while (scanner.getNextBatchMeta() != 0) {
+                scanner.resetTable();
+            }
+            scanner.releaseTable();
+            opened.add(scanner.getStatistics().get("counter:FlussJniConnectionsOpened"));
+            scanner.close();
         }
+        Assertions.assertEquals(Arrays.asList("1", "0", "0", "0"), opened, "connections opened, range by range");
+        Assertions.assertEquals(1, FlussConnectionPool.INSTANCE.idleCount());
+        Assertions.assertTrue(countClientThreads() > before, "the idle connection has no threads of its own");
 
+        FlussConnectionPool.INSTANCE.closeIdleLongerThan(0);
         long deadline = System.currentTimeMillis() + 30_000;
         while (countClientThreads() > before && System.currentTimeMillis() < deadline) {
             Thread.sleep(100);
         }
         Assertions.assertTrue(countClientThreads() <= before,
                 "fluss client threads leaked: " + before + " before, " + countClientThreads() + " after");
+    }
+
+    /**
+     * A connection serves one range at a time, so the scanner opens it with one network thread rather
+     * than fluss's default four; a catalog that sets the number keeps it. Netty starts a thread for each
+     * server a connection reaches, up to that number, and a range here reaches two - the coordinator and
+     * the one tablet server - so one thread carries both, or two carry one each.
+     */
+    @Test
+    public void connectionRunsOneNetworkThreadUnlessTheCatalogSetsTheNumber() throws Exception {
+        TablePath tablePath = TablePath.of(db, "network_threads");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 3);
+        FlussConnectionPool.INSTANCE.closeIdleLongerThan(0);
+        int before = settledClientThreads();
+
+        scanAll(tablePath, columns("id", "int"), 0, 3, 1024);
+        Assertions.assertEquals(1, FlussConnectionPool.INSTANCE.idleCount());
+        Assertions.assertEquals(before + 1, settledClientThreads(), "network threads of the default connection");
+
+        Map<String, String> params = params(tablePath, columns("id", "int"), 0, 3);
+        params.put("fluss.client.netty.client.num-network-threads", "2");
+        runScanner(params, 1024);
+        Assertions.assertEquals(2, FlussConnectionPool.INSTANCE.idleCount(),
+                "the setting opened a connection of its own");
+        Assertions.assertEquals(before + 3, settledClientThreads(), "network threads of both connections");
+
+        FlussConnectionPool.INSTANCE.closeIdleLongerThan(0);
+    }
+
+    /**
+     * Only a range read to its end gives its connection back. One closed early - a LIMIT, a cancel - may
+     * still have work in flight on it, and one that failed may have failed because of it; either way the
+     * next range opens a connection of its own.
+     */
+    @Test
+    public void rangeClosedBeforeItsEndOrFailedDoesNotGiveItsConnectionBack() throws Exception {
+        TablePath tablePath = TablePath.of(db, "early_close");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 3);
+        FlussConnectionPool.INSTANCE.closeIdleLongerThan(0);
+
+        // One row of three, then closed.
+        FlussJniScanner early = new FlussJniScanner(1, params(tablePath, columns("id", "int"), 0, 3));
+        early.open();
+        Assertions.assertNotEquals(0, early.getNextBatchMeta());
+        early.releaseTable();
+        early.close();
+        Assertions.assertEquals(0, FlussConnectionPool.INSTANCE.idleCount(), "a range closed early gave back");
+
+        // Opened, then failed: the column is not in the table.
+        Assertions.assertThrows(Exception.class,
+                () -> runScanner(params(tablePath, columns("nope", "int"), 0, 3), 1024));
+        Assertions.assertEquals(0, FlussConnectionPool.INSTANCE.idleCount(), "a range that failed gave back");
+
+        scanAll(tablePath, columns("id", "int"), 0, 3, 1024);
+        Assertions.assertEquals(1, FlussConnectionPool.INSTANCE.idleCount(), "a range read to its end did not");
+    }
+
+    /**
+     * A range gives its connection back to the pool rather than closing it, and closing one waits out
+     * netty's two-second graceful shutdown: closing the scanner must not wait for anything of the kind.
+     */
+    @Test
+    public void closingTheScannerDoesNotWaitForItsConnectionToShutDown() throws Exception {
+        TablePath tablePath = TablePath.of(db, "close_latency");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 3);
+
+        FlussJniScanner scanner = new FlussJniScanner(1024, params(tablePath, columns("id", "int"), 0, 3));
+        scanner.open();
+        while (scanner.getNextBatchMeta() != 0) {
+            scanner.resetTable();
+        }
+        scanner.releaseTable();
+        long start = System.nanoTime();
+        scanner.close();
+        long closeMillis = (System.nanoTime() - start) / 1_000_000;
+        Assertions.assertTrue(closeMillis < 1000, "closing the scanner took " + closeMillis + " ms");
     }
 
     /** An unreadable range must name what is wrong, not hand fluss a null and fail somewhere inside. */
@@ -499,6 +596,25 @@ public class FlussJniScannerLogTest {
             message.append(t.getMessage()).append(" | ");
         }
         return message.toString();
+    }
+
+    /**
+     * The client thread count once it has stopped changing: connections that are closing hold their
+     * threads through netty's two-second quiet period, so it has to stay put for longer than that.
+     */
+    private static int settledClientThreads() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 30_000;
+        int count = countClientThreads();
+        long stableSince = System.currentTimeMillis();
+        while (System.currentTimeMillis() - stableSince < 2_500 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100);
+            int now = countClientThreads();
+            if (now != count) {
+                count = now;
+                stableSince = System.currentTimeMillis();
+            }
+        }
+        return count;
     }
 
     private static int countClientThreads() {

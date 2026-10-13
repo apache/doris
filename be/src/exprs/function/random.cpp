@@ -27,7 +27,6 @@
 #include <utility>
 
 #include "common/status.h"
-#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/column/column.h"
@@ -63,27 +62,20 @@ public:
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        std::shared_ptr<std::mt19937_64> generator(new std::mt19937_64());
-        context->set_function_state(scope, generator);
+        std::shared_ptr<State> state = std::make_shared<State>();
+        context->set_function_state(scope, state);
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->get_num_args() == 1) {
-                // This is a call to RandSeed, initialize the seed
-                if (!context->is_col_constant(0)) {
-                    return Status::InvalidArgument("The param of rand function must be literal");
+                // This is a call to RandSeed, initialize the seed. The seed is a constant, but a
+                // constant expression such as an arithmetic one is not evaluated in open. Then the
+                // generator is seeded with the first row in execute.
+                if (context->is_col_constant(0)) {
+                    state->generator.seed(get_seed(*context->get_constant_col(0)->column_ptr));
+                } else {
+                    state->seed_in_execute = true;
                 }
-                uint32_t seed = 0;
-                if (!context->get_constant_col(0)->column_ptr->is_null_at(0)) {
-                    seed = (uint32_t)(*context->get_constant_col(0)->column_ptr)[0]
-                                   .get<TYPE_BIGINT>();
-                }
-                generator->seed(seed);
-            } else if (context->get_num_args() == 2) {
-                if (!context->is_col_constant(0) || !context->is_col_constant(1)) {
-                    return Status::InvalidArgument("The param of rand function must be literal");
-                }
-                generator->seed(std::random_device()());
-            } else { // zero args
-                generator->seed(std::random_device()());
+            } else { // zero args, or the range bounds
+                state->generator.seed(std::random_device()());
             }
         }
 
@@ -99,29 +91,33 @@ public:
     }
 
 private:
+    struct State {
+        std::mt19937_64 generator;
+        bool seed_in_execute = false;
+    };
+
+    static uint32_t get_seed(const IColumn& seed_column) {
+        return seed_column.is_null_at(0) ? 0 : (uint32_t)seed_column[0].get<TYPE_BIGINT>();
+    }
+
     static Status _execute_int_range(FunctionContext* context, Block& block,
                                      const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count) {
         auto res_column = ColumnInt64::create(input_rows_count);
         auto& res_data = res_column->get_data();
 
-        auto* generator = reinterpret_cast<std::mt19937_64*>(
+        auto* state = reinterpret_cast<State*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
-        DCHECK(generator != nullptr);
+        DCHECK(state != nullptr);
+        if (input_rows_count == 0) {
+            block.replace_by_position(result, std::move(res_column));
+            return Status::OK();
+        }
 
-        // checked in open()
-        Int64 min = assert_cast<const ColumnInt64*>(
-                            assert_cast<const ColumnConst*>(
-                                    block.get_by_position(arguments[0]).column.get())
-                                    ->get_data_column_ptr()
-                                    .get())
-                            ->get_element(0);
-        Int64 max = assert_cast<const ColumnInt64*>(
-                            assert_cast<const ColumnConst*>(
-                                    block.get_by_position(arguments[1]).column.get())
-                                    ->get_data_column_ptr()
-                                    .get())
-                            ->get_element(0);
+        // The bounds are constants checked in FE, so the first row holds their values. A constant
+        // expression such as an arithmetic one is not a ColumnConst.
+        Int64 min = block.get_by_position(arguments[0]).column->get_int(0);
+        Int64 max = block.get_by_position(arguments[1]).column->get_int(0);
         if (min >= max) {
             return Status::InvalidArgument(fmt::format(
                     "random's lower bound should less than upper bound, but got [{}, {})", min,
@@ -130,7 +126,7 @@ private:
 
         std::uniform_int_distribution<int64_t> distribution(min, max);
         for (int i = 0; i < input_rows_count; i++) {
-            res_data[i] = distribution(*generator);
+            res_data[i] = distribution(state->generator);
         }
 
         block.replace_by_position(result, std::move(res_column));
@@ -145,13 +141,17 @@ private:
         auto res_column = ColumnFloat64::create(input_rows_count);
         auto& res_data = res_column->get_data();
 
-        auto* generator = reinterpret_cast<std::mt19937_64*>(
+        auto* state = reinterpret_cast<State*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
-        DCHECK(generator != nullptr);
+        DCHECK(state != nullptr);
+        if (state->seed_in_execute && input_rows_count > 0) {
+            state->generator.seed(get_seed(*block.get_by_position(arguments[0]).column));
+            state->seed_in_execute = false;
+        }
 
         std::uniform_real_distribution<double> distribution(min, max);
         for (int i = 0; i < input_rows_count; i++) {
-            res_data[i] = distribution(*generator);
+            res_data[i] = distribution(state->generator);
         }
 
         block.replace_by_position(result, std::move(res_column));

@@ -120,6 +120,12 @@ suite("test_analyze") {
         SET forbid_unknown_col_stats=false;
     """
 
+    // DROP STATS does not invalidate the SQL cache and the stats version is not part of the cache
+    // key, so a cached SELECT is replayed without planning and forbid_unknown_col_stats never fires.
+    sql """
+        SET enable_sql_cache=false;
+    """
+
     sql """
         SELECT * FROM ${tbl}
     """

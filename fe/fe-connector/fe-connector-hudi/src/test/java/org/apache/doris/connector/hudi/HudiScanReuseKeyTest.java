@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,12 +51,42 @@ class HudiScanReuseKeyTest {
     }
 
     private static HudiTableHandle handle() {
-        return new HudiTableHandle.Builder("db", "t", "/warehouse/t", "COPY_ON_WRITE")
+        return handleAt("db", "t", "/warehouse/t");
+    }
+
+    private static HudiTableHandle handleAt(String dbName, String tableName, String basePath) {
+        return new HudiTableHandle.Builder(dbName, tableName, basePath, "COPY_ON_WRITE")
                 .inputFormat("org.apache.hudi.hadoop.HoodieParquetInputFormat")
                 .partitionKeyNames(Arrays.asList("year", "month"))
                 .prunedPartitionPaths(Arrays.asList("year=2025/month=01", "year=2025/month=02"))
                 .queryInstant("20250429000000000")
                 .build();
+    }
+
+    @Test
+    void everyRangeInputSeparatesTheKey() {
+        // The memo caches the final range list, so every handle fact the ranges come from must separate the key:
+        // the input format and serde choose the reader the ranges are planned for, the partition key order maps
+        // the partition values, the generation names the timeline they were planned from, and db / table / base
+        // path name the data. MUTATION: dropping any of these from HudiScanReuseKey -> red.
+        Map<String, HudiScanPlanProvider.HudiScanReuseKey> variants = new LinkedHashMap<>();
+        variants.put("input format", key(handle().toBuilder()
+                .inputFormat("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat")
+                .build()));
+        variants.put("serde", key(handle().toBuilder()
+                .serdeLib("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe")
+                .build()));
+        variants.put("partition key order", key(handle().toBuilder()
+                .partitionKeyNames(Arrays.asList("month", "year"))
+                .build()));
+        variants.put("generation", HudiScanPlanProvider.hudiScanReuseKey(handle(), "later-generation"));
+        variants.put("base path", key(handleAt("db", "t", "/warehouse/t_rewritten")));
+        variants.put("database", key(handleAt("db2", "t", "/warehouse/t")));
+        variants.put("table", key(handleAt("db", "t2", "/warehouse/t")));
+
+        HudiScanPlanProvider.HudiScanReuseKey base = key(handle());
+        variants.forEach((fact, variant) -> Assertions.assertNotEquals(base, variant,
+                "a different " + fact + " must not reuse the cached ranges"));
     }
 
     private static HudiScanPlanProvider.HudiScanReuseKey key(HudiTableHandle handle) {

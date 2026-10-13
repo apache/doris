@@ -18,8 +18,14 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.offset.SourceOffsetProviderFactory;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -27,8 +33,96 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.Map;
 
 public class StreamingJobPropertiesTest {
+    @Test
+    public void testS3ProviderSelectionDefaultsToOrderedList() throws AnalysisException {
+        StreamingJobProperties orderedList = new StreamingJobProperties(new HashMap<>());
+        orderedList.validate();
+        Assertions.assertTrue(SourceOffsetProviderFactory.createSourceOffsetProvider("s3", orderedList)
+                instanceof S3SourceOffsetProvider);
+
+        HashMap<String, String> props = new HashMap<>();
+        props.put("s3.ingestion_mode", "notification");
+        props.put("s3.event.source", "sqs");
+        props.put("s3.sqs.queue_url", "https://sqs.us-west-2.amazonaws.com/123456789012/events");
+        StreamingJobProperties event = new StreamingJobProperties(props);
+        event.validate();
+        Assertions.assertTrue(SourceOffsetProviderFactory.createSourceOffsetProvider("s3", event)
+                instanceof S3EventSourceOffsetProvider);
+    }
+
+    @Test
+    public void testS3ModeNames() {
+        Assertions.assertEquals("ORDERED_LIST", new StreamingJobProperties(Map.of()).getS3IngestionMode());
+        Assertions.assertEquals("ORDERED_LIST",
+                new StreamingJobProperties(Map.of("s3.ingestion_mode", " ordered_list ")).getS3IngestionMode());
+        Assertions.assertTrue(new StreamingJobProperties(
+                Map.of("s3.ingestion_mode", "NOTIFICATION")).isS3NotificationMode());
+        Assertions.assertTrue(new StreamingJobProperties(
+                Map.of("s3.ingestion_mode", "ONE_TIME")).isS3OneTimeMode());
+        for (String mode : new String[] {"LEXICAL", "EVENT", "ONCE"}) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> new StreamingJobProperties(Map.of("s3.ingestion_mode", mode)).validate());
+        }
+    }
+
+    @Test
+    public void testNotificationRequiresQueueAndRejectsManualOffset() throws AnalysisException {
+        HashMap<String, String> props = new HashMap<>();
+        props.put("s3.ingestion_mode", "NOTIFICATION");
+        Assertions.assertThrows(AnalysisException.class, () -> new StreamingJobProperties(props).validate());
+        props.put("s3.event.source", "SQS");
+        Assertions.assertThrows(AnalysisException.class, () -> new StreamingJobProperties(props).validate());
+        props.put("s3.sqs.queue_url", "https://sqs.us-west-2.amazonaws.com/123456789012/events");
+        new StreamingJobProperties(props).validate();
+        props.put("offset", "logs/a.csv");
+        Assertions.assertThrows(AnalysisException.class, () -> new StreamingJobProperties(props).validate());
+        props.remove("offset");
+        props.put("max_interval", "7200");
+        Assertions.assertThrows(AnalysisException.class, () -> new StreamingJobProperties(props).validate());
+    }
+
+
+    @Test
+    public void testS3OneTimeModeValidationAndAlter() throws Exception {
+        StreamingJobProperties properties = new StreamingJobProperties(Map.of("s3.ingestion_mode", " one_time "));
+        properties.validate();
+        Assertions.assertTrue(properties.isS3OneTimeMode());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new StreamingJobProperties(Map.of("s3.ingestion_mode", "invalid")).validate());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> new StreamingJobProperties(
+                        Map.of("s3.ingestion_mode", "ONE_TIME", "offset", "{\"fileName\":\"a.csv\"}"))
+                        .validate());
+
+        StreamingInsertJob job = new StreamingInsertJob();
+        Deencapsulation.setField(job, "properties", properties.getProperties());
+        AlterJobCommand alterBatch = new AlterJobCommand("job", Map.of("s3.max_batch_files", "1"),
+                null, null, null, Map.of(), Map.of());
+        Deencapsulation.invoke(alterBatch, "validateProps", job);
+        AlterJobCommand alterMode = new AlterJobCommand("job", Map.of("s3.ingestion_mode", "ORDERED_LIST"),
+                null, null, null, Map.of(), Map.of());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> Deencapsulation.invoke(alterMode, "validateProps", job));
+        AlterJobCommand alterOffset = new AlterJobCommand("job",
+                Map.of("offset", "{\"fileName\":\"a.csv\"}"), null, null, null, Map.of(), Map.of());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> Deencapsulation.invoke(alterOffset, "validateProps", job));
+    }
+
+    @Test
+    public void testS3OneTimeModeRestoredWithLegacyOffset() throws Exception {
+        StreamingInsertJob job = new StreamingInsertJob();
+        Deencapsulation.setField(job, "properties", Map.of("s3.ingestion_mode", "ONE_TIME"));
+        Deencapsulation.setField(job, "tvfType", "s3");
+        job.setOffsetProviderPersist("{\"endFile\":\"data/a.csv\"}");
+        job.gsonPostProcess();
+        job.setJobStatus(JobStatus.RUNNING);
+        Assertions.assertFalse(job.hasMoreDataToConsume());
+        Assertions.assertFalse(job.hasReachedEnd());
+    }
 
     /**
      * Simulate FE restart: constructor is called without validate().

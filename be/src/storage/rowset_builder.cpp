@@ -189,8 +189,7 @@ Status RowsetBuilder::check_tablet_version_count() {
     }
     // (TODO Refrain) Maybe we can use a configurable param instead of hardcoded values '100'.
     // max_version_config must > 100, otherwise silent errors will occur.
-    if ((!config::disable_auto_compaction &&
-         !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) &&
+    if ((!config::disable_auto_compaction && !_tablet->tablet_meta()->disable_auto_compaction()) &&
         (version_count > max_version_config - 100) &&
         !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // Trigger compaction

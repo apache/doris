@@ -63,6 +63,8 @@ public final class ConnectorPartitionInfo {
      * pruning is lost (only a warn line in the FE log records it).</p>
      */
     private final List<String> orderedPartitionValues;
+    // Transforms can change the source type, e.g. bucket(binary) produces INT partition values.
+    private final List<ConnectorType> partitionValueTypes;
 
     /**
      * Backward-compatible constructor. Numeric stats fields are set to
@@ -125,6 +127,15 @@ public final class ConnectorPartitionInfo {
             long rowCount, long sizeBytes, long lastModifiedMillis, long fileCount,
             List<String> orderedPartitionValues,
             List<Boolean> partitionValueNullFlags) {
+        this(partitionName, partitionValues, properties, rowCount, sizeBytes, lastModifiedMillis, fileCount,
+                orderedPartitionValues, partitionValueNullFlags, Collections.emptyList());
+    }
+
+    public ConnectorPartitionInfo(String partitionName, Map<String, String> partitionValues,
+            Map<String, String> properties, long rowCount, long sizeBytes, long lastModifiedMillis, long fileCount,
+            List<String> orderedPartitionValues, List<Boolean> partitionValueNullFlags,
+            List<ConnectorType> partitionValueTypes) {
+        this.partitionValueTypes = Collections.unmodifiableList(new ArrayList<>(partitionValueTypes));
         this.partitionName = Objects.requireNonNull(
                 partitionName, "partitionName");
         this.partitionValues = partitionValues == null
@@ -205,6 +216,11 @@ public final class ConnectorPartitionInfo {
         return orderedPartitionValues;
     }
 
+    /** Types of ordered values after partition transforms; empty uses the source column types. */
+    public List<ConnectorType> getPartitionValueTypes() {
+        return partitionValueTypes;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -221,6 +237,7 @@ public final class ConnectorPartitionInfo {
                 && partitionName.equals(that.partitionName)
                 && partitionValues.equals(that.partitionValues)
                 && properties.equals(that.properties)
+                && partitionValueTypes.equals(that.partitionValueTypes)
                 && orderedPartitionValues.equals(that.orderedPartitionValues)
                 && partitionValueNullFlags.equals(that.partitionValueNullFlags);
     }
@@ -229,7 +246,7 @@ public final class ConnectorPartitionInfo {
     public int hashCode() {
         return Objects.hash(partitionName, partitionValues, properties,
                 rowCount, sizeBytes, lastModifiedMillis, fileCount,
-                orderedPartitionValues, partitionValueNullFlags);
+                orderedPartitionValues, partitionValueNullFlags, partitionValueTypes);
     }
 
     @Override

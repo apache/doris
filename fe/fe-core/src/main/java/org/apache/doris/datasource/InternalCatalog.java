@@ -1818,6 +1818,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (olapTable.getPartitionInvertedIndexFileStorageFormat()
                         != partitionInvertedIndexFileStorageFormat) {
                     metaChanged = true;
+                } else if (olapTable.needRowBinlog() && !olapTable.getBinlogConfig().equals(binlogConfig)) {
+                    // Do not install tablets created with an older retention policy after ALTER.
+                    metaChanged = true;
                 } else {
                     // compare schemaHash
                     for (Map.Entry<Long, MaterializedIndexMeta> entry
@@ -2418,6 +2421,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         return partition;
     }
 
+    /** Release resources allocated for a table that lost the atomic registration race. */
+    public void onCreateTableConflict(long dbId, OlapTable table) throws DdlException {
+    }
+
     public void beforeCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                                           boolean isCreateTable)
             throws DdlException {
@@ -2472,7 +2479,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Cannot create table " + tableShowName
                     + " with ROW binlog when enable_feature_binlog=false");
         }
-        if (dbBinlogConfig.getEnable() && !createTableBinlogConfig.isEnableForCCR() && !createTableInfo.isTemp()) {
+        if (dbBinlogConfig.isEnableForCCR() && !createTableBinlogConfig.isEnableForCCR()
+                && !createTableInfo.isTemp()) {
             throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
         }
         if (createTableInfo.isTemp() && createTableBinlogConfig.isEnableForCCR()) {
@@ -3392,6 +3400,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 // register table, write create table edit log
                 result = db.createTableWithoutLock(olapTable, false, createTableInfo.isIfNotExists());
+                // CTAS must skip INSERT when another creator registered the table first.
+                tableHasExist = result.second;
                 if (!result.second) {
                     olapTable.writeLock();
                     holdTableLock = true;
@@ -3400,6 +3410,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 db.writeUnlock();
             }
             try {
+                if (result.second) {
+                    // Cloud indexes have already been committed. Recycle them outside the DB lock,
+                    // including when a CREATE without IF NOT EXISTS must report a duplicate error.
+                    onCreateTableConflict(db.getId(), olapTable);
+                }
                 if (!result.first) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
                 }
@@ -3852,6 +3867,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 metaChanged = true;
             } else if (olapTable.getPartitionInvertedIndexFileStorageFormat()
                     != copiedTbl.getPartitionInvertedIndexFileStorageFormat()) {
+                metaChanged = true;
+            } else if (olapTable.needRowBinlog() && !olapTable.getBinlogConfig().equals(binlogConfig)) {
                 metaChanged = true;
             } else {
                 // compare schemaHash

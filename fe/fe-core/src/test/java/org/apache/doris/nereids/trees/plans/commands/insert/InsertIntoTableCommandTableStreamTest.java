@@ -54,6 +54,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.tso.MasterTsoProvider;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -566,7 +567,10 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Config.cloud_unique_id = "cloud_table_stream_ut";
             Config.meta_service_endpoint = "127.0.0.1:20121";
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", cloudSystemInfo);
-            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                    MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+                // The read-state fixture uses offsets 100..130; keep the TTL reference in the same clock.
+                mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(130L);
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
                 Mockito.when(proxy.getTableStreamOffset(Mockito.any()))
                         .thenAnswer(invocation -> buildReadStateResponse(invocation.getArgument(0)));
@@ -579,7 +583,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         org.apache.doris.nereids.exceptions.AnalysisException.class,
                         () -> allPartitionsCommand.initPlan(
                                 connectContext, new StmtExecutor(connectContext, allPartitionsSql), true));
-                Assertions.assertTrue(exception.getMessage().contains("Use stream PARTITION"));
+                Assertions.assertTrue(exception.getMessage().contains("Use stream PARTITION"), exception.getMessage());
 
                 String p1Sql = "insert into test_stream.tbl_target "
                         + "select * from test_stream.s1 partition (p1)";
@@ -822,6 +826,9 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", checker.getPlan());
                 checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
+                // PlanChecker bypasses the planner prefetch; match the mock read-state clock.
+                checker.getCascadesContext().getStatementContext()
+                        .getOrRegisterRowBinlogReferenceTso(() -> 130L);
                 checker.rewrite();
 
                 List<Plan> tmpPlans = checker.getCascadesContext().getStatementContext()
@@ -898,6 +905,9 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
                 Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
+                // PlanChecker bypasses the planner prefetch; match the mock read-state clock.
+                checker.getCascadesContext().getStatementContext()
+                        .getOrRegisterRowBinlogReferenceTso(() -> 130L);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);

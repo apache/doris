@@ -388,6 +388,10 @@ public class HiveWritePlanProviderTest {
         Assertions.assertEquals(TFileCompressType.SNAPPYBLOCK,
                 compressionFor(PARQUET_INPUT_FORMAT, Collections.singletonMap("parquet.compression", "snappy"),
                         Collections.emptyMap()));
+        // GZIP is a valid parquet.compression value; BE maps GZ to the parquet GZIP codec.
+        Assertions.assertEquals(TFileCompressType.GZ,
+                compressionFor(PARQUET_INPUT_FORMAT, Collections.singletonMap("parquet.compression", "gzip"),
+                        Collections.emptyMap()));
         Assertions.assertEquals(TFileCompressType.GZ,
                 compressionFor(TEXT_INPUT_FORMAT, Collections.singletonMap("text.compression", "gzip"),
                         Collections.emptyMap()));

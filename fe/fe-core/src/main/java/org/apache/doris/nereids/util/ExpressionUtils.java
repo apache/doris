@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -55,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -76,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -135,6 +139,13 @@ public class ExpressionUtils {
     // (worst case 4 * 4 * 3^3 = 432 for N = MAX_MARK_SLOT_COUNT = 4, each pass rebuilding and
     // folding the conjunct). We restrict MAX_MARK_SLOT_COUNT to 4 to bound this cost.
     private static final int MAX_MARK_SLOT_COUNT = 4;
+
+    /** Whether evaluating these expressions can produce results unsuitable for reuse across queries. */
+    public static boolean containsNonCacheableExpression(Collection<? extends Expression> expressions) {
+        return expressions.stream().anyMatch(expression ->
+                expression.containsType(AliasFunction.class, Udf.class, UniqueFunction.class)
+                        || expression.containsNondeterministic());
+    }
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
@@ -1513,6 +1524,20 @@ public class ExpressionUtils {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Fold a constant function argument to the literal it evaluates to on FE, for a function that needs the
+     * value of the argument before the rewrite phase folds it: to compute its signature in
+     * prepareBeforeTypeCoercion, or to validate the value in checkLegalityBeforeTypeCoercion.
+     * An argument that is not constant, or that FE cannot fold, is returned unchanged.
+     */
+    public static Expression foldConstantArgument(Expression argument) {
+        if (argument instanceof Literal || !argument.isConstant()) {
+            return argument;
+        }
+        Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(argument);
+        return folded instanceof Literal ? folded : argument;
     }
 
     public static Optional<Literal> getLiteralAfterUnwrapNullable(Expression expr) {

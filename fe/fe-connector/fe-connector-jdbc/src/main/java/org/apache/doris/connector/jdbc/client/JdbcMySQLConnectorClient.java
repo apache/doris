@@ -332,6 +332,11 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         if (upperType.startsWith("ARRAY")) {
             // ARRAY<INNER_TYPE> -> extract inner type and recursively convert
             String innerType = upperType.substring(6, upperType.length() - 1).trim();
+            if (innerType.startsWith("VARBINARY")) {
+                // The remote returns an array as text that spells each VARBINARY element as 0x hex, and the scanner
+                // decodes array elements only into strings, so such an element stays STRING.
+                return ConnectorType.arrayOf(ConnectorType.of("STRING"));
+            }
             return ConnectorType.arrayOf(dorisTypeToConnectorType(innerType, null));
         }
 
@@ -420,8 +425,17 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 return ConnectorType.of("BITMAP");
             case "QUANTILE_STATE":
                 return ConnectorType.of("QUANTILE_STATE");
-            case "VARBINARY":
-                return ConnectorType.of("STRING");
+            case "VARBINARY": {
+                // Keep the remote Doris bytes and length, like the binary types of every other source.
+                if (openParen == -1) {
+                    if (fieldInfo != null) {
+                        return ConnectorType.of("VARBINARY", fieldInfo.requiredColumnSize(), -1);
+                    }
+                    return ConnectorType.of("VARBINARY");
+                }
+                int len = Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
+                return ConnectorType.of("VARBINARY", len, -1);
+            }
             default:
                 return ConnectorType.of("UNSUPPORTED");
         }
