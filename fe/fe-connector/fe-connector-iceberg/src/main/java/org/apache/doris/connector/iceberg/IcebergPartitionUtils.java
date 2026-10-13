@@ -493,9 +493,18 @@ final class IcebergPartitionUtils {
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
                 case TIMESTAMP_NANO:
                     // Match the sink cast: a date-only static partition denotes midnight.
-                    LocalDateTime timestampNs = valueStr.length() == 10
-                            ? LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay()
-                            : LocalDateTime.parse(valueStr.replace('T', ' '), TIMESTAMP_PARTITION_FORMAT);
+                    if (valueStr.length() == 10) {
+                        return toEpochNanos(LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay());
+                    }
+                    java.time.temporal.TemporalAccessor parsedNs =
+                            TIMESTAMP_PARTITION_FORMAT.parse(valueStr.replace('T', ' '));
+                    LocalDateTime timestampNs = LocalDateTime.from(parsedNs);
+                    ZoneOffset offset = parsedNs.query(java.time.temporal.TemporalQueries.offset());
+                    if (offset != null) {
+                        // The sink casts offset literals to session-local civil time before writing NTZ.
+                        // Overwrite filters must target that same partition, not discard the input offset.
+                        timestampNs = LocalDateTime.ofInstant(timestampNs.toInstant(offset), zone);
+                    }
                     return toEpochNanos(timestampNs);
                 case TIMESTAMP:
                     return parseTimestampToMicros(valueStr, (TimestampType) icebergType, zone);

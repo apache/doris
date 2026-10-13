@@ -108,6 +108,13 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
                     // Static partition commit parsing must accept the same date-only input as the sink cast.
                     sql "INSERT OVERWRITE TABLE ${partitionTable} PARTITION(ts='2024-01-01') SELECT 8"
                     "qt_${format}_identity_static_date" "SELECT CAST(ts AS STRING) FROM ${partitionTable} WHERE id=8"
+                    // An offset literal must replace the sink's normalized partition, preserving midnight.
+                    sql "SET time_zone='UTC'"
+                    sql "INSERT INTO ${partitionTable} VALUES (9, '2023-12-31 16:00:00')"
+                    sql """INSERT OVERWRITE TABLE ${partitionTable}
+                        PARTITION(ts='2024-01-01 00:00:00+08:00') SELECT 10"""
+                    "qt_${format}_identity_static_offset" "SELECT * FROM ${partitionTable} ORDER BY id"
+                    sql "SET time_zone='Asia/Shanghai'"
                 }
             }
         }

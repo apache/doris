@@ -98,6 +98,21 @@ public class IcebergTimestampNsTest {
     }
 
     @Test
+    public void offsetPartitionsUseSessionCivilTimeAndKeepNanoseconds() {
+        String input = "2024-01-01 00:00:00.123456789+08:00";
+        String[] zones = {"UTC", "Asia/Shanghai", "America/New_York"};
+        String[] expected = {"2023-12-31 16:00:00.123456789", "2024-01-01 00:00:00.123456789",
+                "2023-12-31 11:00:00.123456789"};
+        for (int i = 0; i < zones.length; i++) {
+            ZoneId zone = ZoneId.of(zones[i]);
+            Assertions.assertEquals(IcebergPartitionUtils.parsePartitionValueFromString(
+                    expected[i], Types.TimestampNanoType.withoutZone(), zone),
+                    IcebergPartitionUtils.parsePartitionValueFromString(
+                            input, Types.TimestampNanoType.withoutZone(), zone));
+        }
+    }
+
+    @Test
     public void writeDefaultsPreserveNanoseconds() {
         for (long nanos : new long[] {Long.MIN_VALUE, -1, 0, 1, 123456789, Long.MAX_VALUE}) {
             String sql = IcebergWriteSchemaContext.toDorisSql(

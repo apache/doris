@@ -1102,7 +1102,9 @@ static VExprSPtr cast_file_expr_to_table_type(const VExprSPtr& file_expr,
     DORIS_CHECK(file_expr != nullptr);
     DORIS_CHECK(table_type != nullptr);
     DORIS_CHECK(rewrite_context != nullptr);
-    auto cast_expr = Cast::create_shared(table_type);
+    // Localized filters perform the same evolution as projection; SQL non-strict casts must
+    // not replace an overflowing retained DATE with NULL and filter it out before materialization.
+    auto cast_expr = Cast::create_shared(table_type, true);
     cast_expr->add_child(file_expr);
     rewrite_context->add_created_expr(cast_expr);
     return cast_expr;

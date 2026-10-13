@@ -1692,50 +1692,74 @@ TEST(IcebergV2ReaderTest, DatePromotionToNanosecondsChecksOverflow) {
                                 arrow::default_memory_pool(), out, 2)
                                 .ok());
             ASSERT_TRUE(out->Close().ok());
-            for (bool strict : {false, true}) {
-                SCOPED_TRACE(testing::Message()
-                             << "nested=" << nested << " days=" << days << " strict=" << strict);
-                TQueryOptions query_options;
-                query_options.__set_enable_strict_cast(strict);
-                RuntimeState state {query_options, TQueryGlobals()};
-                const auto type = make_nullable(std::make_shared<DataTypeTimeStampNs>());
-                std::vector<ColumnDefinition> columns {make_table_column(1, "ts", type)};
-                if (nested) {
-                    auto outer = make_table_column(
-                            2, "outer",
-                            std::make_shared<DataTypeStruct>(DataTypes {type}, Strings {"ts"}));
-                    outer.children = columns;
-                    columns = {outer};
+            for (bool filtered : {false, true}) {
+                if (nested && filtered) {
+                    continue;
                 }
-                auto scan_params = make_local_parquet_scan_params();
-                RuntimeProfile profile("date_promotion");
-                io::FileReaderStats file_reader_stats;
-                io::FileCacheStatistics file_cache_stats;
-                auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
-                doris::format::iceberg::IcebergTableReader reader;
-                init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile);
-                ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
-                Block block = build_table_block(columns);
-                bool eos = false;
-                const auto status = reader.get_block(&block, &eos);
-                if (days < 0) {
-                    EXPECT_FALSE(status.ok())
-                            << "out-of-range promotion must fail even in non-strict mode";
-                    EXPECT_NE(status.to_string().find("TIMESTAMP_NS overflow"), std::string::npos)
-                            << status;
-                } else {
-                    ASSERT_TRUE(status.ok()) << status;
-                    ASSERT_EQ(block.rows(), 2);
-                    const IColumn* result = block.get_by_position(0).column.get();
+                for (bool strict : {false, true}) {
+                    SCOPED_TRACE(testing::Message()
+                                 << "nested=" << nested << " days=" << days << " strict=" << strict
+                                 << " filtered=" << filtered);
+                    TQueryOptions query_options;
+                    query_options.__set_enable_strict_cast(strict);
+                    RuntimeState state {query_options, TQueryGlobals()};
+                    const auto type = make_nullable(std::make_shared<DataTypeTimeStampNs>());
+                    std::vector<ColumnDefinition> columns {make_table_column(1, "ts", type)};
                     if (nested) {
-                        result = &assert_cast<const ColumnStruct&>(
-                                          expect_not_null_table_column(block, 0))
-                                          .get_column(0);
+                        auto outer = make_table_column(
+                                2, "outer",
+                                std::make_shared<DataTypeStruct>(DataTypes {type}, Strings {"ts"}));
+                        outer.children = columns;
+                        columns = {outer};
                     }
-                    EXPECT_EQ(type->to_string(*result, 0), "2024-01-02 00:00:00.000000000");
-                    EXPECT_TRUE(result->is_null_at(1));
+                    auto scan_params = make_local_parquet_scan_params();
+                    RuntimeProfile profile("date_promotion");
+                    io::FileReaderStats file_reader_stats;
+                    io::FileCacheStatistics file_cache_stats;
+                    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+                    doris::format::iceberg::IcebergTableReader reader;
+                    VExprContextSPtrs conjuncts;
+                    if (filtered) {
+                        // A file-local filter must not hide overflow before strict table materialization.
+                        auto predicate = table_function_expr(
+                                "is_not_null_pred", std::make_shared<DataTypeUInt8>(), {type});
+                        predicate->add_child(VSlotRef::create_shared(0, 0, 0, type, "ts"));
+                        conjuncts.push_back(prepared_conjunct(&state, predicate));
+                    }
+                    ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                             .conjuncts = conjuncts,
+                                             .format = FileFormat::PARQUET,
+                                             .scan_params = &scan_params,
+                                             .io_ctx = io_ctx,
+                                             .runtime_state = &state,
+                                             .scanner_profile = &profile})
+                                        .ok());
+                    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+                    Block block = build_table_block(columns);
+                    bool eos = false;
+                    const auto status = reader.get_block(&block, &eos);
+                    if (days < 0) {
+                        EXPECT_FALSE(status.ok())
+                                << "out-of-range promotion must fail even in non-strict mode";
+                        EXPECT_NE(status.to_string().find("TIMESTAMP_NS overflow"),
+                                  std::string::npos)
+                                << status;
+                    } else {
+                        ASSERT_TRUE(status.ok()) << status;
+                        ASSERT_EQ(block.rows(), filtered ? 1 : 2);
+                        const IColumn* result = block.get_by_position(0).column.get();
+                        if (nested) {
+                            result = &assert_cast<const ColumnStruct&>(
+                                              expect_not_null_table_column(block, 0))
+                                              .get_column(0);
+                        }
+                        EXPECT_EQ(type->to_string(*result, 0), "2024-01-02 00:00:00.000000000");
+                        if (!filtered) {
+                            EXPECT_TRUE(result->is_null_at(1));
+                        }
+                    }
+                    ASSERT_TRUE(reader.close().ok());
                 }
-                ASSERT_TRUE(reader.close().ok());
             }
         }
     }

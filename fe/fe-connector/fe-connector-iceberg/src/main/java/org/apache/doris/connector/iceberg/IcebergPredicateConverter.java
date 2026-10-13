@@ -56,6 +56,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -106,7 +107,7 @@ public class IcebergPredicateConverter {
     private static final List<Object> SIGNED_ZEROS = Collections.unmodifiableList(Arrays.asList(-0.0d, 0.0d));
 
     private final Schema schema;
-    private final Set<Integer> promotedDateFields = new LinkedHashSet<>();
+    private final Set<Integer> unsafeNanosFields = new LinkedHashSet<>();
     private final ZoneId sessionZone;
     // The conversion matrix. SCAN = scan-time pushdown (BE re-filters, so widening is safe). CONFLICT = O5-2
     // write-time optimistic conflict detection (no-missed-conflict, so widening is also safe) -- a port of
@@ -135,14 +136,24 @@ public class IcebergPredicateConverter {
 
     public static IcebergPredicateConverter forTable(Table table, Schema schema, ZoneId zone, Mode mode) {
         IcebergPredicateConverter converter = new IcebergPredicateConverter(schema, zone, mode);
+        Map<Integer, Schema> history = table.schemas();
+        // Iceberg allocates schema IDs from zero. Gaps mean cleanup removed type history, not
+        // necessarily its data files; without that history any nanos field may have DATE bounds.
+        int maxSchemaId = history.keySet().stream().mapToInt(Integer::intValue).max().orElse(-1);
+        boolean incompleteHistory = history.isEmpty()
+                || history.size() != (long) maxSchemaId + 1;
         for (Types.NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
             if (field.type().typeId() != TypeID.TIMESTAMP_NANO) {
                 continue;
             }
-            for (Schema historical : table.schemas().values()) {
+            if (incompleteHistory) {
+                converter.unsafeNanosFields.add(field.fieldId());
+                continue;
+            }
+            for (Schema historical : history.values()) {
                 Type oldType = historical.findType(field.fieldId());
                 if (oldType != null && oldType.typeId() == TypeID.DATE) {
-                    converter.promotedDateFields.add(field.fieldId());
+                    converter.unsafeNanosFields.add(field.fieldId());
                     break;
                 }
             }
@@ -499,7 +510,7 @@ public class IcebergPredicateConverter {
         Types.NestedField field = schema.caseInsensitiveFindField(colName);
         // Iceberg 1.11 widens retained four-byte DATE bounds to unscaled longs. Pruning those
         // epoch-day bounds with nanosecond predicates can discard matching files in every planner.
-        return field != null && promotedDateFields.contains(field.fieldId()) ? null : field;
+        return field != null && unsafeNanosFields.contains(field.fieldId()) ? null : field;
     }
 
     /**

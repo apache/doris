@@ -4076,13 +4076,27 @@ public class IcebergScanPlanProviderTest {
                     new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-02 00:00:00"))).size(),
                     "fields without historical DATE bounds must retain pushdown");
         }
+        // Metadata cleanup may drop the writing schema while the retained snapshot still uses its file.
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("/data/new-nanos.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withFormat(FileFormat.PARQUET).build()).commit();
+        table.expireSnapshots().expireOlderThan(System.currentTimeMillis() + 1000)
+                .retainLast(1).cleanExpiredMetadata(true).commit();
+        table.refresh();
+        Assertions.assertTrue(table.schemas().values().stream()
+                .noneMatch(retained -> Types.DateType.get().equals(retained.findType(1))));
+        for (IcebergPredicateConverter.Mode mode : IcebergPredicateConverter.Mode.values()) {
+            Assertions.assertTrue(IcebergPredicateConverter.forTable(
+                    table, table.schema(), java.time.ZoneOffset.UTC, mode).convert(filter).isEmpty(),
+                    "schema cleanup must not re-enable unsafe DATE bound pruning in " + mode);
+        }
         ConnectorScanRequest request = ConnectorScanRequest.builder(
                 new IcebergTableHandle("db1", "promoted_date"), Collections.emptyList())
                 .filter(Optional.of(filter)).build();
         List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(
                 IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
                 .planScan(emptySession(), request);
-        Assertions.assertEquals(1, sdk.size(), "SDK planning must preserve the matching DATE file");
+        Assertions.assertEquals(2, sdk.size(), "SDK planning must preserve the matching DATE file after cleanup");
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> cached = manifestProvider(manifestCacheProps(), table, cache)
                 .planScan(emptySession(), request);

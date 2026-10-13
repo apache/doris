@@ -916,6 +916,33 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void offsetNanosecondStaticOverwriteKeepsAdjacentPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+        Table table = catalog.createTable(id, schema, spec, props("format-version", "3"));
+        long midnight = 1704067200000000000L;
+        for (long nanos : new long[] {midnight, midnight - 8 * 3600_000_000_000L}) {
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, nanos);
+            table.newAppend().appendFile(DataFiles.builder(spec)
+                    .withPath("s3://bucket/" + nanos + ".parquet").withFileSizeInBytes(1024)
+                    .withRecordCount(1).withPartition(partition).withFormat(FileFormat.PARQUET).build()).commit();
+        }
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01 00:00:00+08:00")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+                Collections.singletonList("2023-12-31 16:00:00.000000000"))));
+        txn.commit();
+        List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(2, remaining.size());
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.partition().get(0, Long.class) == midnight));
+        Assertions.assertTrue(remaining.stream().anyMatch(file -> file.path().toString().endsWith("replacement.parquet")));
+    }
+
+    @Test
     public void overwriteStaticPartitionRejectsUnmatchedPartitionField() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
