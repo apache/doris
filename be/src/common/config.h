@@ -1801,13 +1801,13 @@ DECLARE_String(spill_storage_type);
 // they were written to until they are deleted.
 DECLARE_String(spill_s3_storage_vault_id);
 // Back-pressure threshold for spill uploads to object storage: spill writers pause before
-// handing another buffer to object storage while the S3 upload queue (shared with every other
-// S3 writer of this BE) holds at least this many bytes of buffers waiting for an upload thread,
-// every buffer counted as s3_write_buffer_size. It slows down a spill that produces data faster
-// than object storage takes it, but is not a hard memory limit: buffers being uploaded by a
-// thread and buffers still being filled by open writers are not counted, and the one buffer
-// each concurrently appending writer may add after the check and the final buffer of every
-// part are queued without waiting for the check.
+// appending another serialized block to object storage while the S3 upload queue (shared with
+// every other S3 writer of this BE) holds at least this many bytes of buffers waiting for an
+// upload thread, every buffer counted as s3_write_buffer_size. It slows down a spill that
+// produces data faster than object storage takes it, but is not a hard memory limit: buffers
+// being uploaded by a thread and buffers still being filled by open writers are not counted,
+// the buffers of one block each concurrently appending writer may add after the check and the
+// final buffer of every part are queued without waiting for the check.
 DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
 // Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
 // into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);

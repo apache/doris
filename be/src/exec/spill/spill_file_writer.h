@@ -49,8 +49,8 @@ class SpillFile;
 ///
 /// Files are created on the file system pinned in the SpillFile, which is either a local disk or
 /// the object storage of a cloud storage vault. For object storage the writer additionally
-/// appends at most one upload buffer at a time and pauses while the S3 upload queue holds
-/// at least spill_s3_max_inflight_upload_bytes of buffers, which slows down a spill that
+/// pauses before every append while the S3 upload queue holds at least
+/// spill_s3_max_inflight_upload_bytes of buffers, which slows down a spill that
 /// produces faster than object storage takes it, and reports request statistics derived from
 /// the closed part.
 class SpillFileWriter {
@@ -84,8 +84,8 @@ private:
     /// to the next part index. Statistics are accounted whether it succeeds or not.
     Status _close_current_part(const std::shared_ptr<SpillFile>& spill_file);
 
-    /// Append to the current part. For object storage `data` is appended one upload buffer
-    /// at a time, each after _wait_for_upload_queue(). After a failed append the part is
+    /// Append to the current part. For object storage `data` is appended after
+    /// _wait_for_upload_queue(). After a failed append the part is
     /// broken: every later append, the footer included, returns that failure without reaching
     /// the file writer (S3FileWriter must not be appended to after a failed append).
     Status _append_to_part(const Slice& data);
