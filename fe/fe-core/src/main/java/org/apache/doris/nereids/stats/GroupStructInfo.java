@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
 
@@ -584,6 +585,18 @@ public class GroupStructInfo {
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
+        } else if (plan instanceof PhysicalStorageLayerAggregate) {
+            // the optimizer answers an aggregation over a scan from the storage layer itself: the node is
+            // a catalog relation without children, and its identity is the aggregation together with the
+            // relation it reads. The argument expressions are referenced by expression id there, which is
+            // not stable across queries, so they are left out: they do not change the number of rows this
+            // node produces (one row, the query has no grouping).
+            PhysicalStorageLayerAggregate storageAggregate = (PhysicalStorageLayerAggregate) plan;
+            String header = "A{sl,op=" + storageAggregate.getAggOp() + "}(";
+            out.modes(header, header).modes(")", ")");
+            if (storageAggregate.getRelation() instanceof OlapScan) {
+                appendScan((OlapScan) storageAggregate.getRelation(), out, ctx);
+            }
         } else if (plan instanceof TopN) {
             // a top-n keeps its sort keys out of the identity (they do not change the number of rows)
             // but its bound does: the same text is written in both modes so that NO_LITERAL cannot fold
@@ -913,8 +926,16 @@ public class GroupStructInfo {
 
     /** Mark the struct info invalid because the table state could not be read (retryable). */
     private static void transientFailure(Ctx ctx) {
+        transientFailure(ctx, "");
+    }
+
+    /** A failure which the next lookup may survive, with the cause the annotation may show. */
+    private static void transientFailure(Ctx ctx, String reason) {
         ctx.valid = false;
         ctx.retryable = true;
+        if (ctx.reason.isEmpty()) {
+            ctx.reason = reason;
+        }
     }
 
     /** The bound of a limit / top-n: the same text in both modes, a bound is never folded. */
@@ -1064,7 +1085,7 @@ public class GroupStructInfo {
             // the table version may not be readable (e.g. a cloud rpc failure): the group stays
             // invalid for this lookup, but the failure is retried by the next one
             LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
-            transientFailure(ctx);
+            transientFailure(ctx, "retryable=" + e.getMessage());
         }
     }
 
@@ -1446,7 +1467,7 @@ public class GroupStructInfo {
             return Optional.empty();
         }
         GroupStructInfo structInfo = group.getOrComputeHboStructInfo();
-        if (structInfo.isValid() || structInfo.isRetryable() || structInfo.getSkipReason().isEmpty()) {
+        if (structInfo.isValid() || structInfo.getSkipReason().isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(structInfo.getSkipReason());
