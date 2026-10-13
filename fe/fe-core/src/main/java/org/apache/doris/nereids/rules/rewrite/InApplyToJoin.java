@@ -27,15 +27,19 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -56,6 +60,19 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 if (apply.isCorrelated()) {
                     throw new AnalysisException("In bitmap does not support correlated subquery");
                 }
+                Expression bitmapCol = apply.right().getOutput().get(0);
+                if (!apply.isNot() && !apply.isMarkJoin() && ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().enableBitmapSubqueryHashJoin) {
+                    ExplodeBitmap explode = new ExplodeBitmap(bitmapCol);
+                    SlotReference idSlot = new SlotReference("bitmap_resource_id", explode.getDataType(),
+                            explode.nullable(), ImmutableList.of());
+                    LogicalGenerate<Plan> ids = new LogicalGenerate<>(ImmutableList.of(explode),
+                            ImmutableList.of(idSlot), apply.right());
+                    return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
+                            Lists.newArrayList(new EqualTo(apply.getCompareExpr().get(), idSlot)),
+                            Lists.newArrayList(), new DistributeHint(DistributeType.NONE),
+                            apply.getMarkJoinSlotReference(), apply.left(), ids, null);
+                }
                 /*
                 case 1: in
                 select t1.k1 from bigtable t1 where t1.k1 in (select t2.k2 from bitmap_table t2);
@@ -74,7 +91,6 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 on not bitmap_contains(x, t1.k1);
                  */
                 List<Expression> groupExpressions = ImmutableList.of();
-                Expression bitmapCol = apply.right().getOutput().get(0);
                 BitmapUnion union = new BitmapUnion(bitmapCol);
                 Alias alias = new Alias(union);
                 List<NamedExpression> outputExpressions = Lists.newArrayList(alias);

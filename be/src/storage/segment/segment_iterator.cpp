@@ -2284,6 +2284,39 @@ Status SegmentIterator::_prune_by_constant_bitmap() {
             _row_bitmap = roaring::Roaring();
             return Status::OK();
         }
+        // Avoid reading the whole ID column for a handful of indexed values.
+        if (bitmap.cardinality() <= 16 && _index_iterators[cid] != nullptr &&
+            (_opts.runtime_state == nullptr ||
+             _opts.runtime_state->query_options().enable_inverted_index_query)) {
+            auto reader = std::dynamic_pointer_cast<BkdIndexReader>(
+                    _index_iterators[cid]->get_reader(InvertedIndexReaderType::BKD));
+            if (reader != nullptr) {
+                roaring::Roaring matching_rows;
+                bool use_index = true;
+                for (uint64_t value : bitmap) {
+                    auto hits = std::make_shared<roaring::Roaring>();
+                    Status status = reader->query(
+                            _index_query_context, _storage_name_and_type[cid].first,
+                            Field::create_field<TYPE_BIGINT>(static_cast<int64_t>(value)),
+                            InvertedIndexQueryType::EQUAL_QUERY, hits);
+                    if (!status.ok()) {
+                        if (!_downgrade_without_index(status, false)) {
+                            return status;
+                        }
+                        use_index = false;
+                        break;
+                    }
+                    matching_rows |= *hits;
+                }
+                if (use_index) {
+                    _row_bitmap &= matching_rows;
+                    const auto filtered = rows_before - _row_bitmap.cardinality();
+                    _opts.stats->rows_inverted_index_filtered += filtered;
+                    _opts.stats->rows_bitmap_allowlist_filtered += filtered;
+                    return Status::OK();
+                }
+            }
+        }
         // Bitmap values are resource IDs; map them to segment row IDs before payload reads.
         BitmapRangeIterator candidates(_row_bitmap);
         roaring::Roaring matching_rows;

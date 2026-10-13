@@ -84,6 +84,37 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
             (202, 4294967393, 'needle')
     """
 
+    String bitmapSubquery = """
+        SELECT COUNT(*) AS n FROM bitmap_allowlist_nullable_fact
+        WHERE org_id = 101 AND resource_id IN (
+            SELECT bitmap_agg(resource_id) FROM bitmap_allowlist_nullable_fact WHERE org_id = 202)
+    """
+    explain {
+        sql bitmapSubquery
+        contains "VNESTED LOOP JOIN"
+    }
+    sql "SET enable_bitmap_subquery_hash_join = true"
+    explain {
+        sql bitmapSubquery
+        contains "VHASH JOIN"
+        contains "explode_bitmap"
+        contains "runtime filters"
+    }
+    test {
+        sql "SELECT n FROM (${bitmapSubquery}) t WHERE n <> 2"
+        rowNum 0
+    }
+    test {
+        sql """
+            SELECT COUNT(*) AS n FROM bitmap_allowlist_nullable_fact
+            WHERE org_id = 101 AND resource_id IN (
+                SELECT bitmap_agg(resource_id) FROM bitmap_allowlist_nullable_fact WHERE org_id = 303)
+            HAVING n <> 0
+        """
+        rowNum 0
+    }
+    sql "SET enable_bitmap_subquery_hash_join = false"
+
     // Both orgs share IDs, including values above UINT32_MAX.
     for (long orgId : [101L, 202L]) {
         long rowCount = orgId == 101L ? 20000000L : 10000000L
@@ -130,6 +161,15 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
     }
 
     // Positive control: the indexed table must actually use its index for a selective lookup.
+    test {
+        sql """
+            SELECT COUNT(*) AS n FROM bitmap_allowlist_index_fact
+            WHERE org_id = 101
+              AND bitmap_contains(bitmap_or(to_bitmap(4294967393), to_bitmap(4294967394)), resource_id)
+            HAVING n <> 2
+        """
+        rowNum 0
+    }
     sql "SET enable_profile = true"
     sql "SET profile_level = 2"
     String pointToken = "bitmap_allowlist_index_point_${UUID.randomUUID()}"
@@ -190,6 +230,23 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
         """
         rowNum 0
     }
+    sql "SET enable_profile = true"
+    String bitmapPointToken = "bitmap_allowlist_index_bitmap_point_${UUID.randomUUID()}"
+    sql """
+        /* ${bitmapPointToken} */ SELECT COUNT(*) FROM bitmap_allowlist_index_fact
+        WHERE org_id = 101
+          AND bitmap_contains(bitmap_or(to_bitmap(4294967393), to_bitmap(4294967394)), resource_id)
+    """
+    String bitmapPointProfile = new ProfileAction(context).getProfileBySql(bitmapPointToken,
+            ["RowsInvertedIndexFiltered", "RowsBitmapAllowlistFiltered"])
+    def bitmapPointMatches = Pattern.compile("RowsInvertedIndexFiltered:\\s*[^\\n]*?\\((\\d+)\\)")
+            .matcher(bitmapPointProfile)
+    boolean bitmapIndexPruned = false
+    while (bitmapPointMatches.find()) {
+        bitmapIndexPruned |= Long.parseLong(bitmapPointMatches.group(1)) > 0
+    }
+    assertTrue(bitmapIndexPruned, "small bitmap allowlist did not use the resource_id index")
+    sql "SET enable_profile = false"
     test {
         sql """
             SELECT COUNT(*) AS n FROM bitmap_allowlist_index_fact
