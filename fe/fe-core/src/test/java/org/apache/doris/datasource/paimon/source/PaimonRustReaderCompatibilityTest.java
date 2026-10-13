@@ -136,9 +136,11 @@ public class PaimonRustReaderCompatibilityTest {
 
     @Test
     public void testPersistedTimestampToDateBeforeEpoch() throws Exception {
-        // Java divides toward zero; Arrow takes the preceding calendar date before the epoch.
+        // Before the epoch the persisted timestamp-to-date conversion takes the
+        // preceding calendar date (floor, like Arrow); the internal 2.1 BETA build
+        // truncated toward zero (Java integer division) and returned day 0.
         assertPersistedEvolution(DataTypes.TIMESTAMP(3), DataTypes.DATE(), Timestamp.fromEpochMillis(-1),
-                false, row -> row.getInt(1), 0);
+                false, row -> row.getInt(1), -1);
     }
 
     @Test
