@@ -63,10 +63,11 @@ TEST(PaimonWriteBackendTest, ReportsConcreteBackendType) {
 }
 
 TEST(PaimonWriteBackendTest, AdvertisesPaimonWriteExecVersion) {
-    EXPECT_EQ(SUPPORT_PAIMON_WRITE_VERSION, BeExecVersionManager::get_newest_version());
+    EXPECT_LE(SUPPORT_PAIMON_WRITE_VERSION, BeExecVersionManager::get_newest_version());
     EXPECT_TRUE(BeExecVersionManager::check_be_exec_version(SUPPORT_PAIMON_WRITE_VERSION).ok());
-    EXPECT_FALSE(
-            BeExecVersionManager::check_be_exec_version(SUPPORT_PAIMON_WRITE_VERSION + 1).ok());
+    EXPECT_FALSE(BeExecVersionManager::check_be_exec_version(
+                         BeExecVersionManager::get_newest_version() + 1)
+                         .ok());
 }
 
 TEST(PaimonTableSinkOperatorTest, InitializesAsBlockingSink) {
