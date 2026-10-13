@@ -73,6 +73,24 @@ class DFSFileSystemNumericRangeTest {
         return Location.of(directory.toUri() + name);
     }
 
+    @Test
+    void nestedAlternativesWorkInBothListingPaths() throws Exception {
+        for (String name : List.of("data_a1.txt", "data_a101.txt", "data_b1.txt", "data_b101.txt",
+                "data_a102.txt", "data_c1.txt")) {
+            Files.writeString(directory.resolve(name), "row");
+        }
+        try (DFSFileSystem fs = new DFSFileSystem(Map.of())) {
+            Location pattern = location("data_{a{1..101},b{1..101}}.txt");
+            List<String> expected = List.of("data_a1.txt", "data_a101.txt", "data_b1.txt", "data_b101.txt");
+            Assertions.assertEquals(expected, names(fs.listFiles(pattern)));
+            GlobListing first = fs.globListWithLimit(pattern, null, 0, 2);
+            Assertions.assertEquals(expected.subList(0, 2), names(first.getFiles()));
+            GlobListing remaining = fs.globListWithLimit(pattern,
+                    first.getFiles().get(1).location().uri(), 0, 10);
+            Assertions.assertEquals(expected.subList(2, 4), names(remaining.getFiles()));
+        }
+    }
+
     private List<String> names(List<FileEntry> files) {
         return files.stream().map(f -> f.location().uri().substring(f.location().uri().lastIndexOf('/') + 1))
                 .sorted().collect(Collectors.toList());

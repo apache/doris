@@ -240,6 +240,30 @@ public class HudiPartitionPruningTest {
                 Arrays.asList("year=2024/month=01", "year=2024/month=02"), prunedPaths(result));
     }
 
+    @Test
+    public void testHiveSyncPrunesAcrossEquivalentS3Schemes() {
+        List<String> names = Arrays.asList("dt=08%253A00", "dt=%25253A", "dt=plain");
+        for (String baseScheme : Arrays.asList("s3", "s3a")) {
+            for (String partitionScheme : Arrays.asList("s3", "s3a")) {
+                FakeHmsClient hms = new FakeHmsClient(names);
+                hms.locations = Map.of(names.get(0), partitionScheme + "://b/t/dt=08%3A00",
+                        names.get(1), partitionScheme + "://b/t/dt=%253A");
+                HudiConnectorMetadata metadata = new HudiConnectorMetadata(hms,
+                        HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                        new StubMetaClientExecutor(Collections.emptyList()));
+                HudiTableHandle handle = new HudiTableHandle.Builder("db", "t",
+                        baseScheme + "://b/t", "COPY_ON_WRITE")
+                        .partitionKeyNames(Collections.singletonList("dt")).build();
+                for (String value : Arrays.asList("08:00", "%3A", "plain")) {
+                    String path = value.equals("08:00") ? "dt=08%3A00"
+                            : value.equals("%3A") ? "dt=%253A" : "dt=plain";
+                    Assertions.assertEquals(Collections.singletonList(path), prunedPaths(metadata.applyFilter(
+                            null, handle, new ConnectorFilterConstraint(eq("dt", value)))));
+                }
+            }
+        }
+    }
+
     /**
      * A pinned read on a hive-sync table prunes the Hudi metadata listing, never HMS. HMS holds the
      * partitions of NOW: a partition that held data at the pin and was dropped - and hive-unsynced - since

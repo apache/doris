@@ -922,7 +922,9 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
             appendLiteral(prefixes, c);
             i++;
         }
-        return compactPrefixes(prefixes);
+        // A complete brace arm is not yet a listing prefix: a later suffix can distinguish
+        // "1.csv" from "101.csv". Compact only after the surrounding expression is expanded.
+        return allowPartialPrefix ? compactPrefixes(prefixes) : prefixes;
     }
 
     private static void appendLiteral(List<String> prefixes, char c) {
@@ -1240,7 +1242,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     protected static String globToRegex(String glob) {
         StringBuilder sb = new StringBuilder("^");
         boolean inClass = false;
-        boolean inGroup = false;
+        int groupDepth = 0;
         int i = 0;
         while (i < glob.length()) {
             char c = glob.charAt(i);
@@ -1290,17 +1292,18 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
                     }
                     break;
                 case '{':
-                    inGroup = true;
+                    groupDepth++;
                     sb.append("(?:");
                     i++;
                     break;
                 case '}':
-                    inGroup = false;
+                    groupDepth--;
                     sb.append(')');
                     i++;
                     break;
                 case ',':
-                    if (inGroup) {
+                    // Closing an inner group must not turn the outer group's alternatives into literals.
+                    if (groupDepth > 0) {
                         sb.append('|');
                     } else {
                         sb.append(',');

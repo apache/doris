@@ -966,12 +966,20 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         URI base = new Path(basePath).toUri();
         URI partition = new Path(location).toUri();
         String prefix = base.getPath().endsWith("/") ? base.getPath() : base.getPath() + "/";
-        if (!Objects.equals(base.getScheme(), partition.getScheme())
+        if (!sameStorageScheme(base.getScheme(), partition.getScheme())
                 || !Objects.equals(base.getAuthority(), partition.getAuthority())
                 || !partition.getPath().startsWith(prefix) || partition.getPath().length() == prefix.length()) {
             throw new DorisConnectorException("Hudi HMS partition location is outside the table base path");
         }
         return partition.getPath().substring(prefix.length());
+    }
+
+    private static boolean sameStorageScheme(String baseScheme, String partitionScheme) {
+        // Hive sync preserves the table location when only its scheme changes. Doris maps both
+        // s3 and s3a to S3AFileSystem; accepting that pair must not relax bucket or path checks.
+        return Objects.equals(baseScheme, partitionScheme)
+                || (("s3".equals(baseScheme) || "s3a".equals(baseScheme))
+                && ("s3".equals(partitionScheme) || "s3a".equals(partitionScheme)));
     }
 
     /**

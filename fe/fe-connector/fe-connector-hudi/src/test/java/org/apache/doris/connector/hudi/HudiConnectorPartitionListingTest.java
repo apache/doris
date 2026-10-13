@@ -391,7 +391,9 @@ public class HudiConnectorPartitionListingTest {
     @Test
     public void encodedPartitionWithoutValidStorageLocationFailsInsteadOfLosingRows() {
         for (String location : Arrays.asList(null, "", "s3://b/other/dt=a%3Ab",
-                "s3://b/table/dt=a%3Ab", "s3://other/t/dt=a%3Ab")) {
+                "s3://b/table/dt=a%3Ab", "s3://other/t/dt=a%3Ab", "s3a://other/t/dt=a%3Ab",
+                "s3a://b/table/dt=a%3Ab", "s3a://b/t/../other/dt=a%3Ab", "s3a://b/t",
+                "s3a://b/t/", "hdfs://b/t/dt=a%3Ab", "file:///t/dt=a%3Ab")) {
             RecordingHmsClient hms = new RecordingHmsClient(Collections.singletonList("dt=a%253Ab"));
             hms.locations = Collections.singletonMap("dt=a%253Ab", location);
             HudiConnectorMetadata md = metadata(true, hms, stub(7L));
@@ -399,6 +401,31 @@ public class HudiConnectorPartitionListingTest {
                     .partitionKeyNames(Collections.singletonList("dt")).build();
             Assertions.assertThrows(DorisConnectorException.class,
                     () -> md.listPartitions(null, handle, Optional.empty()), location);
+        }
+    }
+
+    @Test
+    public void hiveSyncListingAcceptsEquivalentS3SchemesWithoutDecodingPaths() {
+        List<String> names = Arrays.asList("dt=a%253Ab", "dt=%25253A", "dt=a%2Fb", "dt=plain");
+        for (String baseScheme : Arrays.asList("s3", "s3a")) {
+            for (String partitionScheme : Arrays.asList("s3", "s3a")) {
+                for (String path : Arrays.asList("/t", "/t/", "/a+b%20c/t", "")) {
+                    String prefix = path.endsWith("/") ? path : path + "/";
+                    RecordingHmsClient hms = new RecordingHmsClient(names);
+                    hms.locations = Map.of(names.get(0), partitionScheme + "://b" + prefix + "dt=a%3Ab",
+                            names.get(1), partitionScheme + "://b" + prefix + "dt=%253A",
+                            names.get(2), partitionScheme + "://b" + prefix + "dt=a%2Fb");
+                    HudiConnectorMetadata md = metadata(true, hms, stub(7L));
+                    HudiTableHandle handle = new HudiTableHandle.Builder("db", "t",
+                            baseScheme + "://b" + path, "COPY_ON_WRITE")
+                            .partitionKeyNames(Collections.singletonList("dt")).build();
+                    List<ConnectorPartitionInfo> parts = md.listPartitions(null, handle, Optional.empty());
+                    Assertions.assertEquals(Arrays.asList("a:b", "%3A", "a/b", "plain"), parts.stream()
+                            .map(p -> p.getPartitionValues().get("dt")).collect(Collectors.toList()));
+                    Assertions.assertEquals(Arrays.asList("dt=a%3Ab", "dt=%253A", "dt=a%2Fb", "dt=plain"),
+                            md.listPartitionNames(null, handle));
+                }
+            }
         }
     }
 

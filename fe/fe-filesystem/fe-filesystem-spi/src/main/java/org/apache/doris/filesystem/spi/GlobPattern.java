@@ -20,9 +20,9 @@ package org.apache.doris.filesystem.spi;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -54,6 +54,7 @@ public final class GlobPattern {
         StringBuilder result = new StringBuilder();
         Deque<BraceGroup> groups = new ArrayDeque<>();
         ExpansionBudget budget = new ExpansionBudget();
+        long combinations = 1;
         boolean characterClass = false;
         for (int i = 0; i < pattern.length(); i++) {
             char c = pattern.charAt(i);
@@ -82,6 +83,11 @@ public final class GlobPattern {
                 group.finishSegment();
                 String expanded = group.expand(budget);
                 (groups.isEmpty() ? result : groups.peek().segment).append('{').append(expanded).append('}');
+                if (groups.isEmpty()) {
+                    combinations = cappedCount(combinations * group.combinations);
+                } else {
+                    groups.peek().multiplyCombinations(group.combinations);
+                }
             } else {
                 output.append(c);
             }
@@ -92,30 +98,45 @@ public final class GlobPattern {
             (groups.isEmpty() ? result : groups.peek().segment)
                     .append('{').append(String.join(",", group.segments));
         }
+        // Literal-only globs keep their existing behavior. Numeric expansion also bounds the
+        // resulting expression, including literal alternatives around a numeric group.
+        if (budget.expandedValues > 0) {
+            checkLimit(combinations);
+        }
         return result.toString();
     }
 
     private static final class ExpansionBudget {
-        private long combinations = 1;
         private long expandedValues;
     }
 
     private static final class BraceGroup {
         private final List<String> segments = new ArrayList<>();
+        private final List<Long> segmentCounts = new ArrayList<>();
         private final StringBuilder segment = new StringBuilder();
+        private long segmentCombinations = 1;
+        private long combinations;
 
         private void finishSegment() {
             segments.add(segment.toString());
+            segmentCounts.add(segmentCombinations);
             segment.setLength(0);
+            segmentCombinations = 1;
+        }
+
+        private void multiplyCombinations(long count) {
+            segmentCombinations = cappedCount(segmentCombinations * count);
         }
 
         private String expand(ExpansionBudget budget) {
             if (segments.size() == 1 && !SIMPLE_RANGE.matcher(segments.get(0)).matches()) {
+                combinations = segmentCounts.get(0);
                 return segments.get(0);
             }
-            Set<String> values = new LinkedHashSet<>();
+            Map<String, Long> values = new LinkedHashMap<>();
             boolean expanded = false;
-            for (String alternative : segments) {
+            for (int i = 0; i < segments.size(); i++) {
+                String alternative = segments.get(i);
                 Matcher range = RANGE.matcher(alternative.trim());
                 if (range.matches()) {
                     // Count before materializing, and use long arithmetic so an int endpoint
@@ -126,20 +147,27 @@ public final class GlobPattern {
                     checkLimit(budget.expandedValues);
                     long step = from <= to ? 1 : -1;
                     for (long value = from; step > 0 ? value <= to : value >= to; value += step) {
-                        values.add(Long.toString(value));
+                        values.put(Long.toString(value), 1L);
                     }
                     expanded = true;
                 } else {
-                    values.add(alternative.trim());
+                    values.put(alternative.trim(), segmentCounts.get(i));
                 }
             }
+            // Sibling alternatives are mutually exclusive; only concatenated groups multiply.
+            // Saturate counts so deeply nested expressions cannot overflow before the limit check.
+            for (long count : expanded ? values.values() : segmentCounts) {
+                combinations = cappedCount(combinations + count);
+            }
             if (expanded) {
-                budget.combinations *= values.size();
-                checkLimit(budget.combinations);
-                return String.join(",", values);
+                return String.join(",", values.keySet());
             }
             return String.join(",", segments);
         }
+    }
+
+    private static long cappedCount(long count) {
+        return Math.min(count, MAX_EXPANSIONS + 1L);
     }
 
     private static void checkLimit(long count) {
