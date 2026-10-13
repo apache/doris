@@ -29,6 +29,7 @@ import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventOffset;
 import org.apache.doris.job.offset.s3.S3Offset;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
 import org.apache.doris.nereids.StatementContext;
@@ -36,17 +37,22 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
+import org.apache.doris.thrift.TBrokerFileStatus;
 
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
@@ -55,11 +61,30 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class StreamingInsertTaskAuditTest {
+    private ConnectContext previousContext;
+
+    @BeforeEach
+    public void setUp() {
+        previousContext = ConnectContext.get();
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        ctx.setStatementContext(new StatementContext());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        ConnectContext.remove();
+        if (previousContext != null) {
+            previousContext.setThreadLocalInfo();
+        }
+    }
+
     private static final String ORIGIN_URI = "s3://bucket/input/*.csv";
     private static final String RESOLVED_URI = "s3://bucket/input/{1.csv,2.csv}";
     private static final String S3_SQL = "insert into target_table select * from s3("
@@ -88,6 +113,7 @@ public class StreamingInsertTaskAuditTest {
         Assertions.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
         Assertions.assertFalse(auditEvent.stmt.contains(ORIGIN_URI));
         Assertions.assertTrue(auditEvent.stmt.contains(RESOLVED_URI));
+        Assertions.assertFalse(auditEvent.stmt.contains("WITH LABEL"));
         Assertions.assertFalse(auditEvent.stmt.contains("private-value"));
         Assertions.assertEquals("OK", auditEvent.state);
         Assertions.assertTrue(auditEvent.isInternal);
@@ -101,7 +127,25 @@ public class StreamingInsertTaskAuditTest {
         Assertions.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
         Assertions.assertEquals("ERR", auditEvent.state);
         Assertions.assertTrue(auditEvent.errorMessage.contains("insert failed"));
+        Assertions.assertFalse(auditEvent.stmt.contains("WITH LABEL"));
         Assertions.assertTrue(auditEvent.isInternal);
+    }
+
+    @Test
+    public void testAuditPreservesOriginalInsertClauses() throws Exception {
+        for (String target : new String[] {
+                "target_table(c1)",
+                "`db`.`target table` PARTITION (p0) (c1)",
+                "target_table WITH LABEL old_label (c1)",
+                "target_table [shuffle]",
+                "target_table /* target comment */ (c1)"}) {
+            AuditEvent event = runTask(null, S3_SQL.replace("target_table", target),
+                    new S3SourceOffsetProvider(), new S3Offset(), true);
+            Assertions.assertTrue(event.stmt.contains(target));
+            Assertions.assertFalse(event.stmt.contains("WITH LABEL `1_2`"));
+            Assertions.assertTrue(event.stmt.contains(RESOLVED_URI));
+            Assertions.assertFalse(event.stmt.contains("private-value"));
+        }
     }
 
     @Test
@@ -130,13 +174,11 @@ public class StreamingInsertTaskAuditTest {
         SourceOffsetProvider provider = Mockito.mock(SourceOffsetProvider.class);
         Mockito.when(provider.getSourceType()).thenReturn("s3");
         S3Offset offset = new S3Offset();
-        offset.setFileLists(RESOLVED_URI);
         Mockito.when(provider.getNextOffset(Mockito.eq(properties), Mockito.anyMap())).thenReturn(offset);
         InsertIntoTableCommand baseCommand = Mockito.mock(InsertIntoTableCommand.class);
-        Mockito.when(baseCommand.getParsedPlan()).thenReturn(Optional.of(Mockito.mock(LogicalPlan.class)));
         InsertIntoTableCommand taskCommand = Mockito.mock(InsertIntoTableCommand.class);
-        UnboundTVFRelation tvf = Mockito.mock(UnboundTVFRelation.class);
-        Mockito.when(taskCommand.getAllTVFRelation()).thenReturn(Collections.singletonList(tvf));
+        Mockito.when(taskCommand.getLogicalQuery()).thenReturn(auditRelation());
+        offset.setFileStatuses(batchFiles());
         Mockito.when(provider.rewriteTvfParams(Mockito.eq(baseCommand), Mockito.eq(offset), Mockito.anyLong()))
                 .thenReturn(taskCommand);
         Mockito.doAnswer(invocation -> {
@@ -158,7 +200,7 @@ public class StreamingInsertTaskAuditTest {
                 MockedStatic<AuditLogHelper> audit = Mockito.mockStatic(AuditLogHelper.class)) {
             insertTask.when(() -> InsertTask.makeConnectContext(UserIdentity.ROOT, "test_db")).thenReturn(ctx);
             StreamingInsertTask task = new StreamingInsertTask(1L, 2L, S3_SQL, provider, "test_db", properties,
-                    Collections.emptyMap(), UserIdentity.ROOT, null);
+                    Map.of("URI", ORIGIN_URI), UserIdentity.ROOT, null);
             // A retry must not audit files from an earlier attempt after preparation fails.
             Deencapsulation.setField(task, "auditSql", "stale audit SQL from a previous attempt");
             task.before();
@@ -168,7 +210,9 @@ public class StreamingInsertTaskAuditTest {
             Mockito.verify(parsers.constructed().get(1)).parseForEncryption(Mockito.eq(S3_SQL), Mockito.anyMap());
             task.run();
             Assertions.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
-            Mockito.verify(taskCommand).run(ctx, executors.constructed().get(1));
+            Assertions.assertEquals(1, executors.constructed().size());
+            Mockito.verify(baseCommand, Mockito.never()).initPlan(Mockito.any(), Mockito.any(), Mockito.anyBoolean());
+            Mockito.verify(taskCommand).run(ctx, executors.constructed().get(0));
             audit.verifyNoInteractions();
         }
     }
@@ -179,28 +223,85 @@ public class StreamingInsertTaskAuditTest {
         originProperties.put("URI", ORIGIN_URI);
         UnboundTVFRelation originTvf = new UnboundTVFRelation(
                 new RelationId(1), "s3", new Properties(originProperties));
-        InsertIntoTableCommand originCommand = Mockito.mock(InsertIntoTableCommand.class);
-        Mockito.when(originCommand.getParsedPlan()).thenReturn(Optional.of(originTvf));
 
         S3Offset offset = new S3Offset();
-        offset.setFileLists(RESOLVED_URI);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.isMaster()).thenReturn(false);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            InsertIntoTableCommand originCommand = new InsertIntoTableCommand(originTvf,
+                    Optional.of("original_label"), Optional.empty(), Optional.empty());
+            originCommand.setJobId(42L);
+            offset.setFileStatuses(batchFiles());
             InsertIntoTableCommand rewritten = new S3SourceOffsetProvider()
                     .rewriteTvfParams(originCommand, offset, 1L);
 
             Map<String, String> rewrittenProperties =
-                    rewritten.getAllTVFRelation().get(0).getProperties().getMap();
+                    ((LogicalTVFRelation) rewritten.getLogicalQuery()).getFunction().getTVFProperties().getMap();
+            Assertions.assertEquals(Optional.of("original_label"), rewritten.getLabelName());
+            Assertions.assertEquals(42L, rewritten.getJobId());
             Assertions.assertEquals(1, rewrittenProperties.size());
             Assertions.assertEquals(RESOLVED_URI, rewrittenProperties.get("URI"));
         }
     }
 
+    @Test
+    public void testExactFileRewritePreservesWithClause() {
+        ConnectContext.get().setDatabase("test_db");
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(env.isMaster()).thenReturn(false);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            InsertIntoTableCommand command = (InsertIntoTableCommand) new NereidsParser().parseSingle(
+                    "with input as (select 1 as c) insert into target_table select * from s3(\"uri\"=\""
+                            + ORIGIN_URI + "\") cross join input");
+            S3Offset offset = new S3Offset();
+            offset.setFileStatuses(batchFiles());
+            InsertIntoTableCommand rewritten = new S3SourceOffsetProvider().rewriteTvfParams(command, offset, 1L);
+            Optional<?> originalCte = Deencapsulation.getField(command, "cte");
+            Optional<?> rewrittenCte = Deencapsulation.getField(rewritten, "cte");
+            Assertions.assertTrue(originalCte.isPresent());
+            Assertions.assertEquals(originalCte, rewrittenCte);
+            List<LogicalTVFRelation> relations = rewritten.getLogicalQuery()
+                    .collectToList(LogicalTVFRelation.class::isInstance);
+            Assertions.assertEquals(1, relations.size());
+            Assertions.assertEquals(RESOLVED_URI,
+                    relations.get(0).getFunction().getTVFProperties().getMap().get("uri"));
+            Assertions.assertEquals(batchFiles(),
+                    Deencapsulation.getField(relations.get(0).getFunction(), "fileStatuses"));
+        }
+    }
+
+    @Test
+    public void testNotificationAuditUsesExactBatch() throws Exception {
+        SourceOffsetProvider provider = Mockito.mock(SourceOffsetProvider.class);
+        Mockito.when(provider.getSourceType()).thenReturn("s3");
+        AuditEvent event = runTask(null, S3_SQL, provider,
+                new S3EventOffset(List.of("input/1.csv", "input/2.csv"), batchFiles()), true);
+        Assertions.assertTrue(event.stmt.contains(RESOLVED_URI));
+        Assertions.assertFalse(event.stmt.contains(ORIGIN_URI));
+        Assertions.assertFalse(event.stmt.contains("private-value"));
+    }
+
+    private static LogicalTVFRelation auditRelation() {
+        Map<String, String> properties = Map.of(
+                "uri", RESOLVED_URI, "s3.secret_key", "private-value", "enclose", "\"");
+        return new LogicalTVFRelation(new RelationId(1), S3.withFiles(new Properties(properties), batchFiles()),
+                ImmutableList.of());
+    }
+
+    private static List<TBrokerFileStatus> batchFiles() {
+        return List.of(new TBrokerFileStatus("s3://bucket/input/1.csv", false, 10, true),
+                new TBrokerFileStatus("s3://bucket/input/2.csv", false, 20, true));
+    }
+
     private AuditEvent runS3Task(RuntimeException commandFailure) throws Exception {
         S3Offset offset = new S3Offset();
-        offset.setFileLists(RESOLVED_URI);
         return runTask(commandFailure, S3_SQL, new S3SourceOffsetProvider(), offset, true);
     }
 
@@ -223,13 +324,7 @@ public class StreamingInsertTaskAuditTest {
             ctx.getState().setOk();
             InsertIntoTableCommand command = Mockito.mock(InsertIntoTableCommand.class);
             if (expectAudit) {
-                Map<String, String> rewrittenTvfProps = new HashMap<>();
-                rewrittenTvfProps.put("uri", RESOLVED_URI);
-                rewrittenTvfProps.put("s3.secret_key", "private-value");
-                rewrittenTvfProps.put("enclose", "\"");
-                UnboundTVFRelation tvf = Mockito.mock(UnboundTVFRelation.class);
-                Mockito.when(tvf.getProperties()).thenReturn(new Properties(rewrittenTvfProps));
-                Mockito.when(command.getAllTVFRelation()).thenReturn(Collections.singletonList(tvf));
+                Mockito.when(command.getLogicalQuery()).thenReturn(auditRelation());
             }
             AtomicLong commandStartTime = new AtomicLong();
             Mockito.doAnswer(invocation -> {
@@ -250,7 +345,8 @@ public class StreamingInsertTaskAuditTest {
 
             StreamingInsertTask task = new StreamingInsertTask(
                     1L, 2L, sql, offsetProvider, "test_db", null,
-                    Collections.emptyMap(), UserIdentity.ROOT, null);
+                    Map.of("URI", ORIGIN_URI, "s3.secret_key", "private-value", "enclose", "\""),
+                    UserIdentity.ROOT, null);
             Deencapsulation.setField(task, "ctx", ctx);
             Deencapsulation.setField(task, "taskCommand", command);
             Deencapsulation.setField(task, "stmtExecutor", executor);

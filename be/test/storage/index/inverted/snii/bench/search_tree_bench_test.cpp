@@ -600,7 +600,6 @@ TEST_F(SearchTreeBench, DISABLED_BooleanTrees) {
             return listed.find(fmt::format(",{},", search_case.label)) == std::string::npos;
         });
     }
-    const std::unordered_map<std::string, int> no_column_ids;
     const FunctionSearch search;
     const char* formats = std::getenv("SEARCH_TREE_BENCH_FORMATS");
     const std::string listed_formats =
@@ -700,7 +699,7 @@ TEST_F(SearchTreeBench, DISABLED_BooleanTrees) {
                 const Status status = search.evaluate_inverted_index_with_search_param(
                         param, fields, {{kField, &iterator}, {kSecondField, &second_iterator}},
                         doc_count, result,
-                        /*enable_cache=*/false, nullptr, no_column_ids, run.context);
+                        /*enable_cache=*/false, nullptr, nullptr, run.context);
                 const double elapsed_ms = thread_cpu_ms() - start;
                 ASSERT_TRUE(status.ok()) << label << ": " << status;
                 const roaring::Roaring& rows = *result.get_data_bitmap();

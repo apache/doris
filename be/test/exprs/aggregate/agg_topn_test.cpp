@@ -176,4 +176,14 @@ TEST(AggregateFunctionTopNTest, PositiveRateStillLimitsSerializedCandidates) {
     state.set_paramenters(1);
     EXPECT_EQ(round_trip(state).counter_map, state.counter_map);
 }
+
+TEST(AggregateFunctionTopNTest, NonPositiveCountIsRejected) {
+    // FE validates a literal count, and BE validates a constant count only it can evaluate
+    for (int count : {0, -1}) {
+        AggregateFunctionTopNData<TYPE_STRING> state;
+        EXPECT_THROW(state.set_paramenters(count), Exception);
+        EXPECT_THROW(state.set_paramenters(count, 10), Exception);
+    }
+}
+
 } // namespace doris

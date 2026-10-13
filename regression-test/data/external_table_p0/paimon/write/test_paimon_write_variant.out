@@ -3,6 +3,10 @@
 20	1	row-one
 21	row-two	2
 
+-- !variant_uuid --
+30	6ba7b810-9dad-11d1-80b4-00c04fd430c8	["6ba7b811-9dad-11d1-80b4-00c04fd430c8",null]	uuid	uuid
+31	6ba7b812-9dad-11d1-80b4-00c04fd430c8	["6ba7b813-9dad-11d1-80b4-00c04fd430c8"]	uuid	uuid
+
 -- !variant_object --
 doris	Hangzhou	1	true	{}	[]	中文😀	2
 
@@ -23,4 +27,5 @@ doris	Hangzhou	1	true	{}	[]	中文😀	2
 45056	large-string
 
 -- !variant_row_count --
-15
+17
+

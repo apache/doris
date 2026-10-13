@@ -322,8 +322,7 @@ TEST_F(SegmentCorruptionTest, TestFsSetInCorruptionRetryPath) {
     const TabletIndex* idx_meta = indexes[0];
 
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     std::unique_ptr<IndexIterator> iter;
     // This call triggers _open_index_file_reader() -> uses _fs
     // If _fs is nullptr (bug not fixed), this will crash
@@ -394,8 +393,7 @@ TEST_F(SegmentCorruptionTest, TestFooterCorruptionTriggersRetry) {
 
     // Verify that _fs was correctly set through the retry path
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
 
     auto indexes = schema->inverted_indexs(schema->column(1));
     ASSERT_FALSE(indexes.empty());
@@ -431,8 +429,7 @@ TEST_F(SegmentCorruptionTest, TestFsSetInNormalPath) {
     const TabletIndex* idx_meta = indexes[0];
 
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     std::unique_ptr<IndexIterator> iter;
     st = segment->new_index_iterator(schema->column(1), idx_meta, read_options, &iter);
     // If we reach here without crash, _fs was correctly set

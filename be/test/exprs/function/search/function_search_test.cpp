@@ -3080,10 +3080,10 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledWhenScoring) {
     scoring_context->runtime_state = &runtime_state;
     scoring_context->stats = &stats;
     InvertedIndexResultBitmap result;
-    std::unordered_map<std::string, int> field_name_to_column_id;
+    const TabletColumn* nested_column = nullptr;
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_type_with_names, iterators, 4, result, true, nullptr,
-            field_name_to_column_id, scoring_context);
+            search_param, data_type_with_names, iterators, 4, result, true, nullptr, nested_column,
+            scoring_context);
 
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(1, index_file_reader->init_calls);
@@ -3828,10 +3828,9 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheKeysExpansionsByTheirLimit) {
         context->runtime_state = &runtime_state;
         context->stats = &stats;
         InvertedIndexResultBitmap result;
-        std::unordered_map<std::string, int> field_name_to_column_id;
         const auto status = function_search->evaluate_inverted_index_with_search_param(
                 search_param, body.data_type_with_names, body.iterators, 4, result, true, nullptr,
-                field_name_to_column_id, context);
+                nullptr, context);
         EXPECT_TRUE(status.ok()) << status.to_string();
         return result.get_data_bitmap() != nullptr ? *result.get_data_bitmap() : roaring::Roaring();
     };
@@ -3861,10 +3860,9 @@ TEST_F(FunctionSearchTest, TestSearchTopKStreamsAScoredDisjunction) {
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
     context->query_limit = 1;
     InvertedIndexResultBitmap result;
-    std::unordered_map<std::string, int> field_name_to_column_id;
     const auto status = function_search->evaluate_inverted_index_with_search_param(
             search_param, body.data_type_with_names, body.iterators, 4, result, true, nullptr,
-            field_name_to_column_id, context);
+            nullptr, context);
     ASSERT_TRUE(status.ok()) << status.to_string();
     // Row 2 holds both terms and scores highest.
     ASSERT_NE(nullptr, result.get_data_bitmap());

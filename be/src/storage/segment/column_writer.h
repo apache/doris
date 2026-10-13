@@ -224,9 +224,6 @@ public:
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
 
-protected:
-    DataTypePtr _data_type;
-
 private:
     TabletColumnPtr _column;
     bool _is_nullable;

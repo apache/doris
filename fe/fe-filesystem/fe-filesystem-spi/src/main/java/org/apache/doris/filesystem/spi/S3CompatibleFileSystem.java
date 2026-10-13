@@ -1189,6 +1189,11 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return sb.toString();
     }
 
+    /** Compiles the same numeric-range and glob syntax used by LIST for matching raw object keys. */
+    public static Pattern compileGlobPattern(String keyPattern) {
+        return Pattern.compile(globToRegex(expandNumericRanges(keyPattern)));
+    }
+
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
