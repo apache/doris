@@ -86,6 +86,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1578,6 +1579,40 @@ public class IcebergWritePlanProviderTest {
         // sink output does not have -> red.
         Assertions.assertEquals(Collections.singletonList("id"),
                 provider.getWriteDistribution(session, handle).getRouteColumns());
+    }
+
+    @Test
+    public void getWriteDistributionKeepsRandomWritesForBinaryPartitionValues() {
+        // The exchange hashes the transformed value, and the BE column of a BINARY or FIXED value has no shuffle
+        // hash: routing identity(binary_key) fails the INSERT once it has two writers. bucket() turns the bytes
+        // into an INT, so that one is routed. MUTATION: dropping the transformed-type check -> the first four
+        // tables route -> red.
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "binary_key", Types.BinaryType.get()),
+                Types.NestedField.optional(3, "fixed_key", Types.FixedType.ofLength(4)));
+        Map<String, PartitionSpec> unroutable = new LinkedHashMap<>();
+        unroutable.put("identity_binary", PartitionSpec.builderFor(schema).identity("binary_key").build());
+        unroutable.put("truncate_binary", PartitionSpec.builderFor(schema).truncate("binary_key", 1).build());
+        unroutable.put("identity_fixed", PartitionSpec.builderFor(schema).identity("fixed_key").build());
+        // One unhashable field is enough: the route hashes every field of the spec together.
+        unroutable.put("int_and_binary",
+                PartitionSpec.builderFor(schema).identity("id").identity("binary_key").build());
+        for (Map.Entry<String, PartitionSpec> entry : unroutable.entrySet()) {
+            Table table = catalog.createTable(TableIdentifier.of("db1", entry.getKey()), schema, entry.getValue());
+            Assertions.assertNull(providerFor(table, contextWithStorage()).getWriteDistribution(
+                    sessionFor(table, contextWithStorage()), new IcebergTableHandle("db1", entry.getKey())),
+                    entry.getKey());
+        }
+
+        Table bucketed = catalog.createTable(TableIdentifier.of("db1", "bucket_binary"), schema,
+                PartitionSpec.builderFor(schema).bucket("binary_key", 16).build());
+        ConnectorWriteDistribution distribution = providerFor(bucketed, contextWithStorage()).getWriteDistribution(
+                sessionFor(bucketed, contextWithStorage()), new IcebergTableHandle("db1", "bucket_binary"));
+        Assertions.assertEquals(Collections.singletonList("binary_key"), distribution.getRouteColumns());
+        Assertions.assertEquals(Collections.singletonMap("transforms", "bucket[16]"),
+                distribution.getPartitionFunctionOptions());
     }
 
     @Test
