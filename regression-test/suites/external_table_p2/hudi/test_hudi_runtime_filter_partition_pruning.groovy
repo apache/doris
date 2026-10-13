@@ -202,6 +202,30 @@ suite("test_hudi_runtime_filter_partition_pruning", "p2,external") {
         sql """ set enable_runtime_filter_partition_prune = true; """
         test_runtime_filter_partition_pruning()
 
+        // A min/max over only partition columns is answered from partition metadata, on Hudi just as
+        // on Hive. Assert it is planned AND that it actually ran: the plan can report
+        // pushdown agg=PARTITION_VALUE while the reader declines the range and scans normally.
+        sql """ set enable_profile=true """
+        def totalRows = sql("select count(*) from int_partition_tb")[0][0] as long
+        explain {
+            sql "select max(part1) from int_partition_tb"
+            contains "pushdown agg=PARTITION_VALUE"
+        }
+        profile("hudi_partition_value_input_rows") {
+            run {
+                sql """/* hudi_partition_value_input_rows */
+                    select max(part1) from int_partition_tb"""
+            }
+            check { profileString, exception ->
+                assert exception == null
+                def scanRows = (profileString =~ /InputRows:\s+sum\s+(\d+)/)
+                        .collect { it[1] as long }.max()
+                assertTrue(scanRows < totalRows,
+                        "PARTITION_VALUE must not materialize every row: the scan read " +
+                        "${scanRows} rows for a ${totalRows}-row table")
+            }
+        }
+
     } finally {
         // Restore default setting
         sql """ set enable_runtime_filter_partition_prune = true; """

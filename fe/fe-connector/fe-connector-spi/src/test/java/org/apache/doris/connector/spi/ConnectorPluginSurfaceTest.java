@@ -87,6 +87,7 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
+        // Major 13 adds SUPPORTS_PARTITION_VALUE_ONLY and the partition-value scan-request mode.
         // Major 13 carries textual write-input semantics on ConnectorColumn.
         Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
@@ -103,6 +104,8 @@ public class ConnectorPluginSurfaceTest {
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanRequest.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanRequest.Builder.class,
             ConnectorWriteHandle.class,
             ConnectorChangelogMode.class,
             ConnectorRowLevelDmlRequest.class,

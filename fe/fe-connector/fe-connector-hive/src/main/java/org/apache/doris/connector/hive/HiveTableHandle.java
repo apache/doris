@@ -155,7 +155,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
         return !INSERT_ONLY.equalsIgnoreCase(props);
     }
 
-    private static boolean isTransactionalTable(Map<String, String> tableParameters) {
+    static boolean isTransactionalTable(Map<String, String> tableParameters) {
         if (tableParameters == null) {
             return false;
         }

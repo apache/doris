@@ -205,6 +205,17 @@ public enum ConnectorCapability {
      */
     SUPPORTS_STORAGE_PREDICATE_PRUNING,
     /**
+     * Allows duplicate-insensitive partition-only aggregation using {@code columns_from_path}. The
+     * reader must prove at least one visible source row exists before emitting a partition-value row;
+     * merely listing a file or range is not proof. Empty ranges produce no rows, and unsupported readers
+     * retain ordinary scan behavior, including missing/corrupt-file failures.
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> Currently Hive opts in per-table only for native,
+     * nontransactional Parquet/ORC tables whose readers can establish row existence from the footer.
+     * Transactional Hive and delegated Hudi, Iceberg and Paimon tables do not opt in.</p>
+     */
+    SUPPORTS_PARTITION_VALUE_ONLY,
+    /**
      * Indicates the connector's external metadata (schema / partitions / snapshot) can be pre-warmed
      * asynchronously by the planner before it takes the internal read lock, rather than loaded lazily
      * during binding.

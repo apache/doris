@@ -125,7 +125,10 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     /** PushAggOp */
     public enum PushDownAggOp {
-        COUNT, MIN_MAX, MIX, COUNT_ON_MATCH;
+        COUNT, MIN_MAX, MIX, COUNT_ON_MATCH,
+        // Duplicate-insensitive aggregation over partition columns. Readers may emit one row
+        // per nonempty range when file metadata proves row existence, otherwise scan normally.
+        PARTITION_VALUE;
 
         /** supportedFunctions */
         public static Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedFunctions() {

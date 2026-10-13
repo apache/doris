@@ -22,9 +22,11 @@ import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
@@ -138,6 +140,27 @@ public class HiveConnectorMetadataTableHandleDivertTest {
                 "the divert must consult the hudi sibling exactly once");
         Assertions.assertEquals(0, icebergSibling.getMetadataCalls,
                 "a hudi table must NEVER be diverted to the iceberg sibling");
+    }
+
+    @Test
+    public void delegatedHudiSchemaDoesNotAcquirePartitionValueCapability() {
+        for (String inputFormat : new String[] {HUDI,
+                "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat"}) {
+            HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                    new FakeHmsClient(hiveTable(inputFormat), true), HiveTestProperties.minimal(),
+                    new FakeConnectorContext(), () -> icebergSibling, () -> hudiSibling,
+                    handle -> {
+                        Assertions.assertSame(hudiHandle, handle);
+                        return new SiblingOwner(hudiSibling, SiblingOwner.HUDI_LABEL);
+                    });
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "t").get();
+            ConnectorTableSchema schema = metadata.getTableSchema(session, handle);
+            Assertions.assertSame(hudiHandle, hudiSibling.metadata.schemaHandle);
+            Assertions.assertEquals("HUDI", schema.getTableFormatType());
+            Assertions.assertFalse(schema.getTableCapabilities()
+                    .contains(ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+            Assertions.assertEquals(0, icebergSibling.getMetadataCalls);
+        }
     }
 
     @Test
@@ -257,6 +280,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
     /** Records getTableHandle calls and returns a configurable foreign handle (null -> empty). */
     private static final class RecordingSiblingMetadata implements ConnectorMetadata {
         private ConnectorTableHandle returnHandle;
+        private ConnectorTableHandle schemaHandle;
         private int getTableHandleCalls;
 
         RecordingSiblingMetadata(ConnectorTableHandle handle) {
@@ -268,6 +292,12 @@ public class HiveConnectorMetadataTableHandleDivertTest {
                 String tableName) {
             getTableHandleCalls++;
             return Optional.ofNullable(returnHandle);
+        }
+
+        @Override
+        public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
+            schemaHandle = handle;
+            return new ConnectorTableSchema("t", Collections.emptyList(), "HUDI", Collections.emptyMap());
         }
     }
 
