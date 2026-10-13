@@ -36,6 +36,10 @@ suite("test_jdbc_stale_schema_precision", "p0,external") {
         return
     }
 
+    // Schema caches are local to each FE, while INSERT is planned on the master. Prime and
+    // read the master's cache so forwarding cannot replace the deliberately stale schema.
+    context.reconnectToMasterFe()
+
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String pg_port = context.config.otherConfigs.get("pg_14_port")
     String s3_endpoint = getS3Endpoint()

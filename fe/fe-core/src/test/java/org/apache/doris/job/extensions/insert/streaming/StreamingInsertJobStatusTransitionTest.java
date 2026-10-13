@@ -17,13 +17,21 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StreamingInsertJobStatusTransitionTest {
@@ -71,5 +79,50 @@ public class StreamingInsertJobStatusTransitionTest {
 
         Assertions.assertThrows(JobException.class, () -> job.updateJobStatus(JobStatus.PAUSED));
         Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
+    }
+
+    @Test
+    public void testPauseAndResumeKeepOffsetProviderOpen() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.RUNNING);
+        SourceOffsetProvider provider = Mockito.mock(SourceOffsetProvider.class);
+        Deencapsulation.setField(job, "offsetProvider", provider);
+
+        job.updateJobStatus(JobStatus.PAUSED);
+        job.updateJobStatus(JobStatus.PENDING);
+
+        Mockito.verify(provider, Mockito.never()).close();
+    }
+
+    @Test
+    public void testFinalStatusesCloseOffsetProvider() throws Exception {
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
+            GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+            env.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
+            for (JobStatus status : new JobStatus[] {JobStatus.STOPPED, JobStatus.FINISHED}) {
+                StreamingInsertJob job = newJob(JobStatus.RUNNING);
+                SourceOffsetProvider provider = Mockito.mock(SourceOffsetProvider.class);
+                Deencapsulation.setField(job, "offsetProvider", provider);
+
+                job.updateJobStatus(status);
+
+                Mockito.verify(provider).close();
+            }
+        }
+    }
+
+    @Test
+    public void testDropPendingJobPreventsLateMetadataFetch() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.PENDING);
+        S3EventSourceOffsetProvider provider = new S3EventSourceOffsetProvider("unused-queue");
+        Deencapsulation.setField(job, "offsetProvider", provider);
+
+        job.cleanup();
+        job.updateJobStatus(JobStatus.RUNNING);
+
+        // An old scheduler may still hold the removed job; it must not create clients with these invalid properties.
+        Assertions.assertDoesNotThrow(() -> provider.fetchRemoteMeta(
+                new StreamingJobProperties(Collections.emptyMap()), Collections.emptyMap()));
     }
 }

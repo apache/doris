@@ -346,6 +346,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     Table resolveScanTable(PaimonTableHandle paimonHandle) {
         Table table = resolveTable(paimonHandle);
+        if (!paimonHandle.isSystemTable() && PaimonTableDecorators.isChainTable(table)) {
+            // A chain table reads a partition its main branch lacks from its snapshot and delta branches.
+            // Doris plans neither those partitions nor the chain splits yet, so it would read them as empty.
+            throw new DorisConnectorException("Reading Paimon chain table " + paimonHandle.getDatabaseName() + "."
+                    + paimonHandle.getTableName() + " (chain-table.enabled) is not supported yet");
+        }
         return withBoundSchemaAuthentication(paimonHandle, () -> applyScanOptions(paimonHandle, table));
     }
 
@@ -1504,18 +1510,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     static FileStoreTable pinCatalogSnapshot(FileStoreTable catalogLessTable, FileStoreTable dataTable) {
-        FileStoreTable source = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
-        FileStoreTable target = PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable);
+        return pinCatalogSnapshotOfBranches(PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable),
+                PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+    }
+
+    private static FileStoreTable pinCatalogSnapshotOfBranches(FileStoreTable target, FileStoreTable source) {
         if (source instanceof FallbackReadFileStoreTable) {
             if (!(target instanceof FallbackReadFileStoreTable)) {
                 throw new IllegalStateException("Catalog-less Paimon table lost its fallback branch");
             }
             FallbackReadFileStoreTable sourcePair = (FallbackReadFileStoreTable) source;
             FallbackReadFileStoreTable targetPair = (FallbackReadFileStoreTable) target;
-            return new FallbackReadFileStoreTable(
-                    pinCatalogSnapshotBranch(targetPair.wrapped(), sourcePair.wrapped()),
-                    pinCatalogSnapshotBranch(targetPair.other(), sourcePair.other()),
-                    PaimonReaderOptions.isWrappedFirst(targetPair));
+            // A chain table nests its snapshot and delta branches in a pair of their own; pin those too.
+            return PaimonTableDecorators.rebuildFallbackPair(targetPair,
+                    pinCatalogSnapshotOfBranches(targetPair.wrapped(), sourcePair.wrapped()),
+                    pinCatalogSnapshotOfBranches(targetPair.other(), sourcePair.other()));
         }
         return pinCatalogSnapshotBranch(target, source);
     }
@@ -1553,15 +1562,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (dataTable.catalogEnvironment().catalogLoader() == null) {
             return dataTable;
         }
-        FileStoreTable undecorated = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
-        if (undecorated instanceof FallbackReadFileStoreTable) {
-            FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
-            return new FallbackReadFileStoreTable(
-                    rebuildWithoutCatalogLoader(fallbackReadTable.wrapped()),
-                    rebuildWithoutCatalogLoader(fallbackReadTable.other()),
-                    PaimonReaderOptions.isWrappedFirst(fallbackReadTable));
+        return dropCatalogLoaderOfBranches(PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+    }
+
+    private static FileStoreTable dropCatalogLoaderOfBranches(FileStoreTable table) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            // A chain table nests its snapshot and delta branches in a pair of their own; rebuild those too.
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    dropCatalogLoaderOfBranches(pair.wrapped()), dropCatalogLoaderOfBranches(pair.other()));
         }
-        return rebuildWithoutCatalogLoader(undecorated);
+        return rebuildWithoutCatalogLoader(table);
     }
 
     private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {

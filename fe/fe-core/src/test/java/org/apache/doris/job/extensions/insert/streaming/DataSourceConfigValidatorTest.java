@@ -418,6 +418,20 @@ public class DataSourceConfigValidatorTest {
     }
 
     @Test
+    public void testOceanBaseServerIdRangeKeepsOriginalValidation() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SERVER_ID, "5400");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name());
+
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name()));
+
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "1");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name());
+    }
+
+    @Test
     public void testOceanBaseRejectsNonMysqlJdbcUrl() {
         Map<String, String> props = new HashMap<>();
         props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:oceanbase://localhost:2883/test_db");

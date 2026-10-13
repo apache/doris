@@ -28,8 +28,10 @@ import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.PrimaryKeyFileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.IntType;
@@ -266,6 +268,26 @@ public class PaimonReaderOptionsTest {
     }
 
     @Test
+    void testRuntimeSafeTableKeepsTheChainGroupOfAChainTable() {
+        // Paimon builds a chain table as a fallback pair whose other branch is a ChainGroupReadTable, and the outer
+        // pair accepts no other nested fallback. Capping a branch rebuilds the pairs above it, so the chain group
+        // has to come back as one. MUTATION: rebuilding it as a plain fallback pair -> red.
+        FileStoreTable snapshot = newPrimaryKeyTable("chain_snapshot",
+                ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "8"));
+        FileStoreTable delta = newPrimaryKeyTable("chain_delta", Collections.emptyMap());
+        Table chain = new FallbackReadFileStoreTable(newPrimaryKeyTable("chain_main", Collections.emptyMap()),
+                new ChainGroupReadTable(snapshot, delta), true);
+
+        Table safe = PaimonReaderOptions.runtimeSafeTable(chain, 4);
+
+        FileStoreTable group = ((FallbackReadFileStoreTable) safe).other();
+        Assertions.assertInstanceOf(ChainGroupReadTable.class, group);
+        Assertions.assertEquals("4", ((ChainGroupReadTable) group).wrapped().options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertSame(delta, ((ChainGroupReadTable) group).other());
+    }
+
+    @Test
     void testBackendManifestCapUsesExecutionCeilingNotSmallestBranch() {
         FileStoreTable main = newFileStoreTable("main_cap", ImmutableMap.of(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
@@ -308,6 +330,19 @@ public class PaimonReaderOptionsTest {
                 options,
                 null);
         return new AppendOnlyFileStoreTable(
+                LocalFileIO.create(), new Path("memory://" + name), schema, CatalogEnvironment.empty());
+    }
+
+    private FileStoreTable newPrimaryKeyTable(String name, Map<String, String> options) {
+        TableSchema schema = new TableSchema(
+                0,
+                Collections.singletonList(new DataField(0, "id", new IntType(false))),
+                0,
+                Collections.emptyList(),
+                Collections.singletonList("id"),
+                options,
+                null);
+        return new PrimaryKeyFileStoreTable(
                 LocalFileIO.create(), new Path("memory://" + name), schema, CatalogEnvironment.empty());
     }
 

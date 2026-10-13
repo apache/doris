@@ -403,6 +403,12 @@ std::string type_to_string(PrimitiveType t) {
         return "GEOMETRY";
     case TYPE_GEOGRAPHY:
         return "GEOGRAPHY";
+
+    case TYPE_UINT32:
+        return "UINT32";
+
+    case TYPE_UINT64:
+        return "UINT64";
     default:
         return "";
     };

@@ -29,7 +29,13 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
     }
 
     public static TableScan newScan(Table table) {
-        return new SchemaAwareDataTableScan(table, table.schema(), TableScanContext.empty());
+        // Inherit the context of the table's own scan: it carries the table's metrics reporter (for example a REST
+        // catalog's scan reports), so a historical scan reports like a current one. A catalog-specific Table may
+        // return its own scan type; such a table keeps the plain context it had before.
+        TableScan tableScan = table.newScan();
+        TableScanContext context = tableScan instanceof DataTableScan
+                ? ((DataTableScan) tableScan).context() : TableScanContext.empty();
+        return new SchemaAwareDataTableScan(table, table.schema(), context);
     }
 
     /** Returns the selected snapshot's specs bound to the scan schema. */

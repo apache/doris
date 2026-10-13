@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -486,6 +487,7 @@ public class PhysicalConnectorTableSinkTest {
         ConnectorWritePlanContext writePlanContext = Mockito.mock(ConnectorWritePlanContext.class);
         Mockito.when(writePlanContext.requiresParallelWrite()).thenReturn(parallelWrite);
         Mockito.when(writePlanContext.requiresPartitionLocalSort()).thenReturn(requirePartitionSort);
+        Mockito.when(writePlanContext.getBeExecVersion()).thenReturn(Config.max_be_exec_version);
         Mockito.when(writePlanContext.getDistribution()).thenReturn(Optional.empty());
         Mockito.when(table.resolveWritePlanContext()).thenReturn(writePlanContext);
         Mockito.when(table.getPartitionColumns()).thenReturn(partitionColumns);

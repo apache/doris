@@ -9554,7 +9554,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.IDENTIFIED() == null) {
             return new UserDesc(userIdentity);
         }
-        String password = stripQuotes(ctx.STRING_LITERAL().getText());
+        if (ctx.integration != null) {
+            return new UserDesc(userIdentity, stripQuotes(ctx.integration.getText()),
+                    ctx.identity == null ? null : SqlLiteralUtils.parseStringLiteral(ctx.identity.getText()));
+        }
+        String password = stripQuotes(ctx.pwd.getText());
         boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
     }

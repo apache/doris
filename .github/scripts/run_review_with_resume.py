@@ -22,6 +22,7 @@ import argparse
 import ctypes
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -39,6 +40,65 @@ RETRY_DELAYS = (300,) * 6
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
 UNSUPPORTED_CHATGPT_MODEL = "model is not supported when using Codex with a ChatGPT account."
 PROCESS_EXIT_GRACE_SECONDS = 5
+HEAD_POLL_SECONDS = 60
+HEAD_API_TIMEOUT_SECONDS = 10
+SUPERSEDED_EXIT_CODE = 75
+
+
+class ReviewSuperseded(Exception):
+    def __init__(self, head_sha):
+        self.head_sha = head_sha
+        super().__init__(f"PR head changed to {head_sha}; stopping superseded review")
+
+
+def check_head(pr, expected):
+    """Only a complete, valid API head can supersede the frozen review target."""
+    head = pr.get("head") if isinstance(pr, dict) else None
+    sha = head.get("sha") if isinstance(head, dict) else None
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("PR API returned no valid head SHA")
+    if sha != expected:
+        raise ReviewSuperseded(sha)
+
+
+class HeadWatchdog:
+    def __init__(self, args, remaining):
+        self.args = args
+        self.remaining = remaining
+        self.next_check = 0
+
+    def seconds_until_check(self):
+        return max(0, self.next_check - time.monotonic())
+
+    def check(self, *, force=False):
+        if not force and self.seconds_until_check() > 0:
+            return
+        timeout = min(HEAD_API_TIMEOUT_SECONDS, self.remaining())
+        # Poll synchronously: gh is reaped before Codex cleanup/ChildReaper runs.
+        # Include API time in the existing shared budget and polling interval.
+        self.next_check = time.monotonic() + HEAD_POLL_SECONDS
+        try:
+            response = subprocess.run(
+                ["gh", "api", f"repos/{self.args.repository}/pulls/{self.args.pr_number}"],
+                check=True, capture_output=True, text=True, timeout=timeout,
+            )
+            check_head(json.loads(response.stdout), self.args.head_sha)
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            # An unavailable API is not evidence of a new commit. Strict target
+            # checks before resume/submission still apply independently.
+            print(
+                f"PR head check unavailable ({type(exc).__name__}); keeping current review",
+                file=sys.stderr, flush=True,
+            )
+
+    def wait(self, seconds):
+        deadline = time.monotonic() + seconds
+        while True:
+            self.check()
+            delay = min(deadline - time.monotonic(), self.remaining())
+            if delay <= 0:
+                return
+            time.sleep(min(delay, self.seconds_until_check()))
 
 
 class ChildReaper:
@@ -77,7 +137,7 @@ class ChildReaper:
 
     def reap(self):
         # Called only after Popen.wait() reaps Codex. This dedicated helper has
-        # no other concurrent subprocesses; gh/help commands run between attempts.
+        # no other concurrent subprocesses; synchronous gh/help calls have returned.
         deadline = time.monotonic() + PROCESS_EXIT_GRACE_SECONDS
         while children := self.children.read_text().split():
             if time.monotonic() >= deadline:
@@ -204,7 +264,7 @@ def stop_process(process):
         process.wait()
 
 
-def run_attempt(command, events_path, stderr_path, timeout, reaper=None):
+def run_attempt(command, events_path, stderr_path, timeout, reaper=None, watchdog=None):
     with events_path.open("w") as stdout, stderr_path.open("w") as stderr:
         process = None
         copier = None
@@ -237,7 +297,19 @@ def run_attempt(command, events_path, stderr_path, timeout, reaper=None):
                 copier.start()
             finally:
                 signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-            return process.wait(timeout=timeout)
+            if watchdog is None:
+                return process.wait(timeout=timeout)
+            deadline = time.monotonic() + timeout
+            while True:
+                watchdog.check()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                try:
+                    return process.wait(timeout=min(remaining, watchdog.seconds_until_check()))
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        raise
         finally:
             # Finish bounded cleanup before delivering cancellation, including a
             # second signal while an earlier cancellation is already unwinding.
@@ -298,9 +370,9 @@ def check_resume_target(args, started_at, remaining):
         return json.loads(result.stdout)
 
     pr = api(f"repos/{args.repository}/pulls/{args.pr_number}")
+    check_head(pr, args.head_sha)
     if (
         pr["state"] != "open"
-        or pr["head"]["sha"] != args.head_sha
         or pr["base"]["sha"] != args.base_sha
     ):
         raise ValueError(
@@ -388,13 +460,15 @@ def run_review(args, reaper=None):
             )
         return 1
 
+    watchdog = HeadWatchdog(args, remaining)
     try:
         while capacity_retry <= len(RETRY_DELAYS):
+            (context / "codex-review-model.txt").write_text(model + "\n")
+            watchdog.check(force=True)
             attempt_number += 1
             events_path = attempts / f"{attempt_number}.jsonl"
             stderr_path = attempts / f"{attempt_number}.stderr.log"
             output_path = attempts / f"{attempt_number}.final.txt"
-            (context / "codex-review-model.txt").write_text(model + "\n")
             final_message.write_text("")
             command = [
                 "codex",
@@ -426,7 +500,7 @@ def run_review(args, reaper=None):
             )
             try:
                 status = run_attempt(
-                    command, events_path, stderr_path, remaining(), reaper=reaper
+                    command, events_path, stderr_path, remaining(), reaper=reaper, watchdog=watchdog
                 )
             finally:
                 # Preserve failed attempts and their child-thread IDs for Litefuse.
@@ -439,6 +513,9 @@ def run_review(args, reaper=None):
                 if output_path.exists():
                     shutil.copyfile(output_path, final_message)
 
+            # Catch a head change even if Codex exited before the next poll,
+            # including its own stale-head refusal without a final submission.
+            watchdog.check(force=True)
             events = read_events(events_path)
             if status < 0 or status in (124, 130, 137, 143):
                 return fail(
@@ -478,7 +555,12 @@ def run_review(args, reaper=None):
                 # Final submission declares all review work complete. Only an
                 # exact GitHub readback can recover a subsequent capacity error;
                 # another run's review or a partially posted review cannot pass.
-                result = verify_completion(context, run, remaining)
+                try:
+                    result = verify_completion(context, run, remaining)
+                except ValueError:
+                    # The head can move between the exit check and readback.
+                    watchdog.check(force=True)
+                    raise
                 result["recovered_after_capacity"] = message == CAPACITY_MESSAGE
                 write_json(context / RESULT_FILE, result)
                 with aggregate.open("a") as handle:
@@ -486,6 +568,7 @@ def run_review(args, reaper=None):
                 print(
                     f"Verified final review {result['review_id']}: "
                     f"P0={result['p0']}, P1={result['p1']}, "
+                    f"converged={result['converged']}, rounds={result['rounds']}, "
                     f"recovered_after_capacity={result['recovered_after_capacity']}",
                     file=sys.stderr, flush=True,
                 )
@@ -520,9 +603,21 @@ def run_review(args, reaper=None):
                     )
                     + "\n"
                 )
-            time.sleep(delay)
+            watchdog.wait(delay)
             check_resume_target(args, started_at, remaining)
             capacity_retry += 1
+    except ReviewSuperseded as exc:
+        result = {
+            "state": "superseded", "repository": args.repository,
+            "pr_number": args.pr_number, "head_sha": args.head_sha,
+            "superseding_head_sha": exc.head_sha, "message": str(exc),
+        }
+        write_json(context / RESULT_FILE, result)
+        with aggregate.open("a") as handle:
+            handle.write(json.dumps({"type": "review.superseded", **result}) + "\n")
+        final_message.write_text(str(exc) + "\n")
+        print(str(exc), file=sys.stderr, flush=True)
+        return SUPERSEDED_EXIT_CODE
     except KeyboardInterrupt:
         fail("Review cancelled; not resuming")
         return 130
