@@ -823,7 +823,8 @@ namespace {
 
 // A fetcher that already holds another state's blocks takes this state's blocks
 // only while the shared read stays within the dictionary wave limits.
-ALWAYS_INLINE Status register_dictionary_blocks(auto& pending, io::BatchRangeFetcher* fetcher) {
+ALWAYS_INLINE inline Status register_dictionary_blocks(auto& pending,
+                                                       io::BatchRangeFetcher* fetcher) {
     if (fetcher->pending() == 0) {
         for (auto& block : pending) {
             block.handle = fetcher->add(block.ref.offset, block.ref.length);
