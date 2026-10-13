@@ -574,7 +574,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                     session, metadata, handle, provider,
                     provider.getWriteDistribution(session, handle), provider.requiresParallelWrite(),
                     provider.requiresPartitionLocalSort(), provider.requiresPartitionHashWrite(),
-                    provider.requiresFullSchemaWriteOrder()));
+                    provider.requiresFullSchemaWriteOrder(),
+                    ConnectContext.get().getStatementContext().getBeExecVersion()));
         });
     }
 

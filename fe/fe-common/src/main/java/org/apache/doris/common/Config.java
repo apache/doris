@@ -2021,8 +2021,11 @@ public class Config extends ConfigBase {
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
     // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
     public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
+    // Older backends use branch-4.1 external-sink partition values and routing metadata.
+    public static final int ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION = 16;
     // Older backends do not recognize PAIMON_TABLE_SINK and cannot execute Paimon writes.
-    public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION = 16;
+    public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION
+            = ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION;
     // Older backends serialize map_agg_v2 keys with the legacy padded frame format.
     public static final int MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION = 17;
 
