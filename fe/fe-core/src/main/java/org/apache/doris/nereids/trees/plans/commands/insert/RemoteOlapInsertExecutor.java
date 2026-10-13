@@ -208,6 +208,7 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
                 } else {
                     txnStatus = TransactionStatus.COMMITTED;
                 }
+                markCommitted();
                 LOG.info("commit remote txn success, catalog={}, dbId={}, txnId={}, status={}",
                                     remoteCatalog.getName(), database.getId(), txnId, txnStatus);
             } else {

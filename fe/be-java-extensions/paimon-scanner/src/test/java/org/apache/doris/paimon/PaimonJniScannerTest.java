@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.jni.spi.vec.ColumnType;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
@@ -83,6 +84,66 @@ public class PaimonJniScannerTest {
     @AfterEach
     public void clearTableCache() {
         PaimonTableCache.clearForTest();
+    }
+
+    @Test
+    public void legacyOrcTimestampAndFileMetadataShareOneRead() throws Exception {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        try (org.apache.paimon.catalog.Catalog catalog = new org.apache.paimon.catalog.FileSystemCatalog(
+                org.apache.paimon.fs.local.LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(temporaryFolder.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "events");
+            catalog.createTable(id, org.apache.paimon.schema.Schema.newBuilder()
+                    .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
+                    .option("file.format", "orc").option("orc.timestamp-ltz.legacy-type", "true")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            org.apache.paimon.table.sink.BatchWriteBuilder writer = table.newBatchWriteBuilder();
+            try (org.apache.paimon.table.sink.BatchTableWrite write = writer.newWrite()) {
+                write.write(org.apache.paimon.data.GenericRow.of(
+                        org.apache.paimon.data.Timestamp.fromEpochMillis(1000, 123000)));
+                write.write(org.apache.paimon.data.GenericRow.of((Object) null));
+                try (org.apache.paimon.table.sink.BatchTableCommit commit = writer.newCommit()) {
+                    commit.commit(write.prepareCommit());
+                }
+            }
+            org.apache.paimon.table.source.Split split = table.newReadBuilder().newScan().plan().splits().get(0);
+            Map<String, String> params = createBaseParams();
+            params.put("required_fields", "__paimon_file_path,event_time,__paimon_row_index");
+            params.put("columns_types", "string#timestamptz(6)#bigint");
+            params.put(SERIALIZED_TABLE, Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    InstantiationUtil.serializeObject(table)));
+            params.put("paimon_split", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    InstantiationUtil.serializeObject(split)));
+            for (boolean filtered : new boolean[] {false, true}) {
+                java.util.List<org.apache.paimon.predicate.Predicate> predicates = filtered
+                        ? Collections.singletonList(new org.apache.paimon.predicate.PredicateBuilder(
+                                table.rowType()).isNull(0)) : Collections.emptyList();
+                params.put("paimon_predicate", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                        InstantiationUtil.serializeObject(predicates)));
+                PaimonJniScanner scanner = new PaimonJniScanner(16, new HashMap<>(params));
+                try {
+                    scanner.open();
+                    Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+                    int count = filtered ? 1 : 2;
+                    Assertions.assertEquals(count, scanner.getTable().getNumRows());
+                    Object[] paths = scanner.getTable().getColumn(0).getObjectColumn(0, count);
+                    Assertions.assertTrue(paths[0].toString().endsWith(".orc"));
+                    if (!filtered) {
+                        Assertions.assertEquals(paths[0], paths[1]);
+                    }
+                    // A pushed filter removes row zero, but the surviving row keeps its physical index.
+                    Assertions.assertArrayEquals(filtered ? new Object[] {1L} : new Object[] {0L, 1L},
+                            scanner.getTable().getColumn(2).getObjectColumn(0, count));
+                    Assertions.assertArrayEquals(filtered ? new Object[] {null} : new Object[] {
+                            java.time.LocalDateTime.of(1970, 1, 1, 0, 0, 1, 123000), null},
+                            scanner.getTable().getColumn(1).getObjectColumn(0, count));
+                } finally {
+                    scanner.close();
+                }
+            }
+        }
     }
 
     @Test
@@ -347,6 +408,29 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testFallbackWrapperOrderMatchesPaimonFactoryPrecedence() {
+        // Capping a fallback pair rebuilds the wrapper, and Paimon has no accessor for its read order,
+        // so isWrappedFirst recovers FileStoreTableFactory's decision from the options. A wrong answer
+        // swaps which branch is read first.
+
+        // A fallback branch wins over a configured primary branch.
+        Assertions.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_FALLBACK_BRANCH.key(), "fallback",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        Assertions.assertFalse(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        // A blank primary branch is unset for the factory.
+        Assertions.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "  "))));
+        // A chain table is built before the primary-branch selector is consulted.
+        Assertions.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(ImmutableMap.of(
+                CoreOptions.CHAIN_TABLE_ENABLED.key(), "true",
+                CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary"))));
+        // Old FE payloads only represented fallback reads and may not carry either selector.
+        Assertions.assertTrue(PaimonJniScanner.isWrappedFirst(fallbackTable(Collections.emptyMap())));
+    }
+
+    @Test
     public void testOldFeSystemWrapperPreservesIndependentFallbackLimits() throws Exception {
         FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
@@ -434,6 +518,12 @@ public class PaimonJniScannerTest {
     private static FileStoreTable serializableFileStoreTable(Map<String, String> options) {
         return (FileStoreTable) Proxy.newProxyInstance(FileStoreTable.class.getClassLoader(),
                 new Class[] {FileStoreTable.class}, new SerializableTableHandler(options));
+    }
+
+    private static FallbackReadFileStoreTable fallbackTable(Map<String, String> options) {
+        return new FallbackReadFileStoreTable(
+                serializableFileStoreTable(options),
+                serializableFileStoreTable(Collections.emptyMap()), true);
     }
 
     @Test

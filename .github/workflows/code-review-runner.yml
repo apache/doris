@@ -65,12 +65,12 @@ jobs:
           archive="$RUNNER_TEMP/codex-exec-goal.tar.gz"
           package="$RUNNER_TEMP/codex-exec-goal"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.156.1-a310d33f7ebb-x86_64-unknown-linux-gnu.tar.gz "$archive"
-          echo "2ee3073479bc8c94436684b55a13d7a3f299e768d04436d90e0427814a3954bc  $archive" | sha256sum --check
+            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.162.1-3547e9086675-x86_64-unknown-linux-gnu.tar.gz "$archive"
+          echo "51304e4f9c343ae84e00a304344df41c2fd32821c83bdbf5be68b0f0c25ddae1  $archive" | sha256sum --check
           mkdir -p "$package"
           tar -xzf "$archive" -C "$package"
           (cd "$package" && sha256sum --check SHA256SUMS)
-          test "$(jq -r .version "$package/codex-package.json")" = 0.156.1
+          test "$(jq -r .version "$package/codex-package.json")" = 0.162.1
           "$package/bin/codex" --version
           "$package/bin/codex" exec --help | grep -q -- '--goal'
           echo "CODEX_CANARY_BIN=$package/bin/codex" >> "$GITHUB_ENV"
@@ -115,15 +115,15 @@ jobs:
           echo "CODEX_HOME=$home" >> "$GITHUB_ENV"
 
       - name: Test ChatGPT model access and goal mode without GitHub writes
-        timeout-minutes: 12
+        timeout-minutes: 18
         run: |
           set -uo pipefail
           run_model() {
-            local label="$1" model="$2" goal="$3"
+            local label="$1" model="$2" goal="$3" effort="${4:-low}"
             local events="$RUNNER_TEMP/codex-canary-$label.jsonl"
             local final="$RUNNER_TEMP/codex-canary-$label.txt"
             local args=(exec --skip-git-repo-check --json --model "$model"
-              --config model_reasoning_effort=low --sandbox read-only
+              --config "model_reasoning_effort=$effort" --sandbox read-only
               --color never --output-last-message "$final")
             if [ "$goal" = true ]; then
               args+=(--goal)
@@ -155,8 +155,16 @@ jobs:
             run_model sol-goal gpt-6-sol true
             goal_status=$?
           fi
-          echo "model_canary: gpt-6-sol=$sol_status gpt-5.6-sol=$prior_status gpt-6-sol-goal=$goal_status"
-          test "$sol_status" -eq 0 && test "$goal_status" -eq 0
+          run_model sol61 gpt-6.1-sol false xhigh
+          sol61_status=$?
+          sol61_goal_status=1
+          if [ "$sol61_status" -eq 0 ]; then
+            run_model sol61-goal gpt-6.1-sol true xhigh
+            sol61_goal_status=$?
+          fi
+          echo "model_canary: gpt-6-sol=$sol_status gpt-5.6-sol=$prior_status gpt-6-sol-goal=$goal_status gpt-6.1-sol-xhigh=$sol61_status gpt-6.1-sol-xhigh-goal=$sol61_goal_status"
+          test "$sol_status" -eq 0 && test "$goal_status" -eq 0 && \
+            test "$sol61_status" -eq 0 && test "$sol61_goal_status" -eq 0
 
       - name: Sync refreshed canary auth
         if: ${{ always() && steps.auth.outcome == 'success' }}
@@ -333,17 +341,17 @@ jobs:
           package="$RUNNER_TEMP/codex-exec-goal"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
             cp -f "$OSS_CODEX_PACKAGE_OBJECT" "$archive"
-          echo "2ee3073479bc8c94436684b55a13d7a3f299e768d04436d90e0427814a3954bc  $archive" | sha256sum --check
+          echo "51304e4f9c343ae84e00a304344df41c2fd32821c83bdbf5be68b0f0c25ddae1  $archive" | sha256sum --check
           mkdir -p "$package"
           tar -xzf "$archive" -C "$package"
           (cd "$package" && sha256sum --check SHA256SUMS)
-          test "$(jq -r .version "$package/codex-package.json")" = 0.156.1
+          test "$(jq -r .version "$package/codex-package.json")" = 0.162.1
           echo "$package/bin" >> "$GITHUB_PATH"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_PACKAGE_OBJECT: oss://doris-community-ci/codex/releases/codex-exec-goal-0.156.1-a310d33f7ebb-x86_64-unknown-linux-gnu.tar.gz
+          OSS_CODEX_PACKAGE_OBJECT: oss://doris-community-ci/codex/releases/codex-exec-goal-0.162.1-3547e9086675-x86_64-unknown-linux-gnu.tar.gz
 
       - name: Verify pinned Codex runtime
         timeout-minutes: 2
@@ -351,7 +359,7 @@ jobs:
           set -euo pipefail
           codex_cmd="$(command -v codex)"
           test "$(readlink -f "$codex_cmd")" = "$RUNNER_TEMP/codex-exec-goal/bin/codex"
-          echo "e07e6d32e9333cbc52ba058195d6b225c6e072c8c438541d61ec97645b811906  $codex_cmd" | sha256sum --check
+          echo "a0d5ec053074d66570aa967129d350541f344f76671a199b5a7bc0d45366cdf7  $codex_cmd" | sha256sum --check
           codex --version
           codex exec --help | grep -q -- '--goal'
           codex exec --goal resume --help >/dev/null
@@ -880,8 +888,8 @@ jobs:
             --pr-number "$PR_NUMBER" \
             --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" \
-            --model "gpt-6-sol" \
-            --fallback-model "gpt-5.6-sol" \
+            --model "gpt-6.1-sol" \
+            --fallback-model "gpt-6-sol" \
             --effort xhigh \
             --budget-seconds "$budget_seconds"
           status=$?

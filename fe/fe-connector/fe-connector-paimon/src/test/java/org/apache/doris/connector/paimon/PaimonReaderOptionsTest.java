@@ -180,6 +180,17 @@ public class PaimonReaderOptionsTest {
                         CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary")), other, false)));
         Assertions.assertTrue(PaimonReaderOptions.isWrappedFirst(new FallbackReadFileStoreTable(
                 newFileStoreTable("default", Collections.emptyMap()), other, true)));
+        // FileStoreTableFactory treats a blank primary branch as unset, so the main branch still
+        // reads first.
+        Assertions.assertTrue(PaimonReaderOptions.isWrappedFirst(new FallbackReadFileStoreTable(
+                newFileStoreTable("blank_primary", ImmutableMap.of(
+                        CoreOptions.SCAN_PRIMARY_BRANCH.key(), "  ")), other, true)));
+        // A chain table is built before the primary-branch selector is consulted, so it keeps the
+        // main-first order even when a primary branch is configured.
+        Assertions.assertTrue(PaimonReaderOptions.isWrappedFirst(new FallbackReadFileStoreTable(
+                newFileStoreTable("chain", ImmutableMap.of(
+                        CoreOptions.CHAIN_TABLE_ENABLED.key(), "true",
+                        CoreOptions.SCAN_PRIMARY_BRANCH.key(), "primary")), other, true)));
     }
 
     @Test

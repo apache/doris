@@ -373,15 +373,18 @@ Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
 }
 
 Status FileScannerV2::_validate_variant_projection(TFileFormatType::type format_type,
-                                                   bool has_variant_projection) {
-    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW) {
+                                                   bool has_variant_projection,
+                                                   const std::string& table_format) {
+    // ADBC validates native Variant storage before decoding; other Arrow readers do not.
+    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW ||
+        table_format == "adbc") {
         return Status::OK();
     }
-    // Arrow readers have no external Variant carrier contract; reject before a stream is opened so
-    // every Arrow-backed table gets the same deterministic capability error instead of SerDe leakage.
+    // Keep the capability guard for readers without a native Variant carrier contract.
     return Status::NotSupported(
-            "External Variant is supported only for Parquet files in FileScannerV2; "
-            "file format ARROW is not supported");
+            "External Variant Arrow reads require an ADBC native Variant carrier; "
+            "table format {} is not supported",
+            table_format);
 }
 
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
@@ -969,7 +972,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     }
     RETURN_IF_ERROR(table_reader.validate_projected_columns(build_context));
     RETURN_IF_ERROR(_validate_variant_projection(get_range_format_type(*_params, _current_range),
-                                                 _has_variant_projection));
+                                                 _has_variant_projection,
+                                                 table_format_name(_current_range)));
     return Status::OK();
 }
 

@@ -231,6 +231,7 @@ public class SessionVariablesTest extends TestWithFeService {
     @Test
     public void testFileScannerV2RemainsEnabledInFuzzyMode() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
         sessionVar.enableFileScannerV2 = false;
         sessionVar.initFuzzyModeVariables();
         Assertions.assertTrue(sessionVar.enableFileScannerV2);

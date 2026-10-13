@@ -222,7 +222,9 @@ suite("test_get_tables_schema") {
             c_varchar: Utf8 {VARCHAR}
             c_string: Utf8 {STRING}
             c_json: Utf8 {JSON}
-            c_variant: Utf8 {VARIANT}
+            c_variant: Struct {VARIANT}
+              metadata: Binary not null
+              value: Binary not null
             c_ipv4: Int(32, true) {IPV4}
             c_ipv6: Utf8 {IPV6}
             c_array_int: List {ARRAY}
@@ -245,6 +247,10 @@ suite("test_get_tables_schema") {
                   value: List {ARRAY}
                     item: Decimal(10, 3, 128) {DECIMAL64, precision=10, scale=3}
         """)
+
+        // Native Variant must advertise its extension identity, not just a matching struct shape.
+        def variantField = tableSchema(allTypes).getFields().find { it.getName() == "c_variant" }
+        assertEquals("arrow.parquet.variant", variantField.getMetadata().get("ARROW:extension:name"))
 
         // BITMAP / HLL / QUANTILE_STATE are opaque bytes. AGG_STATE is described as Null (kept as is,
         // see the header).

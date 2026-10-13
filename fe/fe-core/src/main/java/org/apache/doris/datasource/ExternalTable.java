@@ -531,6 +531,14 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
+     * Whether this snapshot's partition values can be pruned using source-column predicates.
+     * Enumeration may still be needed for partition counts when this returns false.
+     */
+    public boolean supportInternalPartitionPruned(Optional<MvccSnapshot> snapshot) {
+        return supportInternalPartitionPruned();
+    }
+
+    /**
      * Cross-query cache of the pre-built {@link SortedPartitionRanges} for binary-search partition
      * pruning. Tables that implement {@link SupportBinarySearchFilteringPartitions} (external MVCC:
      * iceberg/paimon) route through the shared {@link NereidsSortedPartitionsCacheManager}, keyed by the

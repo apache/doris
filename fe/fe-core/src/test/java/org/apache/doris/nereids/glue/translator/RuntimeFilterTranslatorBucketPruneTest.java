@@ -29,6 +29,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -37,7 +38,10 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -178,6 +182,40 @@ class RuntimeFilterTranslatorBucketPruneTest {
         return harness.translate(nonBlockingIsFirst
                 ? ImmutableList.of(nonBlocking, blocking)
                 : ImmutableList.of(blocking, nonBlocking));
+    }
+
+    @Test
+    void testVolatileProbeDisablesCacheForSingleAndGroupedFilters() {
+        for (boolean grouped : ImmutableList.of(false, true)) {
+            for (boolean implicitCast : ImmutableList.of(false, true)) {
+                TranslatorHarness harness = new TranslatorHarness(PrimitiveType.DATETIMEV2);
+                SlotReference target = harness.addTargetSlot("s", new Column("s", PrimitiveType.STRING),
+                        StringType.INSTANCE);
+                Expression time = new Cast(target, TimeV2Type.SYSTEM_DEFAULT);
+                Expression probe = implicitCast ? time : new Cast(time, DateTimeV2Type.SYSTEM_DEFAULT);
+                RuntimeFilter filter = harness.newFilter(target, probe);
+                List<RuntimeFilter> filters = grouped
+                        ? ImmutableList.of(harness.newFilter(target, new Cast(target, DateTimeV2Type.SYSTEM_DEFAULT)),
+                                filter)
+                        : ImmutableList.of(filter);
+                TRuntimeFilterDesc desc = harness.translate(filters);
+                Assertions.assertTrue(desc.planId_to_target_expr.containsKey(SCAN_NODE_ID));
+                Mockito.verify(harness.scanNode).setEnableConditionCache(false);
+                Mockito.verify(harness.scanNode, Mockito.never()).setEnableConditionCache(true);
+            }
+        }
+    }
+
+    @Test
+    void testDeterministicProbeDoesNotChangeCacheEligibility() {
+        for (boolean grouped : ImmutableList.of(false, true)) {
+            TranslatorHarness harness = new TranslatorHarness(PrimitiveType.BIGINT);
+            SlotReference target = harness.addTargetSlot("k", harness.distributionColumn, IntegerType.INSTANCE);
+            RuntimeFilter filter = harness.newFilter(target, new Add(target, new IntegerLiteral(1)));
+            harness.translate(grouped ? ImmutableList.of(filter, harness.newFilter(target, target))
+                    : ImmutableList.of(filter));
+            Mockito.verify(harness.scanNode, Mockito.never()).setEnableConditionCache(Mockito.anyBoolean());
+        }
     }
 
     private static int firstLegacySlotId(TranslatorHarness harness, SlotReference target) {
