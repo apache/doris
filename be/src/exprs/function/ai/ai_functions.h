@@ -22,8 +22,10 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -45,6 +47,7 @@
 #include "exprs/function/function.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "service/http/http_client.h"
 #include "util/security.h"
 #include "util/string_util.h"
@@ -218,6 +221,92 @@ protected:
                                               });
     }
 
+    // One process-wide pool for all AI functions: its threads block on HTTP, so the pool size
+    // caps in-flight AI requests per BE rather than CPU parallelism.
+    static ThreadPool* ai_batch_thread_pool() {
+        static std::unique_ptr<ThreadPool> pool = [] {
+            std::unique_ptr<ThreadPool> p;
+            Status st = ThreadPoolBuilder("AIFunctionBatchThreadPool")
+                                .set_min_threads(1)
+                                .set_max_threads(config::ai_function_thread_pool_thread_num)
+                                .set_max_queue_size(config::ai_function_thread_pool_queue_size)
+                                .build(&p);
+            DORIS_CHECK(st.ok());
+            return p;
+        }();
+        return pool.get();
+    }
+
+    // Runs every batch of one block with up to `config.max_concurrency` requests in flight and
+    // keeps `results` in batch order. Streaming, not waves: the next batch is submitted the
+    // moment any in-flight one returns, so one slow provider call delays only itself instead of
+    // holding back a whole wave. Concurrency 1 (the default) is the plain sequential loop, so a
+    // resource that does not opt in behaves exactly as before.
+    Status execute_batches(const std::vector<std::vector<std::string>>& batches,
+                           std::vector<std::vector<std::string>>& results, const AIResource& config,
+                           std::shared_ptr<AIAdapter>& adapter, FunctionContext* context) const {
+        results.assign(batches.size(), {});
+        const size_t concurrency = std::max<int32_t>(config.max_concurrency, 1);
+        if (concurrency == 1 || batches.size() <= 1) {
+            for (size_t i = 0; i < batches.size(); ++i) {
+                RETURN_IF_ERROR(
+                        execute_batch_request(batches[i], results[i], config, adapter, context));
+            }
+            return Status::OK();
+        }
+
+        ThreadPool* pool = ai_batch_thread_pool();
+        // Pool threads are orphans; attach the query's resource context so the request buffers
+        // are charged to the query (same shape as snii_doris_adapter.cpp's concurrent reads).
+        const std::shared_ptr<ResourceContext> parent_resource_ctx =
+                thread_context()->resource_ctx();
+
+        std::mutex mu;
+        std::condition_variable cv;
+        size_t in_flight = 0;
+        Status first_error;
+
+        // Everything captured by reference outlives the tasks: this function drains
+        // `in_flight` to zero before returning.
+        auto run_batch = [&](size_t i) {
+            Status st = execute_batch_request(batches[i], results[i], config, adapter, context);
+            {
+                std::lock_guard<std::mutex> guard(mu);
+                if (first_error.ok() && !st.ok()) {
+                    first_error = st;
+                }
+                --in_flight;
+            }
+            cv.notify_all();
+        };
+
+        for (size_t i = 0; i < batches.size(); ++i) {
+            {
+                std::unique_lock<std::mutex> lock(mu);
+                cv.wait(lock, [&] { return in_flight < concurrency; });
+                if (!first_error.ok()) {
+                    break;
+                }
+                ++in_flight;
+            }
+            Status submit_st = pool->submit_func([&run_batch, i, parent_resource_ctx]() {
+                std::unique_ptr<AttachTask> attach_task;
+                if (parent_resource_ctx != nullptr) {
+                    attach_task = std::make_unique<AttachTask>(parent_resource_ctx);
+                }
+                run_batch(i);
+            });
+            if (!submit_st.ok()) {
+                // Pool full or shut down: run inline so `in_flight` still drains.
+                run_batch(i);
+            }
+        }
+
+        std::unique_lock<std::mutex> lock(mu);
+        cv.wait(lock, [&] { return in_flight == 0; });
+        return first_error;
+    }
+
     // Provider-reusable helper for string-returning functions.
     // Estimates one batch entry size using the raw prompt length plus the fixed JSON wrapper cost.
     size_t estimate_batch_entry_size(size_t idx, const std::string& prompt) const {
@@ -326,6 +415,9 @@ protected:
         }
 
         auto col_result = assert_cast<const Derived&>(*this).create_result_column();
+        // Cut the block into batches first, then run them (possibly concurrently); results are
+        // appended in batch order, so the output matches the sequential loop row for row.
+        std::vector<std::vector<std::string>> batches;
         std::vector<std::string> batch_prompts;
         size_t current_batch_size = 2; // []
         const size_t max_batch_prompt_size =
@@ -344,33 +436,18 @@ protected:
             size_t entry_size = estimate_batch_entry_size(batch_prompts.size(), prompt);
             if (entry_size > max_batch_prompt_size) {
                 if (!batch_prompts.empty()) {
-                    std::vector<std::string> batch_results;
-                    RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results,
-                                                                config, adapter, context));
-                    RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                            batch_results, *col_result));
+                    batches.emplace_back(std::move(batch_prompts));
                     batch_prompts.clear();
                     current_batch_size = 2;
                 }
-
-                std::vector<std::string> single_prompts;
-                single_prompts.emplace_back(std::move(prompt));
-                std::vector<std::string> single_results;
-                RETURN_IF_ERROR(this->execute_batch_request(single_prompts, single_results, config,
-                                                            adapter, context));
-                RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                        single_results, *col_result));
+                batches.emplace_back(std::vector<std::string> {std::move(prompt)});
                 continue;
             }
 
             size_t additional_size = entry_size + (batch_prompts.empty() ? 0 : 1);
             if (!batch_prompts.empty() &&
                 current_batch_size + additional_size > max_batch_prompt_size) {
-                std::vector<std::string> batch_results;
-                RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
-                                                            adapter, context));
-                RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                        batch_results, *col_result));
+                batches.emplace_back(std::move(batch_prompts));
                 batch_prompts.clear();
                 current_batch_size = 2;
                 additional_size = entry_size;
@@ -381,10 +458,13 @@ protected:
         }
 
         if (!batch_prompts.empty()) {
-            std::vector<std::string> batch_results;
-            RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
-                                                        adapter, context));
-            RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(batch_results,
+            batches.emplace_back(std::move(batch_prompts));
+        }
+
+        std::vector<std::vector<std::string>> batch_results;
+        RETURN_IF_ERROR(this->execute_batches(batches, batch_results, config, adapter, context));
+        for (const auto& batch_result : batch_results) {
+            RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(batch_result,
                                                                                     *col_result));
         }
 

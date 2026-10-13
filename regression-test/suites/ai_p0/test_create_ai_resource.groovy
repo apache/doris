@@ -76,6 +76,20 @@ suite("test_create_ai_resource") {
         exception "Missing [ai.api_key] in properties for provider: DEEPSEEK"
     }
 
+    test {
+        sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
+            PROPERTIES(
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.model_name' = 'deepseek-chat',
+                'ai.api_key' = 'sk-xxx',
+                'ai.max_concurrency' = '0',
+                'ai.validity_check' = 'false'
+            );"""
+        exception "[ai.max_concurrency] must be a positive integer"
+    }
+
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
                 'type' = 'ai',
@@ -87,6 +101,7 @@ suite("test_create_ai_resource") {
                 'ai.max_token' = '1024',
                 'ai.max_retries' = '3',
                 'ai.retry_delay_second' = '1',
+                'ai.max_concurrency' = '4',
                 'ai.validity_check' = 'false'
             );"""
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""

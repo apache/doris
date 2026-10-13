@@ -64,6 +64,10 @@ struct AIResource {
     std::string anthropic_version;
     int32_t dimensions;
     std::string effort;
+    // Batch requests of one block kept in flight at once; <= 1 means sequential. Deliberately
+    // NOT part of serialize()/deserialize(): that stream ships ai_agg state between BEs, where
+    // the value is irrelevant, and inserting a field there would break rolling upgrades.
+    int32_t max_concurrency = 1;
 
     void serialize(BufferWritable& buf) const {
         buf.write_binary(endpoint);
@@ -111,7 +115,8 @@ private:
               retry_delay_second(tai.retry_delay_second),
               anthropic_version(tai.anthropic_version),
               dimensions(tai.dimensions),
-              effort(tai.effort) {}
+              effort(tai.effort),
+              max_concurrency(tai.max_concurrency) {}
 };
 
 enum class MultimodalType { IMAGE, VIDEO, AUDIO };

@@ -50,8 +50,10 @@ public class AIProperties extends BaseProperties {
     public static final String ANTHROPIC_VERSION = "ai.anthropic_version";
     public static final String DIMENSIONS = "ai.dimensions";
     public static final String EFFORT = "ai.effort";
+    public static final String MAX_CONCURRENCY = "ai.max_concurrency";
 
     // default_val
+    public static final String DEFAULT_MAX_CONCURRENCY = "1";
     public static final String DEFAULT_TEMPERATURE = "-1";
     public static final String DEFAULT_MAX_TOKEN = "-1";
     public static final String DEFAULT_MAX_RETRIES = "3";
@@ -129,6 +131,15 @@ public class AIProperties extends BaseProperties {
                 throw new DdlException("Dimensions must be a positive integer");
             }
         }
+
+        // Check 'max_concurrency': how many batch requests one block may keep in flight
+        temp = properties.get(AIProperties.MAX_CONCURRENCY);
+        if (!Strings.isNullOrEmpty(temp)) {
+            int tempVal = Integer.parseInt(temp);
+            if (tempVal <= 0) {
+                throw new DdlException("[" + MAX_CONCURRENCY + "] must be a positive integer");
+            }
+        }
     }
 
     private static boolean hasAnyProperty(Map<String, String> properties, List<String> requiredFields,
@@ -162,5 +173,6 @@ public class AIProperties extends BaseProperties {
         properties.putIfAbsent(AIProperties.RETRY_DELAY_SECOND, AIProperties.DEFAULT_RETRY_DELAY_SECOND);
         properties.putIfAbsent(AIProperties.ANTHROPIC_VERSION, AIProperties.DEFAULT_ANTHROPIC_VERSION);
         properties.putIfAbsent(AIProperties.DIMENSIONS, AIProperties.DEFAULT_DIMENSIONS);
+        properties.putIfAbsent(AIProperties.MAX_CONCURRENCY, AIProperties.DEFAULT_MAX_CONCURRENCY);
     }
 }

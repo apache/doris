@@ -1022,6 +1022,8 @@ DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
 DEFINE_Int32(load_stream_max_wait_flush_token_time_ms, "600000");
 // number of send batch thread pool size
 DEFINE_Int32(send_batch_thread_pool_thread_num, "64");
+DEFINE_Int32(ai_function_thread_pool_thread_num, "64");
+DEFINE_Int32(ai_function_thread_pool_queue_size, "10240");
 // number of send batch thread pool queue size
 DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
 
