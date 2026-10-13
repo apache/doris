@@ -262,6 +262,44 @@ public class CreateIcebergSpatialV3Table {
             properties ('format-version' = '3')"""
         exception "Nested spatial"
     }
+    // Exercise actual SQL analysis before changelog coercion, as well as nullable DML writeback.
+    sql """drop table if exists spatial_dml_values"""
+    sql """create table spatial_dml_values (id int, geom geometry, geog geography)
+        engine=iceberg properties ('format-version' = '3',
+            'write.update.mode' = 'merge-on-read', 'write.merge.mode' = 'merge-on-read')"""
+    sql """insert into spatial_dml_values select id, geom, geog from geometry_values"""
+    test {
+        sql """explain update spatial_dml_values set geog =
+            ST_GeomFromWKB('0101000000000000000000F03F0000000000000040') where id = 1"""
+        exception "Spatial connector write type mismatch"
+    }
+    test {
+        sql """explain update spatial_dml_values set geom = 'not WKB' where id = 1"""
+        exception "Spatial connector write cannot convert"
+    }
+    test {
+        sql """explain merge into spatial_dml_values t using projected_values s on t.id = s.id
+            when matched then update set geom = s.geom"""
+        exception "Spatial connector write CRS mismatch"
+    }
+    test {
+        sql """explain merge into spatial_dml_values t using projected_values s on t.id = s.id
+            when matched then update set geog = s.geog"""
+        exception "Spatial connector write algorithm mismatch"
+    }
+    test {
+        sql """explain merge into spatial_dml_values t using geometry_values s on t.id = s.id
+            when matched then update set geog = s.geom"""
+        exception "Spatial connector write type mismatch"
+    }
+    sql """update spatial_dml_values set geog = NULL where id = 1"""
+    sql """merge into spatial_dml_values t using geometry_values s on t.id = s.id
+        when matched and s.id = 2 then update set geom = s.geom, geog = s.geog
+        when not matched then insert (id, geom, geog) values (s.id, s.geom, s.geog)"""
+    order_qt_spatial_dml_values """
+        select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
+        from spatial_dml_values
+    """
     sql """drop table if exists projected_copy"""
     sql """create table projected_copy (
         id int, geom geometry('EPSG:3857'), geog geography('OGC:CRS84', 'vincenty')
@@ -269,6 +307,10 @@ public class CreateIcebergSpatialV3Table {
     sql """insert into projected_copy select id, geom, geog from projected_values"""
     // Recreate the catalog so the second read resolves schema and files from external metadata.
     createCatalog()
+    order_qt_spatial_dml_reread """
+        select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
+        from spatial_dml_values
+    """
     qt_projected_copy_schema """desc projected_copy"""
     order_qt_projected_copy_reread """
         select id, ST_AsText(geom), ST_X(geom), ST_Y(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
