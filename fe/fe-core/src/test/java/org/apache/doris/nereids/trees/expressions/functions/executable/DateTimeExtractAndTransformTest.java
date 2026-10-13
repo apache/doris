@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -339,10 +340,14 @@ class DateTimeExtractAndTransformTest {
         Expression negative = DateTimeExtractAndTransform.timeFormat(
                 new TimeV2Literal("-10:00:00"), new VarcharLiteral("%a"));
         Assertions.assertInstanceOf(NullLiteral.class, negative);
+        // the folded NULL has to keep time_format's declared return type, otherwise the result
+        // field is advertised as STRING/BLOB instead of VARCHAR
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, ((NullLiteral) negative).getDataType());
 
         Expression positive = DateTimeExtractAndTransform.timeFormat(
                 new TimeV2Literal("10:00:00"), new VarcharLiteral("%a"));
         Assertions.assertInstanceOf(NullLiteral.class, positive);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, ((NullLiteral) positive).getDataType());
 
         // time specifiers still format, and the sign of a negative time is kept
         Expression formatted = DateTimeExtractAndTransform.timeFormat(
