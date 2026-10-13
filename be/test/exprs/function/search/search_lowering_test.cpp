@@ -411,7 +411,8 @@ TEST(SearchLoweringTest, WildcardIsNormalizedOnlyOnAnAnalyzedIndex) {
     EXPECT_EQ(lower(leaf("WILDCARD", kCased, "Qu?ck*"), catalog)->as<Expand>()->pattern, "Qu?ck*");
     EXPECT_EQ(lower(leaf("WILDCARD", kKeyword, "Qu?ck*"), catalog)->as<Expand>()->pattern,
               "Qu?ck*");
-    EXPECT_EQ(catalog.normalized_values, (std::vector<std::string> {"Qu?ck*", "Qu?ck*"}));
+    // The normalizer reads only the literal text between the operators.
+    EXPECT_EQ(catalog.normalized_values, (std::vector<std::string> {"Qu", "ck", "Qu", "ck"}));
     EXPECT_TRUE(catalog.analyzed_values.empty());
 }
 

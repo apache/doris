@@ -68,6 +68,29 @@ NodePtr lower_direct_index_leaf(const std::string& clause_type, FieldRef field,
     return make_node(Unknown {.field = std::move(field)});
 }
 
+// Normalizes the literal text between a wildcard's '*' and '?' operators, so that a normalizer
+// never reads them and they stay operators.
+Status normalize_wildcard(const FieldProps& props, FieldCatalog& catalog,
+                          const std::string& pattern, std::string* out) {
+    out->clear();
+    size_t start = 0;
+    while (true) {
+        const size_t end = pattern.find_first_of("*?", start);
+        const size_t literal_end = end == std::string::npos ? pattern.size() : end;
+        if (literal_end > start) {
+            std::string normalized;
+            RETURN_IF_ERROR(catalog.normalize(props, pattern.substr(start, literal_end - start),
+                                              &normalized));
+            out->append(normalized);
+        }
+        if (end == std::string::npos) {
+            return Status::OK();
+        }
+        out->push_back(pattern[end]);
+        start = end + 1;
+    }
+}
+
 // WILDCARD, REGEXP and PREFIX match dictionary terms against a pattern. As in Elasticsearch's
 // query_string, a prefix or a glob is normalized the way the index normalizes its terms and is
 // never analyzed, and a regular expression is taken as written.
@@ -91,7 +114,8 @@ Status lower_pattern_leaf(const std::string& clause_type, const FieldProps& prop
             prefix && value.ends_with('*') ? value.substr(0, value.size() - 1) : value;
     if (props.analyzed) {
         std::string normalized;
-        RETURN_IF_ERROR(catalog.normalize(props, pattern, &normalized));
+        RETURN_IF_ERROR(prefix ? catalog.normalize(props, pattern, &normalized)
+                               : normalize_wildcard(props, catalog, pattern, &normalized));
         pattern = std::move(normalized);
     }
     *out = make_node(Expand {.field = std::move(field),

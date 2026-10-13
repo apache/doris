@@ -17,14 +17,13 @@
 
 #include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiTokenizer.h"
 
-#include <unicode/ucasemap.h>
-
 #include <algorithm>
 #include <string>
 #include <string_view>
 
 #include "common/exception.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_normalize.h"
+#include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
 
 namespace doris::segment_v2 {
 
@@ -55,46 +54,6 @@ bool is_stop_pos(std::string_view pos1) {
            pos1 == "\xE6\x8E\xA5\xE7\xB6\x9A\xE8\xA9\x9E" ||           // Conjunction
            pos1 == "\xE8\xA8\x98\xE5\x8F\xB7" ||                       // Symbol
            pos1 == "\xE3\x83\x95\xE3\x82\xA3\xE3\x83\xA9\xE3\x83\xBC"; // Filler
-}
-
-void ascii_lower(std::string& s) {
-    for (char& c : s) {
-        if (c >= 'A' && c <= 'Z') {
-            c = static_cast<char>(c - 'A' + 'a');
-        }
-    }
-}
-
-// ICU lowercases indexed terms and queries consistently with LowerCaseFilter.
-// ASCII folding is used when ICU cannot open.
-void unicode_lower(std::string& s) {
-    if (s.empty()) {
-        return;
-    }
-    static UCaseMap* ucsm = []() -> UCaseMap* {
-        UErrorCode st = U_ZERO_ERROR;
-        UCaseMap* m = ucasemap_open("", 0, &st);
-        return U_SUCCESS(st) ? m : nullptr;
-    }();
-    if (ucsm == nullptr) {
-        ascii_lower(s);
-        return;
-    }
-    std::string out(s.size() + 16, '\0');
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        UErrorCode st = U_ZERO_ERROR;
-        int32_t n = ucasemap_utf8ToLower(ucsm, out.data(), static_cast<int32_t>(out.size()),
-                                         s.data(), static_cast<int32_t>(s.size()), &st);
-        if (st == U_BUFFER_OVERFLOW_ERROR && n > 0) {
-            out.resize(static_cast<std::size_t>(n)); // retry once with the exact size
-            continue;
-        }
-        if (U_SUCCESS(st) && n >= 0) {
-            out.resize(static_cast<std::size_t>(n));
-            s = std::move(out);
-        }
-        return;
-    }
 }
 
 // Decode the first UTF-8 code point of text[start, start+len). Validates
@@ -180,7 +139,7 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
         term = inverted_index::kuromoji::cjk_width_normalize(
                 term); // full-width ASCII -> ASCII before lowercase
         if (this->lowercase) {
-            unicode_lower(term); // Unicode-aware, matching the shared LowerCaseFilter
+            inverted_index::unicode_lower(term); // Unicode-aware, matching LowerCaseFilter
         }
         if (!term.empty()) {
             tokens_text_.push_back(std::move(term));

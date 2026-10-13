@@ -21,6 +21,7 @@
 
 #ifdef BE_TEST
 #include <atomic>
+#include <string>
 #endif
 
 #include "common/cast_set.h"
@@ -52,6 +53,43 @@ inline void note_unicode_path() {
 
 } // namespace lower_case_testing
 #endif
+
+// Lowercases every letter of UTF-8 `value` with the root-locale mapping LowerCaseFilter uses, or
+// only ASCII letters when ICU cannot open.
+inline void unicode_lower(std::string& value) {
+    if (value.empty()) {
+        return;
+    }
+    static UCaseMap* const case_map = []() -> UCaseMap* {
+        UErrorCode status = U_ZERO_ERROR;
+        UCaseMap* map = ucasemap_open("", 0, &status);
+        return U_SUCCESS(status) ? map : nullptr;
+    }();
+    if (case_map == nullptr) {
+        for (char& c : value) {
+            if (c >= 'A' && c <= 'Z') {
+                c = static_cast<char>(c - 'A' + 'a');
+            }
+        }
+        return;
+    }
+    std::string lowered(value.size() + 16, '\0');
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        UErrorCode status = U_ZERO_ERROR;
+        const int32_t length =
+                ucasemap_utf8ToLower(case_map, lowered.data(), static_cast<int32_t>(lowered.size()),
+                                     value.data(), static_cast<int32_t>(value.size()), &status);
+        if (status == U_BUFFER_OVERFLOW_ERROR && length > 0) {
+            lowered.resize(static_cast<size_t>(length));
+            continue;
+        }
+        if (U_SUCCESS(status) && length >= 0) {
+            lowered.resize(static_cast<size_t>(length));
+            value = std::move(lowered);
+        }
+        return;
+    }
+}
 
 /**
  * @brief A token filter that converts Unicode text to lowercase using ICU library.

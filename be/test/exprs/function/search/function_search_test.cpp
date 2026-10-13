@@ -31,6 +31,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -2469,11 +2470,11 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsTheDslSuffix) 
     scoped_policy_mgr.apply_policy_changes({}, {tokenizer.id, analyzer.id});
 }
 
-// Runs one PREFIX clause against a fake SNII reader bound to "body" with `properties`.
-static void search_snii_prefix(const std::map<std::string, std::string>& properties,
-                               const std::shared_ptr<IndexQueryContext>& context,
-                               const std::string& value,
-                               const std::shared_ptr<RecordingNativeInvertedIndexReader>& reader) {
+// Runs one pattern clause against a fake SNII reader bound to "body" with `properties`.
+static void search_snii_pattern(const std::map<std::string, std::string>& properties,
+                                const std::shared_ptr<IndexQueryContext>& context,
+                                const std::string& clause_type, const std::string& value,
+                                const std::shared_ptr<RecordingNativeInvertedIndexReader>& reader) {
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
     std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
@@ -2490,8 +2491,9 @@ static void search_snii_prefix(const std::map<std::string, std::string>& propert
     const size_t expansions = reader->fake_source->expanded.size();
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = FunctionSearch().build_query_recursive(
-            make_leaf_clause("PREFIX", value), context, resolver, &query, &binding_key, "OR", 0, 4);
+    auto status =
+            FunctionSearch().build_query_recursive(make_leaf_clause(clause_type, value), context,
+                                                   resolver, &query, &binding_key, "OR", 0, 4);
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(0, reader->query_calls) << value;
     // The scorer enumerates the stem on the source; the reader itself is never asked.
@@ -2501,6 +2503,14 @@ static void search_snii_prefix(const std::map<std::string, std::string>& propert
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
     ASSERT_EQ(expansions + 1, reader->fake_source->expanded.size()) << value;
+}
+
+// Runs one PREFIX clause against a fake SNII reader bound to "body" with `properties`.
+static void search_snii_prefix(const std::map<std::string, std::string>& properties,
+                               const std::shared_ptr<IndexQueryContext>& context,
+                               const std::string& value,
+                               const std::shared_ptr<RecordingNativeInvertedIndexReader>& reader) {
+    search_snii_pattern(properties, context, "PREFIX", value, reader);
 }
 
 // SEARCH PREFIX follows Elasticsearch's query_string: the stem is normalized, not analyzed, and
@@ -3762,6 +3772,94 @@ TEST_F(FunctionSearchTest, SearchConvertsExceptionInsideSearchToStatus) {
     EXPECT_FALSE(status.ok()) << status;
     EXPECT_NE(status.to_string().find("token stream failed on first use"), std::string::npos)
             << status;
+}
+
+// A prefix goes through the index's character filter before it is lowercased, as the indexed
+// text does: with '-' replaced by 'x', "A-B*" finds the terms written from "a-b...".
+TEST_F(FunctionSearchTest, TestSniiNativePrefixAppliesTheIndexCharacterFilter) {
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    const std::map<std::string, std::string> properties {
+            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD},
+            {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "-"},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "x"}};
+    auto index_meta = make_test_inverted_index(30, properties);
+    auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &index_meta, std::make_shared<RejectingCluceneIndexFileReader>());
+    search_snii_prefix(properties, context, "A-B*", reader);
+    EXPECT_EQ("axb", reader->fake_source->expanded.back());
+}
+
+// A prefix is lowercased the way the parser lowercases the text it indexes: the ICU parser folds
+// every letter and the standard parser only ASCII letters.
+TEST_F(FunctionSearchTest, TestSniiNativePrefixLowercasesLikeTheParser) {
+    const std::string saved_dict_path = config::inverted_index_dict_path;
+    DEFER(config::inverted_index_dict_path = saved_dict_path);
+    // Unit tests run from the source root, as in the ICU tokenizer tests.
+    config::inverted_index_dict_path = "./be/dict";
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    // U+00C9 and its lowercase U+00E9.
+    const std::string upper_e = "\xC3\x89";
+    const std::string lower_e = "\xC3\xA9";
+    for (const auto& [parser, stem] : std::vector<std::pair<std::string, std::string>> {
+                 {INVERTED_INDEX_PARSER_ICU, lower_e + "clair"},
+                 {INVERTED_INDEX_PARSER_STANDARD, upper_e + "clair"}}) {
+        const std::map<std::string, std::string> properties {
+                {INVERTED_INDEX_PARSER_KEY, parser},
+                {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE}};
+        auto index_meta = make_test_inverted_index(31, properties);
+        auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+                &index_meta, std::make_shared<RejectingCluceneIndexFileReader>());
+        search_snii_prefix(properties, context, upper_e + "Clair*", reader);
+        EXPECT_EQ(stem, reader->fake_source->expanded.back()) << parser;
+    }
+}
+
+// A wildcard's '*' and '?' stay operators: the analyzer's normalizer reads only the literal text
+// around them, so a character filter replacing '*' by 'x' still leaves "A*B" a pattern.
+TEST_F(FunctionSearchTest, TestSniiNativeWildcardNormalizesOnlyItsLiterals) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->index_policy_mgr();
+    IndexPolicyMgr scoped_policy_mgr;
+    exec_env->_index_policy_mgr = &scoped_policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    TIndexPolicy char_filter;
+    char_filter.id = 910050;
+    char_filter.name = "function_search_star_filter";
+    char_filter.type = TIndexPolicyType::CHAR_FILTER;
+    char_filter.properties["type"] = "char_replace";
+    char_filter.properties["pattern"] = "*?";
+    char_filter.properties["replacement"] = "x";
+    TIndexPolicy analyzer;
+    analyzer.id = 910051;
+    analyzer.name = "function_search_star_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "standard";
+    analyzer.properties["char_filter"] = char_filter.name;
+    analyzer.properties["token_filter"] = "lowercase";
+    scoped_policy_mgr.apply_policy_changes({char_filter, analyzer}, {});
+
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    const std::map<std::string, std::string> properties {
+            {INVERTED_INDEX_ANALYZER_NAME_KEY, analyzer.name}};
+    auto index_meta = make_test_inverted_index(32, properties);
+    auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &index_meta, std::make_shared<RejectingCluceneIndexFileReader>());
+    reader->fake_source->add("acb", {0});
+    search_snii_pattern(properties, context, "WILDCARD", "A*B", reader);
+    EXPECT_EQ("a", reader->fake_source->expanded.back());
+    search_snii_pattern(properties, context, "WILDCARD", "A?B", reader);
+    EXPECT_EQ("a", reader->fake_source->expanded.back());
+
+    scoped_policy_mgr.apply_policy_changes({}, {char_filter.id, analyzer.id});
 }
 
 } // namespace doris

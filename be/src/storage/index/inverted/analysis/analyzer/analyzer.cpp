@@ -39,8 +39,11 @@
 #include "storage/index/inverted/analysis/analyzer/basic/basic_analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/icu/icu_analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/ik/IKAnalyzer.h"
+#include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiAnalyzer.h"
+#include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_normalize.h"
 #include "storage/index/inverted/analysis/char_filter/char_replace_char_filter_factory.h"
+#include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
 #include "util/string_util.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -61,6 +64,32 @@ private:
     const AnalyzerPtr _analyzer;
 };
 
+// Normalizes text the way a builtin parser normalizes the terms it writes: the IK and kuromoji
+// parsers fold full-width ASCII to ASCII, and when lowercasing, the ICU, basic and kuromoji parsers
+// lowercase every letter and the other parsers ASCII letters only.
+std::string normalize_builtin_term(InvertedIndexParserType parser_type, bool lower_case,
+                                   std::string text) {
+    switch (parser_type) {
+    case InvertedIndexParserType::PARSER_IK:
+        CharacterUtil::regularizeString(text, lower_case);
+        return text;
+    case InvertedIndexParserType::PARSER_KUROMOJI:
+        text = kuromoji::cjk_width_normalize(text);
+        if (lower_case) {
+            unicode_lower(text);
+        }
+        return text;
+    case InvertedIndexParserType::PARSER_ICU:
+    case InvertedIndexParserType::PARSER_BASIC:
+        if (lower_case) {
+            unicode_lower(text);
+        }
+        return text;
+    default:
+        return lower_case ? to_lower(text) : text;
+    }
+}
+
 } // namespace
 
 ReaderPtr InvertedIndexAnalyzer::create_reader(const CharFilterMap& char_filter_map) {
@@ -79,6 +108,18 @@ ReaderPtr InvertedIndexAnalyzer::create_reader(const CharFilterMap& char_filter_
         }
     }
     return reader;
+}
+
+std::string InvertedIndexAnalyzer::filter_characters(const CharFilterMap& char_filter_map,
+                                                     const std::string& value) {
+    if (char_filter_map.empty()) {
+        return value;
+    }
+    auto reader = create_reader(char_filter_map);
+    reader->init(value.data(), static_cast<int32_t>(value.size()), true);
+    std::string filtered(reader->size(), '\0');
+    reader->readCopy(filtered.data(), 0, static_cast<int32_t>(filtered.size()));
+    return filtered;
 }
 
 bool InvertedIndexAnalyzer::is_builtin_analyzer(const std::string& analyzer_name) {
@@ -286,10 +327,15 @@ std::string InvertedIndexAnalyzer::normalize(const std::string& value,
                                              const std::map<std::string, std::string>& properties) {
     const std::string analyzer_name = get_analyzer_name_from_properties(properties);
     if (analyzer_name.empty() || is_builtin_analyzer(analyzer_name)) {
-        // The index writers lowercase a builtin analyzer's terms unless lower_case is false.
-        return get_parser_lowercase_from_properties<true>(properties) == INVERTED_INDEX_PARSER_TRUE
-                       ? to_lower(value)
-                       : value;
+        // The index writers read a builtin analyzer's text through the index's character filter.
+        const InvertedIndexParserType parser_type = get_inverted_index_parser_type_from_string(
+                analyzer_name.empty() ? get_parser_string_from_properties(properties)
+                                      : analyzer_name);
+        return normalize_builtin_term(
+                parser_type,
+                get_parser_lowercase_from_properties<true>(properties) ==
+                        INVERTED_INDEX_PARSER_TRUE,
+                filter_characters(get_parser_char_filter_map_from_properties(properties), value));
     }
     auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
     if (index_policy_mgr == nullptr) {

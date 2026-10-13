@@ -20,10 +20,17 @@
 #include <gen_cpp/AgentService_types.h>
 #include <gtest/gtest.h>
 
+#include <map>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/analysis/reader.h"
+#include "util/defer_op.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -391,6 +398,68 @@ TEST_F(AnalyzerTest, TestAnalyzeQueryValue) {
     const std::map<std::string, std::string> missing = {{"analyzer", "no_such_analyzer"}};
     EXPECT_TRUE(InvertedIndexAnalyzer::analyze("Hello", nullptr, missing, &out)
                         .is<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>());
+}
+
+// A prefix or a wildcard normalizes its literal text into the term a builtin parser writes for it:
+// through the character filter, the width folding of IK and kuromoji, and the parser's own
+// lowercasing.
+TEST_F(AnalyzerTest, TestNormalizeMatchesTheTermsOfBuiltinParsers) {
+    const std::string saved_dict_path = config::inverted_index_dict_path;
+    const bool saved_kuromoji = config::enable_kuromoji_analyzer;
+    Defer restore_config {[&] {
+        config::inverted_index_dict_path = saved_dict_path;
+        config::enable_kuromoji_analyzer = saved_kuromoji;
+    }};
+    // Unit tests run from the source root, as in the ICU tokenizer tests.
+    config::inverted_index_dict_path = "./be/dict";
+    config::enable_kuromoji_analyzer = true;
+
+    const std::string eclair =
+            "\xC3\x89"
+            "Clair";
+    // "Clair" in full-width letters.
+    const std::string full_width_clair =
+            "\xEF\xBC\xA3\xEF\xBD\x8C\xEF\xBD\x81\xEF\xBD\x89\xEF\xBD\x92";
+    // `properties` must analyze `value` into one term, which normalize must return too.
+    const auto expect_term = [](std::map<std::string, std::string> properties,
+                                const std::string& value) {
+        for (const auto& lower_case : {INVERTED_INDEX_PARSER_TRUE, INVERTED_INDEX_PARSER_FALSE}) {
+            properties[INVERTED_INDEX_PARSER_LOWERCASE_KEY] = lower_case;
+            const auto terms = InvertedIndexAnalyzer::get_analyse_result(value, properties);
+            ASSERT_EQ(terms.size(), 1) << properties[INVERTED_INDEX_PARSER_KEY] << " " << value;
+            EXPECT_EQ(InvertedIndexAnalyzer::normalize(value, properties),
+                      terms[0].get_single_term())
+                    << properties[INVERTED_INDEX_PARSER_KEY] << " " << value
+                    << " lower_case=" << lower_case;
+        }
+    };
+    for (const auto& [parser, value] : std::vector<std::pair<std::string, std::string>> {
+                 {INVERTED_INDEX_PARSER_STANDARD, eclair},
+                 {INVERTED_INDEX_PARSER_UNICODE, eclair},
+                 {INVERTED_INDEX_PARSER_ENGLISH, "Clair"},
+                 {INVERTED_INDEX_PARSER_BASIC, "Clair"},
+                 {INVERTED_INDEX_PARSER_ICU, eclair},
+                 {INVERTED_INDEX_PARSER_KUROMOJI, eclair},
+                 {INVERTED_INDEX_PARSER_KUROMOJI, full_width_clair}}) {
+        expect_term({{INVERTED_INDEX_PARSER_KEY, parser}}, value);
+    }
+    expect_term({{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD},
+                 {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+                 {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "-"},
+                 {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "x"}},
+                "A-B");
+
+    // IK loads its dictionary once per process, and a test of a missing dictionary leaves it
+    // unusable, so the terms IK writes are spelled out: full-width ASCII folds to ASCII, and only
+    // ASCII letters are lowercased.
+    for (const auto& [lower_case, term] : std::vector<std::pair<std::string, std::string>> {
+                 {INVERTED_INDEX_PARSER_TRUE, "clair"}, {INVERTED_INDEX_PARSER_FALSE, "Clair"}}) {
+        EXPECT_EQ(InvertedIndexAnalyzer::normalize(
+                          full_width_clair, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_IK},
+                                             {INVERTED_INDEX_PARSER_LOWERCASE_KEY, lower_case}}),
+                  term)
+                << lower_case;
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index

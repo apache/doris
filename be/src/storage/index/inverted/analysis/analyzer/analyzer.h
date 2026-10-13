@@ -45,6 +45,9 @@ using AnalyzerPtr = std::shared_ptr<lucene::analysis::Analyzer>;
 class InvertedIndexAnalyzer {
 public:
     static ReaderPtr create_reader(const CharFilterMap& char_filter_map);
+    // `value` as a builtin analyzer reads it, through the index's character filter.
+    static std::string filter_characters(const CharFilterMap& char_filter_map,
+                                         const std::string& value);
 
     static bool is_builtin_analyzer(const std::string& analyzer_name);
     static AnalyzerPtr create_builtin_analyzer(InvertedIndexParserType parser_type,
@@ -68,9 +71,10 @@ public:
                           const std::map<std::string, std::string>& properties,
                           std::vector<TermInfo>* out);
 
-    // Normalizes a prefix or a wildcard pattern the way the index normalizes its terms, without
-    // splitting it: lowercase for a builtin analyzer unless lower_case is false, or the
-    // per-character part of a custom analyzer or normalizer.
+    // Normalizes the literal text of a prefix or a wildcard the way the index normalizes its
+    // terms, without splitting it: for a builtin analyzer the index's character filter and the
+    // parser's lowercasing unless lower_case is false, for a custom analyzer or normalizer its
+    // per-character part.
     static std::string normalize(const std::string& value,
                                  const std::map<std::string, std::string>& properties);
 
