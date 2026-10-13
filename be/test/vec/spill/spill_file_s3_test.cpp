@@ -1478,7 +1478,7 @@ TEST_F(SpillFileS3Test, TryReserveIsAtomic) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
-// With uploads stuck, a writer pauses before handing another buffer to object storage once the
+// With uploads stuck, a writer pauses before appending another block to object storage once the
 // S3 upload queue holds spill_s3_max_inflight_upload_bytes of buffers, and goes on when the
 // queue drains.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -1525,15 +1525,17 @@ TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
     ASSERT_GE(upload_pool->get_queue_size(), 2);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     ASSERT_FALSE(finished.load());
-    // The queue is checked before every buffer, so it never exceeds the limit.
-    ASSERT_LE(upload_pool->get_queue_size(), 2);
+    // The queue is checked before every block. A block (~12 KB) plus a partly filled pending
+    // buffer (< 8 KB) fills at most two 8 KB buffers, so an append that passed the check with
+    // one queued buffer leaves at most three.
+    ASSERT_LE(upload_pool->get_queue_size(), 3);
 
     mock_store().set_block_uploads(false);
     writer_thread.join();
     sampling = false;
     sampler.join();
     ASSERT_TRUE(write_status.ok()) << write_status;
-    ASSERT_LE(max_queue.load(), 2);
+    ASSERT_LE(max_queue.load(), 3);
     ASSERT_GT(_counter(profile::SPILL_REMOTE_UPLOAD_WAIT_TIME), 0);
     ASSERT_EQ(_query_objects("query_6"), _part_keys("sort-1-0-1", 1));
     ASSERT_TRUE(_no_open_multipart_uploads());

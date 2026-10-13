@@ -295,20 +295,16 @@ Status SpillFileWriter::_append_to_part(const Slice& data) {
         _part_append_status = _file_writer->append(data);
         return _part_append_status;
     }
-    // One upload buffer per append, so that the queue is checked before every buffer this
-    // writer can submit.
-    const auto buffer_size = static_cast<size_t>(config::s3_write_buffer_size);
-    for (size_t offset = 0; offset < data.size; offset += buffer_size) {
-        _part_append_status = _wait_for_upload_queue();
-        RETURN_IF_ERROR(_part_append_status);
-        MonotonicStopWatch append_watch;
-        append_watch.start();
-        _part_append_status = _file_writer->append(
-                Slice(data.data + offset, std::min(buffer_size, data.size - offset)));
-        _part_upload_ns += append_watch.elapsed_time();
-        RETURN_IF_ERROR(_part_append_status);
-    }
-    return Status::OK();
+    // S3FileWriter splits `data` into upload buffers and queues every full one without waiting,
+    // so the queue is checked once per append: `data` is already in memory, and the wait keeps
+    // the next append from producing faster than object storage takes the data.
+    _part_append_status = _wait_for_upload_queue();
+    RETURN_IF_ERROR(_part_append_status);
+    MonotonicStopWatch append_watch;
+    append_watch.start();
+    _part_append_status = _file_writer->append(data);
+    _part_upload_ns += append_watch.elapsed_time();
+    return _part_append_status;
 }
 
 void SpillFileWriter::_advance_part() {
