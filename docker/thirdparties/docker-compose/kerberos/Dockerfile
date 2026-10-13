@@ -19,12 +19,17 @@ FROM apache/hive:3.1.3
 
 USER root
 
-RUN apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update \
+COPY configure-apt-sources.sh /opt/doris/configure-apt-sources.sh
+
+RUN /opt/doris/configure-apt-sources.sh \
+    && apt-get -o Acquire::Check-Valid-Until=false \
+        -o Acquire::Retries=3 \
+        -o APT::Update::Error-Mode=any update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
         krb5-admin-server \
         krb5-kdc \
         krb5-user \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /opt/doris/configure-apt-sources.sh
 
 COPY entrypoint-hive-master.sh /opt/doris/entrypoint.sh
 COPY health-checks/health.sh /opt/doris/health.sh
