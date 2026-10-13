@@ -29,6 +29,8 @@
 #include <vector>
 
 #include "common/config.h"
+#include "cpp/sync_point.h"
+#include "util/defer_op.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -272,6 +274,35 @@ TEST_F(TabletCachePolicyRegistryTest, refresh_forgets_unused_policies) {
     _registry.refresh(100);
     config::file_cache_tablet_policy_refresh_interval_s = original_interval;
     EXPECT_FALSE(_registry.deadline(1).has_value());
+    EXPECT_FALSE(_registry.deadline(2).has_value());
+}
+
+// A policy is only forgotten if it is still unused when it is about to be.
+TEST_F(TabletCachePolicyRegistryTest, prune_keeps_policy_refreshed_meanwhile) {
+    _registry.upsert(1, {100, 1000});
+    _registry.upsert(2, {100, 1000});
+    for (auto& [_, entry] : _registry._entries) {
+        entry.refreshed_at_s = 0;
+        entry.reported_at_s = 0;
+    }
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    Defer disable_sp {[&]() { sp->disable_processing(); }};
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "TabletCachePolicyRegistry::prune:collected",
+            [&](auto&& args) {
+                if (try_any_cast<TabletCachePolicyRegistry*>(args[0]) != &_registry) {
+                    return;
+                }
+                auto* unused = try_any_cast<std::vector<int64_t>*>(args[1]);
+                EXPECT_EQ(unused->size(), 2);
+                // The tablet's meta is refreshed between the scan and the removal.
+                _registry.upsert(1, {100, 1000});
+            },
+            &guard);
+    _registry.refresh(0);
+    EXPECT_EQ(_registry.deadline(1), 1100);
     EXPECT_FALSE(_registry.deadline(2).has_value());
 }
 

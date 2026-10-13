@@ -510,6 +510,7 @@ private:
     void run_background_block_lru_update();
     void run_background_queue_sweep();
 
+    bool is_protected(int64_t tablet_id, int64_t legacy_deadline, int64_t now);
     // The queue a block of this class and tablet belongs in at `now`.
     FileCacheType queue_type_for(int64_t tablet_id, int64_t legacy_deadline,
                                  FileCacheType cache_class, int64_t now);
@@ -640,6 +641,9 @@ private:
         int64_t last_report_at = 0;
     };
     QueueSweepState _queue_sweep;
+    // The earliest deadline found protecting a block by itself (its tablet unknown, or none)
+    // since the TTL pass before. No policy change tells when such a deadline passes.
+    std::atomic<int64_t> _next_legacy_deadline {std::numeric_limits<int64_t>::max()};
 
     std::unique_ptr<InflightWriteBufferIndex> _inflight_write_buffer_index;
     std::unique_ptr<AsyncCacheWriteManager> _async_write_manager;

@@ -2169,15 +2169,28 @@ std::string BlockFileCache::dump_single_cache_type_unlocked(const UInt128Wrapper
 }
 
 bool BlockFileCache::is_protected(const FileBlock& block, int64_t now) {
-    return _policy_registry->is_protected(block.tablet_id(),
-                                          static_cast<int64_t>(block.expiration_time()), now);
+    return is_protected(block.tablet_id(), static_cast<int64_t>(block.expiration_time()), now);
+}
+
+bool BlockFileCache::is_protected(int64_t tablet_id, int64_t legacy_deadline, int64_t now) {
+    bool legacy = false;
+    const int64_t deadline = _policy_registry->protected_until(tablet_id, legacy_deadline, &legacy);
+    if (deadline <= now) {
+        return false;
+    }
+    if (legacy) {
+        int64_t next = _next_legacy_deadline.load(std::memory_order_relaxed);
+        while (deadline < next && !_next_legacy_deadline.compare_exchange_weak(
+                                          next, deadline, std::memory_order_relaxed)) {
+        }
+    }
+    return true;
 }
 
 FileCacheType BlockFileCache::queue_type_for(int64_t tablet_id, int64_t legacy_deadline,
                                              FileCacheType cache_class, int64_t now) {
     DCHECK(cache_class != FileCacheType::TTL);
-    return _policy_registry->is_protected(tablet_id, legacy_deadline, now) ? FileCacheType::TTL
-                                                                           : cache_class;
+    return is_protected(tablet_id, legacy_deadline, now) ? FileCacheType::TTL : cache_class;
 }
 
 void BlockFileCache::move_cell_to_queue(FileBlockCell& cell, FileCacheType new_type,
@@ -2248,11 +2261,15 @@ void BlockFileCache::start_queue_sweeps(int64_t now) {
     if (!is_active(FileCacheType::TTL)) {
         const uint64_t lost_version = _policy_registry->protection_lost_version();
         if (backstop_due || lost_version != state.ttl_pass_lost_version ||
-            _policy_registry->has_deadline_in(state.ttl_pass_started_at, now)) {
+            _policy_registry->has_deadline_in(state.ttl_pass_started_at, now) ||
+            _next_legacy_deadline.load(std::memory_order_relaxed) <= now) {
             state.active[file_cache_type_index(FileCacheType::TTL)] = true;
             state.ttl_pass_lost_version = lost_version;
             state.ttl_pass_started_at = now;
             state.ttl_pass_legacy_bytes = 0;
+            // The pass finds again those still ahead.
+            _next_legacy_deadline.store(std::numeric_limits<int64_t>::max(),
+                                        std::memory_order_relaxed);
         }
     }
     // A pass over the class queues picks up blocks whose tablet gained a TTL. The three queues

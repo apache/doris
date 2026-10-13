@@ -544,7 +544,7 @@ TEST_F(BlockFileCacheTest, ttl_policy_first_start_judges_by_written_deadlines) {
         BlockFileCache cache(cache_base_path, ttl_policy_test_settings());
         open_cache(cache);
         fill(cache, "t1", 2, context_of(1, FileCacheType::INDEX, now + 3600, &stats));
-        fill(cache, "legacy", 2, context_of(0, FileCacheType::NORMAL, now + 3600, &stats));
+        fill(cache, "legacy", 2, context_of(0, FileCacheType::NORMAL, now + 1800, &stats));
         fill(cache, "t2", 2, context_of(2, FileCacheType::NORMAL, 0, &stats));
         auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
         ASSERT_NE(fs_storage, nullptr);
@@ -580,11 +580,12 @@ TEST_F(BlockFileCacheTest, ttl_policy_first_start_judges_by_written_deadlines) {
     EXPECT_EQ(block_of(cache, "t2", 0)->cache_type(), FileCacheType::TTL);
     EXPECT_EQ(block_of(cache, "legacy", 0)->cache_type(), FileCacheType::TTL);
 
-    // The written deadline is not one the registry knows, so only the daily pass or an eviction
-    // scan notices it has passed.
-    cache._queue_sweep.last_backstop_at = 0;
-    sweep_all(cache, now + 3600 + 1);
+    // No policy change tells when the written deadline passes: a pass starts once it has.
+    sweep_all(cache, now + 1800 - 1);
+    EXPECT_EQ(block_of(cache, "legacy", 0)->cache_type(), FileCacheType::TTL);
+    sweep_all(cache, now + 1800 + 1);
     EXPECT_EQ(block_of(cache, "legacy", 0)->cache_type(), FileCacheType::NORMAL);
+    EXPECT_EQ(block_of(cache, "t2", 0)->cache_type(), FileCacheType::TTL);
     EXPECT_EQ(cache._ttl_legacy_v2_protected_bytes->get_value(), 0);
 }
 

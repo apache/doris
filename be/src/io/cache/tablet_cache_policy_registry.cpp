@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/cache/cache_block_meta_store.h"
 #include "runtime/exec_env.h"
 #include "storage/tablet/tablet_meta.h"
@@ -89,19 +90,25 @@ std::optional<int64_t> TabletCachePolicyRegistry::deadline(int64_t tablet_id) co
     return it->second.policy.deadline();
 }
 
-bool TabletCachePolicyRegistry::is_protected(int64_t tablet_id, int64_t legacy_deadline,
-                                             int64_t now) {
+int64_t TabletCachePolicyRegistry::protected_until(int64_t tablet_id, int64_t legacy_deadline,
+                                                   bool* legacy) {
     // tablet_id 0 is data outside any Doris tablet (external tables, v2 cache files that never
     // recorded one): it only has the deadline it was written with.
-    if (tablet_id <= 0) {
-        return legacy_deadline > now;
-    }
-    const std::optional<int64_t> known = deadline(tablet_id);
-    if (!known.has_value()) {
+    if (tablet_id > 0) {
+        if (const std::optional<int64_t> known = deadline(tablet_id); known.has_value()) {
+            *legacy = false;
+            return *known;
+        }
         note_tablet(tablet_id);
-        return legacy_deadline > now;
     }
-    return *known > now;
+    *legacy = true;
+    return legacy_deadline;
+}
+
+bool TabletCachePolicyRegistry::is_protected(int64_t tablet_id, int64_t legacy_deadline,
+                                             int64_t now) {
+    bool legacy = false;
+    return protected_until(tablet_id, legacy_deadline, &legacy) > now;
 }
 
 std::optional<TabletCachePolicy> TabletCachePolicyRegistry::set_locked(
@@ -120,6 +127,19 @@ std::optional<TabletCachePolicy> TabletCachePolicyRegistry::set_locked(
     if (const int64_t new_deadline = policy.deadline(); new_deadline > 0) {
         _deadlines.insert(new_deadline);
     }
+    return before;
+}
+
+std::optional<TabletCachePolicy> TabletCachePolicyRegistry::erase_locked(int64_t tablet_id) {
+    auto it = _entries.find(tablet_id);
+    if (it == _entries.end()) {
+        return std::nullopt;
+    }
+    const TabletCachePolicy before = it->second.policy;
+    if (const int64_t old_deadline = before.deadline(); old_deadline > 0) {
+        _deadlines.erase(_deadlines.find(old_deadline));
+    }
+    _entries.erase(it);
     return before;
 }
 
@@ -180,15 +200,10 @@ void TabletCachePolicyRegistry::erase(int64_t tablet_id) {
     std::optional<TabletCachePolicy> before;
     {
         std::unique_lock lock(_mutex);
-        auto it = _entries.find(tablet_id);
-        if (it == _entries.end()) {
-            return;
-        }
-        before = it->second.policy;
-        if (const int64_t old_deadline = before->deadline(); old_deadline > 0) {
-            _deadlines.erase(_deadlines.find(old_deadline));
-        }
-        _entries.erase(it);
+        before = erase_locked(tablet_id);
+    }
+    if (!before.has_value()) {
+        return;
     }
     bump_versions(before, std::nullopt);
     persist(tablet_id, std::nullopt);
@@ -275,17 +290,32 @@ void TabletCachePolicyRegistry::prune(int64_t now) {
     // A tablet no cache path holds and nothing refreshes (unloaded, or dropped) has no blocks
     // to judge; it is learned again if its blocks come back.
     const int64_t forget_before = now - 2 * config::file_cache_tablet_policy_refresh_interval_s;
+    auto is_unused = [forget_before](const Entry& entry) {
+        return std::max(entry.refreshed_at_s, entry.reported_at_s) < forget_before;
+    };
     std::vector<int64_t> unused;
     {
         std::shared_lock lock(_mutex);
         for (const auto& [id, entry] : _entries) {
-            if (std::max(entry.refreshed_at_s, entry.reported_at_s) < forget_before) {
+            if (is_unused(entry)) {
                 unused.push_back(id);
             }
         }
     }
+    TEST_SYNC_POINT_CALLBACK("TabletCachePolicyRegistry::prune:collected", this, &unused);
     for (int64_t id : unused) {
-        erase(id);
+        std::optional<TabletCachePolicy> before;
+        {
+            std::unique_lock lock(_mutex);
+            // Checked again: it may have been refreshed or reported since.
+            if (auto it = _entries.find(id); it != _entries.end() && is_unused(it->second)) {
+                before = erase_locked(id);
+            }
+        }
+        if (before.has_value()) {
+            bump_versions(before, std::nullopt);
+            persist(id, std::nullopt);
+        }
     }
 }
 

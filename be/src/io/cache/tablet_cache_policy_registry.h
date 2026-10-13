@@ -65,8 +65,11 @@ public:
 
     // The tablet's deadline (0 when it has no TTL), or nullopt when the tablet is unknown.
     std::optional<int64_t> deadline(int64_t tablet_id) const;
-    // Whether a block of `tablet_id` written with `legacy_deadline` is protected at `now`. An
-    // unknown tablet is noted for the next refresh.
+    // The deadline a block of `tablet_id` written with `legacy_deadline` is protected until: its
+    // tablet's current one, or else `legacy_deadline`, in which case `*legacy` is set. An unknown
+    // tablet is noted for the next refresh.
+    int64_t protected_until(int64_t tablet_id, int64_t legacy_deadline, bool* legacy);
+    // Whether a block of `tablet_id` written with `legacy_deadline` is protected at `now`.
     bool is_protected(int64_t tablet_id, int64_t legacy_deadline, int64_t now);
 
     // Records the tablet's current policy as read from its meta. Compares under the shared lock
@@ -131,6 +134,7 @@ private:
     // Applies the change under the exclusive lock, returns the previous policy if any.
     std::optional<TabletCachePolicy> set_locked(int64_t tablet_id, const TabletCachePolicy& policy,
                                                 int64_t refreshed_at_s);
+    std::optional<TabletCachePolicy> erase_locked(int64_t tablet_id);
     void bump_versions(const std::optional<TabletCachePolicy>& before,
                        const std::optional<TabletCachePolicy>& after);
     void persist(int64_t tablet_id, const std::optional<TabletCachePolicy>& policy);
