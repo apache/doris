@@ -162,9 +162,11 @@ Status SegmentFlusher::_create_segment_writer(
         writer_options.compression_type = NO_COMPRESSION;
     }
 
-    writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
-            segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, index_file_writer.get());
+    RETURN_IF_CATCH_EXCEPTION({
+        writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
+                segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+                _context.data_dir, writer_options, index_file_writer.get());
+    });
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));

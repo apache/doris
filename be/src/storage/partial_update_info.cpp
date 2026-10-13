@@ -1356,8 +1356,6 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
         RETURN_IF_ERROR(aggregate_for_sequence_column(block, static_cast<int>(num_rows),
                                                       key_columns, seq_column, specified_rowsets,
                                                       segment_caches, row_lsns));
-        // It swapped in new columns, even when no row was merged, so the key
-        // columns are taken again.
         num_rows = block->rows();
         collect_pk_columns(*block, key_columns);
     }

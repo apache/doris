@@ -42,8 +42,6 @@
 
 namespace doris {
 class Block;
-class IColumn;
-class OlapBlockDataConvertor;
 
 // TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
 const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
@@ -52,7 +50,6 @@ class DataDir;
 class MemTracker;
 class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
-class KeyCoder;
 struct RowsetWriterContext;
 
 namespace io {
@@ -182,8 +179,8 @@ private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                            const ColumnWriterOptions& opts);
     // pos is the column's place in the open group, which is what the column
-    // writers and the convertor are indexed by; cid is its schema column id,
-    // which only the footer meta records.
+    // writers are indexed by; cid is its schema column id, which only the
+    // footer meta records.
     Status _create_column_writer(size_t pos, uint32_t cid, const TabletSchemaSPtr& tablet_schema);
     // Opens a column group without its column writers: init() then creates
     // them all at once, write_block() one at a time.
@@ -260,7 +257,6 @@ private:
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     std::unique_ptr<MemTracker> _mem_tracker;
 
-    std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     // NOTE: must stay declared after _tablet_schema and _opts, the constructor
     // init list reads both through _is_mow().

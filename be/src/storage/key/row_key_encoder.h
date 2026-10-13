@@ -31,7 +31,8 @@ class TabletSchema;
 // Encodes rows into the sortable binary key format shared by the short key
 // index and the primary key index. Each column is encoded as a one byte
 // marker (KeyConsts) followed by the KeyCoder encoded value, a null column
-// is encoded as KEY_NULL_FIRST_MARKER without value bytes.
+// is encoded as KEY_NULL_FIRST_MARKER without value bytes. The key columns are
+// a block's materialised columns of the schema's types, never a ColumnConst.
 class RowKeyEncoder {
 public:
     RowKeyEncoder(const TabletSchema& schema, bool mow);
@@ -61,7 +62,7 @@ public:
     size_t num_sort_key_columns() const { return _sort_key_coders.size(); }
 
 private:
-    // Encodes row `pos` of a key column that is not NULL there: its StorageValue
+    // Encodes row `pos` of a key column that is not NULL there: its stored value
     // through the KeyCoder of its FieldType, except CHAR, which is zero padded
     // to `length` straight into the key. Bound to the FieldType at init, so a
     // row costs no type switch.

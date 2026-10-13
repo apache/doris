@@ -577,7 +577,7 @@ suite("string_length_column_pruning") {
     // ─── CHAR(N) correctness ────────────────────────────────────────────────────
     //
     // CHAR(N) is stored padded to N bytes per row on BE
-    // (OlapColumnDataConvertorChar::clone_and_padding). The per-row length recorded
+    // (StorageLayout<CHAR>::column_to_storage). The per-row length recorded
     // in dict word info / page headers is therefore always the padded length N,
     // never the logical post-trim length expected by length(). Also, when the BE
     // SegmentIterator runs shrink_char_type_column_suffix_zero on a CHAR column

@@ -54,7 +54,6 @@
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/key_coder.h"
 #include "storage/mow/key_probe.h"
 #include "storage/olap_common.h"
@@ -287,7 +286,6 @@ Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
     _column_writers[pos] = std::move(writer);
-    _olap_data_convertor->add_column_data_convertor_at(column, pos);
     return Status::OK();
 }
 
@@ -319,9 +317,7 @@ Status VerticalSegmentWriter::_open_group(const std::vector<uint32_t>& col_ids, 
     DCHECK(_column_ids.empty());
     _has_key = has_key;
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
-    _olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     _column_writers.resize(col_ids.size());
-    _olap_data_convertor->resize(col_ids.size());
     if (_opts.compression_type == UNKNOWN_COMPRESSION) {
         _opts.compression_type = _tablet_schema->compression_type();
     }
@@ -378,15 +374,7 @@ Status VerticalSegmentWriter::_append_generated_column(const DerivedColumnGenera
                                          generated_column.get());
         DCHECK_GT(rows, 0);
 
-        auto typed_column = block.get_by_position(cid);
-        typed_column.column = std::move(generated_column);
-        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                typed_column, 0, rows, cid));
-        auto [status, column] = _olap_data_convertor->convert_column_data(cid);
-        RETURN_IF_ERROR(status);
-        RETURN_IF_ERROR(
-                _column_writers[cid]->append(column->get_nullmap(), column->get_data(), rows));
-        _olap_data_convertor->clear_source_content(cid);
+        RETURN_IF_ERROR(_column_writers[cid]->append(*generated_column, 0, rows));
         pos += rows;
     }
     return Status::OK();
@@ -426,22 +414,14 @@ Status VerticalSegmentWriter::append_block(const Block* block, size_t row_pos, s
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size()
             << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
-    _olap_data_convertor->set_source_content(block, row_pos, num_rows);
-
-    // convert column data from engine format to storage layer format
     std::vector<const IColumn*> key_columns;
     const IColumn* seq_column = nullptr;
     // keyed by cluster key unique id
     std::map<uint32_t, const IColumn*> cluster_key_columns;
     for (size_t id = 0; id < _column_writers.size(); ++id) {
-        // olap data convertor alway start from id = 0
-        auto converted_result = _olap_data_convertor->convert_column_data(id);
-        if (!converted_result.first.ok()) {
-            return converted_result.first;
-        }
-        auto cid = _column_ids[id];
         const IColumn* column = block->get_by_position(id).column.get();
         DORIS_CHECK_EQ(column->size(), block->rows()) << block->dump_structure();
+        auto cid = _column_ids[id];
         if (_has_key && cid < _tablet_schema->num_key_columns()) {
             key_columns.push_back(column);
         } else if (_has_key && _tablet_schema->has_sequence_col() &&
@@ -451,8 +431,7 @@ Status VerticalSegmentWriter::append_block(const Block* block, size_t row_pos, s
         if (_has_key) {
             _collect_cluster_key_column(cid, column, &cluster_key_columns);
         }
-        RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
-                                                    converted_result.second->get_data(), num_rows));
+        RETURN_IF_ERROR(_column_writers[id]->append(*column, row_pos, num_rows));
     }
     if (_opts.write_type == DataWriteType::TYPE_COMPACTION) {
         RETURN_IF_ERROR(
@@ -466,7 +445,6 @@ Status VerticalSegmentWriter::append_block(const Block* block, size_t row_pos, s
     }
 
     _num_rows_written += num_rows;
-    _olap_data_convertor->clear_source_content();
     return Status::OK();
 }
 
@@ -492,14 +470,6 @@ Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, si
             continue;
         }
         RETURN_IF_ERROR(_create_column_writer(cid, cid, _tablet_schema));
-        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
-                block, row_pos, num_rows, std::vector<uint32_t> {cid}));
-
-        // convert column data from engine format to storage layer format
-        auto [status, converted] = _olap_data_convertor->convert_column_data(cid);
-        if (!status.ok()) {
-            return status;
-        }
         const IColumn* column = block->get_by_position(cid).column.get();
         DORIS_CHECK_EQ(column->size(), block->rows()) << block->dump_structure();
         if (cid < _tablet_schema->num_key_columns()) {
@@ -509,9 +479,7 @@ Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, si
             seq_column = column;
         }
         _collect_cluster_key_column(cid, column, &cluster_key_columns);
-        RETURN_IF_ERROR(_column_writers[cid]->append(converted->get_nullmap(),
-                                                     converted->get_data(), num_rows));
-        _olap_data_convertor->clear_source_content();
+        RETURN_IF_ERROR(_column_writers[cid]->append(*column, row_pos, num_rows));
         RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
         RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
@@ -830,7 +798,6 @@ void VerticalSegmentWriter::clear() {
     }
     _column_writers.clear();
     _column_ids.clear();
-    _olap_data_convertor.reset();
     _num_rows_written = 0;
     _columns_data_flushed = false;
 }

@@ -347,9 +347,8 @@ public:
                 return true;
             }
             if constexpr (Type == TYPE_CHAR) {
-                // Older segments' CHAR BFs hash zero-padded bytes while the
-                // predicate value is unpadded, so probing them would always
-                // miss, and a BF does not record which kind it is. Skip BF
+                // CHAR BFs hash zero-padded bytes while the predicate value is
+                // unpadded, so probing the BF would always miss. Skip BF
                 // pruning for CHAR entirely.
                 return true;
             }

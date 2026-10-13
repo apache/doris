@@ -47,8 +47,7 @@ constexpr uint32_t BINLOG_COLNUM = 3;
 // Runs the primary-key historical lookup over `block`'s source key (+seq)
 // columns, leaving the planned reads and the op for each row in `retriever` for
 // building AFTER/BEFORE. `seq_pos` is the seq column's position in the input
-// block (-1 if absent). `block` must live longer than `retriever`: the lookup
-// plan points into it.
+// block (-1 if absent).
 Status setup_retriever_and_lookup(TransformExecContext& ctx, const SegmentWriteBinlogOptions& cfg,
                                   const TabletSchemaSPtr& source_schema, const Block* block,
                                   int32_t seq_pos, const Int8* delete_signs, size_t num_rows,

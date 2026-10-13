@@ -24,6 +24,7 @@
 #include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
@@ -37,15 +38,16 @@ namespace doris {
 namespace {
 // The column holding the value of row `pos`, nullptr when that value is NULL.
 const IColumn* value_column_at(const IColumn* column, size_t pos) {
-    if (!is_column_nullable(*column)) {
+    DCHECK(!is_column_const(*column));
+    // A key column is never a ColumnConst, so is_nullable() is true only for a ColumnNullable.
+    if (!column->is_nullable()) {
         return column;
     }
-    // Runs once per row and key column, and is_column_nullable has just checked the type.
     const auto& nullable = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column);
     return nullable.is_null_at(pos) ? nullptr : &nullable.get_nested_column();
 }
 
-// Key columns of the string types store the row's own bytes. This and
+// A string key is encoded from the row's own bytes, which CHAR pads below. This and
 // encode_ascending run once per row and key column, so their casts skip the
 // release-build type check.
 template <FieldType FT>
@@ -111,8 +113,8 @@ RowKeyEncoder::KeyColumnCoder RowKeyEncoder::_key_column_coder(const TabletColum
         CASE(OLAP_FIELD_TYPE_STRING)
 #undef CASE
     default:
-        LOG(FATAL) << "column " << column.name() << " of type " << static_cast<int>(column.type())
-                   << " cannot be a key";
+        throw Exception(ErrorCode::INTERNAL_ERROR, "column {} of type {} cannot be a key",
+                        column.name(), static_cast<int>(column.type()));
     }
     return coder;
 }
