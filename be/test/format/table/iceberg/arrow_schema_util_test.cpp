@@ -79,8 +79,8 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
     io::FileWriterPtr file_writer;
     ASSERT_TRUE(fs->create_file(path, &file_writer).ok());
     RuntimeState state;
-    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
-                                .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+    ParquetFileOptions options {TParquetCompressionType::UNCOMPRESSED,
+                                TParquetVersion::PARQUET_2_LATEST};
     VIcebergParquetWriter writer(&state, file_writer.get(), contexts,
                                  std::vector<std::string> {"u", "a", "f"}, false, options,
                                  &schema_json, *schema);
@@ -160,8 +160,8 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations
     io::FileWriterPtr file_writer;
     ASSERT_TRUE(fs->create_file(path, &file_writer).ok());
     RuntimeState state;
-    ParquetFileOptions options {TParquetCompressionType::UNCOMPRESSED,
-                                TParquetVersion::PARQUET_2_LATEST};
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_2_LATEST};
     VIcebergParquetWriter writer(&state, file_writer.get(), contexts,
                                  std::vector<std::string> {"shape", "place"}, false, options,
                                  &schema_json, *schema);
