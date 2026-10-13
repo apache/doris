@@ -21,6 +21,9 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.ImmutableLabels;
+import org.apache.iceberg.Labels;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -77,6 +80,23 @@ public class IcebergStatementScopeTest {
         });
         Assertions.assertSame(t1, t2, "same statement + table -> one shared instance");
         Assertions.assertEquals(1, loads.get(), "loaded once per statement");
+    }
+
+    @Test
+    public void sharedTableKeepsCatalogLabels() {
+        // The statement-scoped read view is a rebuilt BaseTable; REST catalog labels must survive the rebuild
+        // because they are not part of the table metadata. MUTATION: dropping labels on rebuild -> EMPTY -> red.
+        BaseTable raw = (BaseTable) mutableTable("t");
+        Labels labels = ImmutableLabels.builder()
+                .objectLabels(Collections.singletonMap("owner", "team-a"))
+                .build();
+        Table labeled = new BaseTable(raw.operations(), raw.name(), raw.reporter(), labels);
+
+        Table shared = IcebergStatementScope.sharedTable(
+                new ScopeSession(7L, "q1", new TestStatementScope()), "db1", "t", () -> labeled);
+
+        Assertions.assertNotSame(labeled, shared);
+        Assertions.assertEquals(labels, ((BaseTable) shared).labels());
     }
 
     @Test

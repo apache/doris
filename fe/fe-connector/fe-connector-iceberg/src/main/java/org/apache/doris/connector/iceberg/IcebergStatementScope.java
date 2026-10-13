@@ -292,7 +292,7 @@ final class IcebergStatementScope {
         TableMetadata metadata = operations.current();
         // Keep IO, encryption and location behavior from the raw table while pinning only metadata.
         return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
-                table.name(), baseTable.reporter());
+                table.name(), baseTable.reporter(), baseTable.labels());
     }
 
     /**

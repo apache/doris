@@ -24,6 +24,9 @@ import org.apache.doris.connector.cache.JvmSizeUtils;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.ImmutableFieldLabel;
+import org.apache.iceberg.ImmutableLabels;
+import org.apache.iceberg.Labels;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -42,6 +45,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.metrics.LoggingMetricsReporter;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 import org.junit.jupiter.api.Assertions;
@@ -496,6 +500,35 @@ public class IcebergTableCacheTest {
                 .discardChanges()
                 .build();
         return new BaseTable(new StaticTableOperations(refsOnly), "lazy-snapshots");
+    }
+
+    @Test
+    public void snapshotReadTableKeepsCatalogLabels() {
+        // REST catalog labels live only on the loaded BaseTable (not in metadata.json), so the statement view
+        // must carry them over. MUTATION: rebuilding with the 3-arg BaseTable constructor -> Labels.EMPTY -> red.
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        TableMetadata metadata = TableMetadata.newTableMetadata(
+                schema, PartitionSpec.unpartitioned(), "file:///tmp/labeled", Collections.emptyMap());
+        Labels labels = ImmutableLabels.builder()
+                .objectLabels(Collections.singletonMap("owner", "team-a"))
+                .addFields(ImmutableFieldLabel.builder()
+                        .fieldId(1)
+                        .labels(Collections.singletonMap("classification", "pii"))
+                        .build())
+                .build();
+        Table table = new BaseTable(new StaticTableOperations(metadata), "labeled",
+                LoggingMetricsReporter.instance(), labels);
+
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergTableCache cache = new IcebergTableCache(
+                    owner, CacheSpec.ofWeight(true, 100L, 1000L, 10L * 1024L * 1024L),
+                    ignored -> () -> { }, new IcebergCatalogResourceTracker());
+            try (IcebergTableCache.TableLease lease = cache.borrow(id(), () -> table)) {
+                BaseTable statement = (BaseTable) lease.snapshotReadTable();
+                Assertions.assertNotSame(table, statement);
+                Assertions.assertEquals(labels, statement.labels());
+            }
+        }
     }
 
     @Test
