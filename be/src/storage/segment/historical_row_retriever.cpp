@@ -87,7 +87,7 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
         std::shared_lock rlock(_context.tablet->get_header_lock());
         specified_rowsets = _mow_context->rowset_ptrs;
     }
-    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> segment_caches(specified_rowsets.size());
 
     CHECK(_context.rowset_writer_ctx != nullptr);
     bool write_before =
@@ -171,7 +171,7 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
         std::shared_lock rlock(_context.tablet->get_header_lock());
         specified_rowsets = _mow_context->rowset_ptrs;
     }
-    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> segment_caches(specified_rowsets.size());
 
     CHECK(_context.rowset_writer_ctx != nullptr);
     const bool write_before =

@@ -45,7 +45,7 @@ MowKeyProbe::MowKeyProbe(BaseTablet* tablet, TabletSchema* lookup_schema, bool h
 Result<ProbeOutcome> MowKeyProbe::probe(
         const std::string& key, size_t segment_pos, bool key_has_seq_suffix, bool have_delete_sign,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
         PartialUpdateStats& stats) const {
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
@@ -108,7 +108,7 @@ Result<ProbeOutcome> MowKeyProbe::probe(
 
 Result<PrevSeqProbe> MowKeyProbe::probe_previous_seq_value(
         const std::string& key, const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) const {
+        std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches) const {
     RowLocation loc;
     RowsetSharedPtr rowset;
     PrevSeqProbe result;

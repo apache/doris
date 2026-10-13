@@ -32,7 +32,7 @@ class BaseTablet;
 class IOlapColumnDataAccessor;
 class RowKeyEncoder;
 class TabletSchema;
-class SegmentCacheHandle;
+class RowsetSegmentCache;
 struct MowContext;
 struct PartialUpdateStats;
 
@@ -157,14 +157,14 @@ public:
     Result<ProbeOutcome> probe(const std::string& key, size_t segment_pos, bool key_has_seq_suffix,
                                bool have_delete_sign,
                                const std::vector<RowsetSharedPtr>& specified_rowsets,
-                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                               std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
                                PartialUpdateStats& stats) const;
 
     // Lookup without the seq suffix; returns the old row plus its encoded sequence value
     // (BlockAggregator). Never touches the delete bitmap, and ignores the policy entirely.
     Result<PrevSeqProbe> probe_previous_seq_value(
             const std::string& key, const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) const;
+            std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches) const;
 
     // Erase the row-cache entry. Erase-only: the rowset isn't visible yet, so inserting could
     // expose uncommitted data if the load fails.
