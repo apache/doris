@@ -50,6 +50,7 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
@@ -1245,6 +1246,21 @@ public class CheckCastTest {
         Assertions.assertFalse(CheckCast.check(IPv6Type.INSTANCE, HllType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(IPv6Type.INSTANCE, BitmapType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(IPv6Type.INSTANCE, QuantileStateType.INSTANCE, false));
+    }
+
+    @Test
+    public void testCastFromUuidToVariant() {
+        // A connector Variant column (e.g. a Paimon VARIANT) takes a UUID the way an internal VARIANT
+        // column does: the V2 compute carrier holds UUID values, also as array elements.
+        for (boolean strictMode : new boolean[] {true, false}) {
+            Assertions.assertTrue(CheckCast.check(UuidType.INSTANCE, VariantType.INSTANCE, strictMode));
+            Assertions.assertTrue(CheckCast.check(
+                    UuidType.INSTANCE, ConnectorComputeVariantType.INSTANCE, strictMode));
+            Assertions.assertTrue(CheckCast.check(
+                    ArrayType.of(UuidType.INSTANCE), ConnectorComputeVariantType.INSTANCE, strictMode));
+            Assertions.assertTrue(CheckCast.check(ArrayType.of(UuidType.INSTANCE),
+                    ArrayType.of(ConnectorComputeVariantType.INSTANCE), strictMode));
+        }
     }
 
     @Test
