@@ -39,7 +39,8 @@ public class JdbcClientException extends RuntimeException implements DiagnosticE
     }
 
     public static JdbcClientException diagnostic(Throwable cause, String context, String... sensitiveValues) {
-        return new JdbcClientException(cause, JdbcExceptionUtils.format(context, cause, sensitiveValues), sensitiveValues);
+        return new JdbcClientException(cause, JdbcExceptionUtils.format(context, cause, sensitiveValues),
+                sensitiveValues);
     }
 
     @Override
