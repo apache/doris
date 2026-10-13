@@ -49,6 +49,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -90,6 +91,7 @@
 #include "util/defer_op.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 namespace {
@@ -4129,6 +4131,89 @@ TEST_F(ParquetScanTest, ProjectedBigIntDictionaryRangeUsesFusedGather) {
     auto* typed_filter_columns = profile.get_counter("DictFilterTypedCompareColumns");
     ASSERT_NE(typed_filter_columns, nullptr);
     EXPECT_EQ(typed_filter_columns->value(), 1);
+    conjunct->close();
+}
+
+TEST_F(ParquetScanTest, ConstantBitmapMembershipFiltersBeforeReadingPayload) {
+    auto arrow_schema = arrow::schema({arrow::field("id", arrow::int64(), false),
+                                       arrow::field("score", arrow::int32(), false)});
+    auto table = arrow::Table::Make(
+            arrow_schema,
+            {build_int64_array({1, 2, 4294967296, 4, 5, 6}),
+             build_int32_array({10, 20, 30, 40, 50, 60})});
+    write_table(_file_path, table, 6, true, false, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+
+    const auto bitmap_type = std::make_shared<DataTypeBitMap>();
+    const auto bigint_type = std::make_shared<DataTypeInt64>();
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TFunctionName function_name;
+    function_name.__set_function_name("bitmap_contains");
+    TFunction function;
+    function.__set_name(function_name);
+    function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    function.__set_arg_types({make_nullable(bitmap_type)->to_thrift(), bigint_type->to_thrift()});
+    function.__set_ret_type(result_type->to_thrift());
+    function.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    node.__set_type(result_type->to_thrift());
+    node.__set_fn(function);
+    node.__set_num_children(2);
+    node.__set_is_nullable(true);
+    auto membership = VectorizedFnCall::create_shared(node);
+    BitmapValue allowed_ids {uint64_t(2), uint64_t(4294967296)};
+    std::string serialized(allowed_ids.getSizeInBytes(), '\0');
+    allowed_ids.write_to(serialized.data());
+    std::string encoded;
+    base64_encode(serialized, &encoded);
+    TFunctionName decode_name;
+    decode_name.__set_function_name("bitmap_from_base64");
+    TFunction decode_function;
+    decode_function.__set_name(decode_name);
+    decode_function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    decode_function.__set_arg_types({std::make_shared<DataTypeString>()->to_thrift()});
+    decode_function.__set_ret_type(make_nullable(bitmap_type)->to_thrift());
+    decode_function.__set_has_var_args(false);
+    TExprNode decode_node;
+    decode_node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    decode_node.__set_type(make_nullable(bitmap_type)->to_thrift());
+    decode_node.__set_fn(decode_function);
+    decode_node.__set_num_children(1);
+    decode_node.__set_is_nullable(true);
+    auto decode = VectorizedFnCall::create_shared(decode_node);
+    decode->add_child(VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                             Field::create_field<TYPE_STRING>(encoded)));
+    membership->add_child(decode);
+    membership->add_child(VSlotRef::create_shared(0, 0, -1, bigint_type, "id"));
+    auto conjunct = VExprContext::create_shared(membership);
+    EXPECT_FALSE(membership->is_safe_to_execute_on_selected_rows());
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    EXPECT_TRUE(membership->is_safe_to_execute_on_selected_rows());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(int64_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt64::Container {2, 4294967296}));
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {20, 30}));
+    EXPECT_GT(counter_value(profile, "ReaderSkipRows"), 0);
     conjunct->close();
 }
 
