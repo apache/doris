@@ -501,6 +501,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKBTyped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
@@ -1126,6 +1127,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StAreaSquareKm.class, "st_area_square_km"),
             scalar(StGeometryfromtext.class, "st_geometryfromtext"),
             scalar(StGeometryFromWKB.class, "st_geometryfromwkb"),
+            scalar(StGeometryFromWKBTyped.class, "st_geometryfromwkbtyped"),
             scalar(StGeomfromtext.class, "st_geomfromtext"),
             scalar(StGeomFromWKB.class, "st_geomfromwkb"),
             scalar(StGeogFromWKB.class, "st_geogfromwkb"),

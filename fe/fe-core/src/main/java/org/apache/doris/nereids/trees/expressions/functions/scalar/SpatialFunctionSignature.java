@@ -36,10 +36,36 @@ final class SpatialFunctionSignature {
     }
 
     static FunctionSignature binary(Expression left, Expression right, DataType returnType) {
-        if (!isSpatial(left) || !isSpatial(right)) {
+        return spatialArguments(returnType, left, right);
+    }
+
+    static FunctionSignature ternary(Expression first, Expression second, Expression third, DataType returnType) {
+        return spatialArguments(returnType, first, second, third);
+    }
+
+    private static FunctionSignature spatialArguments(DataType returnType, Expression... arguments) {
+        DataType inferredType = null;
+        for (Expression argument : arguments) {
+            if (isSpatial(argument)) {
+                inferredType = argument.getDataType();
+                break;
+            }
+        }
+        if (inferredType == null) {
             return null;
         }
-        return FunctionSignature.ret(returnType).args(left.getDataType(), right.getDataType());
+        DataType[] inputTypes = new DataType[arguments.length];
+        for (int i = 0; i < arguments.length; i++) {
+            Expression argument = arguments[i];
+            if (isSpatial(argument)) {
+                inputTypes[i] = argument.getDataType();
+            } else if (argument.getDataType().isNullType()) {
+                inputTypes[i] = inferredType;
+            } else {
+                return null;
+            }
+        }
+        return FunctionSignature.ret(returnType).args(inputTypes);
     }
 
     private static boolean isSpatial(Expression expression) {

@@ -520,6 +520,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKBTyped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
@@ -2538,6 +2539,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStY(StY stY, C context) {
         return visitScalarFunction(stY, context);
+    }
+
+    default R visitStGeometryFromWKBTyped(StGeometryFromWKBTyped function, C context) {
+        return visitScalarFunction(function, context);
     }
 
     default R visitStGeometryfromwkb(StGeometryFromWKB stGeometryfromwkb, C context) {
