@@ -92,7 +92,7 @@ public class IcebergManifestCacheTest {
         ManifestFile manifest = manifests.get(0);
 
         IcebergManifestCache cache = new IcebergManifestCache();
-        ManifestCacheValue first = cache.getManifestCacheValue(manifest, table);
+        ManifestCacheValue first = cache.getManifestCacheValue(manifest, table, table.specs());
         // WHY: a DATA manifest yields the two appended data files. MUTATION: returning the delete-file branch
         // (empty) -> 0 -> red.
         Assertions.assertEquals(2, first.getDataFiles().size());
@@ -101,7 +101,7 @@ public class IcebergManifestCacheTest {
 
         // A second read of the SAME manifest path returns the SAME cached value (no re-parse). MUTATION: not
         // caching (re-loading) -> a different instance -> red.
-        ManifestCacheValue second = cache.getManifestCacheValue(manifest, table);
+        ManifestCacheValue second = cache.getManifestCacheValue(manifest, table, table.specs());
         Assertions.assertSame(first, second, "the manifest payload must be served from the cache on a repeat");
         Assertions.assertEquals(1, cache.size());
     }
@@ -114,8 +114,8 @@ public class IcebergManifestCacheTest {
             IcebergManifestCache cache = new IcebergManifestCache(owner,
                     Collections.singletonMap("meta.cache.iceberg.manifest.max-weight", "1MB"));
 
-            ManifestCacheValue first = cache.getManifestCacheValue(manifest, table);
-            ManifestCacheValue second = cache.getManifestCacheValue(manifest, table);
+            ManifestCacheValue first = cache.getManifestCacheValue(manifest, table, table.specs());
+            ManifestCacheValue second = cache.getManifestCacheValue(manifest, table, table.specs());
 
             Assertions.assertSame(first, second);
             Assertions.assertEquals(2, first.getDataFiles().size());
@@ -172,9 +172,9 @@ public class IcebergManifestCacheTest {
         // maxSize 1: the first load fills it; a re-read still hits (same key). The wholesale-flush valve is the
         // legacy behavior — re-reads are harmless since the value is immutable. Smoke that size stays bounded.
         IcebergManifestCache cache = new IcebergManifestCache(1);
-        cache.getManifestCacheValue(manifest, table);
+        cache.getManifestCacheValue(manifest, table, table.specs());
         Assertions.assertEquals(1, cache.size());
-        cache.getManifestCacheValue(manifest, table);
+        cache.getManifestCacheValue(manifest, table, table.specs());
         Assertions.assertTrue(cache.size() <= 1, "a bounded cache must not grow past its max size");
     }
 
@@ -183,7 +183,7 @@ public class IcebergManifestCacheTest {
         Table table = tableWithTwoDataFiles();
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
         IcebergManifestCache cache = new IcebergManifestCache();
-        cache.getManifestCacheValue(manifest, table);
+        cache.getManifestCacheValue(manifest, table, table.specs());
         AtomicInteger equalityLoads = new AtomicInteger();
         cache.getOrLoadEqualityDeleteFieldIds(table.location(), table.currentSnapshot().snapshotId(), () -> {
             equalityLoads.incrementAndGet();
@@ -205,7 +205,8 @@ public class IcebergManifestCacheTest {
     public void copiesDataFilesSoReaderReuseDoesNotAlias() {
         Table table = tableWithTwoDataFiles();
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
-        List<DataFile> files = new IcebergManifestCache().getManifestCacheValue(manifest, table).getDataFiles();
+        List<DataFile> files = new IcebergManifestCache()
+                .getManifestCacheValue(manifest, table, table.specs()).getDataFiles();
         // WHY: ManifestReader reuses one object across iterations, so the cache must .copy() each file. Two
         // distinct paths prove the entries were copied out (not the same reused instance). MUTATION: dropping
         // .copy() -> both entries alias the last file -> both paths equal -> red.

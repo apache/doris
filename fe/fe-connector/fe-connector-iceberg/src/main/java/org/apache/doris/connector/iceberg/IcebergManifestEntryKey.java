@@ -19,6 +19,8 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.types.Types;
 
 import java.util.Objects;
 
@@ -31,18 +33,25 @@ import java.util.Objects;
  * cached payload, and a table-level invalidation (REFRESH TABLE) intentionally does NOT drop it (legacy
  * {@code testInvalidateTableKeepsManifestCache} parity). Runtime loader context (the manifest/table instances)
  * must not be stored here.
+ *
+ * <p>The key also carries the partition type the manifest is decoded with: the reader converts partition values to
+ * the bound spec's types, and after a type promotion (e.g. INT to BIGINT) a scan pinned to the old schema and a scan
+ * on the current one bind the same manifest to different types. Each binding needs its own decoded copy.
  */
 public class IcebergManifestEntryKey {
     private final String manifestPath;
     private final ManifestContent content;
+    private final Types.StructType partitionType;
 
-    public IcebergManifestEntryKey(String manifestPath, ManifestContent content) {
+    public IcebergManifestEntryKey(String manifestPath, ManifestContent content, Types.StructType partitionType) {
         this.manifestPath = Objects.requireNonNull(manifestPath, "manifestPath can not be null");
         this.content = Objects.requireNonNull(content, "content can not be null");
+        this.partitionType = Objects.requireNonNull(partitionType, "partitionType can not be null");
     }
 
-    public static IcebergManifestEntryKey of(ManifestFile manifest) {
-        return new IcebergManifestEntryKey(manifest.path(), manifest.content());
+    /** The key for {@code manifest} decoded with {@code boundSpec}, the scan's spec for its partition spec id. */
+    public static IcebergManifestEntryKey of(ManifestFile manifest, PartitionSpec boundSpec) {
+        return new IcebergManifestEntryKey(manifest.path(), manifest.content(), boundSpec.partitionType());
     }
 
     public String getManifestPath() {
@@ -63,11 +72,12 @@ public class IcebergManifestEntryKey {
         }
         IcebergManifestEntryKey that = (IcebergManifestEntryKey) o;
         return Objects.equals(manifestPath, that.manifestPath)
-                && content == that.content;
+                && content == that.content
+                && partitionType.equals(that.partitionType);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(manifestPath, content);
+        return Objects.hash(manifestPath, content, partitionType);
     }
 }

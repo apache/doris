@@ -2403,6 +2403,60 @@ public class IcebergScanPlanProviderTest {
         assertHistoricalStreamingDispatch(table, historicalSnapshotId, historicalSchemaId);
     }
 
+    @Test
+    public void cachedStreamingScansKeepPartitionTypesAcrossIntToBigintPromotion() throws IOException {
+        // WHY: the manifest cache shares one decoded manifest across scans, but a scan pinned to the schema before an
+        // INT -> BIGINT promotion of an identity partition binds its residual to INT, while a current scan binds it to
+        // LONG. Values decoded for one binding must not reach the other: the historical scan failed with
+        // "Wrong class, expected java.lang.Integer, but was java.lang.Long" (and the reverse for the current scan).
+        // The position delete in p=1 runs the same partitions through the delete index. MUTATION: reading cached
+        // manifests with table.specs() (or the manifest's own spec) for every scan -> one of the two orders -> red.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createTable("promoted_partition", schema, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        String location = "s3://b/db/promoted_partition/";
+        table.newRowDelta()
+                .addRows(dataFile(table.spec(), location + "old.parquet", 1024, null, "p=1"))
+                .addDeletes(FileMetadata.deleteFileBuilder(table.spec())
+                        .ofPositionDeletes()
+                        .withPath(location + "old-deletes.parquet")
+                        .withFormat(FileFormat.PARQUET)
+                        .withFileSizeInBytes(128L)
+                        .withRecordCount(1L)
+                        .withPartitionPath("p=1")
+                        .build())
+                .commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().updateColumn("p", Types.LongType.get()).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), location + "new.parquet", 1024, null, "p=2")).commit();
+
+        IcebergTableHandle historical = new IcebergTableHandle("db1", "promoted_partition")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+        IcebergTableHandle current = new IcebergTableHandle("db1", "promoted_partition")
+                .withSnapshot(table.currentSnapshot().snapshotId(), null, table.schema().schemaId());
+        ConnectorExpression intFilter = eqInt("p", 1);
+        ConnectorExpression bigintFilter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("p", ConnectorType.of("BIGINT")),
+                new ConnectorLiteral(ConnectorType.of("BIGINT"), 1L));
+
+        for (boolean historicalFirst : new boolean[] {true, false}) {
+            IcebergScanPlanProvider provider =
+                    manifestProvider(manifestCacheProps(), table, new IcebergManifestCache());
+            for (int i = 0; i < 2; i++) {
+                boolean scanHistorical = (i == 0) == historicalFirst;
+                List<ConnectorScanRange> ranges = drain(provider.streamSplits(batchSession(1, true),
+                        scanHistorical ? historical : current, Collections.emptyList(),
+                        Optional.of(scanHistorical ? intFilter : bigintFilter), -1L));
+                Assertions.assertEquals(Collections.singletonList(location + "old.parquet"), sortedPaths(ranges),
+                        (scanHistorical ? "historical" : "current") + " scan, historical first=" + historicalFirst);
+            }
+        }
+    }
+
     private static void assertHistoricalStreamingDispatch(
             Table table, long historicalSnapshotId, int historicalSchemaId) throws IOException {
         IcebergTableHandle handle = new IcebergTableHandle("db1", "historical_batch_estimate")

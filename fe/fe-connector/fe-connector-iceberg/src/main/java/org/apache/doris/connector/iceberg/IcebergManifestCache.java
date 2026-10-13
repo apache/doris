@@ -24,12 +24,14 @@ import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
+import com.google.common.base.Preconditions;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
 
 import java.io.IOException;
@@ -200,20 +202,22 @@ final class IcebergManifestCache {
      * loader runs OUTSIDE Caffeine's compute lock (manual miss-load; single-flight per key), so a same-key
      * miss parses at most once.
      */
-    ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table) {
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
+    ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table,
+            Map<Integer, PartitionSpec> specsById) {
+        IcebergManifestEntryKey key = keyOf(manifest, specsById);
         return entry.get(key, k -> loadManifestCacheValue(
-                manifest, table, k.getContent(), entry.isWeightBounded()));
+                manifest, table, specsById, k.getContent(), entry.isWeightBounded()));
     }
 
     /**
-     * Same as {@link #getManifestCacheValue(ManifestFile, Table)} but tallies this access as a hit or miss under
+     * Same as {@link #getManifestCacheValue(ManifestFile, Table, Map)} but tallies this access as a hit or miss under
      * {@code queryId} (a hit == the entry was already cached BEFORE this load, matching the legacy
      * {@code getIfPresent(key) != null} probe). Within one statement the manifest-level plan processes manifests
      * sequentially, so the per-query counters need no synchronization. A blank queryId is not recorded.
      */
-    ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table, String queryId) {
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
+    ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table,
+            Map<Integer, PartitionSpec> specsById, String queryId) {
+        IcebergManifestEntryKey key = keyOf(manifest, specsById);
         boolean hit = entry.getIfPresent(key) != null;
         if (queryId != null && !queryId.isEmpty()) {
             ScanStats stats = touch(queryId);
@@ -224,7 +228,7 @@ final class IcebergManifestCache {
             }
         }
         return entry.get(key, k -> loadManifestCacheValue(
-                manifest, table, k.getContent(), entry.isWeightBounded()));
+                manifest, table, specsById, k.getContent(), entry.isWeightBounded()));
     }
 
     /**
@@ -270,22 +274,34 @@ final class IcebergManifestCache {
         statsByQuery.entrySet().removeIf(e -> nowNanos - e.getValue().lastTouchNanos >= statsTtlNanos);
     }
 
+    /**
+     * {@code specsById} is the scan's spec map (bound to the scan's schema), the same one its residuals and delete
+     * index use: the reader converts partition values to these types, so they must match what the scan evaluates.
+     */
+    private static IcebergManifestEntryKey keyOf(ManifestFile manifest, Map<Integer, PartitionSpec> specsById) {
+        PartitionSpec boundSpec = specsById.get(manifest.partitionSpecId());
+        Preconditions.checkArgument(boundSpec != null, "No bound partition spec %s for iceberg manifest %s",
+                manifest.partitionSpecId(), manifest.path());
+        return IcebergManifestEntryKey.of(manifest, boundSpec);
+    }
+
     private static ManifestCacheValue loadManifestCacheValue(ManifestFile manifest, Table table,
-            ManifestContent content, boolean estimateWeight) {
+            Map<Integer, PartitionSpec> specsById, ManifestContent content, boolean estimateWeight) {
         try {
             if (content == ManifestContent.DELETES) {
-                return ManifestCacheValue.forDeleteFiles(loadDeleteFiles(manifest, table), estimateWeight);
+                return ManifestCacheValue.forDeleteFiles(loadDeleteFiles(manifest, table, specsById), estimateWeight);
             }
-            return ManifestCacheValue.forDataFiles(loadDataFiles(manifest, table), estimateWeight);
+            return ManifestCacheValue.forDataFiles(loadDataFiles(manifest, table, specsById), estimateWeight);
         } catch (IOException e) {
             throw new RuntimeException("Failed to read iceberg manifest " + manifest.path(), e);
         }
     }
 
-    private static List<DataFile> loadDataFiles(ManifestFile manifest, Table table) throws IOException {
+    private static List<DataFile> loadDataFiles(ManifestFile manifest, Table table,
+            Map<Integer, PartitionSpec> specsById) throws IOException {
         List<DataFile> dataFiles = new ArrayList<>();
         // .copy() is mandatory: the ManifestReader iterator reuses the same object across iterations.
-        try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io(), table.specs())) {
+        try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io(), specsById)) {
             for (DataFile dataFile : reader) {
                 dataFiles.add(dataFile.copy());
             }
@@ -293,10 +309,11 @@ final class IcebergManifestCache {
         return dataFiles;
     }
 
-    private static List<DeleteFile> loadDeleteFiles(ManifestFile manifest, Table table) throws IOException {
+    private static List<DeleteFile> loadDeleteFiles(ManifestFile manifest, Table table,
+            Map<Integer, PartitionSpec> specsById) throws IOException {
         List<DeleteFile> deleteFiles = new ArrayList<>();
         try (ManifestReader<DeleteFile> reader =
-                ManifestFiles.readDeleteManifest(manifest, table.io(), table.specs())) {
+                ManifestFiles.readDeleteManifest(manifest, table.io(), specsById)) {
             for (DeleteFile deleteFile : reader) {
                 deleteFiles.add(deleteFile.copy());
             }
