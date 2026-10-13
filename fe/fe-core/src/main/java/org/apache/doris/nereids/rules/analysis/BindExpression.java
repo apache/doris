@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
@@ -323,16 +324,26 @@ public class BindExpression implements AnalysisRuleFactory {
             return sink.withOutputExprs(outputExprs);
         }
 
+        // MERGE branch projections carry target casts; output slots retain only the cast type.
+        // Validate the bound projection expressions so their original spatial identity remains visible.
+        Plan sourcePlan = sink.child();
+        while (sourcePlan instanceof LogicalCTEAnchor) {
+            sourcePlan = ((LogicalCTEAnchor<?, ?>) sourcePlan).right();
+        }
+        List<? extends NamedExpression> sourceExpressions = sourcePlan instanceof LogicalProject
+                ? ((LogicalProject<?>) sourcePlan).getProjects() : outputExprs;
         boolean changed = false;
         int columnIndex = 0;
+        int outputIndex = 0;
         List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
         for (NamedExpression expr : outputExprs) {
+            NamedExpression sourceExpression = sourceExpressions.get(outputIndex++);
             if (isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
                 castExprs.add(expr);
                 continue;
             }
             Column column = visibleColumns.get(columnIndex++);
-            ConnectorSpatialWriteValidator.validate(column, expr);
+            ConnectorSpatialWriteValidator.validate(column, sourceExpression);
             DataType targetType = DataType.fromCatalogType(column.getType());
             Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
             NamedExpression namedExpr;
