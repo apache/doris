@@ -195,6 +195,14 @@ class S3FileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_ignoresAwsMarkerInsideTheEndpointBasePath() {
+        // A gateway endpoint whose base path merely contains the marker is not AWS S3.
+        Assertions.assertFalse(provider.supportsGuess(Map.of(
+                "s3.endpoint", "https://gateway.internal/proxy/AMAZONAWS.COM",
+                "s3.region", "us-east-1")));
+    }
+
+    @Test
     void supportsGuess_ignoresAwsMarkerInsideTheObjectKey() {
         // The marker identifies the endpoint host; the same text in the object key does not.
         Assertions.assertFalse(provider.supportsGuess(Map.of(

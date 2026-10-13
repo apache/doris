@@ -63,6 +63,17 @@ class ObsFileSystemProviderTest {
     }
 
     @Test
+    void supports_ignoresObsMarkerInsideTheEndpointBasePath() {
+        // A gateway endpoint whose base path merely contains the marker is not OBS.
+        Map<String, String> gateway = new HashMap<>();
+        gateway.put("s3.endpoint", "https://gateway.internal/proxy/MYHUAWEICLOUD.COM");
+        gateway.put("s3.region", "cn-north-4");
+
+        Assertions.assertFalse(provider.supports(gateway), gateway.toString());
+        Assertions.assertFalse(provider.supportsGuess(gateway), gateway.toString());
+    }
+
+    @Test
     void supportsGuess_ignoresObsMarkerInsideTheObjectKey() {
         Assertions.assertFalse(provider.supportsGuess(Map.of(
                 "uri", "s3://bucket/archive/OBS.CN-NORTH-4.MYHUAWEICLOUD.COM/data")));

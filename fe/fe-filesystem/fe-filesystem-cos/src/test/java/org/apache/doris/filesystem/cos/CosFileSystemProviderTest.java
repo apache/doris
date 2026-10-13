@@ -63,6 +63,17 @@ class CosFileSystemProviderTest {
     }
 
     @Test
+    void supports_ignoresCosMarkerInsideTheEndpointBasePath() {
+        // A gateway endpoint whose base path merely contains the marker is not COS.
+        Map<String, String> gateway = new HashMap<>();
+        gateway.put("s3.endpoint", "https://gateway.internal/proxy/MYQCLOUD.COM");
+        gateway.put("s3.region", "us-east-1");
+
+        Assertions.assertFalse(provider.supports(gateway), gateway.toString());
+        Assertions.assertFalse(provider.supportsGuess(gateway), gateway.toString());
+    }
+
+    @Test
     void supportsGuess_ignoresCosMarkerInsideTheObjectKey() {
         Assertions.assertFalse(provider.supportsGuess(Map.of(
                 "uri", "s3://bucket/archive/COS.AP-SHANGHAI.MYQCLOUD.COM/data")));

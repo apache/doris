@@ -119,6 +119,16 @@ class MinioFileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_keepsMinioEndpointWhosePathContainsAwsMarker() {
+        // Only the host may exclude MinIO; AWS text inside the endpoint's base path must not.
+        Map<String, String> props = new HashMap<>();
+        props.put("minio.endpoint", "http://minio.internal/archive/AMAZONAWS.COM");
+        props.put("minio.access_key", "ak");
+
+        Assertions.assertTrue(provider.supportsGuess(props), props.toString());
+    }
+
+    @Test
     void supportsGuess_keepsMinioUriWhoseKeyContainsAwsMarker() {
         // Only the host may exclude MinIO; AWS text inside the object key must not.
         Map<String, String> props = new HashMap<>();

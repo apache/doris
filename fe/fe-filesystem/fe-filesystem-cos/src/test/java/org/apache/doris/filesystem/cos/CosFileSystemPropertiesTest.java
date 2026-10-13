@@ -280,4 +280,31 @@ class CosFileSystemPropertiesTest {
                 () -> CosFileSystemProperties.of(raw));
         Assertions.assertTrue(exception.getMessage().contains("Region is not set"), exception.getMessage());
     }
+
+    /**
+     * The pinned cos_api SDK rejects an upper case endpoint suffix, so the effective endpoint must be
+     * normalised: a case-equivalent endpoint has to reach the client in lowercase.
+     */
+    @Test
+    void bind_normalisesEndpointHostCaseForTheNativeClient() {
+        CosFileSystemProperties upper = CosFileSystemProperties.of(Map.of(
+                "cos.endpoint", "COS.AP-SHANGHAI.MYQCLOUD.COM",
+                "cos.access_key", "ak",
+                "cos.secret_key", "sk"));
+
+        Assertions.assertEquals("cos.ap-shanghai.myqcloud.com", upper.getEndpoint());
+        Assertions.assertEquals("ap-shanghai", upper.getRegion());
+    }
+
+    @Test
+    void bind_rejectsAnUnknownEndpointWithoutARegion() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("cos.endpoint", "not-a-known-host.example.com");
+        raw.put("cos.access_key", "ak");
+        raw.put("cos.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CosFileSystemProperties.of(raw));
+        Assertions.assertTrue(exception.getMessage().contains("Region is not set"), exception.getMessage());
+    }
 }

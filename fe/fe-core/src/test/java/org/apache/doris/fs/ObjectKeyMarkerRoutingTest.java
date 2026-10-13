@@ -18,12 +18,15 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -52,6 +55,30 @@ public class ObjectKeyMarkerRoutingTest {
         FileSystemProperties bound = manager.bindPrimary(minioMap("s3://bucket/archive/MYQCLOUD.COM/data"));
 
         Assertions.assertEquals("MINIO", bound.providerName().toUpperCase());
+    }
+
+    /**
+     * A gateway endpoint whose base path merely contains a cloud marker must not be claimed by that
+     * cloud's provider. Raw selection ({@code bindAll} / {@code FileSystemFactory.getFileSystem})
+     * consults {@code supports()}, so assert the claimant set rather than a single binding.
+     */
+    @Test
+    public void testGatewayS3EndpointIsClaimedByS3AndNotByCos() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "https://gateway.internal/proxy/MYQCLOUD.COM");
+        props.put("s3.region", "us-east-1");
+        props.put("s3.access_key", "ak");
+        props.put("s3.secret_key", "sk");
+
+        List<String> claimants = new ArrayList<>();
+        for (FileSystemProvider provider : manager.getProviders()) {
+            if (provider.supports(props)) {
+                claimants.add(provider.name().toUpperCase());
+            }
+        }
+
+        Assertions.assertFalse(claimants.contains("COS"), claimants.toString());
+        Assertions.assertTrue(claimants.contains("S3"), claimants.toString());
     }
 
     private static Map<String, String> minioMap(String uri) {

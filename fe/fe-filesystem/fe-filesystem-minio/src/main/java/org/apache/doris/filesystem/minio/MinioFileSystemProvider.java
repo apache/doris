@@ -119,7 +119,8 @@ public class MinioFileSystemProvider implements FileSystemProvider<MinioFileSyst
             }
         }
         if (endpoint != null) {
-            String lower = endpoint.toLowerCase(java.util.Locale.ROOT);
+            // Only the host may exclude MinIO: marker text inside a proxy/base path must not yield.
+            String lower = EndpointHosts.hostOf(endpoint).toLowerCase(java.util.Locale.ROOT);
             for (String marker : OTHER_CLOUD_ENDPOINT_MARKERS) {
                 if (lower.contains(marker)) {
                     return false;

@@ -110,6 +110,16 @@ class OssFileSystemProviderTest {
     }
 
     @Test
+    void supports_ignoresOssMarkerInsideTheEndpointBasePath() {
+        // A gateway endpoint whose base path merely contains the marker is not OSS.
+        Map<String, String> gateway = new HashMap<>();
+        gateway.put("oss.endpoint", "https://gateway.internal/proxy/ALIYUNCS.COM");
+
+        Assertions.assertFalse(provider.supports(gateway), gateway.toString());
+        Assertions.assertFalse(provider.supportsGuess(gateway), gateway.toString());
+    }
+
+    @Test
     void supportsGuess_ignoresOssMarkerInsideTheObjectKey() {
         // The marker identifies the endpoint host; the same text in the object key does not.
         Assertions.assertFalse(provider.supportsGuess(Map.of(

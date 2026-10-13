@@ -367,6 +367,11 @@ public final class CosFileSystemProperties
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
             region = extractRegion(endpoint).orElse("");
         }
+        // The endpoint is a DNS host, so normalise the letter case: an upper/mixed case spelling must
+        // yield exactly the same effective endpoint as the lowercase one. The pinned cos_api SDK
+        // rejects an upper case suffix in ClientConfig.setEndPointSuffix ("should not contain
+        // uppercase characters"), so a case-equivalent endpoint has to reach it in lowercase.
+        endpoint = endpoint.toLowerCase(Locale.ROOT);
     }
 
     private static Optional<String> extractRegion(String endpoint) {

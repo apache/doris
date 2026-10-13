@@ -72,10 +72,16 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
             return true;
         }
         String endpoint = firstPresent(properties, ENDPOINT_NAMES);
-        if (endpoint == null || !StringUtils.containsIgnoreCase(endpoint, "aliyuncs.com")) {
+        if (endpoint == null) {
             return false;
         }
-        return !StringUtils.containsIgnoreCase(endpoint, OSS_HDFS_ENDPOINT_MARKER);
+        // The markers are host names: match them in the endpoint host only, so marker text inside a
+        // proxy/base path cannot claim the map.
+        String host = EndpointHosts.hostOf(endpoint);
+        if (!StringUtils.containsIgnoreCase(host, "aliyuncs.com")) {
+            return false;
+        }
+        return !StringUtils.containsIgnoreCase(host, OSS_HDFS_ENDPOINT_MARKER);
     }
 
     @Override
@@ -104,10 +110,11 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
         // Port of fe-core OSSProperties.guessIsMe on raw props.
         String value = firstNonNull(properties, GUESS_ENDPOINT_NAMES);
         if (value != null && !value.isBlank()) {
-            if (StringUtils.containsIgnoreCase(value, "oss-dls.aliyuncs")) {
+            String host = EndpointHosts.hostOf(value);
+            if (StringUtils.containsIgnoreCase(host, "oss-dls.aliyuncs")) {
                 return false;
             }
-            return StringUtils.containsIgnoreCase(value, "aliyuncs.com");
+            return StringUtils.containsIgnoreCase(host, "aliyuncs.com");
         }
         String region = properties.get("oss.region");
         if (region != null && !region.isBlank()) {
