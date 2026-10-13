@@ -27,6 +27,7 @@ class StructType;
 
 class Schema {
 public:
+    using FieldPath = std::vector<const NestedField*>;
     Schema(int schema_id, std::vector<NestedField> columns);
 
     Schema(std::vector<NestedField> columns);
@@ -41,6 +42,8 @@ public:
 
     const NestedField* find_field(int id) const;
 
+    const FieldPath* find_field_path(int id) const;
+
 private:
     static const char NEWLINE = '\n';
     static const std::string ALL_COLUMNS;
@@ -49,6 +52,7 @@ private:
     int _schema_id;
     StructType _root_struct;
     std::unordered_map<int, const NestedField*> _id_to_field;
+    std::unordered_map<int, FieldPath> _id_to_field_path;
 };
 
 #include "common/compile_check_end.h"
