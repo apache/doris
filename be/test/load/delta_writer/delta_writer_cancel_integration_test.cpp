@@ -42,6 +42,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/remote_file_system.h"
+#include "load/channel/eos_completion.h"
 #include "load/channel/load_channel.h"
 #include "load/channel/tablets_channel.h"
 #include "load/delta_writer/delta_writer.h"
@@ -519,6 +520,51 @@ TEST_P(DeltaWriterCancelIntegrationTest, PartialInitDestructionDrainsBeforeFileO
         ASSERT_TRUE(io::global_local_filesystem()->exists(_segment_path, &exists).ok());
         EXPECT_FALSE(exists);
     }
+}
+
+TEST_P(DeltaWriterCancelIntegrationTest, FinalOwnerCompletesPendingEosBeforeDestroyingWriters) {
+    ASSERT_TRUE(open_writer(kTabletId).ok());
+    auto* tablets = _load_channel->_tablets_channels.at(kIndexId).get();
+    auto completion = tablets->eos_completion();
+    const auto reason = Status::InternalError("cancel before all EOS senders arrive");
+    int replies = 0;
+    completion->add_waiter([&](const Status& status) {
+        EXPECT_EQ(status, reason);
+        EXPECT_EQ(tablets->_tablet_writers.at(kTabletId).get(), _writer);
+        ++replies;
+    });
+    {
+        // Publishing cancellation must not take either channel lock or run RPC callbacks.
+        std::lock_guard load_lock(_load_channel->_lock);
+        std::lock_guard tablets_lock(tablets->_lock);
+        ASSERT_TRUE(_load_channel->cancel(reason).ok());
+        EXPECT_EQ(replies, 0);
+    }
+    _load_channel.reset();
+    EXPECT_EQ(replies, 1);
+    // The service may register after add_batch released the last channel owner.
+    completion->add_waiter([&](const Status& status) {
+        EXPECT_EQ(status, reason);
+        ++replies;
+    });
+    EXPECT_EQ(replies, 2);
+}
+
+TEST_P(DeltaWriterCancelIntegrationTest, PublishedCancellationWinsBeforeEosArrival) {
+    ASSERT_TRUE(open_writer(kTabletId).ok());
+    auto* tablets = _load_channel->_tablets_channels.at(kIndexId).get();
+    const auto reason = Status::Cancelled("cancel before final EOS sender");
+    ASSERT_TRUE(_load_channel->cancel(reason).ok());
+    int replies = 0;
+    tablets->eos_completion()->add_waiter([&](const Status& status) {
+        EXPECT_EQ(status, reason);
+        ++replies;
+    });
+    PTabletWriterAddBlockResult response;
+    std::unique_lock lock(tablets->_lock);
+    tablets->_num_remaining_senders = 0;
+    EXPECT_EQ(tablets->_close_and_notify(lock, 0, &response), reason);
+    EXPECT_EQ(replies, 1);
 }
 
 INSTANTIATE_TEST_SUITE_P(LocalCloud, DeltaWriterCancelIntegrationTest, testing::Bool());

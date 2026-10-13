@@ -89,13 +89,13 @@ TEST_F(LoadChannelMgrTest, FailedBatchCancelsRetainedChannelAndCachesReason) {
     request.set_index_id(100);
     PTabletWriterAddBlockResult response;
     // No index was opened, so this exercises the actual add_batch failure path.
-    auto st = _mgr->add_batch(request, &response);
+    auto st = _mgr->add_batch(request, &response, nullptr);
     ASSERT_FALSE(st.ok());
     EXPECT_EQ(channel->cancel_status().to_string(), st.to_string());
     EXPECT_TRUE(_mgr->_load_channels.empty());
 
     request.set_eos(true);
-    auto late_status = _mgr->add_batch(request, &response);
+    auto late_status = _mgr->add_batch(request, &response, nullptr);
     EXPECT_TRUE(late_status.is<ErrorCode::CANCELLED>()) << late_status;
     EXPECT_EQ(late_status.msg(), st.msg());
 
@@ -147,7 +147,7 @@ TEST_F(LoadChannelMgrTest, PublicCancelCachesAlreadyPublishedFailure) {
     *add_request.mutable_id() = _load_id.to_proto();
     add_request.set_eos(true);
     PTabletWriterAddBlockResult response;
-    const auto add_status = _mgr->add_batch(add_request, &response);
+    const auto add_status = _mgr->add_batch(add_request, &response, nullptr);
     EXPECT_TRUE(add_status.is<ErrorCode::CANCELLED>()) << add_status;
     EXPECT_EQ(add_status.msg(), first_failure.msg());
 }
@@ -176,7 +176,7 @@ TEST_F(LoadChannelMgrTest, PublicCancelKeepsTheSameMessageWithOrWithoutChannel) 
         *add_request.mutable_id() = _load_id.to_proto();
         add_request.set_eos(true);
         PTabletWriterAddBlockResult response;
-        auto add_status = _mgr->add_batch(add_request, &response);
+        auto add_status = _mgr->add_batch(add_request, &response, nullptr);
         EXPECT_TRUE(add_status.is<ErrorCode::CANCELLED>());
         EXPECT_EQ(add_status.msg(), reason.msg());
 
@@ -204,7 +204,7 @@ TEST_F(LoadChannelMgrTest, EmptyFailureMessageStillRejectsLateRequests) {
     *add_request.mutable_id() = _load_id.to_proto();
     add_request.set_eos(true);
     PTabletWriterAddBlockResult response;
-    auto add_status = _mgr->add_batch(add_request, &response);
+    auto add_status = _mgr->add_batch(add_request, &response, nullptr);
     EXPECT_TRUE(add_status.is<ErrorCode::CANCELLED>());
     EXPECT_TRUE(add_status.msg().empty());
 }

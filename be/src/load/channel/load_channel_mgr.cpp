@@ -154,7 +154,8 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
 }
 
 Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
-                                 PTabletWriterAddBlockResult* response) {
+                                 PTabletWriterAddBlockResult* response,
+                                 std::shared_ptr<EosCompletion>* eos_completion) {
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
@@ -180,7 +181,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // 3. add batch to load channel
     // batch may not exist in request(eg: eos request without batch),
     // this case will be handled in load channel's add batch method.
-    Status st = channel->add_batch(request, response);
+    Status st = channel->add_batch(request, response, eos_completion);
     if (UNLIKELY(!st.ok())) {
         RETURN_IF_ERROR(_cancel_load_channel(channel, st));
         return st;
