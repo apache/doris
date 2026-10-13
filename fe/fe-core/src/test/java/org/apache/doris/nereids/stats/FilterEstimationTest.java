@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -51,6 +52,7 @@ import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.model.StatisticsBuilder;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.math3.util.Precision;
 import org.junit.jupiter.api.Assertions;
@@ -61,6 +63,174 @@ import java.util.HashMap;
 import java.util.Map;
 
 class FilterEstimationTest {
+    @Test
+    public void testBooleanLiteral() {
+        Statistics statistics = new StatisticsBuilder().setRowCount(100).build();
+        FilterEstimation estimation = new FilterEstimation();
+
+        Assertions.assertEquals(100,
+                estimation.estimate(BooleanLiteral.TRUE, statistics).getRowCount(), 0.001);
+        Assertions.assertEquals(0,
+                estimation.estimate(BooleanLiteral.FALSE, statistics).getRowCount(), 0.001);
+    }
+
+    @Test
+    public void testAppliedConjunctsDoNotCapUnrelatedPartitionColumnNdv() {
+        SlotReference firstPartitionSlot = new SlotReference("p1", IntegerType.INSTANCE);
+        SlotReference secondPartitionSlot = new SlotReference("p2", IntegerType.INSTANCE);
+        EqualTo firstPredicate = new EqualTo(firstPartitionSlot, new IntegerLiteral(1));
+        GreaterThanEqual secondPredicate = new GreaterThanEqual(secondPartitionSlot, new IntegerLiteral(1));
+        ColumnStatistic partitionColumnStats = new ColumnStatisticBuilder(1000)
+                .setNdv(100)
+                .setMinValue(1)
+                .setMinExpr(new IntLiteral(1))
+                .setMaxValue(100)
+                .setMaxExpr(new IntLiteral(100))
+                .build();
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(1000)
+                .putColumnStatistics(firstPartitionSlot, partitionColumnStats)
+                .putColumnStatistics(secondPartitionSlot, partitionColumnStats)
+                .setConjunctsAppliedToRowCount(ImmutableSet.of(firstPredicate, secondPredicate))
+                .build();
+        Statistics filtered = new FilterEstimation().applyColumnConstraints(
+                ImmutableSet.of(firstPredicate, secondPredicate), input);
+
+        Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
+        Assertions.assertEquals(input.getConjunctsAppliedToRowCount(), filtered.getConjunctsAppliedToRowCount());
+        Assertions.assertEquals(1, filtered.findColumnStatistics(firstPartitionSlot).ndv, 0.001);
+        Assertions.assertEquals(100, filtered.findColumnStatistics(secondPartitionSlot).ndv, 0.001);
+    }
+
+    @Test
+    public void testAppliedConjunctKeepsScanRowsWhenColumnStatsAreStale() {
+        SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
+        EqualTo partitionPredicate = new EqualTo(partitionSlot, new IntegerLiteral(1));
+        ColumnStatistic staleColumnStats = new ColumnStatisticBuilder(1000)
+                .setNdv(10)
+                .setMinValue(10)
+                .setMaxValue(20)
+                .build();
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(1000)
+                .putColumnStatistics(partitionSlot, staleColumnStats)
+                .build();
+
+        Statistics constrained = new FilterEstimation().applyColumnConstraints(
+                ImmutableSet.of(partitionPredicate), input);
+
+        Assertions.assertEquals(1000, constrained.getRowCount(), 0.001);
+        ColumnStatistic constrainedColumn = constrained.findColumnStatistics(partitionSlot);
+        Assertions.assertEquals(10, constrainedColumn.ndv, 0.001);
+        Assertions.assertEquals(10, constrainedColumn.minValue, 0.001);
+        Assertions.assertEquals(20, constrainedColumn.maxValue, 0.001);
+    }
+
+    @Test
+    public void testAppliedBoundsOnSameSlotShareOneEstimationBasis() {
+        SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
+        GreaterThanEqual lowerBound = new GreaterThanEqual(partitionSlot, new IntegerLiteral(4501));
+        LessThanEqual upperBound = new LessThanEqual(partitionSlot, new IntegerLiteral(4600));
+        ColumnStatistic tableColumnStats = new ColumnStatisticBuilder(100_000)
+                .setNdv(10_000)
+                .setMinValue(1)
+                .setMinExpr(new IntLiteral(1))
+                .setMaxValue(10_000)
+                .setMaxExpr(new IntLiteral(10_000))
+                .build();
+        ColumnStatistic selectedColumnStats = new ColumnStatisticBuilder(tableColumnStats, 1000)
+                .setNdv(1000)
+                .build();
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(1000)
+                .putColumnStatistics(partitionSlot, selectedColumnStats)
+                .setConjunctsAppliedToRowCount(ImmutableSet.of(lowerBound, upperBound))
+                .build();
+        Statistics filtered = new FilterEstimation().applyColumnConstraints(
+                ImmutableSet.of(lowerBound, upperBound), input);
+
+        Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
+        double ndv = filtered.findColumnStatistics(partitionSlot).ndv;
+        Assertions.assertTrue(ndv > 90 && ndv <= 100);
+        Assertions.assertEquals(4501, filtered.findColumnStatistics(partitionSlot).minValue, 0.001);
+        Assertions.assertEquals(4600, filtered.findColumnStatistics(partitionSlot).maxValue, 0.001);
+    }
+
+    @Test
+    public void testAppliedMultiColumnConjunctDoesNotCapColumnNdv() {
+        SlotReference firstPartitionSlot = new SlotReference("p1", IntegerType.INSTANCE);
+        SlotReference secondPartitionSlot = new SlotReference("p2", IntegerType.INSTANCE);
+        EqualTo partitionPredicate = new EqualTo(firstPartitionSlot, secondPartitionSlot);
+        ColumnStatistic partitionColumnStats = new ColumnStatisticBuilder(1000)
+                .setNdv(100)
+                .setMinValue(1)
+                .setMinExpr(new IntLiteral(1))
+                .setMaxValue(100)
+                .setMaxExpr(new IntLiteral(100))
+                .build();
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(1000)
+                .putColumnStatistics(firstPartitionSlot, partitionColumnStats)
+                .putColumnStatistics(secondPartitionSlot, partitionColumnStats)
+                .setConjunctsAppliedToRowCount(ImmutableSet.of(partitionPredicate))
+                .build();
+        Statistics filtered = new FilterEstimation().applyColumnConstraints(
+                ImmutableSet.of(partitionPredicate), input);
+
+        Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
+        Assertions.assertEquals(100, filtered.findColumnStatistics(firstPartitionSlot).ndv, 0.001);
+        Assertions.assertEquals(100, filtered.findColumnStatistics(secondPartitionSlot).ndv, 0.001);
+    }
+
+    @Test
+    public void testAppliedIsNullConjunctRestoresSelectedRowNullCount() {
+        SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
+        IsNull partitionPredicate = new IsNull(partitionSlot);
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(1000)
+                .putColumnStatistics(partitionSlot, new ColumnStatisticBuilder(1000)
+                        .setNdv(100)
+                        .setNumNulls(100)
+                        .build())
+                .setConjunctsAppliedToRowCount(ImmutableSet.of(partitionPredicate))
+                .build();
+        Statistics filtered = new FilterEstimation().applyColumnConstraints(
+                ImmutableSet.of(partitionPredicate), input);
+
+        Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
+        Assertions.assertEquals(0, filtered.findColumnStatistics(partitionSlot).ndv, 0.001);
+        Assertions.assertEquals(1000, filtered.findColumnStatistics(partitionSlot).numNulls, 0.001);
+    }
+
+    @Test
+    public void testAppliedOrConjunctKeepsMixedNullability() {
+        SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
+        Or partitionPredicate = new Or(new EqualTo(partitionSlot, new IntegerLiteral(1)),
+                new IsNull(partitionSlot));
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(500)
+                .putColumnStatistics(partitionSlot, new ColumnStatisticBuilder(1000)
+                        .setNdv(10)
+                        .setNumNulls(100)
+                        .setMinValue(1)
+                        .setMaxValue(10)
+                        .build())
+                .build();
+
+        Statistics constrained = new FilterEstimation().applyColumnConstraints(
+                ImmutableSet.of(partitionPredicate), input);
+
+        ColumnStatistic constrainedColumn = constrained.findColumnStatistics(partitionSlot);
+        Assertions.assertEquals(500, constrained.getRowCount(), 0.001);
+        Assertions.assertEquals(500, constrainedColumn.count, 0.001);
+        Assertions.assertEquals(1, constrainedColumn.ndv, 0.001);
+        Assertions.assertTrue(constrainedColumn.numNulls > 0);
+        Assertions.assertTrue(constrainedColumn.numNulls <= 500 - constrainedColumn.ndv);
+
+        Statistics nullRows = new FilterEstimation().estimate(new IsNull(partitionSlot), constrained);
+        Assertions.assertTrue(nullRows.getRowCount() > 0 && nullRows.getRowCount() < 500);
+    }
+
     // a > 500 or b < 100
     // b isNaN
     @Test

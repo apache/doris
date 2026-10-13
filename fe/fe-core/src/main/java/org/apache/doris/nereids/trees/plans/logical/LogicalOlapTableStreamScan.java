@@ -324,6 +324,8 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
     @Override
     public LogicalOlapTableStreamScan withSelectedPartitionIds(List<Long> selectedPartitionIds,
                                                                boolean hasPartitionPredicate) {
+        Optional<PartitionPrunablePredicate> retainedProof = partitionPrunablePredicates
+                .filter(proof -> proof.covers(selectedPartitionIds));
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
@@ -332,7 +334,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        partitionPrunablePredicates, scanParams, readMode));
+                        retainedProof, scanParams, readMode));
     }
 
     @Override
@@ -345,14 +347,13 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        partitionPrunablePredicates, scanParams, readMode));
+                        partitionPruned ? partitionPrunablePredicates : Optional.empty(), scanParams, readMode));
     }
 
     /**
      * Returns a new {@code LogicalOlapScan} carrying the supplied
-     * {@link PartitionPrunablePredicate}. It is preserved across all other
-     * {@code with*} builders so partition-derived conjuncts can be removed
-     * safely after MV rewrite has had a chance to match the plan.
+     * {@link PartitionPrunablePredicate}. The proof must cover the selected
+     * partitions; builders that change partition state discard it otherwise.
      */
     @Override
     public LogicalOlapTableStreamScan withPartitionPrunablePredicates(

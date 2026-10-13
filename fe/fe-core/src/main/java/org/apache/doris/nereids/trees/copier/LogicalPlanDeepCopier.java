@@ -109,8 +109,13 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalCatalogRelation newRelation =
                 catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
-        if (context.shouldInvalidatePartitionPruning() && newRelation instanceof LogicalOlapScan) {
-            newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
+        if (newRelation instanceof LogicalOlapScan) {
+            if (context.shouldInvalidatePartitionPruning()) {
+                newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
+            } else if (((LogicalOlapScan) catalogRelation).getPartitionPrunablePredicates().isPresent()) {
+                newRelation = ((LogicalOlapScan) newRelation)
+                        .withReboundPartitionPruningProofFrom((LogicalOlapScan) catalogRelation);
+            }
         }
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
         List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()

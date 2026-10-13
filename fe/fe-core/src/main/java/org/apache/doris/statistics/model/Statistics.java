@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.text.DecimalFormat;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -49,6 +51,9 @@ public class Statistics {
 
     private long actualRowCount = -1L;
     private boolean isFromHbo = false;
+    // Predicates whose row-count effect is already included by the scan, but whose column-domain effect
+    // still needs to be applied when the corresponding Filter is estimated.
+    private final Set<Expression> conjunctsAppliedToRowCount;
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
@@ -57,15 +62,23 @@ public class Statistics {
         this.tupleSize = another.tupleSize;
         this.deltaRowCount = another.getDeltaRowCount();
         this.isFromHbo = another.isFromHbo;
+        this.conjunctsAppliedToRowCount = another.conjunctsAppliedToRowCount;
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
             Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo) {
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo, ImmutableSet.of());
+    }
+
+    public Statistics(double rowCount, int widthInJoinCluster,
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo,
+            Set<Expression> conjunctsAppliedToRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
         this.deltaRowCount = deltaRowCount;
         this.isFromHbo = isFromHbo;
+        this.conjunctsAppliedToRowCount = ImmutableSet.copyOf(conjunctsAppliedToRowCount);
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
@@ -91,10 +104,12 @@ public class Statistics {
 
     public Statistics withRowCount(double rowCount) {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo);
+                0, isFromHbo, conjunctsAppliedToRowCount);
     }
 
     public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        // The replacement map may use a different expression/ExprId namespace (for example MV statistics
+        // normalization), so predicate provenance tied to the previous expressions is no longer reusable.
         return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo);
     }
 
@@ -103,7 +118,7 @@ public class Statistics {
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
-                expressionToColumnStats, 0, isFromHbo);
+                expressionToColumnStats, 0, isFromHbo, conjunctsAppliedToRowCount);
         statistics.normalizeColumnStatistics(this.rowCount, false);
         return statistics;
     }
@@ -162,7 +177,7 @@ public class Statistics {
         }
         double newCount = rowCount * notNullSel + numNull;
         return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo);
+                0, isFromHbo, conjunctsAppliedToRowCount);
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -333,6 +348,10 @@ public class Statistics {
 
     public boolean isFromHbo() {
         return this.isFromHbo;
+    }
+
+    public Set<Expression> getConjunctsAppliedToRowCount() {
+        return conjunctsAppliedToRowCount;
     }
 
     public StatisticsBuilder cleanHotValues() {
