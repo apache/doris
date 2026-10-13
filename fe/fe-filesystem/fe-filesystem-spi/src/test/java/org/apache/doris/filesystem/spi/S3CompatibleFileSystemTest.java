@@ -58,6 +58,21 @@ class S3CompatibleFileSystemTest {
     }
 
     @Test
+    void numericRangesPreserveEscapedBraceAlternatives() {
+        String glob = "data_{1..2,\\{special\\}}.csv";
+        Assertions.assertEquals("data_{1,2,\\{special\\}}.csv", GlobPattern.expandNumericRanges(glob));
+        for (String name : List.of("data_1.csv", "data_2.csv", "data_{special}.csv")) {
+            Assertions.assertTrue(S3CompatibleFileSystem.compileGlobPattern(glob).matcher(name).matches(), name);
+        }
+        Assertions.assertFalse(S3CompatibleFileSystem.compileGlobPattern(glob)
+                .matcher("data_1..2.csv").matches());
+        Assertions.assertEquals("{1,2,a\\,b}", GlobPattern.expandNumericRanges("{1..2,a\\,b}"));
+        Assertions.assertEquals("{1,2,[{},]}", GlobPattern.expandNumericRanges("{1..2,[{},]}"));
+        Assertions.assertEquals("{{1,2},\\{literal\\}}",
+                GlobPattern.expandNumericRanges("{{1..2},\\{literal\\}}"));
+    }
+
+    @Test
     void numericRangesHandleIntegerEndpointsWithoutOverflow() {
         Assertions.assertEquals("{2147483646,2147483647}",
                 GlobPattern.expandNumericRanges("{2147483646..2147483647}"));

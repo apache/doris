@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 
 /**
  * Tests {@link HudiConnectorMetadata#applyFilter} partition pruning (P3-T05).
@@ -435,7 +436,10 @@ public class HudiPartitionPruningTest {
             loadedNames = new ArrayList<>(partNames);
             List<HmsPartitionInfo> result = new ArrayList<>();
             for (String name : partNames) {
-                result.add(new HmsPartitionInfo(Collections.emptyList(),
+                List<String> values = Arrays.stream(name.split("/"))
+                        .map(part -> HudiScanPlanProvider.unescapePathName(part.substring(part.indexOf('=') + 1)))
+                        .collect(Collectors.toList());
+                result.add(new HmsPartitionInfo(values,
                         locations.getOrDefault(name, "s3://b/t/" + name), null, null, null, null));
             }
             return result;

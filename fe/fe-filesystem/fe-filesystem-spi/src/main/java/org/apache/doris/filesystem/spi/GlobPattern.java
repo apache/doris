@@ -17,7 +17,11 @@
 
 package org.apache.doris.filesystem.spi;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,7 +31,6 @@ public final class GlobPattern {
     private static final int MAX_EXPANSIONS = 10000;
     private static final Pattern RANGE = Pattern.compile("(-?\\d+)\\.\\.(-?\\d+)");
     private static final Pattern SIMPLE_RANGE = Pattern.compile("\\d+\\.\\.\\d+");
-    private static final Pattern BRACE_GROUP = Pattern.compile("\\{([^{}]*)\\}");
 
     private GlobPattern() {
     }
@@ -48,59 +51,95 @@ public final class GlobPattern {
      * </ul>
      */
     public static String expandNumericRanges(String pattern) {
-        Matcher groups = BRACE_GROUP.matcher(pattern);
-        StringBuffer result = new StringBuffer();
-        long combinations = 1;
-        long expandedValues = 0;
-        int scanIndex = 0;
+        StringBuilder result = new StringBuilder();
+        Deque<BraceGroup> groups = new ArrayDeque<>();
+        ExpansionBudget budget = new ExpansionBudget();
         boolean characterClass = false;
-        while (groups.find()) {
-            while (scanIndex < groups.start()) {
-                char c = pattern.charAt(scanIndex++);
-                if (c == '\\') {
-                    scanIndex++;
-                } else if (c == '[') {
-                    characterClass = true;
-                } else if (c == ']') {
+        for (int i = 0; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            StringBuilder output = groups.isEmpty() ? result : groups.peek().segment;
+            // Escaped braces and commas are literal characters, even inside an alternative.
+            // Character classes likewise must not change the surrounding brace structure.
+            if (c == '\\') {
+                output.append(c);
+                if (i + 1 < pattern.length()) {
+                    output.append(pattern.charAt(++i));
+                }
+            } else if (characterClass) {
+                output.append(c);
+                if (c == ']') {
                     characterClass = false;
                 }
+            } else if (c == '[') {
+                characterClass = true;
+                output.append(c);
+            } else if (c == '{') {
+                groups.push(new BraceGroup());
+            } else if (c == ',' && !groups.isEmpty()) {
+                groups.peek().finishSegment();
+            } else if (c == '}' && !groups.isEmpty()) {
+                BraceGroup group = groups.pop();
+                group.finishSegment();
+                String expanded = group.expand(budget);
+                (groups.isEmpty() ? result : groups.peek().segment).append('{').append(expanded).append('}');
+            } else {
+                output.append(c);
             }
-            if (characterClass || scanIndex > groups.start()) {
-                continue;
+        }
+        while (!groups.isEmpty()) {
+            BraceGroup group = groups.pop();
+            group.finishSegment();
+            (groups.isEmpty() ? result : groups.peek().segment)
+                    .append('{').append(String.join(",", group.segments));
+        }
+        return result.toString();
+    }
+
+    private static final class ExpansionBudget {
+        private long combinations = 1;
+        private long expandedValues;
+    }
+
+    private static final class BraceGroup {
+        private final List<String> segments = new ArrayList<>();
+        private final StringBuilder segment = new StringBuilder();
+
+        private void finishSegment() {
+            segments.add(segment.toString());
+            segment.setLength(0);
+        }
+
+        private String expand(ExpansionBudget budget) {
+            if (segments.size() == 1 && !SIMPLE_RANGE.matcher(segments.get(0)).matches()) {
+                return segments.get(0);
             }
-            String content = groups.group(1);
-            if (!content.contains(",") && !SIMPLE_RANGE.matcher(content).matches()) {
-                continue;
-            }
-            String[] segments = content.split(",", -1);
             Set<String> values = new LinkedHashSet<>();
             boolean expanded = false;
-            for (String segment : segments) {
-                Matcher range = RANGE.matcher(segment.trim());
+            for (String alternative : segments) {
+                Matcher range = RANGE.matcher(alternative.trim());
                 if (range.matches()) {
                     // Count before materializing, and use long arithmetic so an int endpoint
                     // cannot wrap the loop or turn a huge requested range into a small count.
                     long from = Integer.parseInt(range.group(1));
                     long to = Integer.parseInt(range.group(2));
-                    expandedValues += Math.abs(to - from) + 1;
-                    checkLimit(expandedValues);
+                    budget.expandedValues += Math.abs(to - from) + 1;
+                    checkLimit(budget.expandedValues);
                     long step = from <= to ? 1 : -1;
                     for (long value = from; step > 0 ? value <= to : value >= to; value += step) {
                         values.add(Long.toString(value));
                     }
                     expanded = true;
                 } else {
-                    values.add(segment.trim());
+                    values.add(alternative.trim());
                 }
             }
             if (expanded) {
-                combinations *= values.size();
-                checkLimit(combinations);
-                groups.appendReplacement(result, Matcher.quoteReplacement("{" + String.join(",", values) + "}"));
+                budget.combinations *= values.size();
+                checkLimit(budget.combinations);
+                return String.join(",", values);
             }
+            return String.join(",", segments);
         }
-        groups.appendTail(result);
-        return result.toString();
     }
 
     private static void checkLimit(long count) {

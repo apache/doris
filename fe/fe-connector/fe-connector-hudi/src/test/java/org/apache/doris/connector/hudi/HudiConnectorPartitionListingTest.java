@@ -17,14 +17,22 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -340,6 +348,47 @@ public class HudiConnectorPartitionListingTest {
     }
 
     @Test
+    public void cachedNamesOmitDeletedEncodedPartitionsBeforePruning() {
+        List<String> names = Arrays.asList("dt=gone%253Afirst", "dt=08%253A00",
+                "dt=gone%253Amiddle", "dt=%25253A", "dt=plain");
+        RecordingHmsClient delegate = new RecordingHmsClient(names);
+        delegate.locations = Map.of(names.get(1), "s3://b/t/dt=08%3A00",
+                names.get(3), "s3://b/t/dt=%253A");
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            CachingHmsClient cache = new CachingHmsClient(owner, delegate,
+                    Map.of("meta.cache.hive.partition.enable", "false"));
+            Assertions.assertEquals(names, cache.listPartitionNames("db", "t", -1));
+            // Delete after caching the names: object loads must not make unrelated partitions unreadable.
+            delegate.deletedNames = Arrays.asList(names.get(0), names.get(2));
+            HudiConnectorMetadata md = metadata(true, cache, stub(7L));
+            HudiTableHandle handle = partitioned().toBuilder()
+                    .partitionKeyNames(Collections.singletonList("dt")).build();
+            Assertions.assertEquals(Arrays.asList("08:00", "%3A", "plain"),
+                    md.listPartitions(null, handle, Optional.empty()).stream()
+                            .map(p -> p.getPartitionValues().get("dt")).collect(Collectors.toList()));
+            ConnectorComparison predicate = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("dt", ConnectorType.of("STRING")),
+                    new ConnectorLiteral(ConnectorType.of("STRING"), "%3A"));
+            HudiTableHandle filtered = (HudiTableHandle) md.applyFilter(null, handle,
+                    new ConnectorFilterConstraint(predicate)).get().getHandle();
+            Assertions.assertEquals(Collections.singletonList("dt=%253A"), filtered.getPrunedPartitionPaths());
+            Assertions.assertEquals(names, cache.listPartitionNames("db", "t", -1));
+        }
+    }
+
+    @Test
+    public void encodedPartitionKeysDoNotChangePartitionIdentity() {
+        RecordingHmsClient hms = new RecordingHmsClient(Collections.singletonList("d%2Ft=a%253Ab"));
+        hms.locations = Collections.singletonMap("d%2Ft=a%253Ab", "s3://b/t/d/t=a%3Ab");
+        HudiConnectorMetadata md = metadata(true, hms, stub(7L));
+        HudiTableHandle handle = partitioned().toBuilder()
+                .partitionKeyNames(Collections.singletonList("d/t")).build();
+        List<ConnectorPartitionInfo> parts = md.listPartitions(null, handle, Optional.empty());
+        Assertions.assertEquals(1, parts.size());
+        Assertions.assertEquals("a:b", parts.get(0).getPartitionValues().get("d/t"));
+    }
+
+    @Test
     public void encodedPartitionWithoutValidStorageLocationFailsInsteadOfLosingRows() {
         for (String location : Arrays.asList(null, "", "s3://b/other/dt=a%3Ab",
                 "s3://b/table/dt=a%3Ab", "s3://other/t/dt=a%3Ab")) {
@@ -551,6 +600,7 @@ public class HudiConnectorPartitionListingTest {
     private static final class RecordingHmsClient implements HmsClient {
         private final List<String> partitionNames;
         private Map<String, String> locations = Collections.emptyMap();
+        private List<String> deletedNames = Collections.emptyList();
         private int getPartitionsCalls;
         private boolean listPartitionNamesCalled;
 
@@ -564,7 +614,7 @@ public class HudiConnectorPartitionListingTest {
             if (partitionNames == null) {
                 throw new UnsupportedOperationException("listPartitionNames must not be called here");
             }
-            return partitionNames;
+            return partitionNames.stream().filter(name -> !deletedNames.contains(name)).collect(Collectors.toList());
         }
 
         @Override
@@ -599,10 +649,21 @@ public class HudiConnectorPartitionListingTest {
 
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
+            if (partNames.stream().anyMatch(deletedNames::contains)) {
+                throw new HmsClientException("Partition no longer exists");
+            }
+            return getExistingPartitions(dbName, tableName, partNames);
+        }
+
+        @Override
+        public List<HmsPartitionInfo> getExistingPartitions(String dbName, String tableName, List<String> partNames) {
             getPartitionsCalls++;
             List<HmsPartitionInfo> result = new ArrayList<>();
             for (String name : partNames) {
-                result.add(new HmsPartitionInfo(Collections.emptyList(),
+                if (deletedNames.contains(name)) {
+                    continue;
+                }
+                result.add(new HmsPartitionInfo(hiveToPartitionValues(name),
                         locations.getOrDefault(name, "s3://b/t/" + name), null, null, null, null));
             }
             return result;

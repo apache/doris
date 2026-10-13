@@ -62,6 +62,7 @@ import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -936,14 +937,24 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         // Hive sync can register an already escaped Hudi value, which HMS escapes again in its name.
         // The storage location identifies the physical path regardless of the sync extractor's decoding
         // policy. Decode that path only in parsePartitionValues, preserving literal percent sequences.
-        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+        // Name and object caches expire independently. A deleted encoded partition must not fail
+        // a query before pruning; surviving objects must be associated by values, not list position.
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
                 handle.getDbName(), handle.getTableName(), encodedNames);
-        Map<String, String> paths = new HashMap<>();
-        for (int i = 0; i < encodedNames.size(); i++) {
-            paths.put(encodedNames.get(i),
-                    relativePartitionPath(handle.getBasePath(), partitions.get(i).getLocation()));
+        Map<List<String>, String> namesByValues = new HashMap<>();
+        for (String name : encodedNames) {
+            List<String> values = Arrays.stream(name.split("/"))
+                    .map(part -> HudiScanPlanProvider.unescapePathName(part.substring(part.indexOf('=') + 1)))
+                    .collect(Collectors.toList());
+            namesByValues.put(values, name);
         }
-        return names.stream().map(name -> paths.getOrDefault(name, name)).collect(Collectors.toList());
+        Map<String, String> paths = new HashMap<>();
+        for (HmsPartitionInfo partition : partitions) {
+            String name = namesByValues.get(partition.getValues());
+            paths.put(name, relativePartitionPath(handle.getBasePath(), partition.getLocation()));
+        }
+        return names.stream().filter(name -> name.indexOf('%') < 0 || paths.containsKey(name))
+                .map(name -> paths.getOrDefault(name, name)).collect(Collectors.toList());
     }
 
     private static String relativePartitionPath(String basePath, String location) {
