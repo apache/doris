@@ -31,7 +31,9 @@
 #include <utility>
 #include <vector>
 
+#include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "exprs/function/search/variant_inverted_index_search.h"
 #include "gen_cpp/AgentService_types.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
@@ -43,6 +45,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/snii/reader/logical_index_reader.h"
 #include "storage/index/inverted/snii/snii_index_reader.h"
 #include "storage/index/inverted/snii/snii_index_writer.h"
@@ -251,6 +254,25 @@ protected:
             worker.join();
         }
         return results;
+    }
+
+    // Recreates the dense3 analyzer and tokenizer names for a tokenizer that predates gram mode,
+    // replacing the pair SetUp installed (ids 6753900 / 6753901).
+    void recreate_dense3_analyzer_without_a_scheme() {
+        TIndexPolicy tokenizer;
+        tokenizer.id = 6753980;
+        tokenizer.name = "gram_cache_dense3_tokenizer";
+        tokenizer.type = TIndexPolicyType::TOKENIZER;
+        tokenizer.properties = {{"type", "ngram"}, {"min_gram", "2"}, {"max_gram", "2"}};
+        TIndexPolicy analyzer;
+        analyzer.id = tokenizer.id + 1;
+        analyzer.name = "gram_cache_dense3_analyzer";
+        analyzer.type = TIndexPolicyType::ANALYZER;
+        analyzer.properties = {{"tokenizer", tokenizer.name}};
+        _policy_mgr.apply_policy_changes({tokenizer, analyzer}, {6753900, 6753901});
+        ASSERT_FALSE(_policy_mgr.get_analyzer_provider_by_name(analyzer.name)
+                             ->gram_scheme()
+                             .has_value());
     }
 
     void expect_candidates(const GramCacheResult& result, const std::vector<uint32_t>& expected) {
@@ -487,20 +509,7 @@ TEST_F(SniiGramCacheTest, UnprunablePatternsReleaseFollowersWithoutCachingResult
 // attempt computes nothing, repeating the query must decline again rather than be served from the
 // result cache.
 TEST_F(SniiGramCacheTest, AnalyzedQueriesDeclineWhenTheAnalyzerNoLongerCutsGrams) {
-    TIndexPolicy tokenizer;
-    tokenizer.id = 6753980;
-    tokenizer.name = "gram_cache_dense3_tokenizer";
-    tokenizer.type = TIndexPolicyType::TOKENIZER;
-    tokenizer.properties = {{"type", "ngram"}, {"min_gram", "2"}, {"max_gram", "2"}};
-    TIndexPolicy analyzer;
-    analyzer.id = tokenizer.id + 1;
-    analyzer.name = "gram_cache_dense3_analyzer";
-    analyzer.type = TIndexPolicyType::ANALYZER;
-    analyzer.properties = {{"tokenizer", tokenizer.name}};
-    // Replace the dense3 pair SetUp installed (ids 6753900 / 6753901) under the same names.
-    _policy_mgr.apply_policy_changes({tokenizer, analyzer}, {6753900, 6753901});
-    ASSERT_FALSE(
-            _policy_mgr.get_analyzer_provider_by_name(analyzer.name)->gram_scheme().has_value());
+    recreate_dense3_analyzer_without_a_scheme();
 
     // EQUAL is how SEARCH's TERM and EXACT clauses reach a tokenized reader; its value is cut
     // by the analyzer just like a MATCH value.
@@ -521,6 +530,39 @@ TEST_F(SniiGramCacheTest, AnalyzedQueriesDeclineWhenTheAnalyzerNoLongerCutsGrams
             EXPECT_EQ(result.stats.inverted_index_query_cache_insert, 0);
         }
     }
+}
+
+// SEARCH cuts its values with the current analyzer and has no row fallback, so the recovered
+// dense3 segment above must be refused when SEARCH binds its field, even though the recreated
+// analyzer no longer names a gram scheme, instead of looking up bigrams the segment never wrote.
+TEST_F(SniiGramCacheTest, SearchRefusesASegmentWrittenAsAGramIndex) {
+    recreate_dense3_analyzer_without_a_scheme();
+    ASSERT_FALSE(_readers[0]->is_gram_family());
+
+    SCOPED_ATTACH_TASK(_worker_tracker);
+    RuntimeState runtime_state;
+    TQueryOptions options;
+    options.__set_query_type(TQueryType::SELECT);
+    runtime_state.set_query_options(options);
+    io::IOContext io_context;
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_context;
+    InvertedIndexIterator iterator;
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, _readers[0]);
+    const std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names {
+            {"p", IndexFieldNameAndTypePair {"p", std::make_shared<DataTypeString>()}}};
+    const std::unordered_map<std::string, IndexIterator*> iterators {{"p", &iterator}};
+    TSearchFieldBinding binding;
+    binding.field_name = "p";
+    binding.index_properties = _indexes[0].properties();
+    binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {binding});
+    FieldReaderBinding resolved;
+    const auto status = resolver.resolve("p", InvertedIndexQueryType::EQUAL_QUERY, &resolved);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
 // An index under a built-in analyzer can never have been written as a gram index. It declines LIKE

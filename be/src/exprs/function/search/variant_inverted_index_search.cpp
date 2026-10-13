@@ -303,6 +303,14 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     index_query::IndexSourcePtr source;
     RETURN_IF_ERROR(
             inverted_reader->open_source(_context, resolved.stored_field_wstr, &opened, &source));
+    // A segment written as a gram index keeps its terms even when its policy is recreated without
+    // a gram scheme, so the segment is refused like a gram index.
+    if (opened != nullptr && opened->written_as_gram_index()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SEARCH cannot use index '{}' on field '{}': the segment was written as a gram "
+                "index, which only accelerates LIKE and REGEXP",
+                inverted_reader->get_index_meta().index_name(), field_name);
+    }
     _opened_indexes.push_back(std::move(opened));
     resolved.index_source = source;
     resolved.leaf_compiler =

@@ -131,6 +131,10 @@ struct SniiOpenedIndex : OpenedIndex {
     // The PRX frames the cursors of the index's sources decoded join the query's statistics.
     ~SniiOpenedIndex() override { ::doris::snii::add_prx_decode_stats(stats, prx_decode_stats); }
 
+    bool written_as_gram_index() const override {
+        return reader != nullptr && reader->gram_scheme().has_value();
+    }
+
     snii_doris::DorisSniiFileReader::ScopedIOContext io_scope;
     InvertedIndexCacheHandle searcher_cache_handle;
     std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;

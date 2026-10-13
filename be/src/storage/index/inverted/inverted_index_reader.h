@@ -234,6 +234,9 @@ private:
 // Owns an open index until the query releases its source.
 struct OpenedIndex {
     virtual ~OpenedIndex() = default;
+
+    // Whether the segment was written as a gram index, whatever its policy names now.
+    virtual bool written_as_gram_index() const { return false; }
 };
 
 class InvertedIndexReader : public IndexReader {
