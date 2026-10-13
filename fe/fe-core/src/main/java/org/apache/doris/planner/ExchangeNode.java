@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
@@ -35,6 +36,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
 import java.util.Collections;
+import java.util.Set;
 
 /**
  * Receiver side of a 1:n data stream. Logically, an ExchangeNode consumes the data
@@ -59,6 +61,8 @@ public class ExchangeNode extends PlanNode {
 
     private boolean isRightChildOfBroadcastHashJoin = false;
     private TPartitionType partitionType;
+    // storage bucketing hash carried for BUCKET_SHFFULE_HASH_PARTITIONED; defaults to CRC32 (legacy)
+    private HashDistributionInfo.HashType distributionHashType = HashDistributionInfo.HashType.CRC32;
 
     /**
      * use for Nereids only.
@@ -79,6 +83,29 @@ public class ExchangeNode extends PlanNode {
 
     public void setPartitionType(TPartitionType partitionType) {
         this.partitionType = partitionType;
+    }
+
+    public HashDistributionInfo.HashType getDistributionHashType() {
+        return distributionHashType;
+    }
+
+    @Override
+    public HashDistributionInfo.HashType getStorageDistributionHashType() {
+        return distributionHashType;
+    }
+
+    @Override
+    public void collectStorageHashTypes(Set<HashDistributionInfo.HashType> hashTypes) {
+        // Children belong to the sender fragment. Only bucket exchanges declare a receiver storage bucket layout.
+        if (partitionType == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
+            hashTypes.add(distributionHashType);
+        }
+    }
+
+    public void setDistributionHashType(HashDistributionInfo.HashType distributionHashType) {
+        this.distributionHashType = distributionHashType == null
+                ? HashDistributionInfo.HashType.CRC32
+                : distributionHashType;
     }
 
     public void updateTupleIds(TupleDescriptor outputTupleDesc) {

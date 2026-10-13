@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 
+#include "common/cast_set.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
@@ -40,14 +41,21 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
         return Status::OK();
     }
 
-    phmap::flat_hash_set<int> eligible_filter_ids;
+    phmap::flat_hash_map<int, TDistributionHashType::type> eligible_filter_hash_types;
     for (const auto& desc : rf_descs) {
         if (desc.__isset.bucket_pruning_target_ids &&
             desc.bucket_pruning_target_ids.contains(scan_node_id)) {
-            eligible_filter_ids.insert(desc.filter_id);
+            TDistributionHashType::type hash_type = TDistributionHashType::CRC32;
+            if (desc.__isset.bucket_pruning_target_hash_types) {
+                auto it = desc.bucket_pruning_target_hash_types.find(scan_node_id);
+                if (it != desc.bucket_pruning_target_hash_types.end()) {
+                    hash_type = it->second;
+                }
+            }
+            eligible_filter_hash_types.emplace(desc.filter_id, hash_type);
         }
     }
-    if (eligible_filter_ids.empty()) {
+    if (eligible_filter_hash_types.empty()) {
         return Status::OK();
     }
 
@@ -57,7 +65,8 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
             continue;
         }
         auto* rf_expr = assert_cast<RuntimeFilterExpr*>(root.get());
-        if (!eligible_filter_ids.contains(rf_expr->filter_id())) {
+        auto hash_type_it = eligible_filter_hash_types.find(rf_expr->filter_id());
+        if (hash_type_it == eligible_filter_hash_types.end()) {
             continue;
         }
 
@@ -77,8 +86,6 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
         VExprSPtr target_expr = impl->children()[0];
         DORIS_CHECK_EQ(target_expr->node_type(), TExprNodeType::SLOT_REF);
 
-        std::shared_ptr<const std::vector<uint32_t>> hashes =
-                rf_expr->get_bucket_prune_hashes(target_expr->data_type());
         phmap::flat_hash_map<int32_t, phmap::flat_hash_set<int32_t>> new_selected_buckets_by_num;
         for (const auto& range_ptr : ranges) {
             DORIS_CHECK(range_ptr != nullptr);
@@ -92,6 +99,10 @@ Status RuntimeFilterBucketPruner::prune_by_runtime_filters(
             auto [selected_it, inserted] =
                     new_selected_buckets_by_num.try_emplace(range.bucket_num);
             if (inserted) {
+                std::shared_ptr<const std::vector<uint32_t>> hashes =
+                        rf_expr->get_bucket_prune_hashes(target_expr->data_type(),
+                                                         hash_type_it->second,
+                                                         cast_set<uint32_t>(range.bucket_num));
                 auto& selected_buckets = selected_it->second;
                 selected_buckets.reserve(
                         std::min(hashes->size(), static_cast<size_t>(range.bucket_num)));

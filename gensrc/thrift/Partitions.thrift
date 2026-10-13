@@ -223,4 +223,6 @@ struct TDataPartition {
   3: optional list<TRangePartition> partition_infos
   4: optional TMergePartitionInfo merge_partition_info
   5: optional TExternalTableSinkHashPartitionInfo external_table_sink_hash_partition_info
+  // storage bucketing hash for BUCKET_SHFFULE_HASH_PARTITIONED; !__isset means CRC32 (legacy)
+  6: optional Types.TDistributionHashType distribution_hash_type = Types.TDistributionHashType.CRC32
 }

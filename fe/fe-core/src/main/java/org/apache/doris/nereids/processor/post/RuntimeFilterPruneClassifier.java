@@ -96,6 +96,7 @@ final class RuntimeFilterPruneClassifier {
         }
 
         Column distributionColumn = null;
+        HashDistributionInfo.HashType distributionHashType = null;
         for (Long partitionId : scan.getSelectedPartitionIds()) {
             Partition partition = table.getPartition(partitionId);
             if (partition == null) {
@@ -118,9 +119,15 @@ final class RuntimeFilterPruneClassifier {
                 return BucketClassification.unsupported(
                         "selected partitions use different distribution columns");
             }
+            if (distributionHashType != null
+                    && distributionHashType != hashDistributionInfo.getHashType()) {
+                return BucketClassification.unsupported(
+                        "selected partitions use different distribution hash types");
+            }
             distributionColumn = currentDistributionColumn;
+            distributionHashType = hashDistributionInfo.getHashType();
         }
-        return BucketClassification.supported();
+        return BucketClassification.supported(distributionHashType);
     }
 
     private static PartitionClassification classifyPartitionPruning(RuntimeFilter filter) {
@@ -408,6 +415,10 @@ final class RuntimeFilterPruneClassifier {
             return partitionClassification.partitionMonotonicity;
         }
 
+        HashDistributionInfo.HashType getBucketHashType() {
+            return bucketClassification.hashType;
+        }
+
         String getBucketUnsupportedReason() {
             return bucketClassification.unsupportedReason;
         }
@@ -420,18 +431,21 @@ final class RuntimeFilterPruneClassifier {
     private static final class BucketClassification {
         private final boolean canPruneBuckets;
         private final String unsupportedReason;
+        private final HashDistributionInfo.HashType hashType;
 
-        private BucketClassification(boolean canPruneBuckets, String unsupportedReason) {
+        private BucketClassification(boolean canPruneBuckets, String unsupportedReason,
+                HashDistributionInfo.HashType hashType) {
             this.canPruneBuckets = canPruneBuckets;
             this.unsupportedReason = unsupportedReason;
+            this.hashType = hashType;
         }
 
-        private static BucketClassification supported() {
-            return new BucketClassification(true, "");
+        private static BucketClassification supported(HashDistributionInfo.HashType hashType) {
+            return new BucketClassification(true, "", hashType);
         }
 
         private static BucketClassification unsupported(String reason) {
-            return new BucketClassification(false, reason);
+            return new BucketClassification(false, reason, null);
         }
     }
 

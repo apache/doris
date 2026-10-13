@@ -63,10 +63,11 @@ TEST(PaimonWriteBackendTest, ReportsConcreteBackendType) {
 }
 
 TEST(PaimonWriteBackendTest, AdvertisesPaimonWriteExecVersion) {
-    EXPECT_EQ(SUPPORT_PAIMON_WRITE_VERSION, BeExecVersionManager::get_newest_version());
+    // The Paimon write version must stay within the accepted range; once later versions land
+    // (e.g. the distribution hash type version) it is no longer the newest one, so a newer
+    // version being accepted is expected rather than a regression.
+    EXPECT_GE(BeExecVersionManager::get_newest_version(), SUPPORT_PAIMON_WRITE_VERSION);
     EXPECT_TRUE(BeExecVersionManager::check_be_exec_version(SUPPORT_PAIMON_WRITE_VERSION).ok());
-    EXPECT_FALSE(
-            BeExecVersionManager::check_be_exec_version(SUPPORT_PAIMON_WRITE_VERSION + 1).ok());
 }
 
 TEST(PaimonTableSinkOperatorTest, InitializesAsBlockingSink) {

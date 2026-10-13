@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -69,6 +70,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
@@ -5971,6 +5973,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 Map<Long, String> tempPartitionChecksums = Maps.newHashMap();
                 table.readLock();
                 try {
+                    // Older remote-Doris clients ignore hashType in Gson metadata and prune every
+                    // HASH table with CRC32. Reject before exporting any metadata: the local BE
+                    // execution-version gate cannot protect a plan produced by an older remote FE.
+                    DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
+                    if (distributionInfo instanceof HashDistributionInfo
+                            && ((HashDistributionInfo) distributionInfo).getHashType()
+                                    == HashDistributionInfo.HashType.IDENTITY
+                            && (!request.isSetVersion() || request.getVersion() < FeMetaVersion.VERSION_141)) {
+                        // table_meta is required by Thrift even when the RPC returns an error.
+                        result.setTableMeta(new byte[0]);
+                        throw new UserException("IDENTITY distribution requires client metadata version "
+                                + FeMetaVersion.VERSION_141 + " or newer for table " + dbName + "." + table.getName()
+                                + "; client version: "
+                                + (request.isSetVersion() ? request.getVersion() : "unspecified"));
+                    }
                     OlapTable copyTable = table.copyTableMeta();
                     try (DataOutputStream out = new DataOutputStream(bOutputStream)) {
                         copyTable.write(out);
