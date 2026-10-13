@@ -727,12 +727,32 @@ TEST(function_bitmap_test, function_bitmap_from_binary) {
 
         auto truncated = [](std::string s, size_t n) { return keep_alive_binary(s.substr(0, n)); };
 
+        // A run container with zero runs: the CRoaring 2.1.2 bundled with Doris
+        // predates upstream PR #560, so its internal_validate accepts the empty
+        // container while every container operation (AND/OR/ANDNOT) dereferences
+        // its NULL runs pointer and crashes. valid_and_deserialize must reject it
+        // up front (NULL), never load it.
+        auto empty_run = [&] {
+            std::string bytes;
+            bytes += static_cast<char>(BitmapTypeCode::BITMAP32);
+            uint32_t cookie = 12347; // SERIAL_COOKIE (hasrun), size-1 = 0
+            bytes.append(reinterpret_cast<const char*>(&cookie), 4);
+            bytes += '\x01';                      // run bitmap: container 0 IS a run container
+            uint16_t key = 0, card_minus_one = 0; // thiscard = 1 -> run container
+            bytes.append(reinterpret_cast<const char*>(&key), 2);
+            bytes.append(reinterpret_cast<const char*>(&card_minus_one), 2);
+            uint16_t n_runs = 0; // the empty container
+            bytes.append(reinterpret_cast<const char*>(&n_runs), 2);
+            return keep_alive_binary(std::move(bytes));
+        }();
+
         DataSet data_set = {{{VARBINARY("")}, Null()},
                             {{keep_alive_binary(std::string("\x7f", 1))}, Null()},
                             {{truncated(single32, 3)}, Null()},
                             {{truncated(single64, 5)}, Null()},
                             {{truncated(set_bytes, 3)}, Null()},
-                            {{truncated(bitmap32, 4)}, Null()}};
+                            {{truncated(bitmap32, 4)}, Null()},
+                            {{empty_run}, Null()}};
 
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }

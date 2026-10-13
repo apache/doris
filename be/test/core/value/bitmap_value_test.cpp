@@ -780,6 +780,33 @@ TEST(BitmapValueTest, valid_and_deserialize_rejects_duplicate_bitmap64_map_key) 
     EXPECT_EQ(deserialized.cardinality(), 0);
 }
 
+// The CRoaring 2.1.2 bundled with Doris predates upstream PR #560, so its
+// internal_validate accepts an empty container: a portable hasrun-cookie bitmap
+// with one container marked as a run container and n_runs == 0. Every container
+// operation (AND/OR/ANDNOT) dereferences the NULL runs pointer of an empty run
+// container (array_run_container_union -> run_container_is_full), so accepting
+// such a payload crashes the process the moment the bitmap meets any other one.
+// read_single_roaring_safe must reject it.
+TEST(BitmapValueTest, EmptyRunContainer) {
+    std::string bytes;
+    bytes += static_cast<char>(BitmapTypeCode::BITMAP32);
+    uint32_t cookie = 12347; // SERIAL_COOKIE (hasrun), size-1 = 0
+    bytes.append(reinterpret_cast<const char*>(&cookie), 4);
+    bytes += '\x01';                      // run bitmap: container 0 IS a run container
+    uint16_t key = 0, card_minus_one = 0; // thiscard = 1 -> not bitset; isrun -> run
+    bytes.append(reinterpret_cast<const char*>(&key), 2);
+    bytes.append(reinterpret_cast<const char*>(&card_minus_one), 2);
+    uint16_t n_runs = 0; // the empty container: zero runs
+    bytes.append(reinterpret_cast<const char*>(&n_runs), 2);
+
+    BitmapValue deserialized;
+    EXPECT_FALSE(deserialized.valid_and_deserialize(bytes.data(), bytes.size()))
+            << "empty run container must be rejected";
+    PaddedPODArray<int64_t> out;
+    deserialized.to_array(out);
+    EXPECT_EQ(0u, out.size());
+}
+
 // A BITMAP32 portable payload declaring a bitset cardinality that does not
 // match the actual bits set must be rejected by valid_and_deserialize: the
 // declared cardinality flows into bitmap_to_array's resize while the element

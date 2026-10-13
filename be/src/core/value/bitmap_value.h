@@ -34,7 +34,12 @@
 #include <new>
 #include <numeric>
 #include <queue>
+// clang-format off
+// CRoaring's public header defines ROARING_CONTAINER_T; its internal headers undefine it,
+// so the public header must come first (same ordering as storage/index/snii/format/null_bitmap.cpp).
 #include <roaring/roaring.hh>
+#include <roaring/containers/containers.h>
+// clang-format on
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -995,6 +1000,30 @@ private:
             roaring::api::roaring_bitmap_free(r);
             *is_valid_ptr = false;
             return {};
+        }
+        // The CRoaring 2.1.2 bundled with Doris predates upstream PR #560 (2024-01-15,
+        // eleven days after the v2.1.2 tag), so its internal_validate still accepts
+        // empty containers (run container with n_runs == 0 - the only encoding able to
+        // declare one, since a non-run container's cardinality is tmp+1 >= 1). An empty
+        // container breaks the "no empty containers" invariant every container
+        // operation (AND/OR/ANDNOT) relies on: array_run_container_union dereferences
+        // the NULL runs pointer of an empty run container and segfaults the process.
+        // The bundled version cannot tell us this, so check it here.
+        {
+            const auto* ra = &r->high_low_container;
+            for (int32_t i = 0; i < ra->size; ++i) {
+                if (roaring::internal::container_get_cardinality(ra->containers[i],
+                                                                 ra->typecodes[i]) == 0) {
+                    // Reachable from user supplied bytes (bitmap_from_binary), so keep the
+                    // diagnostic off the default log level: one line per input row would let
+                    // any user with SELECT privilege flood be.log.
+                    VLOG_DEBUG << "Decode roaring bitmap failed: empty container at key "
+                               << ra->keys[i];
+                    roaring::api::roaring_bitmap_free(r);
+                    *is_valid_ptr = false;
+                    return {};
+                }
+            }
         }
         *is_valid_ptr = true;
         // the bytes the deserializer actually consumed, computed from the ORIGINAL
