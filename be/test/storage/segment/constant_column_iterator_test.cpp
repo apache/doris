@@ -973,9 +973,10 @@ TEST_F(ConstantColumnIteratorTest, StructNullDefaultAndRuntimeConstantMaterializ
     EXPECT_EQ("doris", materialized_struct->get_column(1).get_data_at(1).to_string());
 }
 
-TEST_F(ConstantColumnIteratorTest, NonEmptyComplexTextDefaultsAreRejected) {
-    // Case: schema defaults currently support only [] and {} for complex non-null values. Reject
-    // non-empty text forms explicitly instead of silently synthesizing a different value.
+TEST_F(ConstantColumnIteratorTest, NonEmptyComplexTextDefaultsAreParsed) {
+    // Case: a non-empty ARRAY/MAP/STRUCT literal default is parsed through the declared (nested)
+    // type's SerDe instead of being rejected, so `[1]`, `{"k":7}`, and a positional struct literal
+    // all materialize the matching typed Field.
     TabletColumn int_child;
     int_child.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     int_child.set_is_nullable(false);
@@ -988,9 +989,11 @@ TEST_F(ConstantColumnIteratorTest, NonEmptyComplexTextDefaultsAreRejected) {
     array_column.set_is_nullable(false);
     array_column.set_default_value("[1]");
     array_column.add_sub_column(int_child);
-    Field field;
-    EXPECT_TRUE(Segment::get_default_value_field(array_column, &field)
-                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    Field array_field;
+    ASSERT_TRUE(Segment::get_default_value_field(array_column, &array_field).ok());
+    const auto& array = array_field.get<TYPE_ARRAY>();
+    ASSERT_EQ(1, array.size());
+    EXPECT_EQ(1, array[0].get<TYPE_INT>());
 
     TabletColumn map_column;
     map_column.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
@@ -998,17 +1001,31 @@ TEST_F(ConstantColumnIteratorTest, NonEmptyComplexTextDefaultsAreRejected) {
     map_column.set_default_value("{\"k\":7}");
     map_column.add_sub_column(string_child);
     map_column.add_sub_column(int_child);
-    EXPECT_TRUE(Segment::get_default_value_field(map_column, &field)
-                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    Field map_field;
+    ASSERT_TRUE(Segment::get_default_value_field(map_column, &map_field).ok());
+    const auto& map = map_field.get<TYPE_MAP>();
+    ASSERT_EQ(2, map.size());
+    const auto& keys = map[0].get<TYPE_ARRAY>();
+    const auto& values = map[1].get<TYPE_ARRAY>();
+    ASSERT_EQ(1, keys.size());
+    ASSERT_EQ(1, values.size());
+    EXPECT_EQ("k", std::string_view(keys[0].get<TYPE_STRING>()));
+    EXPECT_EQ(7, values[0].get<TYPE_INT>());
 
+    // Positional struct literal: int_child/string_child have no declared name, so the literal is
+    // matched by field position instead of by name.
     TabletColumn struct_column;
     struct_column.set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
     struct_column.set_is_nullable(false);
-    struct_column.set_default_value("(99, doris)");
+    struct_column.set_default_value("{99,\"doris\"}");
     struct_column.add_sub_column(int_child);
     struct_column.add_sub_column(string_child);
-    EXPECT_TRUE(Segment::get_default_value_field(struct_column, &field)
-                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    Field struct_field;
+    ASSERT_TRUE(Segment::get_default_value_field(struct_column, &struct_field).ok());
+    const auto& struct_value = struct_field.get<TYPE_STRUCT>();
+    ASSERT_EQ(2, struct_value.size());
+    EXPECT_EQ(99, struct_value[0].get<TYPE_INT>());
+    EXPECT_EQ("doris", std::string_view(struct_value[1].get<TYPE_STRING>()));
 }
 
 TEST_F(ConstantColumnIteratorTest, VariantConstantMaterializesSubcolumnsAndZoneMap) {
