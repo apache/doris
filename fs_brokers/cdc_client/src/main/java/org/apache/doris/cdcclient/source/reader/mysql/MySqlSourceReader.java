@@ -813,6 +813,12 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                 binlogSplit.getStartingOffset() == null
                         ? new HashMap<>()
                         : new HashMap<>(binlogSplit.getStartingOffset());
+        if (!lastOffsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
+                && lastOffsetMap.containsKey(BinlogOffset.GTID_SET_KEY)) {
+            BinlogOffset.ofGtidSet(lastOffsetMap.get(BinlogOffset.GTID_SET_KEY))
+                    .getOffset()
+                    .forEach(lastOffsetMap::putIfAbsent);
+        }
         // ALTER offset may not contain "kind", supplement it for Flink CDC
         if (lastOffsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
                 && !lastOffsetMap.containsKey(BinlogOffset.OFFSET_KIND_KEY)) {

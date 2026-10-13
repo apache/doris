@@ -44,6 +44,8 @@ public class JdbcSourceOffsetProviderOffsetTest {
         mysql.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"SPECIFIC\"}");
         mysql.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}");
         mysql.validateAlterOffset("{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\"}");
+        mysql.validateAlterOffset(
+                "{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\",\"kind\":\"SPECIFIC\"}");
 
         JdbcSourceOffsetProvider oceanBase = provider(DataSourceType.OCEANBASE);
         oceanBase.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}");
@@ -72,6 +74,18 @@ public class JdbcSourceOffsetProviderOffsetTest {
                 "{\"gtids\":\"\"}",
                 "{\"gtids\":123}",
                 "{\"gtids\":\"uuid:1-10\",\"file\":\"mysql-bin.000001\",\"pos\":\"abc\"}");
+    }
+
+    @Test
+    public void testValidateAlterOffsetRejectsNonSpecificKind() {
+        for (DataSourceType type : new DataSourceType[] {DataSourceType.MYSQL, DataSourceType.OCEANBASE}) {
+            assertInvalidAlterOffsets(provider(type),
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"LATEST\"}",
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"EARLIEST\"}",
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"TIMESTAMP\"}",
+                    "{\"gtids\":\"uuid:1-10\",\"kind\":\"BOGUS\"}",
+                    "{\"gtids\":\"uuid:1-10\",\"kind\":null}");
+        }
     }
 
     @Test
@@ -203,6 +217,8 @@ public class JdbcSourceOffsetProviderOffsetTest {
                 new BinlogSplit(Collections.singletonMap("lsn", "200")))));
         StreamingInsertJob job = mockJobWithPersistInfo(source.getPersistInfo());
         JdbcTvfSourceOffsetProvider restored = new JdbcTvfSourceOffsetProvider();
+        restored.updateOffset(new JdbcOffset(Collections.singletonList(
+                new BinlogSplit(Collections.singletonMap("lsn", "100")))));
 
         restored.restoreFromPersistInfo(source.getPersistInfo());
         restored.replayIfNeed(job);

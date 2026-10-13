@@ -21,11 +21,14 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -53,7 +56,9 @@ public class StreamingInsertJobLagTest {
 
     @Test
     public void testExplicitOffsetChangeInvalidatesLastObservedLag() throws Exception {
-        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+        StreamingInsertJob job = Mockito.spy(new StreamingInsertJob());
+        Mockito.doNothing().when(job).logUpdateOperation();
+        job.setJobStatus(JobStatus.PAUSED);
         Map<String, String> properties = new HashMap<>();
         properties.put(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY, "10");
         Deencapsulation.setField(job, "properties", properties);
@@ -69,7 +74,8 @@ public class StreamingInsertJobLagTest {
 
         Map<String, String> alterProperties = new HashMap<>();
         alterProperties.put(StreamingJobProperties.OFFSET_PROPERTY, "{\"lsn\":\"200\"}");
-        Deencapsulation.invoke(job, "modifyPropertiesInternal", alterProperties);
+        job.alterJob(new AlterJobCommand("test_job", alterProperties, null, null, null,
+                Collections.emptyMap(), Collections.emptyMap()));
 
         Assertions.assertEquals(-1, provider.getLagBytes());
     }

@@ -541,6 +541,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
         }
 
+        if ((sourceType == DataSourceType.MYSQL || sourceType == DataSourceType.OCEANBASE)
+                && offsetNode.has("kind") && !"SPECIFIC".equals(offsetNode.path("kind").asText())) {
+            throw new AnalysisException("ALTER JOB offset kind must be SPECIFIC when specified");
+        }
+
         boolean valid = switch (sourceType) {
             case POSTGRES -> isNonNegativeLong(offsetNode.get("lsn"));
             case MYSQL, OCEANBASE -> offsetNode.has("file") && offsetNode.has("pos")

@@ -433,6 +433,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     && S3TableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
                 Offset offset = validateOffset(jobProperties.getOffsetProperty());
                 this.offsetProvider.updateOffset(offset);
+                this.offsetProviderPersist = offsetProvider.getPersistInfo();
             }
         } catch (Exception ex) {
             log.warn("init streaming insert job failed, sql: {}", getExecuteSql(), ex);
@@ -486,6 +487,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     public void validateAlterOffset(String offset) throws AnalysisException {
         try {
+            if (tvfType != null) {
+                offsetProvider.ensureInitialized(getJobId(), getOriginTvfProps());
+            }
             offsetProvider.validateAlterOffset(offset);
         } catch (Exception ex) {
             throw new AnalysisException(ex.getMessage());
@@ -510,50 +514,74 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void alterJob(AlterJobCommand alterJobCommand) throws AnalysisException, JobException {
-        List<String> logParts = new ArrayList<>();
+        writeLock();
+        try {
+            if (!JobStatus.PAUSED.equals(getJobStatus())) {
+                throw new AnalysisException("Only PAUSED job can be altered");
+            }
+            List<String> logParts = new ArrayList<>();
 
-        validateComputeGroupProperty(alterJobCommand.getProperties());
+            validateComputeGroupProperty(alterJobCommand.getProperties());
 
-        // Validate the merged properties before mutating the job.
-        Map<String, String> mergedSourceProperties = null;
-        Map<String, String> newConvertedSourceProperties = null;
-        if (!alterJobCommand.getSourceProperties().isEmpty()) {
-            mergedSourceProperties = new HashMap<>(this.sourceProperties);
-            mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
-            DataSourceConfigValidator.validateSource(mergedSourceProperties, dataSourceType.name());
-            newConvertedSourceProperties = buildConvertedSourceProperties(mergedSourceProperties);
+            // Prepare the merged source properties before mutating the job.
+            Map<String, String> mergedSourceProperties = null;
+            Map<String, String> newConvertedSourceProperties = null;
+            if (!alterJobCommand.getSourceProperties().isEmpty()) {
+                mergedSourceProperties = new HashMap<>(this.sourceProperties);
+                mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
+                if (alterJobCommand.getSourceProperties().containsKey(DataSourceConfigKeys.SERVER_ID)
+                        || alterJobCommand.getSourceProperties()
+                                .containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+                    DataSourceConfigValidator.validateServerIdConfig(mergedSourceProperties);
+                }
+                newConvertedSourceProperties = buildConvertedSourceProperties(mergedSourceProperties);
+            }
+
+            // update sql
+            if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
+                setExecuteSql(alterJobCommand.getSql());
+                initLogicalPlan(true);
+                // refresh cached TVF props so fetchMeta and createStreamingInsertTask
+                // pick up the new credentials (e.g. aksk) from the updated SQL
+                this.originTvfProps = getCurrentTvf().getProperties().getMap();
+                String encryptedSql = generateEncryptedSql();
+                logParts.add("sql: " + encryptedSql);
+            }
+
+            // update properties
+            if (!alterJobCommand.getProperties().isEmpty()) {
+                String offsetProperty = alterJobCommand.getProperties().get(StreamingJobProperties.OFFSET_PROPERTY);
+                if (StringUtils.isNotEmpty(offsetProperty)) {
+                    Offset offset = validateOffset(offsetProperty);
+                    if (Config.isCloudMode()) {
+                        resetCloudProgress(offset);
+                    }
+                    offsetProvider.updateOffset(offset);
+                    offsetProvider.resetLag();
+                    this.offsetProviderPersist = offsetProvider.getPersistInfo();
+                    log.info("Alter streaming job {} offset to {}", getJobId(), offsetProperty);
+                }
+                modifyPropertiesInternal(alterJobCommand.getProperties());
+                logParts.add("properties: " + alterJobCommand.getProperties());
+            }
+
+            // update source properties
+            if (mergedSourceProperties != null) {
+                this.sourceProperties = mergedSourceProperties;
+                this.convertedSourceProperties = newConvertedSourceProperties;
+                logParts.add("source properties: " + alterJobCommand.getSourceProperties());
+            }
+
+            // update target properties
+            if (!alterJobCommand.getTargetProperties().isEmpty()) {
+                this.targetProperties.putAll(alterJobCommand.getTargetProperties());
+                logParts.add("target properties: " + alterJobCommand.getTargetProperties());
+            }
+            log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
+            logUpdateOperation();
+        } finally {
+            writeUnlock();
         }
-
-        // update sql
-        if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
-            setExecuteSql(alterJobCommand.getSql());
-            initLogicalPlan(true);
-            // refresh cached TVF props so fetchMeta and createStreamingInsertTask
-            // pick up the new credentials (e.g. aksk) from the updated SQL
-            this.originTvfProps = getCurrentTvf().getProperties().getMap();
-            String encryptedSql = generateEncryptedSql();
-            logParts.add("sql: " + encryptedSql);
-        }
-
-        // update properties
-        if (!alterJobCommand.getProperties().isEmpty()) {
-            modifyPropertiesInternal(alterJobCommand.getProperties());
-            logParts.add("properties: " + alterJobCommand.getProperties());
-        }
-
-        // update source properties
-        if (mergedSourceProperties != null) {
-            this.sourceProperties = mergedSourceProperties;
-            this.convertedSourceProperties = newConvertedSourceProperties;
-            logParts.add("source properties: " + alterJobCommand.getSourceProperties());
-        }
-
-        // update target properties
-        if (!alterJobCommand.getTargetProperties().isEmpty()) {
-            this.targetProperties.putAll(alterJobCommand.getTargetProperties());
-            logParts.add("target properties: " + alterJobCommand.getTargetProperties());
-        }
-        log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
     }
 
     @Override
@@ -619,11 +647,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         lock.writeLock().lock();
         try {
-            // Scheduler tasks are internal housekeeping and must not affect task statistics.
-            for (StreamingJobSchedulerTask task : getRunningTasks()) {
-                task.cancel(needWaitCancelComplete);
-            }
-            getRunningTasks().clear();
             if (runningStreamTask == null) {
                 return;
             }
@@ -1064,6 +1087,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         try {
             modifyPropertiesInternal(replayJob.getProperties());
+            if (replayJob.getOffsetProviderPersist() != null) {
+                setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
+                if (tvfType != null && !Config.isCloudMode()) {
+                    offsetProvider.restoreFromPersistInfo(offsetProviderPersist);
+                }
+            } else {
+                // Legacy journals lack provider state; keep local offset replay without resetting MS.
+                String offset = replayJob.getProperties().get(StreamingJobProperties.OFFSET_PROPERTY);
+                if (StringUtils.isNotEmpty(offset)) {
+                    offsetProvider.updateOffset(validateOffset(offset));
+                    this.offsetProviderPersist = offsetProvider.getPersistInfo();
+                }
+            }
             // When the pause state is restarted, it also needs to be updated
             if (Config.isCloudMode()) {
                 replayOnCloudMode();
@@ -1071,9 +1107,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } catch (Exception e) {
             // should not happen
             log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
-        }
-        if (replayJob.getOffsetProviderPersist() != null) {
-            setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
         }
         if (replayJob.getNonTxnJobStatistic() != null) {
             setNonTxnJobStatistic(replayJob.getNonTxnJobStatistic());
@@ -1099,22 +1132,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         offsetProvider.setBoundBackendId(boundBackendId);
     }
 
-    /**
-     * When updating offset, you need to reset the currentOffset
-     */
-    private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
-        StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
-        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
-            Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
-            if (Config.isCloudMode()) {
-                resetCloudProgress(offset);
-            }
-            this.offsetProvider.updateOffset(offset);
-            this.offsetProvider.resetLag();
-            this.offsetProviderPersist = offsetProvider.getPersistInfo();
-            log.info("modifyPropertiesInternal: offset updated to {}, job {}",
-                    inputStreamProps.getOffsetProperty(), getJobId());
-        }
+    /** Updates configuration without executing offset reset instructions retained in replayed properties. */
+    private void modifyPropertiesInternal(Map<String, String> inputProperties) {
         if (inputProperties.containsKey(StreamingJobProperties.COMPUTE_GROUP_PROPERTY)) {
             this.cloudCluster = inputProperties.get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
             offsetProvider.setCloudCluster(this.cloudCluster);
