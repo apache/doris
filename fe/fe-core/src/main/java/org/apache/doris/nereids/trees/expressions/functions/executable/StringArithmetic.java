@@ -425,6 +425,20 @@ public class StringArithmetic {
         return new IntegerLiteral(firstByteAscii);
     }
 
+    /** Folds the first Unicode code point when the leading UTF-16 sequence is valid. */
+    @ExecFunction(name = "ord")
+    public static Expression ord(StringLikeLiteral first) {
+        String value = first.getValue();
+        if (value.isEmpty()) {
+            return new IntegerLiteral(-1);
+        }
+        int codePoint = value.codePointAt(0);
+        if (codePoint >= Character.MIN_SURROGATE && codePoint <= Character.MAX_SURROGATE) {
+            throw new IllegalArgumentException("Cannot fold an unpaired leading surrogate");
+        }
+        return new IntegerLiteral(codePoint);
+    }
+
     /**
      * Executable arithmetic functions Bin
      */
