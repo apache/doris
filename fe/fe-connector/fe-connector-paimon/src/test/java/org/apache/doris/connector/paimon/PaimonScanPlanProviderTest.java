@@ -3796,13 +3796,34 @@ public class PaimonScanPlanProviderTest {
     public void buildSchemaInfoCarriesTimestampSemantics() {
         List<DataField> fields = Arrays.asList(
                 new DataField(7, "ts", DataTypes.TIMESTAMP(9)),
-                new DataField(8, "ts_ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)));
+                new DataField(8, "ts_ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)),
+                new DataField(9, "nested", DataTypes.ROW(DataTypes.FIELD(10, "events",
+                        DataTypes.ARRAY(DataTypes.MAP(DataTypes.STRING(), DataTypes.ROW(
+                                DataTypes.FIELD(11, "at", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)))))))),
+                new DataField(12, "id", DataTypes.INT()));
 
         List<TFieldPtr> top = PaimonScanPlanProvider.buildSchemaInfo(3L, fields, false)
                 .getRootField().getFields();
 
-        Assertions.assertFalse(top.get(0).getFieldPtr().isTimestampIsAdjustedToUtc());
-        Assertions.assertTrue(top.get(1).getFieldPtr().isTimestampIsAdjustedToUtc());
+        // Paimon writes high-precision TIMESTAMP and TIMESTAMP_LTZ with the same unannotated INT96 encoding, so the
+        // flag must be set, false for the wall clock and true for the instant; a wall-clock check alone also passes
+        // when the flag is missing.
+        TField wallClock = top.get(0).getFieldPtr();
+        Assertions.assertTrue(wallClock.isSetTimestampIsAdjustedToUtc());
+        Assertions.assertFalse(wallClock.isTimestampIsAdjustedToUtc());
+        TField instant = top.get(1).getFieldPtr();
+        Assertions.assertTrue(instant.isSetTimestampIsAdjustedToUtc());
+        Assertions.assertTrue(instant.isTimestampIsAdjustedToUtc());
+        // The same holds for a timestamp nested in ROW, ARRAY, MAP and ROW (branch-4.x #68441).
+        TField nested = top.get(2).getFieldPtr().getNestedField().getStructField().getFields().get(0).getFieldPtr()
+                .getNestedField().getArrayField().getItemField().getFieldPtr()
+                .getNestedField().getMapField().getValueField().getFieldPtr()
+                .getNestedField().getStructField().getFields().get(0).getFieldPtr();
+        Assertions.assertEquals("at", nested.getName());
+        Assertions.assertTrue(nested.isSetTimestampIsAdjustedToUtc());
+        Assertions.assertTrue(nested.isTimestampIsAdjustedToUtc());
+        // Other columns carry no flag.
+        Assertions.assertFalse(top.get(3).getFieldPtr().isSetTimestampIsAdjustedToUtc());
     }
 
     @Test
