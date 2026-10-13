@@ -310,8 +310,7 @@ TEST(SniiPostingsCursor, CandidatesReadOnlyTheirCoveringWindows) {
     EXPECT_EQ(fixture.rounds(), 1U);
     const uint64_t whole_bytes = fixture.bytes();
 
-    // Candidates in the first two windows: same-term reads coalesce across a 16 KiB gap, so
-    // windows far apart in this small posting would read the whole block anyway.
+    // Candidates in the first two windows.
     const std::vector<uint32_t> candidates = {9, 702, 1500};
     fixture.metered.reset_metrics();
     SniiPostingsCursor restricted(fixture.index, term.entry, term.frq_base, term.prx_base,
@@ -455,6 +454,27 @@ TEST(SniiPostingsCursor, AScoringCursorPrefetchReadsTheFramesWithTheWindows) {
         EXPECT_EQ(block.norm_at(ordinal), norms.encoded_norm(candidates[i]));
     }
     EXPECT_EQ(fixture.rounds(), prefetched);
+}
+
+// Candidates in distant windows read only the docids and frames of those windows: the bytes between
+// them belong to windows no candidate falls in, however near the windows lie.
+TEST(SniiPostingsCursor, CandidatesInDistantWindowsReadOnlyTheirWindows) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    const Term term = fixture.lookup("wide");
+    const auto docs = fixture.oracle_docids(term);
+    const auto prefetched_bytes = [&](const std::vector<uint32_t>& candidates) {
+        fixture.metered.reset_metrics();
+        SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
+                                  /*positions=*/true, /*scoring=*/false, nullptr);
+        assert_ok(cursor.prefetch(&candidates, /*positions=*/true));
+        EXPECT_GE(cursor._window_count, 3U);
+        return fixture.bytes();
+    };
+    const uint64_t first = prefetched_bytes({docs.front()});
+    const uint64_t last = prefetched_bytes({docs.back()});
+    // The pair reads one prelude and the bytes each window reads alone.
+    EXPECT_EQ(prefetched_bytes({docs.front(), docs.back()}), first + last - term.entry.prelude_len);
 }
 
 // Streams the `chosen` documents of the cursor's current block, the odd-numbered of them left

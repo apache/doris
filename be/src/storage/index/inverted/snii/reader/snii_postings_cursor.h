@@ -161,9 +161,9 @@ private:
     // entry gives their extent, and the windows are sliced out once the prelude is parsed.
     Status _read_regions(bool dd, bool prx);
     Status _read_windows(const std::vector<uint32_t>& windows, bool prx);
-    // Registers the pieces, runs of them within the same-term gap as one range, and slices
+    // Registers the pieces, runs of them within `coalesce_gap` bytes as one range, and slices
     // each piece from its run after the fetch.
-    Status _read_pieces(std::vector<Piece> pieces);
+    Status _read_pieces(std::vector<Piece> pieces, uint64_t coalesce_gap);
     Status _ensure_dd(uint32_t window);
     Status _ensure_prx(uint32_t window);
     Status _decode_window(uint32_t window, index_query::PostingsBlock* block);

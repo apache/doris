@@ -272,7 +272,7 @@ Status SniiPostingsCursor::_open_slim() {
         RETURN_IF_ERROR(_idx.resolve_prx_window(_entry, _prx_base, &prx_off, &prx_len));
         pieces.push_back({.offset = prx_off, .length = prx_len, .window = 0, .prx = true});
     }
-    return _read_pieces(std::move(pieces));
+    return _read_pieces(std::move(pieces), kSameTermCoalesceGap);
 }
 
 Status SniiPostingsCursor::_read_prelude() {
@@ -329,7 +329,7 @@ Status SniiPostingsCursor::_read_span(bool prx) {
                     {.offset = range.prx_off, .length = range.prx_len, .window = w, .prx = true});
         }
     }
-    return _read_pieces(std::move(pieces));
+    return _read_pieces(std::move(pieces), kSameTermCoalesceGap);
 }
 
 Status SniiPostingsCursor::_read_regions(bool dd, bool prx) {
@@ -380,7 +380,9 @@ void SniiPostingsCursor::_keep(const SniiReadWave::Round& round) {
     }
 }
 
-// Reads the docids of `windows` not yet read, and their PRX frames when `prx`, in one round.
+// Reads the docids of `windows` not yet read, and their PRX frames when `prx`, in one round. Only
+// a read of every window merges nearby pieces: between the pieces of some windows lie the bytes of
+// windows no candidate falls in.
 Status SniiPostingsCursor::_read_windows(const std::vector<uint32_t>& windows, bool prx) {
     std::vector<Piece> pieces;
     for (const uint32_t w : windows) {
@@ -409,15 +411,16 @@ Status SniiPostingsCursor::_read_windows(const std::vector<uint32_t>& windows, b
                     {.offset = range.prx_off, .length = range.prx_len, .window = w, .prx = true});
         }
     }
-    return _read_pieces(std::move(pieces));
+    return _read_pieces(std::move(pieces),
+                        windows.size() == _window_count ? kSameTermCoalesceGap : 0);
 }
 
-Status SniiPostingsCursor::_read_pieces(std::vector<Piece> pieces) {
+Status SniiPostingsCursor::_read_pieces(std::vector<Piece> pieces, uint64_t coalesce_gap) {
     if (pieces.empty()) {
         return Status::OK();
     }
     std::ranges::sort(pieces, {}, &Piece::offset);
-    // Pieces within the same-term gap read as one range; each keeps its run and offset in it.
+    // Pieces within the gap read as one range; each keeps its run and offset in it.
     struct Run {
         uint64_t offset = 0;
         uint64_t end = 0;
@@ -427,7 +430,7 @@ Status SniiPostingsCursor::_read_pieces(std::vector<Piece> pieces) {
     std::vector<size_t> run_of(pieces.size());
     for (size_t i = 0; i < pieces.size(); ++i) {
         const Piece& piece = pieces[i];
-        if (runs.empty() || piece.offset > runs.back().end + kSameTermCoalesceGap) {
+        if (runs.empty() || piece.offset > runs.back().end + coalesce_gap) {
             runs.push_back({.offset = piece.offset, .end = piece.offset + piece.length});
         } else {
             runs.back().end = std::max(runs.back().end, piece.offset + piece.length);
