@@ -735,6 +735,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         // Drop table column stats after schema change finished.
         if (!FeConstants.runningUnitTest) {
             AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+            // Unlike the light schema changes, the replay of a schema change job does not remove the
+            // statistics record, so the removal needs a journal entry of its own here. This code only runs on
+            // the live path, the replay of the job does not enter runRunningJob().
             manager.removeTableStatsAndLog(tbl.getId());
             manager.dropStats(tbl, null);
         }

@@ -3542,8 +3542,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 if (!FeConstants.runningUnitTest) {
                     Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
-                    // Drop table column stats after light schema change finished.
-                    Env.getCurrentEnv().getAnalysisManager().removeTableStatsAndLog(olapTable.getId());
+                    // Drop table column stats after light schema change finished. Not journaled on its own:
+                    // replayModifyTableAddOrDropInvertedIndices() removes the record itself before it replays
+                    // this entry, so the transition already belongs to the entry of the schema change.
+                    Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
                     Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
                 }
 
@@ -3575,8 +3577,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 if (!FeConstants.runningUnitTest) {
                     Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
-                    // Drop table column stats after light schema change finished.
-                    Env.getCurrentEnv().getAnalysisManager().removeTableStatsAndLog(olapTable.getId());
+                    // Drop table column stats after light schema change finished. Not journaled on its own:
+                    // replayModifyTableLightSchemaChange() removes the record itself before it replays this
+                    // entry, so the transition already belongs to the entry of the schema change.
+                    Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
                     Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
                 }
             }

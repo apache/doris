@@ -1490,8 +1490,13 @@ public class AnalysisManager implements Writable {
     /**
      * Remove the statistics record of a table and write the journal entry of the removal while holding the
      * monitor of the statistics records, so that this transition and a concurrent truncation, which writes
-     * its own entry under the same monitor, are ordered the same way in memory and in the journal. Replay
-     * paths, which must not journal, use {@link #removeTableStats(long)}.
+     * its own entry under the same monitor, are ordered the same way in memory and in the journal.
+     *
+     * <p>Only use this when the removal is the operation itself (whole table DROP STATS, the cleaner, the
+     * cleanup of an empty table by the analyzer) or when the replay of the enclosing operation does not
+     * remove the record (the schema change job). The operations whose own entry already removes the record
+     * when it is replayed (DROP TABLE/DATABASE, REPLACE TABLE, the light schema changes, rename column) use
+     * {@link #removeTableStats(long)}, and the replay paths use it as well, since they must not journal.
      */
     public void removeTableStatsAndLog(long tableId) {
         synchronized (idToTblStats) {
@@ -1512,43 +1517,33 @@ public class AnalysisManager implements Writable {
      * transitions between the states of a record is the same in memory and in the journal: otherwise a
      * truncation and a deletion which do not share a table lock could be applied in one order and replayed
      * in the other, leaving the followers with a record the master removed (or the reverse).
-     *
-     * @return whether the record had to be created, i.e. the table had no statistics record
      */
-    public boolean resetTableStats(OlapTable table, TruncateTableInfo truncateInfo) {
+    public void resetTableStats(OlapTable table, TruncateTableInfo truncateInfo) {
         synchronized (idToTblStats) {
             TableStatsMeta tableStats = idToTblStats.get(table.getId());
-            boolean recordCreated = false;
             if (tableStats == null) {
                 tableStats = new TableStatsMeta(table);
                 idToTblStats.put(table.getId(), tableStats);
-                recordCreated = true;
             }
-            // The entry records what this truncation did to the record, so that the replay reproduces it.
-            truncateInfo.setTableStatsRecordCreated(recordCreated);
             tableStats.reset(table);
             Env.getCurrentEnv().getEditLog().logTruncateTable(truncateInfo);
-            return recordCreated;
         }
     }
 
     /**
-     * Apply the transition which the given truncate entry recorded, instead of the one this frontend would
-     * apply now.
+     * Apply the transition a TRUNCATE TABLE entry describes.
      *
-     * <p>A truncate creates the statistics record of a table which has none, and that creation is not a
-     * journal entry of its own. The truncate entry therefore carries whether the truncate created the record,
-     * so that the replay reproduces exactly what the master did and a truncate entry never resurrects a
-     * record which another journaled transition, for instance a whole table DROP STATS or the cleanup of an
-     * empty table by the analyzer, removed around it.
+     * <p>Entries are replayed in the order they were written, and every transition of a statistics record
+     * writes its entry while holding the monitor of the records, so the state of the record at this point is
+     * the state the master had when it truncated the table: a table which had a record gets it reset, a table
+     * which had none gets one created, exactly as the truncate did on the master. A record which another
+     * journaled transition removed is only absent here when the master removed it before the truncation too,
+     * in which case the truncation created it there as well.
      */
-    public void replayResetTableStats(OlapTable table, boolean recordCreated) {
+    public void replayResetTableStats(OlapTable table) {
         synchronized (idToTblStats) {
             TableStatsMeta tableStats = idToTblStats.get(table.getId());
             if (tableStats == null) {
-                if (!recordCreated) {
-                    return;
-                }
                 tableStats = new TableStatsMeta(table);
                 idToTblStats.put(table.getId(), tableStats);
             }

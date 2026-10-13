@@ -6197,9 +6197,9 @@ public class Env {
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
             AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
-            // The removal and its journal entry are written together, so that this transition is ordered
-            // with a concurrent truncation which resets the same record.
-            manager.removeTableStatsAndLog(table.getId());
+            // Not journaled on its own: replayRenameColumn() removes the record itself before it replays this
+            // entry, so the transition already belongs to the entry of the rename.
+            manager.removeTableStats(table.getId());
             manager.dropStats(table, null);
         }
     }

@@ -3994,7 +3994,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // loaded after the truncation are still accounted for. The entry carries what the truncate
                 // did to the record, so every frontend reproduces the same transition.
                 Env.getCurrentEnv().getAnalysisManager()
-                        .replayResetTableStats(olapTable, info.isTableStatsRecordCreated());
+                        .replayResetTableStats(olapTable);
             }
 
             // add tablet to inverted index
