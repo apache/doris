@@ -62,7 +62,9 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
 }
 
 Status VStatisticsIterator::next_batch(Block* block) {
-    DCHECK(block->columns() == _column_iterators.size());
+    // The schema can end with delete predicate columns the query does not read. The block does
+    // not hold them, so only the block's columns are filled.
+    DCHECK_LE(block->columns(), _column_iterators.size());
     if (_output_rows < _target_rows) {
         block->clear_column_data();
         auto columns_guard = block->mutate_columns_scoped();

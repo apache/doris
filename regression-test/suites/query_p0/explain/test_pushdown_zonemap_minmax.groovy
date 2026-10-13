@@ -99,4 +99,37 @@ suite("test_pushdown_zonemap_minmax") {
     }
     qt_str_on "select length(max(v)), right(max(v), 4) from test_string_minmax_str"
     sql "set force_pushdown_zonemap_minmax = false"
+
+    // The delete predicate is on k and the query reads only v. The scan adds k to the columns it
+    // reads, and the zone map answer must fill only v.
+    sql "DROP TABLE IF EXISTS test_minmax_delete_other_column"
+    // Auto compaction is off: it would apply the delete to the data and drop the predicate.
+    sql """
+        CREATE TABLE test_minmax_delete_other_column (
+            `k` VARCHAR(20) NOT NULL,
+            `v` DATETIME NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true"
+        );
+    """
+    // The zone map still covers the deleted row, so it is neither the min nor the max.
+    sql """
+        INSERT INTO test_minmax_delete_other_column VALUES
+            ('a', '2022-04-27 16:00:33'), ('b', '2022-04-27 16:00:59'), ('1', '2022-04-27 16:00:40')
+    """
+    sql "DELETE FROM test_minmax_delete_other_column WHERE k = '1'"
+    // Without this, FE answers MIN/MAX from its cache and the query never reaches BE.
+    sql "set disable_nereids_rules = 'REWRITE_SIMPLE_AGG_TO_CONSTANT'"
+    sql "set force_pushdown_zonemap_minmax = true"
+    explain {
+        sql "select min(v), max(v) from test_minmax_delete_other_column"
+        contains "pushAggOp=MINMAX"
+    }
+    qt_delete_other_column "select min(v), max(v) from test_minmax_delete_other_column"
+    sql "set force_pushdown_zonemap_minmax = false"
+    sql "set disable_nereids_rules = ''"
 }

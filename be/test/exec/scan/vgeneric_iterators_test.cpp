@@ -235,10 +235,13 @@ protected:
     // pushed-down `agg` would run on. `accept_cut_bound` is what statistics collection sets:
     // it takes an inexact min/max as an approximation instead of reading the data.
     // `with_delete` adds a delete predicate, which leaves the zone map covering removed rows.
+    // `column_ids` is the schema the rowset reader builds: the columns the query reads, then the
+    // delete predicate columns it does not read.
     std::unique_ptr<RowwiseIterator> pushdown_iterator_for(
             const std::string& name, const std::vector<std::string>& values,
             bool accept_cut_bound = false, bool with_delete = false,
-            TPushAggOp::type agg = TPushAggOp::MINMAX) {
+            TPushAggOp::type agg = TPushAggOp::MINMAX,
+            const std::vector<ColumnId>& column_ids = {0, 1}) {
         auto tablet_schema = make_schema();
         const std::string segment_path = std::string(kTestDir) + "/" + name + ".dat";
 
@@ -271,7 +274,6 @@ protected:
                                               tablet_schema, io::FileReaderOptions {}, &segment)
                             .ok());
 
-        std::vector<ColumnId> column_ids {0, 1};
         // VStatisticsIterator keeps a reference to the schema, so it has to outlive the iterator.
         auto schema = std::make_shared<Schema>(tablet_schema->columns(), column_ids);
         StorageReadOptions read_options;
@@ -384,6 +386,27 @@ TEST_F(StatisticsIteratorStringBoundsTest, CountKeepsTheDeletePredicateGuardWhen
                                       /*with_delete=*/true, TPushAggOp::COUNT);
     EXPECT_EQ(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr)
             << "COUNT reports the segment row count, which still counts the deleted rows";
+}
+
+// The query reads c2 and the delete predicate is on c1. The rowset reader appends c1 to the
+// schema, but the block only holds c2, so only c2 gets filled.
+TEST_F(StatisticsIteratorStringBoundsTest, DeletePredicateColumnAfterTheBlockIsNotFilled) {
+    auto iter = pushdown_iterator_for("del_column", {"aaa", "bbb"}, /*accept_cut_bound=*/true,
+                                      /*with_delete=*/true, TPushAggOp::MINMAX,
+                                      /*column_ids=*/ {1, 0});
+    ASSERT_NE(dynamic_cast<VStatisticsIterator*>(iter.get()), nullptr);
+
+    Block block;
+    const auto* read_column = iter->schema().column(1);
+    auto data_type = read_column->get_vec_type();
+    block.insert(ColumnWithTypeAndName(data_type->create_column(), data_type, read_column->name()));
+    ASSERT_TRUE(iter->next_batch(&block).ok());
+    ASSERT_EQ(1, block.columns());
+    ASSERT_EQ(2, block.rows());
+    // The zone map gives the max first, then the min.
+    EXPECT_EQ("bbb", block.get_by_position(0).column->get_data_at(0).to_string());
+    EXPECT_EQ("aaa", block.get_by_position(0).column->get_data_at(1).to_string());
+    EXPECT_TRUE(iter->next_batch(&block).is<ErrorCode::END_OF_FILE>());
 }
 
 TEST(VGenericIteratorsTest, Union) {
