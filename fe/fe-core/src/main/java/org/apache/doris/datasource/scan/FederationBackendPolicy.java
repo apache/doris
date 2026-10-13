@@ -261,7 +261,6 @@ public class FederationBackendPolicy {
         for (List<Backend> backendList : backendMap.values()) {
             backends.addAll(backendList);
         }
-        rebuildAssignedWeightCounts();
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
@@ -551,13 +550,6 @@ public class FederationBackendPolicy {
             assignedWeightCounts.remove(weight);
         } else {
             assignedWeightCounts.put(weight, count - 1);
-        }
-    }
-
-    private void rebuildAssignedWeightCounts() {
-        assignedWeightCounts.clear();
-        for (Long weight : assignedWeightPerBackend.values()) {
-            assignedWeightCounts.merge(weight, 1, Integer::sum);
         }
     }
 

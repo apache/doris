@@ -24,7 +24,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.datasource.split.FileSplit;
+import org.apache.doris.datasource.split.PluginDrivenSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -46,7 +48,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntUnaryOperator;
 
@@ -157,12 +162,66 @@ public class FederationBackendPolicySpreadTest {
     }
 
     @Test
+    public void testSyntheticPathsDoNotConfineDistinctWorkToOneCandidateSet() throws Exception {
+        backends = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            Backend backend = new Backend(NEXT_BACKEND_ID.getAndIncrement(), "192.0.2." + (i + 1), 9050);
+            backend.setAlive(true);
+            backends.add(backend);
+        }
+        for (String path : Arrays.asList("/row_offset", "/dummyPath")) {
+            FederationBackendPolicy policy = policy(2, bound -> 0);
+            Set<Backend> targets = new HashSet<>();
+            for (int i = 0; i < 100; i++) {
+                String identity = path + "/work-" + i;
+                PluginDrivenSplit split = new PluginDrivenSplit(new ConnectorScanRange() {
+                    @Override
+                    public Map<String, String> getProperties() {
+                        return Collections.emptyMap();
+                    }
+
+                    @Override
+                    public Optional<String> getPath() {
+                        return Optional.of(path);
+                    }
+
+                    @Override
+                    public String getSplitIdentity() {
+                        return identity;
+                    }
+                });
+                List<Backend> candidates = policy.consistentHash.getNode(split, 2);
+                Backend selected = assign(policy, split);
+                Assertions.assertTrue(candidates.contains(selected));
+                targets.add(selected);
+            }
+            Assertions.assertTrue(targets.size() > 2,
+                    "Distinct work with equal synthetic paths must escape a single two-BE candidate set");
+        }
+    }
+
+    @Test
+    public void testWeightHistogramRemainsIncrementalAcrossSingletonBatches() throws Exception {
+        for (int spread : Arrays.asList(0, 1, 2)) {
+            FederationBackendPolicy policy = policy(spread, bound -> 0);
+            for (int batch = 0; batch < 30; batch++) {
+                assign(policy, split());
+                Map<Long, Integer> expected = new TreeMap<>();
+                for (Long weight : policy.getAssignedWeightPerBackend().values()) {
+                    expected.merge(weight, 1, Integer::sum);
+                }
+                Assertions.assertEquals(expected, Deencapsulation.getField(policy, "assignedWeightCounts"));
+            }
+        }
+    }
+
+    @Test
     public void testMinimumWeightWinsBeforeRandomTieBreaking() throws Exception {
         FederationBackendPolicy policy = policy(3, selectCandidate(2));
         List<Backend> candidates = policy.consistentHash.getNode(split(), 3);
-        policy.getAssignedWeightPerBackend().put(candidates.get(0), 1000L);
-        policy.getAssignedWeightPerBackend().put(candidates.get(1), 0L);
-        policy.getAssignedWeightPerBackend().put(candidates.get(2), 100L);
+        Deencapsulation.invoke(policy, "setAssignedWeight", candidates.get(0), 1000L);
+        Deencapsulation.invoke(policy, "setAssignedWeight", candidates.get(1), 0L);
+        Deencapsulation.invoke(policy, "setAssignedWeight", candidates.get(2), 100L);
         Assertions.assertEquals(candidates.get(1), assign(policy, split()));
     }
 
