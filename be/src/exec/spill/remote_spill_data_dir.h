@@ -53,7 +53,7 @@ public:
     /// The file system spill writes new files to:
     ///   1. `vault_id` (spill_s3_storage_vault_id) when it is set;
     ///   2. otherwise `latest_fs`, which only an instance without storage vaults has;
-    ///   3. otherwise the S3 storage vault with the smallest ID, so that adding a vault or
+    ///   3. otherwise the S3 storage vault with the largest ID (the newest one), so that
     ///      changing the default vault does not move spill.
     /// nullptr when no such vault is known.
     static std::shared_ptr<io::RemoteFileSystem> select_vault_fs(

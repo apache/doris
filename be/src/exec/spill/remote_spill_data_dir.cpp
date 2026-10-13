@@ -59,8 +59,8 @@ io::RemoteFileSystemSPtr RemoteSpillDataDir::select_vault_fs(
         // Only an instance without storage vaults has a latest file system.
         return latest_fs;
     }
-    // Storage vault mode: the S3 vault with the smallest ID. Adding a vault or changing the
-    // default vault does not move spill; spill_s3_storage_vault_id does.
+    // Storage vault mode: the S3 vault with the largest ID, i.e. the newest one. Changing the
+    // default vault does not move spill; adding an S3 vault moves new spill files to it.
     io::RemoteFileSystemSPtr selected;
     std::string selected_id;
     for (const auto& id_and_version : get_storage_resource_ids()) {
@@ -70,9 +70,9 @@ io::RemoteFileSystemSPtr RemoteSpillDataDir::select_vault_fs(
         if (!resource.has_value() || resource->first.fs->type() != io::FileSystemType::S3) {
             continue;
         }
-        // Vault IDs are decimal numbers: a shorter ID is a smaller one.
-        if (selected == nullptr || id.size() < selected_id.size() ||
-            (id.size() == selected_id.size() && id < selected_id)) {
+        // Vault IDs are decimal numbers: a longer ID is a larger one.
+        if (selected == nullptr || id.size() > selected_id.size() ||
+            (id.size() == selected_id.size() && id > selected_id)) {
             selected = resource->first.fs;
             selected_id = id;
         }

@@ -1796,9 +1796,9 @@ DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 DECLARE_String(spill_storage_type);
 // Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". When
 // empty, an instance without storage vaults uses its latest object storage and an instance
-// with storage vaults uses the S3 vault with the smallest ID, so that adding a vault or
-// changing the default vault does not move spill. Files already spilled stay on the vault
-// they were written to until they are deleted.
+// with storage vaults uses the S3 vault with the largest ID (the newest one), so that changing
+// the default vault does not move spill. Files already spilled stay on the vault they were
+// written to until they are deleted.
 DECLARE_String(spill_s3_storage_vault_id);
 // Back-pressure threshold for spill uploads to object storage: spill writers pause before
 // appending another serialized block to object storage while the S3 upload queue (shared with
