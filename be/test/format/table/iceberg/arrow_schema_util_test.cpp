@@ -33,8 +33,8 @@
 #include "core/column/column_spatial.h"
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
@@ -135,9 +135,10 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations
         {"id":1,"name":"shape","required":false,"type":"geometry(EPSG:3857)"},
         {"id":2,"name":"place","required":false,"type":"geography(OGC:CRS84, vincenty)"}]})JSON";
     auto schema = SchemaParser::from_json(schema_json);
-    auto geometry_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"));
-    auto geography_type = make_nullable(std::make_shared<DataTypeSpatial>(
-            TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty"));
+    auto geometry_type =
+            make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"));
+    auto geography_type = make_nullable(
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty"));
     auto contexts = MockSlotRef::create_mock_contexts(DataTypes {geometry_type, geography_type});
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
@@ -390,7 +391,6 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     EXPECT_EQ(16, uuid_type->byte_width());
     EXPECT_EQ("uuid", fields[3]->metadata()->Get("originalType").ValueUnsafe());
 }
-
 
 TEST(ArrowSchemaUtilTest, test_geospatial_field_types) {
     const std::string schema_json = R"JSON({

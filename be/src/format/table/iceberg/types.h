@@ -278,7 +278,6 @@ public:
     std::string to_string() const override { return "binary"; }
 };
 
-
 class GeometryType : public PrimitiveType {
 public:
     static constexpr const char* DEFAULT_CRS = "OGC:CRS84";

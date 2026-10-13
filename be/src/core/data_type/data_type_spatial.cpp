@@ -95,7 +95,7 @@ const char* DataTypeSpatial::deserialize(const char* buf, MutableColumnPtr* colu
     const auto* sizes = reinterpret_cast<const size_t*>(buf);
     const char* payload = buf + sizeof(size_t) * stored_rows;
     for (size_t i = 0; i < stored_rows; ++i) {
-        const size_t size = unaligned_load<size_t>(&sizes[i]);
+        const auto size = unaligned_load<size_t>(&sizes[i]);
         spatial.insert_data(payload, size);
         payload += size;
     }

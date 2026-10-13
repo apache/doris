@@ -39,7 +39,7 @@ std::string to_hex(StringRef value) {
     auto* dst = reinterpret_cast<unsigned char*>(encoded.data());
     size_t offset = 0;
     string_hex::hex_encode(reinterpret_cast<const unsigned char*>(value.data), value.size, dst,
-                            offset);
+                           offset);
     return encoded;
 }
 
@@ -149,8 +149,10 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                 continue;
             }
             const auto string_view = column.get_data_at(i);
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(string_view.data, cast_set<int, size_t, false>(string_view.size)),
-                                             column, builder));
+            RETURN_IF_ERROR(
+                    checkArrowStatus(builder.Append(string_view.data,
+                                                    cast_set<int, size_t, false>(string_view.size)),
+                                     column, builder));
         }
         return Status::OK();
     };

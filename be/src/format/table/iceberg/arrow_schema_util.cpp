@@ -89,7 +89,6 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
         arrow_type = arrow::binary();
         break;
 
-
     case iceberg::TypeID::GEOMETRY:
         metadata[ICEBERG_BINARY_TYPE] = GEOMETRY_BINARY_TYPE_VALUE;
         arrow_type = arrow::binary();

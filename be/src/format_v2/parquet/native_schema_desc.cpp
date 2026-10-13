@@ -846,17 +846,18 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
     std::pair<DataTypePtr, bool> ans = {std::make_shared<DataTypeNothing>(), false};
     bool& is_type_compatibility = ans.second;
     if (logicalType.__isset.GEOMETRY) {
-        const std::string crs = logicalType.GEOMETRY.__isset.crs
-                ? logicalType.GEOMETRY.crs : "OGC:CRS84";
+        const std::string crs =
+                logicalType.GEOMETRY.__isset.crs ? logicalType.GEOMETRY.crs : "OGC:CRS84";
         ans.first = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, crs);
     } else if (logicalType.__isset.GEOGRAPHY) {
-        const std::string crs = logicalType.GEOGRAPHY.__isset.crs
-                ? logicalType.GEOGRAPHY.crs : "OGC:CRS84";
+        const std::string crs =
+                logicalType.GEOGRAPHY.__isset.crs ? logicalType.GEOGRAPHY.crs : "OGC:CRS84";
         const std::string algorithm = logicalType.GEOGRAPHY.__isset.algorithm
-                ? tparquet::to_string(logicalType.GEOGRAPHY.algorithm) : "spherical";
+                                              ? tparquet::to_string(logicalType.GEOGRAPHY.algorithm)
+                                              : "spherical";
         ans.first = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, crs, algorithm);
     } else if (logicalType.__isset.STRING || logicalType.__isset.ENUM || logicalType.__isset.JSON ||
-        logicalType.__isset.BSON) {
+               logicalType.__isset.BSON) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
     } else if (logicalType.__isset.DECIMAL) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I, nullable,

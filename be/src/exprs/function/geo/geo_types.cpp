@@ -428,7 +428,6 @@ std::unique_ptr<GeoShape> GeoShape::from_wkb(const char* data, size_t size,
     return shape;
 }
 
-
 std::unique_ptr<GeoShape> GeoShape::from_wkb_bytes(const char* data, size_t size,
                                                    GeoParseStatus& status) {
     static constexpr char HEX[] = "0123456789ABCDEF";

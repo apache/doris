@@ -189,7 +189,7 @@ struct StPoint {
         auto& null_map_data = null_map->get_data();
         GeoPoint point;
         std::string buf;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto cur_res = point.from_coord(x_col.value_at(row), y_col.value_at(row));
             if (cur_res != GEO_PARSE_OK) {
                 null_map_data[row] = 1;
@@ -233,7 +233,7 @@ struct StAsText {
         auto& null_map_data = null_map->get_data();
 
         std::unique_ptr<GeoShape> shape;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto shape_value = input->get_data_at(row);
             if (is_geometry_type(input_type)) {
                 std::string wkt;
@@ -280,7 +280,7 @@ struct StX {
         auto& null_map_data = null_map->get_data();
         res->reserve(size);
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto point_value = input->get_data_at(row);
             if (is_geometry_type(input_type)) {
                 double x;
@@ -329,7 +329,7 @@ struct StY {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto point_value = input->get_data_at(row);
             if (is_geometry_type(input_type)) {
                 double x;
@@ -378,7 +378,7 @@ struct StDistanceSphere {
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             double distance = 0;
             if (!GeoPoint::ComputeDistance(x_lng.value_at(row), x_lat.value_at(row),
                                            y_lng.value_at(row), y_lat.value_at(row), &distance)) {
@@ -415,7 +415,7 @@ struct StAngleSphere {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             double angle = 0;
             if (!GeoPoint::ComputeAngleSphere(x_lng.value_at(row), x_lat.value_at(row),
                                               y_lng.value_at(row), y_lat.value_at(row), &angle)) {
@@ -455,7 +455,7 @@ struct StAngle {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto point1 = decode_geo_shape(p1->get_data_at(row), p1_type);
             auto* pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
             if (pt1 == nullptr) {
@@ -513,7 +513,7 @@ struct StAzimuth {
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto point1 = decode_geo_shape(left_col->get_data_at(row), left_type);
             auto point2 = decode_geo_shape(right_col->get_data_at(row), right_type);
             auto* pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
@@ -557,7 +557,7 @@ struct StAreaSquareMeters {
         auto& null_map_data = null_map->get_data();
         std::unique_ptr<GeoShape> shape;
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
             shape = decode_geo_shape(shape_value, input_type);
             if (!shape) {
@@ -600,7 +600,7 @@ struct StAreaSquareKm {
 
         std::unique_ptr<GeoShape> shape;
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
             shape = decode_geo_shape(shape_value, input_type);
             if (!shape) {
@@ -647,7 +647,7 @@ struct StCircle {
 
         GeoCircle circle;
         std::string buf;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto lng_value = center_lng.value_at(row);
             auto lat_value = center_lat.value_at(row);
             auto radius_value = radius.value_at(row);
@@ -690,7 +690,7 @@ struct StRelationFunction {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto shape1 = decode_geo_shape(left_col->get_data_at(row), left_type);
             auto shape2 = decode_geo_shape(right_col->get_data_at(row), right_type);
 
@@ -783,7 +783,7 @@ struct StGeoFromText {
         auto& null_map_data = null_map->get_data();
         GeoParseStatus status;
         std::string buf;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
             auto shape = GeoShape::from_wkt(value.data, value.size, status);
             if (shape == nullptr || status != GEO_PARSE_OK ||
@@ -841,7 +841,7 @@ struct LegacyStGeoFromWkb {
         auto& null_map_data = null_map->get_data();
         GeoParseStatus status;
         std::string buf;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             const auto value = geo->get_data_at(row);
             auto shape = GeoShape::from_wkb(value.data, value.size, status);
             if (shape == nullptr || status != GEO_PARSE_OK) {
@@ -874,7 +874,7 @@ struct StGeoFromWkb {
         auto& null_map_data = null_map->get_data();
         GeoParseStatus status;
         std::string wkb;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
             if (!decode_wkb_hex(value, &wkb)) {
                 null_map_data[row] = 1;
@@ -945,7 +945,7 @@ struct StAsBinary {
         auto& null_map_data = null_map->get_data();
         std::unique_ptr<GeoShape> shape;
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
             if (is_geometry_type(input_type)) {
                 res->insert_data(shape_value.data, shape_value.size);
@@ -991,7 +991,7 @@ struct StLength {
         auto& null_map_data = null_map->get_data();
 
         std::unique_ptr<GeoShape> shape;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
             shape = decode_geo_shape(shape_value, input_type);
             if (!shape) {
@@ -1026,7 +1026,7 @@ struct StGeometryType {
         auto& null_map_data = null_map->get_data();
 
         std::unique_ptr<GeoShape> shape;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
             if (is_geometry_type(input_type)) {
                 std::string geo_type;
@@ -1073,7 +1073,7 @@ struct StIsClosed {
         auto& null_map_data = null_map->get_data();
 
         GeoLine line;
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto value = col.value_at(row);
             if (!line.decode_from(value.data, value.size)) {
                 null_map_data[row] = 1;
@@ -1125,14 +1125,14 @@ struct StDistance {
             const auto& const_type = left_const ? left_type : right_type;
             auto const_shape = decode_geo_shape(const_column->get_data_at(0), const_type);
             if (!const_shape) {
-                for (int row = 0; row < size; ++row) {
+                for (size_t row = 0; row < size; ++row) {
                     null_map_data[row] = 1;
                     res->insert_default();
                 }
             } else {
                 const auto& vector_column = left_const ? right_column : left_column;
                 const auto& vector_type = left_const ? right_type : left_type;
-                for (int row = 0; row < size; ++row) {
+                for (size_t row = 0; row < size; ++row) {
                     auto vector_shape =
                             decode_geo_shape(vector_column->get_data_at(row), vector_type);
                     if (!vector_shape) {
@@ -1151,7 +1151,7 @@ struct StDistance {
                 }
             }
         } else {
-            for (int row = 0; row < size; ++row) {
+            for (size_t row = 0; row < size; ++row) {
                 auto left_shape = decode_geo_shape(left_column->get_data_at(row), left_type);
                 auto right_shape = decode_geo_shape(right_column->get_data_at(row), right_type);
                 if (!left_shape || !right_shape) {
@@ -1191,7 +1191,7 @@ struct StNumGeometries {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto value = col.value_at(row);
             auto shape = GeoShape::from_encoded(value.data, value.size);
             if (!shape) {
@@ -1308,7 +1308,7 @@ struct StNumPoints {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        for (int row = 0; row < size; ++row) {
+        for (size_t row = 0; row < size; ++row) {
             auto value = col.value_at(row);
             auto shape = GeoShape::from_encoded(value.data, value.size);
             if (!shape) {
