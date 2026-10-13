@@ -26,10 +26,12 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -43,6 +45,9 @@ import java.util.Objects;
  *   indicating that any decimal type is a subtype of the decimal type.
  */
 public class ScalarType extends Type {
+    private static final ImmutableSet<String> SPATIAL_EDGE_ALGORITHMS =
+            ImmutableSet.of("spherical", "vincenty", "thomas", "andoyer", "karney");
+
     // We use a fixed-length decimal type to represent a date time.
     public static final int DATETIME_PRECISION = 18;
 
@@ -587,9 +592,12 @@ public class ScalarType extends Type {
     public static ScalarType createGeographyType(String crs, String algorithm) {
         Preconditions.checkArgument(!Strings.isNullOrEmpty(crs), "Spatial CRS must not be empty");
         Preconditions.checkArgument(!Strings.isNullOrEmpty(algorithm), "Geography algorithm must not be empty");
+        String normalizedAlgorithm = algorithm.toLowerCase(Locale.ROOT);
+        Preconditions.checkArgument(SPATIAL_EDGE_ALGORITHMS.contains(normalizedAlgorithm),
+                "Unsupported Geography algorithm: %s", algorithm);
         ScalarType result = new ScalarType(PrimitiveType.GEOGRAPHY);
         result.spatialCrs = crs;
-        result.spatialAlgorithm = algorithm;
+        result.spatialAlgorithm = normalizedAlgorithm;
         return result;
     }
 

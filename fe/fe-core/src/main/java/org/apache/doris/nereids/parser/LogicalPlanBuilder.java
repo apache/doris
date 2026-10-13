@@ -461,6 +461,7 @@ import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
+import org.apache.doris.nereids.DorisParser.SpatialDataTypeContext;
 import org.apache.doris.nereids.DorisParser.SpecifiedPartitionContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementScopeContext;
@@ -1091,6 +1092,8 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.GeographyType;
+import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
@@ -4240,13 +4243,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public ColumnDefinition visitColumnDef(ColumnDefContext ctx) {
         String colName = ctx.colName.getText();
-        DataType colType = ctx.type instanceof PrimitiveDataTypeContext
-                ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
-                : ctx.type instanceof ComplexDataTypeContext
-                        ? visitComplexDataType((ComplexDataTypeContext) ctx.type)
-                    : ctx.type instanceof VariantPredefinedFieldsContext
-                            ? visitVariantPredefinedFields((VariantPredefinedFieldsContext) ctx.type)
-                        : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
+        DataType colType = typedVisit(ctx.type);
         colType = colType.conversion();
         boolean isKey = ctx.KEY() != null;
         ColumnNullableType nullableType = ColumnNullableType.DEFAULT;
@@ -4347,13 +4344,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(RuleContext::getText)
                 .collect(Collectors.toList()));
         String colName = columnPath.getLeafName();
-        DataType colType = ctx.type instanceof PrimitiveDataTypeContext
-                ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
-                : ctx.type instanceof ComplexDataTypeContext
-                        ? visitComplexDataType((ComplexDataTypeContext) ctx.type)
-                    : ctx.type instanceof VariantPredefinedFieldsContext
-                            ? visitVariantPredefinedFields((VariantPredefinedFieldsContext) ctx.type)
-                        : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
+        DataType colType = typedVisit(ctx.type);
         colType = colType.conversion();
         boolean isKey = ctx.KEY() != null;
         ColumnNullableType nullableType = ColumnNullableType.DEFAULT;
@@ -5388,6 +5379,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             return new AggStateType(functionName, dataTypes, nullables,
                     BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(functionName));
+        });
+    }
+
+    @Override
+    public DataType visitSpatialDataType(SpatialDataTypeContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            String crs = ctx.crs == null ? "OGC:CRS84" : stripQuotes(ctx.crs.getText());
+            if (ctx.spatialType.getType() == DorisParser.GEOMETRY) {
+                if (ctx.algorithm != null) {
+                    throw new AnalysisException("GEOMETRY does not accept an edge algorithm");
+                }
+                return new GeometryType(crs);
+            }
+            String algorithm = ctx.algorithm == null ? "spherical" : stripQuotes(ctx.algorithm.getText());
+            return new GeographyType(crs, algorithm);
         });
     }
 
