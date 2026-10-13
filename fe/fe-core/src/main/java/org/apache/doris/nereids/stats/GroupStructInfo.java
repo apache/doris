@@ -1510,6 +1510,24 @@ public class GroupStructInfo {
         return Optional.of(structInfo.getSkipReason());
     }
 
+    /**
+     * Why the group of a plan node could not be resolved, or null when it could: a node of the final
+     * plan normally carries the group it was chosen for (a back reference, or the group id state a post
+     * processor propagates), and a node which carries neither cannot be looked up at all.
+     */
+    public static String groupResolutionFailureOf(AbstractPlan planNode, Map<Integer, Group> groupsById) {
+        if (planNode.getGroupExpression().isPresent()) {
+            return null;
+        }
+        Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
+        if (groupState.isPresent() && groupsById != null
+                && groupsById.containsKey(Integer.valueOf(groupState.get().toString()))) {
+            return null;
+        }
+        return "no group for " + planNode.getClass().getSimpleName()
+                + (groupState.isPresent() ? " (group id " + groupState.get() + " is unknown)" : "");
+    }
+
     /** The relation key of the group of a plan node, or null when that group is not reachable. */
     public static String relationKeyOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById) {
         Group group = resolveGroup(planNode, groupsById);

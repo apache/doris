@@ -97,13 +97,23 @@ suite("hbo_filter_fingerprint_granularity_test", "nonConcurrent") {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${shapeOne}'; """
     }
 
-    // 3) join / aggregation keys carry no literal: the join fingerprint is identical for both
-    //    predicates because the subtree filter is encoded with the wildcard literal
-    def joinFingerprint = { String predicate ->
+    // 3) a join key has two forms: the literal carrying one is different for the two predicates (the
+    //    constants are part of it), the constant agnostic one is identical for both because the subtree
+    //    filter is encoded with the wildcard literal
+    def joinFingerprints = { String predicate ->
         def matcher = (explainText(predicate) =~
-                /\] join type=\w+ literal_mode=\w+ fingerprint='([0-9a-f]+)' struct='J\{/)
-        assertTrue(matcher.find(), "no join annotation for ${predicate}")
-        matcher.group(1)
+                /\] join type=\w+ literal_mode=(\w+) fingerprint='([0-9a-f]+)' struct='J\{/)
+        def byMode = [:]
+        while (matcher.find()) {
+            byMode[matcher.group(1)] = matcher.group(2)
+        }
+        assertTrue(byMode.containsKey('no_literal'), "no constant agnostic join annotation for ${predicate}")
+        byMode
     }
-    assertEquals(joinFingerprint(predicateOne), joinFingerprint(predicateTwo))
+    def joinsOne = joinFingerprints(predicateOne)
+    def joinsTwo = joinFingerprints(predicateTwo)
+    assertEquals(joinsOne['no_literal'], joinsTwo['no_literal'])
+    if (joinsOne.containsKey('with_literal') && joinsTwo.containsKey('with_literal')) {
+        assertNotEquals(joinsOne['with_literal'], joinsTwo['with_literal'])
+    }
 }

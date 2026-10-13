@@ -762,8 +762,16 @@ public class NereidsPlanner extends Planner {
         } else {
             // no struct info: record why, when the reason is a limit rather than an unsupported plan
             // pattern, so the annotation can tell "no fingerprint by design" from "hbo is broken"
-            GroupStructInfo.skipReasonOfPlanNode(node, groupsById)
-                    .ifPresent(reason -> node.setMutableState(MutableState.KEY_HBO_STRUCT_SKIP, reason));
+            String skipReason = GroupStructInfo.skipReasonOfPlanNode(node, groupsById).orElse(null);
+            if (skipReason == null) {
+                // no struct info and no reason: the group of this node could not be resolved at all
+                // (a physical plan node without a group back reference and without a group id state),
+                // which the annotation reports instead of leaving a silent gap
+                skipReason = GroupStructInfo.groupResolutionFailureOf(node, groupsById);
+            }
+            if (skipReason != null) {
+                node.setMutableState(MutableState.KEY_HBO_STRUCT_SKIP, skipReason);
+            }
         }
     }
 
