@@ -17,6 +17,7 @@
 
 #include "core/data_type/data_type_spatial.h"
 
+#include <gen_cpp/data.pb.h>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -25,9 +26,14 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_spatial.h"
+#include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_varbinary.h"
+#include "exec/common/sip_hash.h"
 
 namespace doris {
 
@@ -151,6 +157,117 @@ TEST(DataTypeSpatialTest, SpatialCompositeKeysRoundTripThroughIColumn) {
     EXPECT_EQ(keys[1].size, 0);
     EXPECT_EQ(keys[0].data, buffers[0].data() + serialized_size);
     EXPECT_EQ(keys[1].data, buffers[1].data() + serialized_size);
+}
+
+namespace {
+
+void expect_masked_spatial_hashes(const IColumn& actual, const IColumn& reference,
+                                  PrimitiveType primitive, const uint8_t* mask) {
+    std::array<uint32_t, 3> hashes = {17, 23, 31};
+    auto expected = hashes;
+    actual.update_crc32c_batch(hashes.data(), mask);
+    reference.update_crc32c_batch(expected.data(), mask);
+    EXPECT_EQ(hashes, expected);
+    actual.update_crcs_with_value(hashes.data(), primitive, actual.size(), 0, mask);
+    reference.update_crcs_with_value(expected.data(), TYPE_STRING, actual.size(), 0, mask);
+    EXPECT_EQ(hashes, expected);
+    std::array<uint64_t, 3> xx = {17, 23, 31};
+    auto expected_xx = xx;
+    actual.update_hashes_with_value(xx.data(), mask);
+    reference.update_hashes_with_value(expected_xx.data(), mask);
+    EXPECT_EQ(xx, expected_xx);
+    uint32_t crc = 17;
+    uint32_t expected_crc = crc;
+    actual.update_crc32c_single(0, actual.size(), crc, mask);
+    reference.update_crc32c_single(0, actual.size(), expected_crc, mask);
+    EXPECT_EQ(crc, expected_crc);
+    actual.update_crc_with_value(0, actual.size(), crc, mask);
+    reference.update_crc_with_value(0, actual.size(), expected_crc, mask);
+    EXPECT_EQ(crc, expected_crc);
+    uint64_t range = 17;
+    uint64_t expected_range = range;
+    actual.update_xxHash_with_value(0, actual.size(), range, mask);
+    reference.update_xxHash_with_value(0, actual.size(), expected_range, mask);
+    EXPECT_EQ(range, expected_range);
+}
+
+void expect_spatial_hash_interfaces(PrimitiveType primitive) {
+    const std::array<std::string, 3> values = {std::string("a\0b", 3), "different", ""};
+    auto spatial = ColumnSpatial::create(primitive);
+    auto binary = ColumnString::create();
+    for (const auto& value : values) {
+        spatial->insert_data(value.data(), value.size());
+        binary->insert_data(value.data(), value.size());
+    }
+    const IColumn& actual = *spatial;
+    const IColumn& reference = *binary;
+    const std::array<uint8_t, 3> nulls = {0, 1, 0};
+    for (const uint8_t* mask : {static_cast<const uint8_t*>(nullptr), nulls.data()}) {
+        expect_masked_spatial_hashes(actual, reference, primitive, mask);
+    }
+    for (size_t row = 0; row < values.size(); ++row) {
+        SipHash hash;
+        SipHash expected;
+        actual.update_hash_with_value(row, hash);
+        reference.update_hash_with_value(row, expected);
+        EXPECT_EQ(hash.get64(), expected.get64());
+    }
+}
+
+void expect_spatial_block_round_trip(const DataTypePtr& type, const std::string& wkb,
+                                     bool constant) {
+    auto data = type->create_column();
+    data->insert_data(wkb.data(), wkb.size());
+    ColumnPtr column;
+    if (constant) {
+        column = ColumnConst::create(std::move(data), 2);
+    } else {
+        data->insert_default();
+        column = std::move(data);
+    }
+    Block source({ColumnWithTypeAndName(column, type, "spatial")});
+    PBlock protobuf;
+    size_t uncompressed = 0;
+    size_t compressed = 0;
+    int64_t elapsed = 0;
+    ASSERT_TRUE(source.serialize(BeExecVersionManager::get_newest_version(), &protobuf,
+                                 &uncompressed, &compressed, &elapsed,
+                                 segment_v2::CompressionTypePB::SNAPPY)
+                        .ok());
+    Block restored;
+    ASSERT_TRUE(restored.deserialize(protobuf, &uncompressed, &elapsed).ok());
+    ASSERT_EQ(restored.columns(), 1);
+    ASSERT_EQ(restored.rows(), 2);
+    const auto& result = restored.get_by_position(0);
+    EXPECT_TRUE(type->equals(*result.type));
+    EXPECT_EQ(result.name, "spatial");
+    EXPECT_EQ(is_column_const(*result.column), constant);
+    EXPECT_EQ(result.column->get_data_at(0).to_string(), wkb);
+    EXPECT_EQ((*result.column)[1], (*column)[1]);
+}
+
+} // namespace
+
+TEST(DataTypeSpatialTest, HashInterfacesPreserveRawBinaryIdentityAndNullMasks) {
+    for (const auto primitive : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        expect_spatial_hash_interfaces(primitive);
+    }
+}
+
+TEST(DataTypeSpatialTest, FullBlockRoundTripPreservesParameterizedSpatialColumns) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    const std::array<DataTypePtr, 2> spatial_types = {
+            std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"),
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty")};
+    for (const auto& spatial : spatial_types) {
+        for (const bool nullable : {false, true}) {
+            const auto type = nullable ? make_nullable(spatial) : spatial;
+            for (const bool constant : {false, true}) {
+                expect_spatial_block_round_trip(type, wkb, constant);
+            }
+        }
+    }
 }
 
 } // namespace doris

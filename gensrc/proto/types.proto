@@ -128,6 +128,8 @@ message PGenericType {
         TIMESTAMPTZ = 42;
         TIMESTAMP_NS = 43;
         UUID = 44;
+        GEOMETRY = 45;
+        GEOGRAPHY = 46;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

@@ -29,17 +29,7 @@ namespace doris {
 class DataTypeSpatial final : public IDataType {
 public:
     DataTypeSpatial(PrimitiveType primitive_type, std::string crs = "OGC:CRS84",
-                    std::string algorithm = "")
-            : _primitive_type(primitive_type),
-              _crs(std::move(crs)),
-              _algorithm(primitive_type == TYPE_GEOGRAPHY && algorithm.empty()
-                                 ? "spherical"
-                                 : std::move(algorithm)) {
-        DCHECK(primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY);
-        DCHECK(!_crs.empty());
-        DCHECK(primitive_type == TYPE_GEOMETRY || !_algorithm.empty());
-        DCHECK(primitive_type == TYPE_GEOGRAPHY || _algorithm.empty());
-    }
+                    std::string algorithm = "");
 
     const std::string get_family_name() const override {
         return _primitive_type == TYPE_GEOMETRY ? "Geometry" : "Geography";
@@ -65,6 +55,7 @@ public:
                                                size_t row_num) const override;
     bool equals(const IDataType& rhs) const override;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override;
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override;
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override;

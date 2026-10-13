@@ -17,14 +17,84 @@
 
 #include "core/column/column_spatial.h"
 
+#include <crc32c/crc32c.h>
+
 #include <algorithm>
 #include <cstring>
 
 #include "common/exception.h"
 #include "core/column/columns_common.h"
+#include "exec/common/sip_hash.h"
 #include "exec/sort/sort_block.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
+
+namespace {
+
+template <typename HashValue>
+void for_each_spatial_value(const ColumnSpatial& column, size_t start, size_t end,
+                            const uint8_t* null_map, HashValue&& hash_value) {
+    for (size_t row = start; row < end; ++row) {
+        if (null_map == nullptr || null_map[row] == 0) {
+            hash_value(row, column.get_data_at(row));
+        }
+    }
+}
+
+} // namespace
+
+void ColumnSpatial::update_hash_with_value(size_t n, SipHash& hash) const {
+    const auto value = get_data_at(n);
+    hash.update(reinterpret_cast<const char*>(&value.size), sizeof(value.size));
+    hash.update(value.data, value.size);
+}
+
+void ColumnSpatial::update_hashes_with_value(uint64_t* __restrict hashes,
+                                             const uint8_t* __restrict null_data) const {
+    for_each_spatial_value(*this, 0, size(), null_data, [&](size_t row, StringRef value) {
+        hashes[row] = HashUtil::xxHash64WithSeed(value.data, value.size, hashes[row]);
+    });
+}
+
+void ColumnSpatial::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                             const uint8_t* __restrict null_data) const {
+    for_each_spatial_value(*this, start, end, null_data, [&](size_t, StringRef value) {
+        hash = HashUtil::xxHash64WithSeed(value.data, value.size, hash);
+    });
+}
+
+void ColumnSpatial::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType /* type */,
+                                           uint32_t rows, uint32_t /* offset */,
+                                           const uint8_t* __restrict null_data) const {
+    DCHECK_EQ(rows, size());
+    for_each_spatial_value(*this, 0, rows, null_data, [&](size_t row, StringRef value) {
+        hashes[row] =
+                HashUtil::zlib_crc_hash(value.data, cast_set<uint32_t>(value.size), hashes[row]);
+    });
+}
+
+void ColumnSpatial::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                          const uint8_t* __restrict null_data) const {
+    for_each_spatial_value(*this, start, end, null_data, [&](size_t, StringRef value) {
+        hash = HashUtil::zlib_crc_hash(value.data, cast_set<uint32_t>(value.size), hash);
+    });
+}
+
+void ColumnSpatial::update_crc32c_batch(uint32_t* __restrict hashes,
+                                        const uint8_t* __restrict null_map) const {
+    for_each_spatial_value(*this, 0, size(), null_map, [&](size_t row, StringRef value) {
+        hashes[row] = crc32c_extend(hashes[row], reinterpret_cast<const uint8_t*>(value.data),
+                                    value.size);
+    });
+}
+
+void ColumnSpatial::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                         const uint8_t* __restrict null_map) const {
+    for_each_spatial_value(*this, start, end, null_map, [&](size_t, StringRef value) {
+        hash = crc32c_extend(hash, reinterpret_cast<const uint8_t*>(value.data), value.size);
+    });
+}
 
 void ColumnSpatial::insert_data(const char* pos, size_t length) {
     if (length <= StringView::kInlineSize) {

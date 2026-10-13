@@ -17,6 +17,8 @@
 
 #include "core/data_type/data_type_spatial.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 
 #include "agent/be_exec_version_manager.h"
@@ -28,10 +30,20 @@
 #include "core/field.h"
 #include "core/string_view.h"
 #include "exprs/function/geo/wkb_parse.h"
+#include "gen_cpp/data.pb.h"
 
 namespace doris {
 
 namespace {
+
+std::string normalize_spatial_algorithm(PrimitiveType type, std::string algorithm) {
+    if (type == TYPE_GEOGRAPHY && algorithm.empty()) {
+        return "spherical";
+    }
+    std::ranges::transform(algorithm, algorithm.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return algorithm;
+}
 
 class SpatialParquetSerDe final : public DataTypeVarbinarySerDe {
 public:
@@ -59,6 +71,25 @@ private:
 };
 
 } // namespace
+
+DataTypeSpatial::DataTypeSpatial(PrimitiveType primitive_type, std::string crs,
+                                 std::string algorithm)
+        : _primitive_type(primitive_type),
+          _crs(std::move(crs)),
+          _algorithm(normalize_spatial_algorithm(primitive_type, std::move(algorithm))) {
+    DCHECK(primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY);
+    DCHECK(!_crs.empty());
+    DCHECK(primitive_type == TYPE_GEOMETRY || !_algorithm.empty());
+    DCHECK(primitive_type == TYPE_GEOGRAPHY || _algorithm.empty());
+}
+
+void DataTypeSpatial::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->set_spatial_crs(_crs);
+    if (_primitive_type == TYPE_GEOGRAPHY) {
+        col_meta->set_spatial_algorithm(_algorithm);
+    }
+}
 
 DataTypeSerDeSPtr DataTypeSpatial::get_serde(int nesting_level) const {
     return std::make_shared<SpatialParquetSerDe>(nesting_level, requires_geographic_coordinates());

@@ -818,13 +818,13 @@ struct StGeoFromText {
 struct StGeometryFromWKB {
     static constexpr auto NAME = "st_geometryfromwkb";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
-    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOMETRY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_STRING;
 };
 
 struct StGeomFromWKB {
     static constexpr auto NAME = "st_geomfromwkb";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
-    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_GEOMETRY;
+    static constexpr PrimitiveType OUTPUT_TYPE = TYPE_STRING;
 };
 
 struct StGeogFromWKB {
@@ -923,6 +923,9 @@ public:
     bool skip_return_type_check() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes&) const override {
+        if constexpr (Impl::OUTPUT_TYPE == TYPE_STRING) {
+            return make_nullable(std::make_shared<DataTypeString>());
+        }
         if constexpr (Impl::OUTPUT_TYPE == TYPE_GEOGRAPHY) {
             return make_nullable(
                     std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "spherical"));

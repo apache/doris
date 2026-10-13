@@ -301,6 +301,13 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::HLL:
         nested = std::make_shared<DataTypeHLL>();
         break;
+    case PGenericType::GEOMETRY:
+    case PGenericType::GEOGRAPHY:
+        nested = std::make_shared<DataTypeSpatial>(
+                pcolumn.type() == PGenericType::GEOMETRY ? TYPE_GEOMETRY : TYPE_GEOGRAPHY,
+                pcolumn.has_spatial_crs() ? pcolumn.spatial_crs() : "OGC:CRS84",
+                pcolumn.spatial_algorithm());
+        break;
     case PGenericType::VARBINARY:
         nested = std::make_shared<DataTypeVarbinary>(pcolumn.varbinary_length());
         break;

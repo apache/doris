@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
@@ -39,6 +40,31 @@
 #include "format_v2/parquet/reader/native_column_reader.h"
 
 namespace doris::format::parquet {
+
+TEST(ParquetSchemaTest, ExplicitGeographyAlgorithmsPreserveCanonicalMetadata) {
+    const std::pair<tparquet::EdgeInterpolationAlgorithm::type, const char*> algorithms[] = {
+            {tparquet::EdgeInterpolationAlgorithm::SPHERICAL, "spherical"},
+            {tparquet::EdgeInterpolationAlgorithm::VINCENTY, "vincenty"},
+            {tparquet::EdgeInterpolationAlgorithm::THOMAS, "thomas"},
+            {tparquet::EdgeInterpolationAlgorithm::ANDOYER, "andoyer"},
+            {tparquet::EdgeInterpolationAlgorithm::KARNEY, "karney"}};
+    for (const auto& [algorithm, name] : algorithms) {
+        tparquet::GeographyType geography;
+        geography.__set_crs("OGC:CRS84");
+        geography.__set_algorithm(algorithm);
+        tparquet::LogicalType logical;
+        logical.__set_GEOGRAPHY(geography);
+        const DataTypeSpatial expected(TYPE_GEOGRAPHY, "OGC:CRS84", name);
+        FieldDescriptor legacy;
+        NativeFieldDescriptor native;
+        const auto legacy_type = legacy.convert_to_doris_type(logical, false).first;
+        const auto native_type = native.convert_to_doris_type(logical, false).first;
+        EXPECT_TRUE(expected.equals(*legacy_type));
+        EXPECT_TRUE(expected.equals(*native_type));
+        EXPECT_EQ(assert_cast<const DataTypeSpatial&>(*legacy_type).algorithm(), name);
+        EXPECT_EQ(assert_cast<const DataTypeSpatial&>(*native_type).algorithm(), name);
+    }
+}
 
 TEST(ParquetSchemaTest, UnannotatedInt96DoesNotAcquireTimezoneFromMappingFlag) {
     tparquet::SchemaElement root;
