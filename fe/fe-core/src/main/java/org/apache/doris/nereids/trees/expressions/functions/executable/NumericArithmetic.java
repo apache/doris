@@ -383,10 +383,18 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first) {
-        // BE uses std::round(): half away from zero, and a zero result keeps the sign of the
-        // argument. Rounding through BigDecimal at scale 0 collapses -0.4 to positive zero.
+        // std::round(): half away from zero, and a zero result keeps the sign of the argument.
+        // The threshold must not be computed as value + 0.5: for 0.49999999999999994, the largest
+        // representable double below 0.5, that sum is exactly 1.0, and an already integral
+        // 4503599627370497.0 turns into 4503599627370498.0. |v| - floor(|v|) is exact for every
+        // finite |v| >= 1 and equals |v| below 1, so compare the fractional part against 0.5.
         double value = first.getValue();
-        return new DoubleLiteral(Math.copySign(Math.floor(Math.abs(value) + 0.5), value));
+        double magnitude = Math.abs(value);
+        double truncated = Math.floor(magnitude);
+        if (magnitude - truncated >= 0.5) {
+            truncated += 1.0;
+        }
+        return new DoubleLiteral(Math.copySign(truncated, value));
     }
 
     /**
@@ -394,6 +402,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first, IntegerLiteral second) {
+        if (second.getValue() == 0) {
+            // BE dispatches scale 0 to std::round, which keeps the sign of a zero result
+            return round(first);
+        }
         DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
                 new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.round(second.getValue()).getDouble());
@@ -430,6 +442,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first, IntegerLiteral second) {
+        if (second.getValue() == 0) {
+            // BE dispatches scale 0 to std::ceil, which keeps the sign of a zero result
+            return ceil(first);
+        }
         DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
                 new BigDecimal(Double.toString(first.getValue())));
         return new DoubleLiteral(middleResult.roundCeiling(second.getValue()).getDouble());

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -111,6 +112,63 @@ public class NumericArithmeticTest {
                 .ceil(new DoubleLiteral(Double.POSITIVE_INFINITY))).getValue());
         Assertions.assertTrue(Double.isNaN(
                 ((DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(Double.NaN))).getValue()));
+        Assertions.assertEquals(Double.NEGATIVE_INFINITY, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(Double.NEGATIVE_INFINITY))).getValue());
+
+        // The thresholds must not be produced by adding 0.5 to the value.
+        Assertions.assertEquals(0.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(0.49999999999999994))).getValue());
+        Assertions.assertTrue(isNegativeZero(((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(-0.49999999999999994))).getValue()));
+        Assertions.assertEquals(1.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(0.5))).getValue());
+        Assertions.assertEquals(-1.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(-0.5))).getValue());
+
+        // An integral value beyond the double ULP of 1 must survive untouched.
+        Assertions.assertEquals(4503599627370497.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(4503599627370497.0))).getValue());
+        Assertions.assertEquals(-4503599627370497.0, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(-4503599627370497.0))).getValue());
+        Assertions.assertEquals(1e30, ((DoubleLiteral) NumericArithmetic
+                .round(new DoubleLiteral(1e30))).getValue());
+    }
+
+    @Test
+    public void testScaleZeroOverloadsKeepSignedZero() {
+        DoubleLiteral round = (DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(-0.4), new IntegerLiteral(0));
+        Assertions.assertTrue(isNegativeZero(round.getValue()));
+
+        DoubleLiteral ceil = (DoubleLiteral) NumericArithmetic.ceil(
+                new DoubleLiteral(-0.5), new IntegerLiteral(0));
+        Assertions.assertTrue(isNegativeZero(ceil.getValue()));
+
+        Assertions.assertEquals(0.0, ((DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(0.49999999999999994), new IntegerLiteral(0))).getValue());
+        Assertions.assertEquals(3.0, ((DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(2.5), new IntegerLiteral(0))).getValue());
+        Assertions.assertEquals(-3.0, ((DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(-2.5), new IntegerLiteral(0))).getValue());
+
+        // a non-zero scale still rounds as before
+        Assertions.assertEquals(-0.4, ((DoubleLiteral) NumericArithmetic.round(
+                new DoubleLiteral(-0.44), new IntegerLiteral(1))).getValue());
+        Assertions.assertEquals(-0.5, ((DoubleLiteral) NumericArithmetic.ceil(
+                new DoubleLiteral(-0.5), new IntegerLiteral(1))).getValue());
+    }
+
+    // Expected behaviour once the shared literal comparison semantics treat the two signed zeros
+    // as equal, which is what BE does. Blocked on a separate change to NumericLiteral.compareTo
+    // (Double.compare makes -0.0 sort below +0.0) and Literal.equals (Objects.equals on boxed
+    // Doubles compares the bits), neither of which is part of this PR.
+    @Disabled("folded predicates and IN sets still treat -0.0 and +0.0 as different")
+    @Test
+    public void testFoldedPredicateTreatsSignedZerosAsEqual() {
+        DoubleLiteral negativeZero = (DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(-0.5));
+        DoubleLiteral positiveZero = new DoubleLiteral(0.0);
+        Assertions.assertEquals(0, negativeZero.compareTo(positiveZero));
+        Assertions.assertEquals(positiveZero, negativeZero);
     }
 
     private static boolean isNegativeZero(double value) {
