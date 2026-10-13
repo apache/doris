@@ -97,6 +97,14 @@ public:
     }
 };
 
+class ExternalAuthHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        HttpChannel::send_reply(req, req->header(HttpHeaders::AUTH_TOKEN) + "|" +
+                                             req->header(HttpHeaders::AUTHORIZATION));
+    }
+};
+
 class HttpNotFoundHandler : public HttpHandler {
 public:
     void handle(HttpRequest* req) override {
@@ -135,6 +143,7 @@ constexpr std::string_view TMP_DIR = "./http_test_tmp";
 static HttpClientTestSimpleGetHandler s_simple_get_handler;
 static HttpClientTestSimplePostHandler s_simple_post_handler;
 static HttpNotFoundHandler s_not_found_handler;
+static ExternalAuthHandler s_external_auth_handler;
 static HttpDownloadFileHandler s_download_file_handler;
 static HttpBatchDownloadFileHandler s_batch_download_file_handler;
 
@@ -149,6 +158,7 @@ public:
         s_server->register_handler(HEAD, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(POST, "/simple_post", &s_simple_post_handler);
         s_server->register_handler(GET, "/not_found", &s_not_found_handler);
+        s_server->register_handler(GET, "/external_auth", &s_external_auth_handler);
         s_server->register_handler(HEAD, "/download_file", &s_download_file_handler);
         s_server->register_handler(HEAD, "/api/_tablet/_batch_download",
                                    &s_batch_download_file_handler);
@@ -188,6 +198,18 @@ TEST_F(HttpClientTest, get_normal) {
     st = client.get_content_length(&len);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(5, len);
+}
+
+TEST_F(HttpClientTest, external_request_omits_cluster_token) {
+    HttpClient client;
+    ASSERT_TRUE(client.init(hostname + "/external_auth").ok());
+    client.set_auth_token("previous-cluster-token");
+    ASSERT_TRUE(
+            client.init(hostname + "/external_auth", false, HttpClient::AuthTokenMode::NONE).ok());
+    client.set_authorization("Bearer google-token");
+    std::string response;
+    ASSERT_TRUE(client.execute(&response).ok());
+    EXPECT_EQ(response, "|Bearer google-token");
 }
 
 TEST_F(HttpClientTest, download) {

@@ -87,8 +87,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 13 carries textual write-input semantics on ConnectorColumn.
-        Assertions.assertEquals("13.0", version.getProperty("api.version"));
+        // Major 15 replaces filesystem credential maps with typed, protocol-independent descriptions.
+        Assertions.assertEquals("15.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

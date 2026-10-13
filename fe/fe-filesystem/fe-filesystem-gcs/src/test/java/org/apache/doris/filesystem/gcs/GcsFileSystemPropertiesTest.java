@@ -22,6 +22,7 @@ import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -90,11 +91,12 @@ class GcsFileSystemPropertiesTest {
     }
 
     @Test
-    void toS3CompatibleKv_fallsBackToAnonymousWithoutStaticCredentials() {
+    void toS3CompatibleKv_defaultsToAdcWithoutStaticCredentials() {
         Map<String, String> kv = GcsFileSystemProperties.of(Map.of(
                 "gs.endpoint", "https://storage.googleapis.com")).toS3CompatibleKv();
 
-        Assertions.assertEquals("ANONYMOUS", kv.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+        Assertions.assertEquals("DEFAULT", kv.get("gs.credential_provider_type"));
+        Assertions.assertFalse(kv.containsKey("AWS_CREDENTIALS_PROVIDER_TYPE"));
     }
 
     @Test
@@ -107,13 +109,41 @@ class GcsFileSystemPropertiesTest {
     }
 
     @Test
-    void toHadoopConfigurationMap_anonymousWhenNoStaticCredentials() {
+    void toHadoopConfigurationMap_usesNativeAdcWithoutStaticCredentials() {
         Map<String, String> cfg = GcsFileSystemProperties.of(Map.of(
                 "gs.endpoint", "https://storage.googleapis.com")).toHadoopConfigurationMap();
 
-        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", cfg.get("fs.gs.impl"));
-        Assertions.assertEquals("org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider",
-                cfg.get("fs.s3a.aws.credentials.provider"));
+        Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem", cfg.get("fs.gs.impl"));
+        Assertions.assertEquals("APPLICATION_DEFAULT", cfg.get("fs.gs.auth.type"));
+        Assertions.assertFalse(cfg.containsKey("fs.s3a.aws.credentials.provider"));
+    }
+
+    @Test
+    void nativeHadoopUsesConfiguredEndpoint() {
+        for (String endpoint : new String[] {"storage.googleapis.com", "https://storage.googleapis.com/",
+                "https://storage.us-central1.rep.googleapis.com", "https://us-central1-storage.googleapis.com"}) {
+            GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
+                    "gs.endpoint", endpoint, "gs.credential_provider_type", "COMPUTE_ENGINE"));
+            String expected = endpoint.contains("://") ? endpoint : "https://" + endpoint;
+            Assertions.assertEquals(expected.endsWith("/") ? expected : expected + "/",
+                    props.toHadoopConfigurationMap().get("fs.gs.storage.root.url"));
+        }
+    }
+
+    @Test
+    void nativeOauthRejectsUntrustedEndpointsButPreservesHmacAndAnonymous() {
+        for (String endpoint : new String[] {"https://attacker.example", "http://storage.googleapis.com",
+                "https://storage.googleapis.com.attacker.example", "https://storage.googleapis.com@attacker.example",
+                "https://storage.googleapis.com:8443", "https://bucket.storage.googleapis.com",
+                "https://bucket.us-central1-storage.googleapis.com",
+                "https://bucket.storage.us-central1.rep.googleapis.com"}) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> GcsFileSystemProperties.of(Map.of("gs.endpoint", endpoint)));
+            Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(
+                    "gs.endpoint", endpoint, "gs.access_key", "ak", "gs.secret_key", "sk")));
+            Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(
+                    "gs.endpoint", endpoint, "gs.credential_provider_type", "ANONYMOUS")));
+        }
     }
 
     @Test
@@ -166,7 +196,7 @@ class GcsFileSystemPropertiesTest {
     void of_rejectsSessionTokenWithoutStaticCredentials() {
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> GcsFileSystemProperties.of(Map.of("gs.session_token", "token")));
-        Assertions.assertTrue(e.getMessage().contains("gs.session_token"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("session token"), e.getMessage());
     }
 
     @Test
@@ -219,5 +249,113 @@ class GcsFileSystemPropertiesTest {
         Assertions.assertEquals("us-east1", GcsFileSystemProperties.of(Map.of(
                 "gs.region", "europe-west1",
                 "AWS_REGION", "europe-west1")).getRegion());
+    }
+
+    @Test
+    void nativeModesPropagateToBackendHadoopAndCache() {
+        for (String mode : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
+            for (String account : new String[] {"", "target@test.iam.gserviceaccount.com"}) {
+                GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
+                        "provider", "GCP", "gs.credential_provider_type", mode,
+                        "gs.impersonation_service_account", account));
+                Assertions.assertEquals(mode, props.toMap().get("gs.credential_provider_type"));
+                Assertions.assertEquals(account, props.toMap().getOrDefault("gs.impersonation_service_account", ""));
+                Assertions.assertFalse(props.toMap().containsKey("AWS_CREDENTIALS_PROVIDER_TYPE"));
+                Assertions.assertEquals(mode.equals("DEFAULT") ? "APPLICATION_DEFAULT" : mode,
+                        props.toHadoopConfigurationMap().get("fs.gs.auth.type"));
+                Assertions.assertEquals(account,
+                        props.toHadoopConfigurationMap().get("fs.gs.auth.impersonation.service.account"));
+                Assertions.assertEquals(mode, props.matchedProperties().get("gs.credential_provider_type"));
+                Assertions.assertEquals(account, props.matchedProperties().get("gs.impersonation_service_account"));
+            }
+        }
+    }
+
+    @Test
+    void nativeHadoopEndpointCannotBeOverriddenByRawProperties() {
+        for (String mode : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
+            for (String key : new String[] {"fs.gs.storage.root.url", "fs.gs.storage.service.path",
+                    "fs.gs.token.server.url"}) {
+                IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> GcsFileSystemProperties.of(Map.of("provider", "GCP",
+                                "gs.credential_provider_type", mode, key, "https://untrusted.example/")));
+                Assertions.assertTrue(error.getMessage().contains(key));
+            }
+        }
+        GcsFileSystemProperties nativeProps = GcsFileSystemProperties.of(Map.of("provider", "GCP",
+                "gs.endpoint", "https://us-central1-storage.googleapis.com"));
+        Assertions.assertEquals("https://us-central1-storage.googleapis.com/",
+                nativeProps.toHadoopConfigurationMap().get("fs.gs.storage.root.url"));
+        // The restriction applies to native OAuth; preserve legacy HMAC Hadoop configuration.
+        Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of("provider", "GCP",
+                "gs.access_key", "ak", "gs.secret_key", "sk", "fs.gs.storage.root.url", "https://custom.example/")));
+    }
+
+    @Test
+    void nativeHadoopAuthCannotBeOverriddenByRawProperties() {
+        List<Map<String, String>> nativeModes = List.of(
+                Map.of("provider", "GCP"),
+                Map.of("provider", "GCP", "gs.credential_provider_type", "DEFAULT"),
+                Map.of("provider", "GCP", "gs.credential_provider_type", "COMPUTE_ENGINE"));
+        Map<String, String> overrides = Map.of(
+                "fs.gs.auth.type", "UNAUTHENTICATED",
+                "fs.gs.auth.impersonation.service.account", "other@test.iam.gserviceaccount.com",
+                "fs.gs.auth.service.account.json.keyfile", "/tmp/other-service-account.json");
+        for (Map<String, String> mode : nativeModes) {
+            for (String account : new String[] {"", "target@test.iam.gserviceaccount.com"}) {
+                overrides.forEach((key, value) -> {
+                    Map<String, String> properties = new HashMap<>(mode);
+                    if (!account.isEmpty()) {
+                        properties.put("gs.impersonation_service_account", account);
+                    }
+                    properties.put(key, value);
+                    IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                            () -> GcsFileSystemProperties.of(properties));
+                    Assertions.assertTrue(error.getMessage().contains(key));
+                    Assertions.assertTrue(error.getMessage().contains("gs.credential_provider_type"));
+                    Assertions.assertTrue(error.getMessage().contains("gs.impersonation_service_account"));
+                });
+            }
+        }
+        // An empty raw value must not clear the selected impersonation identity either.
+        Assertions.assertThrows(IllegalArgumentException.class, () -> GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com",
+                "fs.gs.auth.impersonation.service.account", "")));
+    }
+
+    @Test
+    void nativeHadoopAuthValidationPreservesOtherModesAndUnrelatedProperties() {
+        Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.access_key", "ak", "gs.secret_key", "sk",
+                "fs.gs.auth.type", "UNAUTHENTICATED")));
+        Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.credential_provider_type", "ANONYMOUS",
+                "fs.gs.auth.type", "UNAUTHENTICATED")));
+        GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.credential_provider_type", "COMPUTE_ENGINE",
+                "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com",
+                "fs.gs.http.max.retry", "3"));
+        Assertions.assertEquals("COMPUTE_ENGINE", props.toHadoopConfigurationMap().get("fs.gs.auth.type"));
+        Assertions.assertEquals("target@test.iam.gserviceaccount.com",
+                props.toHadoopConfigurationMap().get("fs.gs.auth.impersonation.service.account"));
+    }
+
+    @Test
+    void explicitAnonymousUsesUnsignedBackendAndHadoop() {
+        GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.credential_provider_type", "ANONYMOUS"));
+        Assertions.assertEquals("ANONYMOUS", props.toMap().get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+        Assertions.assertFalse(props.toMap().containsKey("gs.credential_provider_type"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider",
+                props.toHadoopConfigurationMap().get("fs.s3a.aws.credentials.provider"));
+    }
+
+    @Test
+    void inferredAdcAndExplicitAdcHaveSameAuthenticationCacheIdentity() {
+        GcsFileSystemProperties implicit = GcsFileSystemProperties.of(Map.of("provider", "GCP"));
+        GcsFileSystemProperties explicit = GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.credential_provider_type", "DEFAULT"));
+        Assertions.assertEquals(implicit.matchedProperties(), explicit.matchedProperties());
+        Assertions.assertEquals(implicit.toMap(), explicit.toMap());
     }
 }

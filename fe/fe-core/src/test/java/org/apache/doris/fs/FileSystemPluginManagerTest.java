@@ -123,6 +123,116 @@ public class FileSystemPluginManagerTest {
     // modules: runtime dependencies removed in Phase 4 P4.1"). End-to-end binding against the real
     // providers is therefore covered by P1-T06 (docker / full plugin classpath), not here.
 
+    @Test
+    public void specificPluginSupersedesFallbackInPrimaryAndAllBindings() throws Exception {
+        for (boolean specificFirst : new boolean[] {false, true}) {
+            FileSystemPluginManager manager = new FileSystemPluginManager();
+            FileSystemProvider<?> specific = routingProvider("custom", Set.of("s3"));
+            FileSystemProvider<?> general = routingProvider("S3", Set.of());
+            manager.registerProvider(specificFirst ? specific : general);
+            manager.registerProvider(specificFirst ? general : specific);
+            Map<String, String> props = Map.of("custom.match", "true", "S3.match", "true");
+            Assertions.assertEquals("custom", manager.bindPrimary(props).providerName());
+            Assertions.assertEquals(1, manager.bindAll(props).size());
+            Assertions.assertEquals("custom", manager.bindAll(props).get(0).providerName());
+            Assertions.assertEquals("custom", Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> manager.createFileSystem(props)).getMessage());
+
+            // A nonmatching specific plugin must not remove the general fallback.
+            Assertions.assertEquals("S3", manager.bindPrimary(Map.of("S3.match", "true")).providerName());
+        }
+    }
+
+    @Test
+    public void explicitSelectionWinsAndMultipleExplicitFlagsRemainSupported() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(routingProvider("custom", Set.of("s3")));
+        manager.registerProvider(routingProvider("S3", Set.of()));
+        Map<String, String> props = new HashMap<>(Map.of("custom.match", "true", "S3.match", "true"));
+        props.put("provider", "s3");
+        Assertions.assertEquals("S3", manager.bindPrimary(props).providerName());
+        Assertions.assertEquals(1, manager.bindAll(props).size());
+        Assertions.assertEquals("S3", Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> manager.createFileSystem(props)).getMessage());
+        props.remove("provider");
+        props.put("fs.s3.support", "true");
+        Assertions.assertEquals("S3", manager.bindPrimary(props).providerName());
+        Assertions.assertEquals(1, manager.bindAll(props).size());
+        Assertions.assertEquals("S3", Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> manager.createFileSystem(props)).getMessage());
+        props.put("fs.custom.support", "true");
+        Assertions.assertEquals(2, manager.bindAll(props).size());
+    }
+
+    @Test
+    public void namedProviderPreservesDefaultHdfsAndExplicitFlagsDisableIt() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(routingProvider("S3", Set.of()));
+        manager.registerProvider(routingProvider("HDFS", Set.of()));
+        List<FileSystemProperties> bindings = manager.bindAll(Map.of("provider", "s3"));
+        Assertions.assertEquals(2, bindings.size());
+        Assertions.assertEquals("HDFS", bindings.get(0).providerName());
+        Assertions.assertEquals("S3", bindings.get(1).providerName());
+        Assertions.assertEquals(1, manager.bindAll(Map.of("fs.s3.support", "true")).size());
+    }
+
+    @Test
+    public void nonSelectedPluginStillValidatesItsOwnedProperties() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(routingProvider("custom", Set.of()));
+        manager.registerProvider(routingProvider("S3", Set.of()));
+        Map<String, String> props = Map.of("provider", "S3", "custom.invalid", "true");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> manager.bindPrimary(props));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> manager.bindAll(props));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> manager.createFileSystem(props));
+    }
+
+    private static FileSystemProvider<FileSystemProperties> routingProvider(String name, Set<String> fallbacks) {
+        return new FileSystemProvider<FileSystemProperties>() {
+            @Override
+            public Set<String> fallbackProviders() {
+                return fallbacks;
+            }
+
+            @Override
+            public void validateProperties(Map<String, String> properties) {
+                if (properties.containsKey(name + ".invalid")) {
+                    throw new IllegalArgumentException("Invalid " + name + " properties");
+                }
+            }
+
+            @Override
+            public boolean supportsExplicit(Map<String, String> properties) {
+                return "true".equals(properties.get("fs." + name.toLowerCase(java.util.Locale.ROOT) + ".support"));
+            }
+
+            @Override
+            public boolean supportsGuess(Map<String, String> properties) {
+                return properties.containsKey(name + ".match");
+            }
+
+            @Override
+            public boolean supports(Map<String, String> properties) {
+                return supportsExplicit(properties) || supportsGuess(properties);
+            }
+
+            @Override
+            public FileSystemProperties bind(Map<String, String> properties) {
+                return new FakeFsProps(name);
+            }
+
+            @Override
+            public FileSystem create(Map<String, String> properties) {
+                throw new UnsupportedOperationException(name);
+            }
+
+            @Override
+            public String name() {
+                return name;
+            }
+        };
+    }
+
     // ---- helpers ----
 
     private static FileSystemProvider<FileSystemProperties> bindingProvider(
