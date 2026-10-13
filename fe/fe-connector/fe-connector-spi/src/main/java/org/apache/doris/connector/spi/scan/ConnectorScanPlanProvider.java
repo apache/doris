@@ -391,6 +391,15 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Streams a scan with the engine's partition selection. The default delegates to the original
+     * streaming method so connectors whose handles already carry their scan scope keep working.
+     */
+    default ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
+        return streamSplits(session, request.getTableHandle(), request.getColumns(),
+                request.getFilter(), request.getLimit());
+    }
+
+    /**
      * Returns scan-node-level properties shared across all scan ranges.
      *
      * <p>Unlike per-range properties in {@link ConnectorScanRange#getProperties()},

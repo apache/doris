@@ -211,6 +211,37 @@ public class SplitAssignmentTest {
     }
 
     @Test
+    void testSamplePublishedAfterScanParametersAreInitialized() throws Exception {
+        Multimap<Backend, Split> batch = ArrayListMultimap.create();
+        batch.put(mockBackend, mockSplit);
+        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
+        CountDownLatch converting = new CountDownLatch(1);
+        CountDownLatch converted = new CountDownLatch(1);
+        Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean())).thenAnswer(invocation -> {
+                    converting.countDown();
+                    Assertions.assertTrue(converted.await(5, TimeUnit.SECONDS));
+                    return mockScanRangeLocations;
+                });
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> producer = executor.submit(() -> {
+                splitAssignment.addToQueue(Collections.singletonList(mockSplit));
+                return null;
+            });
+            Assertions.assertTrue(converting.await(5, TimeUnit.SECONDS));
+            Assertions.assertNull(splitAssignment.getSampleSplit());
+            converted.countDown();
+            producer.get(5, TimeUnit.SECONDS);
+            Assertions.assertSame(mockSplit, splitAssignment.getSampleSplit());
+        } finally {
+            converted.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void testProducerCreatesBoundedQueueFirst() throws Exception {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);

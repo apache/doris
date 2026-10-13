@@ -121,6 +121,30 @@ public class ConnectorScanPlanProviderBatchScanTest {
     }
 
     @Test
+    public void testStreamingRequestDelegatesToExistingConnectorImplementation() {
+        ConnectorExpression filter = new ConnectorColumnRef("c1", ConnectorType.of("INT"));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
+                .filter(Optional.of(filter)).limit(7).build();
+        ConnectorScanPlanProvider provider = new ConnectorScanPlanProvider() {
+            @Override
+            public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest scanRequest) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
+                    List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> remaining, long limit) {
+                Assertions.assertSame(HANDLE, handle);
+                Assertions.assertSame(request.getColumns(), columns);
+                Assertions.assertSame(filter, remaining.get());
+                Assertions.assertEquals(7, limit);
+                return null;
+            }
+        };
+        Assertions.assertNull(provider.streamSplits(null, request));
+    }
+
+    @Test
     public void testRequestDefaultsAskForNothingSpecial() {
         // The fields a connector may ignore must default to "the engine is not asking for anything":
         // no filter, no limit, every partition, no COUNT(*) pushdown. A different default would make a
