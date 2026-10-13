@@ -448,6 +448,8 @@ TEST(StringToIntWithBase, UnsignedNegative) {
     test_int_value<uint64_t>("-0", 10, 0, StringParser::PARSE_SUCCESS);
     test_int_value<uint64_t>("-10", 10, 18446744073709551606ULL, StringParser::PARSE_SUCCESS);
     test_int_value<uint64_t>("-10", 2, 18446744073709551614ULL, StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-121", 2, 18446744073709551615ULL, StringParser::PARSE_SUCCESS);
+    test_int_value<uint64_t>("-1a1", 10, 18446744073709551615ULL, StringParser::PARSE_SUCCESS);
     test_int_value<uint64_t>("-100", 10, 18446744073709551516ULL, StringParser::PARSE_SUCCESS);
     test_int_value<uint64_t>("-ff", 16, 18446744073709551361ULL, StringParser::PARSE_SUCCESS);
     test_int_value<uint64_t>("-8000000000000000", 16, 9223372036854775808ULL,

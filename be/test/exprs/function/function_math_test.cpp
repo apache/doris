@@ -884,6 +884,49 @@ TEST(MathFunctionTest, conv_string_boundary_test) {
     check_function_all_arg_comb<DataTypeString, true>("conv", input_types, data_set);
 }
 
+TEST(MathFunctionTest, conv_negative_source_base_test) {
+    InputTypeSet int_input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_TINYINT,
+                                    PrimitiveType::TYPE_TINYINT};
+    DataSet int_data_set = {
+            {{BIGINT(-121), TINYINT(-2), TINYINT(-10)}, VARCHAR("-1")},
+            {{BIGINT(-121), TINYINT(-2), TINYINT(10)}, VARCHAR("18446744073709551615")},
+            {{BIGINT(-1012), TINYINT(-2), TINYINT(-10)}, VARCHAR("-5")},
+            {{BIGINT(-10), TINYINT(-2), TINYINT(-10)}, VARCHAR("-2")},
+            {{BIGINT(-10), TINYINT(-10), TINYINT(-10)}, VARCHAR("-10")},
+            {{BIGINT(-10), TINYINT(-36), TINYINT(-10)}, VARCHAR("-36")},
+            {{BIGINT(std::numeric_limits<int64_t>::min()), TINYINT(-10), TINYINT(-10)},
+             VARCHAR("-9223372036854775808")},
+            {{BIGINT(-10000000000000000LL), TINYINT(-16), TINYINT(-10)}, VARCHAR("-1")},
+            {{BIGINT(10), TINYINT(-10), TINYINT(-10)}, Null()},
+            {{BIGINT(0), TINYINT(-2), TINYINT(-10)}, Null()},
+            {{Null(), TINYINT(-2), TINYINT(-10)}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeString, true>("conv", int_input_types, int_data_set);
+
+    InputTypeSet string_input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_TINYINT,
+                                       PrimitiveType::TYPE_TINYINT};
+    DataSet string_data_set = {
+            {{VARCHAR("-121"), TINYINT(-2), TINYINT(-10)}, VARCHAR("-1")},
+            {{VARCHAR("-121"), TINYINT(-2), TINYINT(10)}, VARCHAR("18446744073709551615")},
+            {{VARCHAR("-1a1"), TINYINT(-10), TINYINT(-10)}, VARCHAR("-1")},
+            {{VARCHAR("-1a1"), TINYINT(-10), TINYINT(10)}, VARCHAR("18446744073709551615")},
+            {{VARCHAR("  -1A1  "), TINYINT(-10), TINYINT(-16)}, VARCHAR("-1")},
+            {{VARCHAR("-1012"), TINYINT(-2), TINYINT(-10)}, VARCHAR("-5")},
+            {{VARCHAR("-123a9"), TINYINT(-10), TINYINT(-10)}, VARCHAR("-123")},
+            {{VARCHAR("-1z1"), TINYINT(-36), TINYINT(-10)}, VARCHAR("-2557")},
+            {{VARCHAR("-10"), TINYINT(-2), TINYINT(-10)}, VARCHAR("-2")},
+            {{VARCHAR("-10"), TINYINT(-10), TINYINT(-10)}, VARCHAR("-10")},
+            {{VARCHAR("-10"), TINYINT(-36), TINYINT(-10)}, VARCHAR("-36")},
+            {{VARCHAR("-9223372036854775808"), TINYINT(-10), TINYINT(-10)},
+             VARCHAR("-9223372036854775808")},
+            {{VARCHAR("-18446744073709551616"), TINYINT(-10), TINYINT(-10)}, Null()},
+            {{VARCHAR("10"), TINYINT(-10), TINYINT(-10)}, Null()},
+            {{VARCHAR("-0"), TINYINT(-2), TINYINT(-10)}, Null()},
+            {{Null(), TINYINT(-2), TINYINT(-10)}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeString, true>("conv", string_input_types, string_data_set);
+}
+
 TEST(MathFunctionTest, conv_base_range_test) {
     InputTypeSet int_input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_TINYINT,
                                     PrimitiveType::TYPE_TINYINT};
@@ -897,18 +940,14 @@ TEST(MathFunctionTest, conv_base_range_test) {
         const bool valid_base = abs_base >= 2 && abs_base <= 36;
         Expect expected = valid_base ? Expect(VARCHAR("10")) : Expect(Null());
         for (Int64 value : {-10, 0, 10}) {
-            std::string converted =
-                    value == 0 ? "0" : std::to_string(value < 0 ? UInt64 {0} - base : UInt64(base));
-            Expect src_expected =
-                    valid_base && base > 0 ? Expect(VARCHAR(converted)) : Expect(Null());
-            Expect int_src_expected =
-                    valid_base && base < 0 && value < 0 ? Expect(VARCHAR("0")) : src_expected;
-            // Preserve the existing overload-specific results for negative source bases.
-            Expect string_src_expected =
-                    valid_base && base < 0 && value > 0 ? Expect(VARCHAR(converted)) : src_expected;
-            int_data_set.push_back({{BIGINT(value), TINYINT(base), TINYINT(10)}, int_src_expected});
-            string_data_set.push_back({{VARCHAR(std::to_string(value)), TINYINT(base), TINYINT(10)},
-                                       string_src_expected});
+            std::string converted = value == 0 ? "0"
+                                               : std::to_string(value < 0 ? UInt64 {0} - abs_base
+                                                                          : UInt64(abs_base));
+            Expect src_expected = valid_base && (base > 0 || value < 0) ? Expect(VARCHAR(converted))
+                                                                        : Expect(Null());
+            int_data_set.push_back({{BIGINT(value), TINYINT(base), TINYINT(10)}, src_expected});
+            string_data_set.push_back(
+                    {{VARCHAR(std::to_string(value)), TINYINT(base), TINYINT(10)}, src_expected});
         }
         int_data_set.push_back({{BIGINT(abs_base), TINYINT(10), TINYINT(base)}, expected});
         string_data_set.push_back(
