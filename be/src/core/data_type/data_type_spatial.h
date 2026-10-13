@@ -48,6 +48,10 @@ public:
     PrimitiveType get_primitive_type() const override { return _primitive_type; }
     const std::string& crs() const { return _crs; }
     const std::string& algorithm() const { return _algorithm; }
+    // Recognize the default and common geographic identifiers without resolving arbitrary CRS.
+    bool requires_geographic_coordinates() const {
+        return _primitive_type == TYPE_GEOGRAPHY || _crs == "OGC:CRS84" || _crs == "EPSG:4326";
+    }
 
     doris::FieldType get_storage_field_type() const override;
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,

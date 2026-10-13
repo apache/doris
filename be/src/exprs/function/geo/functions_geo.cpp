@@ -71,51 +71,32 @@ static Status validate_geography_semantics(const DataTypePtr& type, const char* 
             function_name);
 }
 
-static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTypePtr& type,
-                                                  GeoParseStatus* parse_status = nullptr) {
+static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTypePtr& type) {
     if (!is_spatial_type(type)) {
         return GeoShape::from_encoded(value.data, value.size);
     }
 
     GeoParseStatus status;
     auto shape = GeoShape::from_wkb_bytes(value.data, value.size, status);
-    if (parse_status != nullptr) {
-        *parse_status = status;
-    }
     return status == GEO_PARSE_OK ? std::move(shape) : nullptr;
 }
 
-static bool has_unsupported_spatial_wkb_metadata(StringRef value) {
-    if (value.size < 5) {
-        return false;
+static bool any_geo_argument_is_null(const Block& block, const ColumnNumbers& arguments,
+                                     size_t row) {
+    return std::ranges::any_of(arguments, [&](auto argument) {
+        return block.get_by_position(argument).column->is_null_at(row);
+    });
+}
+
+static Status decode_calculation_shape(StringRef value, const DataTypePtr& type,
+                                       std::unique_ptr<GeoShape>* shape,
+                                       const char* function_name) {
+    *shape = decode_geo_shape(value, type);
+    if (is_spatial_type(type) && *shape == nullptr) {
+        return Status::NotSupported("Function {} does not support this Geography WKB shape",
+                                    function_name);
     }
-
-    const auto byte_order = static_cast<uint8_t>(value.data[0]);
-    if (byte_order != 0 && byte_order != 1) {
-        return false;
-    }
-
-    const auto byte_at = [&value](size_t offset) {
-        return static_cast<uint8_t>(value.data[offset]);
-    };
-    const uint32_t type = byte_order == 1 ? static_cast<uint32_t>(byte_at(1)) |
-                                                    (static_cast<uint32_t>(byte_at(2)) << 8) |
-                                                    (static_cast<uint32_t>(byte_at(3)) << 16) |
-                                                    (static_cast<uint32_t>(byte_at(4)) << 24)
-                                          : (static_cast<uint32_t>(byte_at(1)) << 24) |
-                                                    (static_cast<uint32_t>(byte_at(2)) << 16) |
-                                                    (static_cast<uint32_t>(byte_at(3)) << 8) |
-                                                    static_cast<uint32_t>(byte_at(4));
-
-    constexpr uint32_t ewkb_z_flag = 0x80000000;
-    constexpr uint32_t ewkb_m_flag = 0x40000000;
-    constexpr uint32_t ewkb_srid_flag = 0x20000000;
-    constexpr uint32_t ewkb_metadata_flags = ewkb_z_flag | ewkb_m_flag | ewkb_srid_flag;
-    if ((type & ewkb_metadata_flags) != 0) {
-        return true;
-    }
-
-    return type >= 1000 && type < 4000;
+    return Status::OK();
 }
 
 static bool decode_wkb_hex(StringRef value, std::string* wkb) {
@@ -135,7 +116,7 @@ static bool decode_wkb_hex(StringRef value, std::string* wkb) {
 
 Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments) {
     for (const auto argument : arguments) {
-        const auto& column = block.get_by_position(argument).column;
+        const auto& [column, is_const] = unpack_if_const(block.get_by_position(argument).column);
         const auto& type = block.get_data_type(argument);
         if (!is_spatial_type(type)) {
             continue;
@@ -145,19 +126,15 @@ Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& argu
                 continue;
             }
             const auto value = column->get_data_at(row);
-            if (has_unsupported_spatial_wkb_metadata(value)) {
+            const auto& spatial = assert_cast<const DataTypeSpatial&>(*remove_nullable(type));
+            const auto parse_status = WkbParse::validate_wkb_bytes(
+                    value.data, value.size, spatial.requires_geographic_coordinates());
+            if (parse_status == GEO_PARSE_WKB_UNSUPPORTED_METADATA) {
                 return Status::NotSupported(
                         "WKB dimensions or embedded SRID are not supported for spatial inputs at "
                         "row {}",
                         row);
             }
-            const auto parse_status = remove_nullable(type)->get_primitive_type() == TYPE_GEOMETRY
-                                              ? WkbParse::validate_wkb_bytes(value.data, value.size)
-                                              : [&] {
-                                                    GeoParseStatus status;
-                                                    decode_geo_shape(value, type, &status);
-                                                    return status;
-                                                }();
             if (parse_status != GEO_PARSE_OK) {
                 return Status::InvalidArgument("Invalid WKB in spatial input at row {}: {}", row,
                                                to_string(parse_status));
@@ -478,7 +455,13 @@ struct StAngle {
         auto& null_map_data = null_map->get_data();
 
         for (size_t row = 0; row < size; ++row) {
-            auto point1 = decode_geo_shape(p1->get_data_at(row), p1_type);
+            if (any_geo_argument_is_null(block, arguments, row)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            std::unique_ptr<GeoShape> point1;
+            RETURN_IF_ERROR(decode_calculation_shape(p1->get_data_at(row), p1_type, &point1, NAME));
             auto* pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
             if (pt1 == nullptr) {
                 null_map_data[row] = 1;
@@ -486,14 +469,16 @@ struct StAngle {
                 continue;
             }
 
-            auto point2 = decode_geo_shape(p2->get_data_at(row), p2_type);
+            std::unique_ptr<GeoShape> point2;
+            RETURN_IF_ERROR(decode_calculation_shape(p2->get_data_at(row), p2_type, &point2, NAME));
             auto* pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
             if (pt2 == nullptr) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
             }
-            auto point3 = decode_geo_shape(p3->get_data_at(row), p3_type);
+            std::unique_ptr<GeoShape> point3;
+            RETURN_IF_ERROR(decode_calculation_shape(p3->get_data_at(row), p3_type, &point3, NAME));
             auto* pt3 = point3 ? dynamic_cast<GeoPoint*>(point3.get()) : nullptr;
             if (pt3 == nullptr) {
                 null_map_data[row] = 1;
@@ -536,8 +521,17 @@ struct StAzimuth {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
         for (size_t row = 0; row < size; ++row) {
-            auto point1 = decode_geo_shape(left_col->get_data_at(row), left_type);
-            auto point2 = decode_geo_shape(right_col->get_data_at(row), right_type);
+            if (any_geo_argument_is_null(block, arguments, row)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            std::unique_ptr<GeoShape> point1;
+            RETURN_IF_ERROR(
+                    decode_calculation_shape(left_col->get_data_at(row), left_type, &point1, NAME));
+            std::unique_ptr<GeoShape> point2;
+            RETURN_IF_ERROR(decode_calculation_shape(right_col->get_data_at(row), right_type,
+                                                     &point2, NAME));
             auto* pt1 = point1 ? dynamic_cast<GeoPoint*>(point1.get()) : nullptr;
             auto* pt2 = point2 ? dynamic_cast<GeoPoint*>(point2.get()) : nullptr;
 
@@ -580,8 +574,13 @@ struct StAreaSquareMeters {
         std::unique_ptr<GeoShape> shape;
 
         for (size_t row = 0; row < size; ++row) {
+            if (any_geo_argument_is_null(block, arguments, row)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
             auto shape_value = col->get_data_at(row);
-            shape = decode_geo_shape(shape_value, input_type);
+            RETURN_IF_ERROR(decode_calculation_shape(shape_value, input_type, &shape, NAME));
             if (!shape) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -623,8 +622,13 @@ struct StAreaSquareKm {
         std::unique_ptr<GeoShape> shape;
 
         for (size_t row = 0; row < size; ++row) {
+            if (any_geo_argument_is_null(block, arguments, row)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
             auto shape_value = col->get_data_at(row);
-            shape = decode_geo_shape(shape_value, input_type);
+            RETURN_IF_ERROR(decode_calculation_shape(shape_value, input_type, &shape, NAME));
             if (!shape) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -713,8 +717,16 @@ struct StRelationFunction {
         auto& null_map_data = null_map->get_data();
 
         for (size_t row = 0; row < size; ++row) {
-            auto shape1 = decode_geo_shape(left_col->get_data_at(row), left_type);
-            auto shape2 = decode_geo_shape(right_col->get_data_at(row), right_type);
+            if (any_geo_argument_is_null(block, arguments, row)) {
+                null_map_data[row] = 1;
+                continue;
+            }
+            std::unique_ptr<GeoShape> shape1;
+            RETURN_IF_ERROR(
+                    decode_calculation_shape(left_col->get_data_at(row), left_type, &shape1, NAME));
+            std::unique_ptr<GeoShape> shape2;
+            RETURN_IF_ERROR(decode_calculation_shape(right_col->get_data_at(row), right_type,
+                                                     &shape2, NAME));
 
             if (!shape1 || !shape2) {
                 null_map_data[row] = 1;
@@ -903,14 +915,11 @@ struct StGeoFromWkb {
                 res->insert_default();
                 continue;
             }
-            if (has_unsupported_spatial_wkb_metadata({wkb.data(), wkb.size()})) {
-                null_map_data[row] = 1;
-                res->insert_default();
-                continue;
-            }
-            std::unique_ptr<GeoShape> shape =
-                    GeoShape::from_wkb_bytes(wkb.data(), wkb.size(), status);
-            if (shape == nullptr || status != GEO_PARSE_OK) {
+            const auto& spatial = assert_cast<const DataTypeSpatial&>(
+                    *remove_nullable(block.get_data_type(result)));
+            status = WkbParse::validate_wkb_bytes(wkb.data(), wkb.size(),
+                                                  spatial.requires_geographic_coordinates());
+            if (status != GEO_PARSE_OK) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -1019,8 +1028,13 @@ struct StLength {
 
         std::unique_ptr<GeoShape> shape;
         for (size_t row = 0; row < size; ++row) {
+            if (any_geo_argument_is_null(block, arguments, row)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
             auto shape_value = col->get_data_at(row);
-            shape = decode_geo_shape(shape_value, input_type);
+            RETURN_IF_ERROR(decode_calculation_shape(shape_value, input_type, &shape, NAME));
             if (!shape) {
                 null_map_data[row] = 1;
                 res->insert_default();
@@ -1147,53 +1161,40 @@ struct StDistance {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        if (left_const || right_const) {
-            const auto& const_column = left_const ? left_column : right_column;
-            const auto& const_type = left_const ? left_type : right_type;
-            auto const_shape = decode_geo_shape(const_column->get_data_at(0), const_type);
-            if (!const_shape) {
-                for (size_t row = 0; row < size; ++row) {
-                    null_map_data[row] = 1;
-                    res->insert_default();
-                }
-            } else {
-                const auto& vector_column = left_const ? right_column : left_column;
-                const auto& vector_type = left_const ? right_type : left_type;
-                for (size_t row = 0; row < size; ++row) {
-                    auto vector_shape =
-                            decode_geo_shape(vector_column->get_data_at(row), vector_type);
-                    if (!vector_shape) {
-                        null_map_data[row] = 1;
-                        res->insert_default();
-                        continue;
-                    }
-                    const double distance = left_const ? const_shape->Distance(vector_shape.get())
-                                                       : vector_shape->Distance(const_shape.get());
-                    if (UNLIKELY(distance < 0)) {
-                        null_map_data[row] = 1;
-                        res->insert_default();
-                        continue;
-                    }
-                    res->insert_value(distance);
-                }
+        std::unique_ptr<GeoShape> left_shape;
+        std::unique_ptr<GeoShape> right_shape;
+        bool left_decoded = false;
+        bool right_decoded = false;
+        for (size_t row = 0; row < size; ++row) {
+            if (any_geo_argument_is_null(block, arguments, row)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
             }
-        } else {
-            for (size_t row = 0; row < size; ++row) {
-                auto left_shape = decode_geo_shape(left_column->get_data_at(row), left_type);
-                auto right_shape = decode_geo_shape(right_column->get_data_at(row), right_type);
-                if (!left_shape || !right_shape) {
-                    null_map_data[row] = 1;
-                    res->insert_default();
-                    continue;
-                }
-                const double distance = left_shape->Distance(right_shape.get());
-                if (UNLIKELY(distance < 0)) {
-                    null_map_data[row] = 1;
-                    res->insert_default();
-                    continue;
-                }
-                res->insert_value(distance);
+            if (!left_const || !left_decoded) {
+                RETURN_IF_ERROR(
+                        decode_calculation_shape(left_column->get_data_at(left_const ? 0 : row),
+                                                 left_type, &left_shape, NAME));
+                left_decoded = true;
             }
+            if (!right_const || !right_decoded) {
+                RETURN_IF_ERROR(
+                        decode_calculation_shape(right_column->get_data_at(right_const ? 0 : row),
+                                                 right_type, &right_shape, NAME));
+                right_decoded = true;
+            }
+            if (!left_shape || !right_shape) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            const double distance = left_shape->Distance(right_shape.get());
+            if (UNLIKELY(distance < 0)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            res->insert_value(distance);
         }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));

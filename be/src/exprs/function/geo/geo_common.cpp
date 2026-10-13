@@ -43,6 +43,8 @@ std::string to_string(GeoParseStatus status) {
         return "WKT syntax error";
     case GEO_PARSE_WKB_SYNTAX_ERROR:
         return "WKB syntax error";
+    case GEO_PARSE_WKB_UNSUPPORTED_METADATA:
+        return "WKB dimensions or embedded SRID are not supported";
     default:
         return "Unknown";
     }

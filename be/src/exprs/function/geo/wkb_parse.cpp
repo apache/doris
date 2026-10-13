@@ -17,12 +17,18 @@
 
 #include "exprs/function/geo/wkb_parse.h"
 
+#include <fmt/format.h>
+
+#include <cmath>
 #include <cstddef>
 #include <istream>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
+#include "core/custom_allocator.h"
 #include "exprs/function/geo/ByteOrderDataInStream.h"
 #include "exprs/function/geo/ByteOrderValues.h"
 #include "exprs/function/geo/geo_tobinary_type.h"
@@ -30,6 +36,261 @@
 #include "exprs/function/geo/wkb_parse_ctx.h"
 
 namespace doris {
+
+namespace {
+
+constexpr const char* wkb_names[] = {
+        "",           "POINT",           "LINESTRING",   "POLYGON",
+        "MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON", "GEOMETRYCOLLECTION"};
+
+GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type) {
+    if (ctx.dis.size() < 5) {
+        return GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+    const auto order = ctx.dis.readByte();
+    if (order > 1) {
+        return GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+    ctx.dis.setOrder(order == byteOrder::wkbNDR ? ByteOrderValues::ENDIAN_LITTLE
+                                                : ByteOrderValues::ENDIAN_BIG);
+    auto encoded = ctx.dis.readUnsigned();
+    constexpr uint32_t ewkb_metadata_flags = 0x80000000 | 0x40000000 | WKB_SRID_FLAG;
+    if (!ctx.allow_ewkb_srid &&
+        ((encoded & ewkb_metadata_flags) != 0 || (encoded >= 1000 && encoded < 4000))) {
+        return GEO_PARSE_WKB_UNSUPPORTED_METADATA;
+    }
+    if ((encoded & WKB_SRID_FLAG) != 0) {
+        if (!ctx.allow_ewkb_srid || ctx.dis.size() < sizeof(uint32_t)) {
+            return GEO_PARSE_WKB_SYNTAX_ERROR;
+        }
+        ctx.srid = static_cast<int>(ctx.dis.readUnsigned());
+        encoded &= ~WKB_SRID_FLAG;
+    }
+    // Typed values carry CRS in their schema and support only the XY base types.
+    if (encoded < wkbPoint || encoded > wkbGeometryCollection) {
+        return GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+    *type = encoded;
+    return GEO_PARSE_OK;
+}
+
+// One cursor walks both validation and WKT output. Collection frames are bounded
+// by the input size, rather than by the C++ call stack. Coordinates remain raw.
+class RawWkbReader {
+public:
+    RawWkbReader(WkbParseContext& context, bool geographic, std::ostream* output = nullptr)
+            : _ctx(context), _geographic(geographic), _output(output) {}
+
+    GeoParseStatus read() {
+        do {
+            uint32_t type;
+            const auto status = read_wkb_type(_ctx, &type);
+            if (status != GEO_PARSE_OK) {
+                return status;
+            }
+            if (!matches_parent(type)) {
+                return GEO_PARSE_WKB_SYNTAX_ERROR;
+            }
+            if (_frames.empty()) {
+                _root_type = type;
+            }
+            if (_frames.empty() || _frames.back().type == wkbGeometryCollection) {
+                emit(wkb_names[type]);
+                emit(" ");
+            }
+            if (type <= wkbPolygon) {
+                if (!read_primitive(type)) {
+                    return GEO_PARSE_WKB_SYNTAX_ERROR;
+                }
+            } else {
+                uint32_t count;
+                if (!read_count(&count) || count > _ctx.dis.size() / 5) {
+                    return GEO_PARSE_WKB_SYNTAX_ERROR;
+                }
+                if (count != 0) {
+                    emit("(");
+                    _frames.push_back({type, count});
+                    continue;
+                }
+                emit("EMPTY");
+            }
+            finish_member();
+        } while (!_frames.empty());
+        return _ctx.dis.size() == 0 ? GEO_PARSE_OK : GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
+
+    uint32_t root_type() const { return _root_type; }
+
+private:
+    struct Frame {
+        uint32_t type;
+        uint32_t remaining;
+    };
+
+    bool matches_parent(uint32_t type) const {
+        if (_frames.empty() || _frames.back().type == wkbGeometryCollection) {
+            return true;
+        }
+        return type == _frames.back().type - 3;
+    }
+
+    void finish_member() {
+        while (!_frames.empty()) {
+            if (--_frames.back().remaining != 0) {
+                emit(", ");
+                return;
+            }
+            emit(")");
+            _frames.pop_back();
+        }
+    }
+
+    void emit(std::string_view text) {
+        if (_output != nullptr) {
+            *_output << text;
+        }
+    }
+
+    bool read_count(uint32_t* count) {
+        if (_ctx.dis.size() < sizeof(uint32_t)) {
+            return false;
+        }
+        *count = _ctx.dis.readUnsigned();
+        return true;
+    }
+
+    bool read_xy(double* x, double* y) {
+        if (_ctx.dis.size() < 2 * sizeof(double)) {
+            return false;
+        }
+        *x = _ctx.dis.readDouble();
+        *y = _ctx.dis.readDouble();
+        return true;
+    }
+
+    bool valid_xy(double x, double y) const {
+        return !std::isinf(x) && !std::isinf(y) &&
+               (!_geographic || ((std::isnan(x) || (x >= -180 && x <= 180)) &&
+                                 (std::isnan(y) || (y >= -90 && y <= 90))));
+    }
+
+    void emit_xy(double x, double y) {
+        if (_output != nullptr) {
+            *_output << (std::isnan(x) ? "NaN" : fmt::format("{}", x)) << " "
+                     << (std::isnan(y) ? "NaN" : fmt::format("{}", y));
+        }
+    }
+
+    bool read_point() {
+        double x;
+        double y;
+        if (!read_xy(&x, &y)) {
+            return false;
+        }
+        // NaN/NaN is the interoperable EMPTY Point convention, distinct from NULL.
+        if (std::isnan(x) && std::isnan(y)) {
+            emit("EMPTY");
+            return true;
+        }
+        if (!valid_xy(x, y)) {
+            return false;
+        }
+        emit("(");
+        emit_xy(x, y);
+        emit(")");
+        return true;
+    }
+
+    bool read_coordinates(uint32_t count, bool ring) {
+        if (count > _ctx.dis.size() / (2 * sizeof(double))) {
+            return false;
+        }
+        double first_x = 0;
+        double first_y = 0;
+        double x = 0;
+        double y = 0;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (!read_xy(&x, &y) || !valid_xy(x, y)) {
+                return false;
+            }
+            if (i == 0) {
+                first_x = x;
+                first_y = y;
+            } else {
+                emit(", ");
+            }
+            emit_xy(x, y);
+        }
+        return !ring || ((first_x == x || (std::isnan(first_x) && std::isnan(x))) &&
+                         (first_y == y || (std::isnan(first_y) && std::isnan(y))));
+    }
+
+    bool read_line() {
+        uint32_t count;
+        if (!read_count(&count) || count == 1) {
+            return false;
+        }
+        if (count == 0) {
+            emit("EMPTY");
+            return true;
+        }
+        emit("(");
+        if (!read_coordinates(count, false)) {
+            return false;
+        }
+        emit(")");
+        return true;
+    }
+
+    bool read_polygon() {
+        uint32_t rings;
+        if (!read_count(&rings) || rings > _ctx.dis.size() / sizeof(uint32_t)) {
+            return false;
+        }
+        if (rings == 0) {
+            emit("EMPTY");
+            return true;
+        }
+        emit("(");
+        for (uint32_t i = 0; i < rings; ++i) {
+            uint32_t count;
+            if (!read_count(&count) || count < 4) {
+                return false;
+            }
+            if (i != 0) {
+                emit(", ");
+            }
+            emit("(");
+            if (!read_coordinates(count, true)) {
+                return false;
+            }
+            emit(")");
+        }
+        emit(")");
+        return true;
+    }
+
+    bool read_primitive(uint32_t type) {
+        switch (type) {
+        case wkbPoint:
+            return read_point();
+        case wkbLine:
+            return read_line();
+        case wkbPolygon:
+            return read_polygon();
+        default:
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Unexpected WKB primitive type: {}", type);
+        }
+    }
+
+    WkbParseContext& _ctx;
+    const bool _geographic;
+    std::ostream* const _output;
+    uint32_t _root_type = 0;
+    DorisVector<Frame> _frames;
+};
+
+} // namespace
 
 unsigned char ASCIIHexToUChar(char val) {
     switch (val) {
@@ -107,85 +368,7 @@ GeoParseStatus WkbParse::initialize_context(const char* data, size_t size, WkbPa
 }
 
 GeoParseStatus WkbParse::read_geometry_type(WkbParseContext& ctx, uint32_t* type) {
-    if (ctx.dis.size() < 5) {
-        return GEO_PARSE_WKB_SYNTAX_ERROR;
-    }
-    ctx.dis.readByte();
-    const uint32_t type_int = ctx.dis.readUnsigned();
-    constexpr uint32_t ewkb_z_flag = 0x80000000;
-    constexpr uint32_t ewkb_m_flag = 0x40000000;
-    constexpr uint32_t ewkb_srid_flag = 0x20000000;
-    if ((type_int & (ewkb_z_flag | ewkb_m_flag)) != 0 || (type_int >= 1000 && type_int < 4000)) {
-        return GEO_PARSE_WKB_SYNTAX_ERROR;
-    }
-    if ((type_int & ewkb_srid_flag) != 0) {
-        if (!ctx.allow_ewkb_srid || ctx.dis.size() < sizeof(uint32_t)) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
-        }
-        ctx.srid = static_cast<int>(ctx.dis.readUnsigned());
-    }
-    *type = type_int & WKB_TYPE_MASK;
-    return GEO_PARSE_OK;
-}
-
-bool WkbParse::read_wkt_coordinates(uint32_t size, WkbParseContext& ctx, std::ostream& os) {
-    if (size == 0 || size > ctx.dis.size() / (2 * sizeof(double))) {
-        return false;
-    }
-    for (uint32_t i = 0; i < size; ++i) {
-        if (i != 0) {
-            os << ", ";
-        }
-        os << ctx.dis.readDouble() << " " << ctx.dis.readDouble();
-    }
-    return true;
-}
-
-bool WkbParse::read_wkt_geometry(WkbParseContext& ctx, std::ostream& os) {
-    uint32_t type;
-    if (read_geometry_type(ctx, &type) != GEO_PARSE_OK) {
-        return false;
-    }
-    switch (type) {
-    case wkbType::wkbPoint:
-        os << "POINT (";
-        if (!read_wkt_coordinates(1, ctx, os)) {
-            return false;
-        }
-        os << ")";
-        return true;
-    case wkbType::wkbLine: {
-        const uint32_t size = ctx.dis.readUnsigned();
-        os << "LINESTRING (";
-        if (!read_wkt_coordinates(size, ctx, os)) {
-            return false;
-        }
-        os << ")";
-        return true;
-    }
-    case wkbType::wkbPolygon: {
-        const uint32_t loops = ctx.dis.readUnsigned();
-        if (loops == 0 || loops > ctx.dis.size() / sizeof(uint32_t)) {
-            return false;
-        }
-        os << "POLYGON (";
-        for (uint32_t loop = 0; loop < loops; ++loop) {
-            if (loop != 0) {
-                os << ", ";
-            }
-            const uint32_t size = ctx.dis.readUnsigned();
-            os << "(";
-            if (size < 3 || !read_wkt_coordinates(size, ctx, os)) {
-                return false;
-            }
-            os << ")";
-        }
-        os << ")";
-        return true;
-    }
-    default:
-        return false;
-    }
+    return read_wkb_type(ctx, type);
 }
 
 GeoParseStatus WkbParse::wkb_to_wkt(const char* data, size_t size, std::string* wkt) {
@@ -193,16 +376,12 @@ GeoParseStatus WkbParse::wkb_to_wkt(const char* data, size_t size, std::string* 
     if (initialize_context(data, size, &ctx) != GEO_PARSE_OK) {
         return GEO_PARSE_WKB_SYNTAX_ERROR;
     }
-    try {
-        std::ostringstream os;
-        if (!read_wkt_geometry(ctx, os) || ctx.dis.size() != 0) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
-        }
+    std::ostringstream os;
+    const auto status = RawWkbReader(ctx, false, &os).read();
+    if (status == GEO_PARSE_OK) {
         *wkt = os.str();
-        return GEO_PARSE_OK;
-    } catch (...) {
-        return GEO_PARSE_WKB_SYNTAX_ERROR;
     }
+    return status;
 }
 
 GeoParseStatus WkbParse::point_coordinates(const char* data, size_t size, double* x, double* y) {
@@ -210,18 +389,19 @@ GeoParseStatus WkbParse::point_coordinates(const char* data, size_t size, double
     if (initialize_context(data, size, &ctx) != GEO_PARSE_OK) {
         return GEO_PARSE_WKB_SYNTAX_ERROR;
     }
-    try {
-        uint32_t type;
-        if (read_geometry_type(ctx, &type) != GEO_PARSE_OK || type != wkbType::wkbPoint ||
-            ctx.dis.size() != 2 * sizeof(double)) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
-        }
-        *x = ctx.dis.readDouble();
-        *y = ctx.dis.readDouble();
-        return GEO_PARSE_OK;
-    } catch (...) {
+    uint32_t type;
+    const auto status = read_geometry_type(ctx, &type);
+    if (status != GEO_PARSE_OK) {
+        return status;
+    }
+    if (type != wkbPoint || ctx.dis.size() != 2 * sizeof(double)) {
         return GEO_PARSE_WKB_SYNTAX_ERROR;
     }
+    *x = ctx.dis.readDouble();
+    *y = ctx.dis.readDouble();
+    return std::isinf(*x) || std::isinf(*y) || (std::isnan(*x) && std::isnan(*y))
+                   ? GEO_PARSE_COORD_INVALID
+                   : GEO_PARSE_OK;
 }
 
 GeoParseStatus WkbParse::geometry_type(const char* data, size_t size, std::string* type) {
@@ -229,40 +409,20 @@ GeoParseStatus WkbParse::geometry_type(const char* data, size_t size, std::strin
     if (initialize_context(data, size, &ctx) != GEO_PARSE_OK) {
         return GEO_PARSE_WKB_SYNTAX_ERROR;
     }
-    uint32_t wkb_type;
-    if (read_geometry_type(ctx, &wkb_type) != GEO_PARSE_OK) {
-        return GEO_PARSE_WKB_SYNTAX_ERROR;
+    RawWkbReader reader(ctx, false);
+    const auto status = reader.read();
+    if (status == GEO_PARSE_OK) {
+        *type = std::string("ST_") + wkb_names[reader.root_type()];
     }
-    switch (wkb_type) {
-    case wkbType::wkbPoint:
-        *type = "ST_POINT";
-        break;
-    case wkbType::wkbLine:
-        *type = "ST_LINESTRING";
-        break;
-    case wkbType::wkbPolygon:
-        *type = "ST_POLYGON";
-        break;
-    default:
-        return GEO_PARSE_WKB_SYNTAX_ERROR;
-    }
-    return GEO_PARSE_OK;
+    return status;
 }
 
-GeoParseStatus WkbParse::validate_wkb_bytes(const char* data, size_t size) {
-    if (size == 0) {
+GeoParseStatus WkbParse::validate_wkb_bytes(const char* data, size_t size, bool geographic) {
+    WkbParseContext ctx;
+    if (initialize_context(data, size, &ctx) != GEO_PARSE_OK) {
         return GEO_PARSE_WKB_SYNTAX_ERROR;
     }
-    try {
-        WkbParseContext ctx;
-        if (initialize_context(data, size, &ctx) != GEO_PARSE_OK) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
-        }
-        return validate_geometry(ctx) && ctx.dis.size() == 0 ? GEO_PARSE_OK
-                                                             : GEO_PARSE_WKB_SYNTAX_ERROR;
-    } catch (...) {
-        return GEO_PARSE_WKB_SYNTAX_ERROR;
-    }
+    return RawWkbReader(ctx, geographic).read();
 }
 
 void WkbParse::read_hex(std::istream& is, WkbParseContext& ctx) {
@@ -481,51 +641,6 @@ bool WkbParse::readCoordinate(WkbParseContext& ctx) {
         ctx.ordValues[i] = ctx.dis.readDouble();
     }
 
-    return true;
-}
-
-bool WkbParse::validate_geometry(WkbParseContext& ctx) {
-    if (ctx.dis.size() < 5) {
-        return false;
-    }
-    uint32_t type;
-    if (read_geometry_type(ctx, &type) != GEO_PARSE_OK) {
-        return false;
-    }
-    switch (type) {
-    case wkbType::wkbPoint:
-        return validate_coordinates(1, ctx);
-    case wkbType::wkbLine: {
-        const uint32_t size = ctx.dis.readUnsigned();
-        return size > 0 && validate_coordinates(size, ctx);
-    }
-    case wkbType::wkbPolygon: {
-        const uint32_t loops = ctx.dis.readUnsigned();
-        if (loops == 0 || loops > ctx.dis.size() / sizeof(uint32_t)) {
-            return false;
-        }
-        for (uint32_t loop = 0; loop < loops; ++loop) {
-            const uint32_t size = ctx.dis.readUnsigned();
-            if (size < 3 || !validate_coordinates(size, ctx)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    default:
-        return false;
-    }
-}
-
-bool WkbParse::validate_coordinates(uint32_t size, WkbParseContext& ctx) {
-    constexpr size_t coordinate_size = 2 * sizeof(double);
-    if (size > ctx.dis.size() / coordinate_size) {
-        return false;
-    }
-    for (uint32_t coordinate = 0; coordinate < size; ++coordinate) {
-        ctx.dis.readDouble();
-        ctx.dis.readDouble();
-    }
     return true;
 }
 

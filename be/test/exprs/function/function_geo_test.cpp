@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "core/column/column_const.h"
 #include "core/column/column_spatial.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -35,11 +36,207 @@
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/geo_types.h"
+#include "exprs/function/geo/wkb_parse.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 
 namespace doris {
 using namespace ut_type;
+
+static void expect_typed_collection_constructors(PrimitiveType primitive) {
+    const std::string point = "0101000000000000000000F03F0000000000000040";
+    const std::vector<std::pair<std::string, std::string>> cases = {
+            {"010400000001000000" + point, "MULTIPOINT ((1 2))"},
+            {"010500000001000000010200000000000000", "MULTILINESTRING (EMPTY)"},
+            {"010600000001000000010300000000000000", "MULTIPOLYGON (EMPTY)"},
+            {"010700000001000000" + point, "GEOMETRYCOLLECTION (POINT (1 2))"},
+            {"0101000000000000000000F87F000000000000F87F", "POINT EMPTY"},
+            {"010200000000000000", "LINESTRING EMPTY"},
+            {"010300000000000000", "POLYGON EMPTY"},
+            {"0101000000000000000000F03F000000000000F87F", "POINT (1 NaN)"}};
+    auto input = ColumnString::create();
+    for (const auto& value : cases) {
+        input->insert_data(value.first.data(), value.first.size());
+    }
+    const auto input_type = std::make_shared<DataTypeString>();
+    ColumnsWithTypeAndName arguments {{std::move(input), input_type, "wkb"}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeSpatial>(primitive));
+    auto function = SimpleFunctionFactory::instance().get_function(
+            primitive == TYPE_GEOMETRY ? "st_geomfromwkb" : "st_geogfromwkb", arguments,
+            result_type);
+    ASSERT_NE(function, nullptr);
+    Block block;
+    block.insert(arguments.front());
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0}, 1, cases.size());
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& result = block.get_by_position(1).column;
+    ASSERT_EQ(result->size(), cases.size());
+    for (size_t row = 0; row < cases.size(); ++row) {
+        ASSERT_FALSE(result->is_null_at(row));
+        const auto value = result->get_data_at(row);
+        std::string text;
+        ASSERT_EQ(WkbParse::wkb_to_wkt(value.data, value.size, &text), GEO_PARSE_OK);
+        EXPECT_EQ(text, cases[row].second);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeometryConstructorPreservesCollectionsAndEmptyValues) {
+    expect_typed_collection_constructors(TYPE_GEOMETRY);
+}
+
+TEST(VGeoFunctionsTest, GeographyConstructorPreservesCollectionsAndEmptyValues) {
+    expect_typed_collection_constructors(TYPE_GEOGRAPHY);
+}
+
+TEST(VGeoFunctionsTest, GeographyCollectionCalculationsFailExplicitly) {
+    const std::string point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    const auto multi = std::string("\x01\x04\x00\x00\x00\x01\x00\x00\x00", 9) + point;
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    auto column = type->create_column();
+    column->insert_data(multi.data(), multi.size());
+    ColumnsWithTypeAndName arguments {{std::move(column), type, "geography"}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_length", arguments, result_type);
+    ASSERT_NE(function, nullptr);
+    Block block;
+    block.insert(arguments.front());
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0}, 1, 1);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("does not support this Geography WKB shape"),
+              std::string::npos);
+}
+
+TEST(VGeoFunctionsTest, GeographyCalculationNullsSkipUnsupportedShapeEvaluation) {
+    const std::string point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    const auto multi = std::string("\x01\x04\x00\x00\x00\x01\x00\x00\x00", 9) + point;
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    auto left = type->create_column();
+    left->insert_data(multi.data(), multi.size());
+    left->insert_data(point.data(), point.size());
+    auto right = type->create_column();
+    right->insert_default();
+    right->insert_data(point.data(), point.size());
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({1, 0});
+    ColumnsWithTypeAndName arguments {{std::move(left), type, "left"},
+                                      {ColumnNullable::create(std::move(right), std::move(nulls)),
+                                       make_nullable(type), "right"}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_distance", arguments, result_type);
+    ASSERT_NE(function, nullptr);
+    Block block;
+    block.insert(arguments[0]);
+    block.insert(arguments[1]);
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_TRUE(result.is_null_at(0));
+    ASSERT_FALSE(result.is_null_at(1));
+    EXPECT_DOUBLE_EQ(assert_cast<const ColumnFloat64&>(result.get_nested_column()).get_data()[1],
+                     0);
+}
+
+TEST(VGeoFunctionsTest, KnownGeographicGeometryUsesCoordinateBounds) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\xa0\x66\x40"
+            "\x00\x00\x00\x00\x00\x00\xf0\x3f",
+            21);
+    for (const auto& crs : {"OGC:CRS84", "EPSG:4326", "EPSG:3857"}) {
+        const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, crs);
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        ColumnsWithTypeAndName arguments {{std::move(column), type, "geometry"}};
+        const auto result_type = make_nullable(std::make_shared<DataTypeString>());
+        auto function =
+                SimpleFunctionFactory::instance().get_function("st_astext", arguments, result_type);
+        ASSERT_NE(function, nullptr);
+        Block block;
+        block.insert(arguments.front());
+        block.insert({nullptr, result_type, "result"});
+        const auto status = function->execute(nullptr, block, {0}, 1, 1);
+        EXPECT_EQ(status.ok(), std::string(crs) == "EPSG:3857");
+    }
+}
+
+static void expect_nan_spatial_accessors(PrimitiveType primitive) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+            "\x00\x00\x00\x00\x00\x00\xf8\x7f",
+            21);
+    const auto type = std::make_shared<DataTypeSpatial>(primitive);
+    auto column = type->create_column();
+    column->insert_data(wkb.data(), wkb.size());
+    ColumnsWithTypeAndName arguments {{std::move(column), type, "spatial"}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeString>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_asbinary", arguments, result_type);
+    ASSERT_NE(function, nullptr);
+    Block block;
+    block.insert(arguments.front());
+    block.insert({nullptr, result_type, "result"});
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 1).ok());
+    ASSERT_FALSE(block.get_by_position(1).column->is_null_at(0));
+    EXPECT_EQ(block.get_by_position(1).column->get_data_at(0).to_string(), wkb);
+}
+
+TEST(VGeoFunctionsTest, MixedNanGeometryAndGeographyPreserveRawBinary) {
+    expect_nan_spatial_accessors(TYPE_GEOMETRY);
+    expect_nan_spatial_accessors(TYPE_GEOGRAPHY);
+}
+
+static void expect_constant_geography_distance(bool constant_on_left, bool unsupported_shape) {
+    const std::string point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    const auto wkb = unsupported_shape
+                             ? std::string("\x01\x04\x00\x00\x00\x01\x00\x00\x00", 9) + point
+                             : point;
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    auto constant_value = type->create_column();
+    constant_value->insert_data(wkb.data(), wkb.size());
+    auto vector_value = type->create_column();
+    vector_value->insert_default();
+    vector_value->insert_data(point.data(), point.size());
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({1, static_cast<uint8_t>(unsupported_shape)});
+    ColumnWithTypeAndName constant {ColumnConst::create(std::move(constant_value), 2), type,
+                                    "constant"};
+    ColumnWithTypeAndName vector {ColumnNullable::create(std::move(vector_value), std::move(nulls)),
+                                  make_nullable(type), "vector"};
+    ColumnsWithTypeAndName arguments = constant_on_left ? ColumnsWithTypeAndName {constant, vector}
+                                                        : ColumnsWithTypeAndName {vector, constant};
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_distance", arguments, result_type);
+    ASSERT_NE(function, nullptr);
+    Block block;
+    block.insert(arguments[0]);
+    block.insert(arguments[1]);
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    ASSERT_EQ(result.size(), 2);
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(result.is_null_at(1), unsupported_shape);
+    if (!unsupported_shape) {
+        EXPECT_DOUBLE_EQ(
+                assert_cast<const ColumnFloat64&>(result.get_nested_column()).get_data()[1], 0);
+    }
+}
+
+TEST(VGeoFunctionsTest, ConstantGeographyDistancePreservesNullableEvaluation) {
+    expect_constant_geography_distance(true, false);
+    expect_constant_geography_distance(false, false);
+    expect_constant_geography_distance(true, true);
+    expect_constant_geography_distance(false, true);
+}
 
 TEST(VGeoFunctionsTest, function_geo_st_point_test) {
     std::string func_name = "st_point";

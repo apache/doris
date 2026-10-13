@@ -35,21 +35,14 @@ class GeoLine;
 class GeoPoint;
 class GeoPolygon;
 
-// WKB format constants
-// According to OpenGIS Implementation Specification:
-// The high bit of the type value is set to 1 if the WKB contains a SRID.
-// Reference: OpenGIS Implementation Specification for Geographic information - Simple feature access - Part 1: Common architecture
-// Bit mask to check if WKB contains SRID
+// Legacy EWKB may embed an SRID; typed WKB carries CRS in its schema instead.
 constexpr uint32_t WKB_SRID_FLAG = 0x20000000;
-
-// The geometry type is stored in the least significant byte of the type value
-// Bit mask to extract the base geometry type
-constexpr uint32_t WKB_TYPE_MASK = 0xFF;
 
 class WkbParse {
 public:
     static GeoParseStatus parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape);
-    static GeoParseStatus validate_wkb_bytes(const char* data, size_t size);
+    static GeoParseStatus validate_wkb_bytes(const char* data, size_t size,
+                                             bool geographic = false);
     static GeoParseStatus wkb_to_wkt(const char* data, size_t size, std::string* wkt);
     static GeoParseStatus point_coordinates(const char* data, size_t size, double* x, double* y);
     static GeoParseStatus geometry_type(const char* data, size_t size, std::string* type);
@@ -72,11 +65,7 @@ private:
     static GeoParseStatus minMemSize(int wkbType, uint64_t size, WkbParseContext& ctx);
 
     static bool readCoordinate(WkbParseContext& ctx);
-    static bool validate_geometry(WkbParseContext& ctx);
-    static bool validate_coordinates(uint32_t size, WkbParseContext& ctx);
     static GeoParseStatus initialize_context(const char* data, size_t size, WkbParseContext* ctx);
-    static bool read_wkt_geometry(WkbParseContext& ctx, std::ostream& os);
-    static bool read_wkt_coordinates(uint32_t size, WkbParseContext& ctx, std::ostream& os);
     static GeoParseStatus read_geometry_type(WkbParseContext& ctx, uint32_t* type);
 };
 
