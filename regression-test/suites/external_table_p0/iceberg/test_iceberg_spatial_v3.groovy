@@ -202,6 +202,21 @@ public class CreateIcebergSpatialV3Table {
         sql """use ${dbName}"""
     }
     createCatalog()
+    test {
+        sql """create table spatial_invalid_geometry_crs (geom geometry(''))
+            engine=iceberg properties ('format-version' = '3')"""
+        exception "Spatial CRS must not be empty"
+    }
+    test {
+        sql """create table spatial_invalid_geography_crs (geog geography('', 'spherical'))
+            engine=iceberg properties ('format-version' = '3')"""
+        exception "Spatial CRS must not be empty"
+    }
+    test {
+        sql """create table spatial_invalid_algorithm (geog geography('OGC:CRS84', 'unknown'))
+            engine=iceberg properties ('format-version' = '3')"""
+        exception "Unsupported Geography algorithm"
+    }
     sql """
         insert into geometry_values values
             (1, ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
