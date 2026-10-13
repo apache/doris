@@ -3755,6 +3755,7 @@ TEST_F(BlockFileCacheTest, remove_downloading_block_forgets_its_queue_iterator) 
         auto* cell = cache.get_cell(key, 0, cache_lock);
         ASSERT_NE(cell, nullptr);
         EXPECT_TRUE(cell->file_block->is_deleting());
+        EXPECT_EQ(cache._deleting_blocks.count(io::AccessKeyAndOffset(key, 0)), 1);
         EXPECT_FALSE(cell->queue_iterator.has_value());
         EXPECT_EQ(queue.get_elements_num(cache_lock), 0);
         EXPECT_EQ(queue.get_capacity(cache_lock), 0);
@@ -3771,6 +3772,7 @@ TEST_F(BlockFileCacheTest, remove_downloading_block_forgets_its_queue_iterator) 
     {
         std::lock_guard<std::mutex> cache_lock(cache._mutex);
         EXPECT_EQ(cache.get_cell(key, 0, cache_lock), nullptr);
+        EXPECT_TRUE(cache._deleting_blocks.empty());
         EXPECT_EQ(queue.get_elements_num(cache_lock), 0);
         EXPECT_EQ(queue.get_capacity(cache_lock), 0);
     }
@@ -3945,6 +3947,229 @@ TEST_F(BlockFileCacheTest, recycle_deleting_blocks_honours_batch_limit) {
     EXPECT_EQ(cache.recycle_deleting_blocks(4), 4);
     EXPECT_EQ(cache.recycle_deleting_blocks(4), 2);
     EXPECT_EQ(cache.recycle_deleting_blocks(4), 0);
+    EXPECT_EQ(cache._cur_cache_size, 0);
+
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, recycle_deleting_blocks_ignores_block_recreated_at_same_offset) {
+    std::string my_cache_path = caches_dir / "recycle_deleting_blocks_recreated" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+
+    constexpr size_t block_size = 4;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 64;
+    settings.query_queue_elements = 16;
+    settings.index_queue_size = 64;
+    settings.index_queue_elements = 16;
+    settings.disposable_queue_size = 64;
+    settings.disposable_queue_elements = 16;
+    settings.capacity = 192;
+    settings.max_file_block_size = 64;
+    settings.max_query_cache_size = 64;
+
+    int64_t origin_gc_interval = config::file_cache_background_gc_interval_ms;
+    // Park the background GC thread: the explicit recycle_deleting_blocks() calls below must be
+    // the only thing reclaiming blocks, otherwise the assertions race with it.
+    config::file_cache_background_gc_interval_ms = 3600 * 1000;
+    Defer restore_gc_interval {
+            [&] { config::file_cache_background_gc_interval_ms = origin_gc_interval; }};
+
+    io::BlockFileCache cache(my_cache_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("recycle_deleting_blocks_recreated");
+
+    // A reader holds the block while the cache is cleared, so the block is only marked deleting.
+    io::FileBlocks old_blocks;
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.add_cell(key, context, 0, block_size, io::FileBlock::State::DOWNLOADED,
+                                    cache_lock);
+        ASSERT_NE(cell, nullptr);
+        old_blocks.push_back(cell->file_block);
+    }
+    cache.clear_file_cache_sync();
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        EXPECT_EQ(cache._deleting_blocks.size(), 1);
+    }
+
+    // The reader releases it through its holder, which removes the block and its key.
+    { io::FileBlocksHolder holder(std::move(old_blocks)); }
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        EXPECT_EQ(cache.get_cell(key, 0, cache_lock), nullptr);
+        EXPECT_TRUE(cache._deleting_blocks.empty());
+    }
+
+    // The same offset is read again and cached by a new block before the next GC round.
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.add_cell(key, context, 0, block_size, io::FileBlock::State::DOWNLOADED,
+                                    cache_lock);
+        ASSERT_NE(cell, nullptr);
+        EXPECT_FALSE(cell->file_block->is_deleting());
+    }
+
+    // The sweep must not take the new block for the one that was marked deleting.
+    EXPECT_EQ(cache.recycle_deleting_blocks(16), 0);
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        EXPECT_NE(cache.get_cell(key, 0, cache_lock), nullptr);
+    }
+    EXPECT_EQ(cache._cur_cache_size, block_size);
+
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, recycle_deleting_blocks_reclaims_empty_blocks) {
+    std::string my_cache_path = caches_dir / "recycle_deleting_blocks_empty" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+
+    constexpr size_t block_size = 4;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 64;
+    settings.query_queue_elements = 16;
+    settings.index_queue_size = 64;
+    settings.index_queue_elements = 16;
+    settings.disposable_queue_size = 64;
+    settings.disposable_queue_elements = 16;
+    settings.capacity = 192;
+    settings.max_file_block_size = 64;
+    settings.max_query_cache_size = 64;
+
+    int64_t origin_gc_interval = config::file_cache_background_gc_interval_ms;
+    // Park the background GC thread: the explicit recycle_deleting_blocks() calls below must be
+    // the only thing reclaiming blocks, otherwise the assertions race with it.
+    config::file_cache_background_gc_interval_ms = 3600 * 1000;
+    Defer restore_gc_interval {
+            [&] { config::file_cache_background_gc_interval_ms = origin_gc_interval; }};
+
+    io::BlockFileCache cache(my_cache_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("recycle_deleting_blocks_empty");
+
+    // A block nobody started to download, referenced by something that is not a holder.
+    io::FileBlockSPtr busy_ref;
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.add_cell(key, context, 0, block_size, io::FileBlock::State::EMPTY,
+                                    cache_lock);
+        ASSERT_NE(cell, nullptr);
+        busy_ref = cell->file_block;
+    }
+    cache.clear_file_cache_sync();
+    busy_ref.reset();
+
+    // Nobody will ever download it, so the sweep has to remove it.
+    EXPECT_EQ(cache.recycle_deleting_blocks(16), 1);
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        EXPECT_EQ(cache.get_cell(key, 0, cache_lock), nullptr);
+        EXPECT_TRUE(cache._deleting_blocks.empty());
+    }
+    EXPECT_EQ(cache._cur_cache_size, 0);
+
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, recycle_deleting_blocks_reclaims_block_removed_while_downloading) {
+    std::string my_cache_path = caches_dir / "recycle_deleting_blocks_downloading" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+
+    constexpr size_t block_size = 4;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 64;
+    settings.query_queue_elements = 16;
+    settings.index_queue_size = 64;
+    settings.index_queue_elements = 16;
+    settings.disposable_queue_size = 64;
+    settings.disposable_queue_elements = 16;
+    settings.capacity = 192;
+    settings.max_file_block_size = 64;
+    settings.max_query_cache_size = 64;
+
+    int64_t origin_gc_interval = config::file_cache_background_gc_interval_ms;
+    // Park the background GC thread: the explicit recycle_deleting_blocks() calls below must be
+    // the only thing reclaiming blocks, otherwise the assertions race with it.
+    config::file_cache_background_gc_interval_ms = 3600 * 1000;
+    Defer restore_gc_interval {
+            [&] { config::file_cache_background_gc_interval_ms = origin_gc_interval; }};
+
+    io::BlockFileCache cache(my_cache_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("recycle_deleting_blocks_downloading");
+
+    io::FileBlockSPtr block;
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.add_cell(key, context, 0, block_size, io::FileBlock::State::DOWNLOADED,
+                                    cache_lock);
+        ASSERT_NE(cell, nullptr);
+        FileBlockTestAccessor::set_state(*cell->file_block, io::FileBlock::State::DOWNLOADING);
+        FileBlockTestAccessor::set_downloader_id(*cell->file_block, 1234);
+        block = cell->file_block;
+    }
+
+    // remove() cannot erase a block that is still downloading, it only marks it deleting.
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        std::lock_guard<std::mutex> block_lock(block->_mutex);
+        cache.remove(block, cache_lock, block_lock, false);
+    }
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        EXPECT_EQ(cache._deleting_blocks.count(io::AccessKeyAndOffset(key, 0)), 1);
+    }
+
+    // Drop the reference the way a non-holder does. The sweep still leaves the block to its
+    // downloader.
+    block.reset();
+    EXPECT_EQ(cache.recycle_deleting_blocks(16), 0);
+
+    // Once the download is done nobody would remove the block but the sweep.
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.get_cell(key, 0, cache_lock);
+        ASSERT_NE(cell, nullptr);
+        FileBlockTestAccessor::set_state(*cell->file_block, io::FileBlock::State::DOWNLOADED);
+    }
+    EXPECT_EQ(cache.recycle_deleting_blocks(16), 1);
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto& queue = cache.get_queue(io::FileCacheType::NORMAL);
+        EXPECT_EQ(cache.get_cell(key, 0, cache_lock), nullptr);
+        EXPECT_TRUE(cache._deleting_blocks.empty());
+        EXPECT_EQ(queue.get_elements_num(cache_lock), 0);
+        EXPECT_EQ(queue.get_capacity(cache_lock), 0);
+    }
     EXPECT_EQ(cache._cur_cache_size, 0);
 
     if (fs::exists(my_cache_path)) {

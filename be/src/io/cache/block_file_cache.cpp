@@ -403,8 +403,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_lru_dump_latency_us");
     _recycle_keys_length_recorder = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_recycle_keys_length");
-    _deleting_blocks_length_recorder = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_deleting_blocks_length");
+    _deleting_block_count_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "file_cache_deleting_block_count", 0);
     _recycle_deleting_blocks_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_recycle_deleting_blocks");
     _need_update_lru_blocks_length_recorder = std::make_shared<bvar::LatencyRecorder>(
@@ -994,12 +994,13 @@ bool BlockFileCache::is_block_deleting(const FileBlockSPtr& block) const {
     return block->_is_deleting;
 }
 
-void BlockFileCache::mark_cell_deleting(FileBlockCell& cell,
-                                        std::lock_guard<std::mutex>& /* cache_lock */) {
+template <class T>
+    requires IsXLock<T>
+void BlockFileCache::mark_cell_deleting(FileBlockCell& cell, T& /* cache_lock */) {
     cell.file_block->set_deleting();
     // The block stays in _files until its last reference is dropped. Remember it so that
     // run_background_gc() can finish the job if that reference is not released through
-    // FileBlock::release_cache_reference().
+    // FileBlock::release_cache_reference(). remove() forgets it again when it erases the cell.
     _deleting_blocks.emplace(cell.file_block->get_hash_value(), cell.file_block->offset());
 }
 
@@ -1011,35 +1012,27 @@ size_t BlockFileCache::recycle_deleting_blocks(size_t batch_limit) {
     size_t pending = 0;
     {
         SCOPED_CACHE_LOCK(_mutex, this);
-        std::vector<AccessKeyAndOffset> done;
         std::vector<FileBlockSPtr> to_remove;
-        for (const auto& key : _deleting_blocks) {
+        for (const auto& [hash, offset] : _deleting_blocks) {
             if (to_remove.size() >= batch_limit) {
                 break;
             }
-            auto* cell = get_cell(key.first, key.second, cache_lock);
-            if (cell == nullptr) {
-                // Already removed, most likely by the holder that released it.
-                done.push_back(key);
+            auto* cell = get_cell(hash, offset, cache_lock);
+            if (cell == nullptr || !cell->file_block->is_deleting()) [[unlikely]] {
+                // Cannot happen: remove() erases the key together with the cell.
+                DCHECK(false) << "stale deleting block, hash=" << hash.to_string()
+                              << " offset=" << offset;
                 continue;
             }
-            if (!cell->releasable()) {
-                // Still in use, look at it again in the next round.
+            if (!cell->releasable() ||
+                cell->file_block->state_unsafe() == FileBlock::State::DOWNLOADING) {
+                // Still in use, or still being downloaded. Look at it again in the next round.
                 continue;
             }
-            if (cell->file_block->state_unsafe() != FileBlock::State::DOWNLOADED) {
-                // Downloading or empty blocks are finished by whoever owns the download, and
-                // remove() would not erase the cell anyway. Keep waiting for them.
-                continue;
-            }
-            done.push_back(key);
             to_remove.push_back(cell->file_block);
         }
-        // Erase first: remove() may put a block that is still downloading back into
-        // _deleting_blocks, and rehashing while iterating it would invalidate the iterator.
-        for (const auto& key : done) {
-            _deleting_blocks.erase(key);
-        }
+        // remove() erases the key of every block it removes, so it must not run while
+        // _deleting_blocks is being iterated above.
         for (auto& file_block : to_remove) {
             std::lock_guard block_lock(file_block->_mutex);
             // Deleting the file itself happens asynchronously: the storage must not be touched
@@ -1054,7 +1047,7 @@ size_t BlockFileCache::recycle_deleting_blocks(size_t batch_limit) {
         LOG(INFO) << "recycled deleting blocks, path=" << _cache_base_path << " num=" << recycled
                   << " pending=" << pending;
     }
-    *_deleting_blocks_length_recorder << pending;
+    _deleting_block_count_metrics->set_value(pending);
     return recycled;
 }
 
@@ -1877,7 +1870,8 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto* cell = get_cell(hash, offset, cache_lock);
     file_block->cell = nullptr;
     // Holder cleanup can race with prior cache metadata cleanup. In that case,
-    // skip the duplicate remove instead of touching a detached or replaced cell.
+    // skip the duplicate remove instead of touching a detached or replaced cell. That includes
+    // _deleting_blocks: a key found there now belongs to the block that replaced this one.
     if (cell == nullptr) {
         LOG(WARNING) << "remove skipped because cache cell is missing. hash=" << hash.to_string()
                      << " offset=" << offset << " size=" << file_block->range().size()
@@ -1968,7 +1962,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         // downloader is done with it. Forget the iterator: it points at a freed queue entry now,
         // and whoever finally erases this cell must not touch it again.
         cell->queue_iterator.reset();
-        file_block->set_deleting();
+        mark_cell_deleting(*cell, cache_lock);
         return;
     } else {
         *_evict_not_downloaded_size_metrics << file_block->range().size();
@@ -1981,6 +1975,10 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto it = _files.find(hash);
     if (it != _files.end()) {
         it->second.erase(file_block->offset());
+        if (file_block->is_deleting()) {
+            // The key leaves _deleting_blocks together with its cell.
+            _deleting_blocks.erase(AccessKeyAndOffset(hash, offset));
+        }
         if (it->second.empty()) {
             _files.erase(hash);
         }
