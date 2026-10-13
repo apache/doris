@@ -32,8 +32,10 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
@@ -91,6 +93,7 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.Level;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -273,8 +276,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider = createOffsetProvider(getConvertedSourceProperties());
             this.offsetProvider.initOnCreate(this.syncTables);
         } catch (Exception ex) {
-            log.warn("init streaming job for {} failed", dataSourceType, ex);
-            throw new RuntimeException(ex.getMessage(), ex);
+            JdbcClientException diagnostic = JdbcClientException.diagnostic(ex,
+                    "init streaming job for " + dataSourceType + " failed",
+                    sourceProperties.get(DataSourceConfigKeys.PASSWORD),
+                    sourceProperties.get(DataSourceConfigKeys.JDBC_URL));
+            ExceptionDiagnosticUtils.log(log, Level.WARN, "init streaming job for {} failed",
+                    dataSourceType, diagnostic);
+            throw new RuntimeException(diagnostic.getMessage(), diagnostic);
         }
     }
 

@@ -37,10 +37,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheBudgetManager;
-import org.apache.doris.connector.spi.DiagnosticException;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -67,7 +67,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -77,7 +76,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -380,26 +378,12 @@ public abstract class ExternalCatalog
     }
 
     public static String initErrorMessage(Throwable error) {
-        DiagnosticException diagnostic = findDiagnosticException(error);
-        return diagnostic == null ? ExceptionUtils.getRootCauseMessage(error) : diagnostic.getDiagnosticMessage();
+        return ExceptionDiagnosticUtils.message(error);
     }
 
     @Nullable
     public static String initErrorStackTrace(Throwable error) {
-        DiagnosticException diagnostic = findDiagnosticException(error);
-        return diagnostic == null ? null : diagnostic.getDiagnosticStackTrace(error);
-    }
-
-    @Nullable
-    private static DiagnosticException findDiagnosticException(Throwable error) {
-        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Throwable current = error; current != null && visited.add(current); current = current.getCause()) {
-            if (current instanceof DiagnosticException
-                    && ((DiagnosticException) current).getDiagnosticMessage() != null) {
-                return (DiagnosticException) current;
-            }
-        }
-        return null;
+        return ExceptionDiagnosticUtils.sanitizedStackTrace(error);
     }
 
     protected final void initLocalObjects() {

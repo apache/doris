@@ -38,6 +38,10 @@ public class JdbcClientException extends RuntimeException implements DiagnosticE
         this.sensitiveValues = sensitiveValues.clone();
     }
 
+    public static JdbcClientException diagnostic(Throwable cause, String context, String... sensitiveValues) {
+        return new JdbcClientException(cause, JdbcExceptionUtils.format(context, cause, sensitiveValues), sensitiveValues);
+    }
+
     @Override
     public String getDiagnosticMessage() {
         return getMessage();
