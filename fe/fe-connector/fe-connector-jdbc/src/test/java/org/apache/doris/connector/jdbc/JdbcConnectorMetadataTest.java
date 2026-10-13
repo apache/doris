@@ -26,6 +26,9 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -136,6 +139,12 @@ class JdbcConnectorMetadataTest {
 
         @Override
         public List<JdbcFieldInfo> getJdbcColumnsInfo(String remoteDbName, String remoteTableName) {
+            columnsFetches.incrementAndGet();
+            return fields;
+        }
+
+        @Override
+        public List<JdbcFieldInfo> getColumnsFromQuery(String query) {
             columnsFetches.incrementAndGet();
             return fields;
         }
@@ -281,6 +290,57 @@ class JdbcConnectorMetadataTest {
         Assertions.assertEquals(first, second, "getTableSchema over the shared (mutated) memo is stable");
         Assertions.assertTrue(first.contains("d:true"),
                 "the mutating type conversion's idempotent allowNull=true is reflected in the schema");
+    }
+
+    @Test
+    void queryBindingAndHandlesShareSchemaOnlyWithinStatement() {
+        CountingJdbcClient client = new CountingJdbcClient(Collections.singletonList(field("id")));
+        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(client, minimalCatalogProps());
+        ConnectorSession session = sessionWithScope(Collections.emptyMap(), liveScope());
+        PassthroughQueryTableHandle handle = new PassthroughQueryTableHandle("SELECT id FROM t");
+        metadata.getColumnsFromQuery(session, handle.getQuery());
+        Assertions.assertTrue(metadata.getColumnHandles(session, handle).containsKey("id"));
+        metadata.getColumnHandles(session, handle);
+        Assertions.assertEquals(1, client.columnsFetches.get());
+        metadata.getColumnsFromQuery(session, "SELECT id FROM other_table");
+        Assertions.assertEquals(2, client.columnsFetches.get());
+        metadata.getColumnsFromQuery(sessionWithScope(Collections.emptyMap(), liveScope()), handle.getQuery());
+        Assertions.assertEquals(3, client.columnsFetches.get());
+        metadata.getColumnsFromQuery(sessionWithProps(Collections.emptyMap()), handle.getQuery());
+        metadata.getColumnsFromQuery(sessionWithProps(Collections.emptyMap()), handle.getQuery());
+        Assertions.assertEquals(5, client.columnsFetches.get());
+    }
+
+    @Test
+    void passthroughOnlyLoadsSqlModeForTimestampRewrite() {
+        for (JdbcDbType dialect : Arrays.asList(JdbcDbType.MYSQL, JdbcDbType.OCEANBASE, JdbcDbType.TRINO)) {
+            AtomicInteger probes = new AtomicInteger();
+            JdbcScanPlanProvider provider = new JdbcScanPlanProvider(dialect, minimalCatalogProps(), 0, () -> {
+                probes.incrementAndGet();
+                return true;
+            });
+            ConnectorSession session = sessionWithScope(Collections.emptyMap(), liveScope());
+            PassthroughQueryTableHandle handle = new PassthroughQueryTableHandle("SELECT id FROM t;");
+            List<ConnectorColumnHandle> columns = Collections.singletonList(
+                    new JdbcColumnHandle("id", "id", ConnectorType.of("INT")));
+            Assertions.assertEquals(handle.getQuery(), provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, columns).build()).get(0).getProperties().get("query_sql"));
+            Assertions.assertEquals(handle.getQuery(), provider.getScanNodeProperties(
+                    session, handle, columns, Optional.empty()).get(ScanNodePropertyKeys.REMOTE_QUERY));
+            Assertions.assertEquals(0, probes.get(), "unchanged SQL must not check out a JDBC connection");
+
+            columns = Collections.singletonList(new JdbcColumnHandle("ts", "ts", ConnectorType.of("TIMESTAMPTZ", 6, 0)));
+            handle = new PassthroughQueryTableHandle("SELECT ts FROM t;");
+            String planned = provider.planScan(session, ConnectorScanRequest.builder(handle, columns).build())
+                    .get(0).getProperties().get("query_sql");
+            Assertions.assertEquals(planned, provider.getScanNodeProperties(
+                    session, handle, columns, Optional.empty()).get(ScanNodePropertyKeys.REMOTE_QUERY));
+            int expected = dialect == JdbcDbType.TRINO ? 0 : 1;
+            Assertions.assertEquals(expected, probes.get(), "scan and EXPLAIN share a statement probe");
+            provider.planScan(sessionWithScope(Collections.emptyMap(), liveScope()),
+                    ConnectorScanRequest.builder(handle, columns).build());
+            Assertions.assertEquals(expected * 2, probes.get(), "a new statement must reload SQL mode");
+        }
     }
 
     @Test

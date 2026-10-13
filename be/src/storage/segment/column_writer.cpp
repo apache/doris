@@ -1021,18 +1021,6 @@ Status StructColumnWriter::write_ordinal_index() {
     return Status::OK();
 }
 
-Status StructColumnWriter::append_nulls(size_t num_rows) {
-    for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->append_nulls(num_rows));
-    }
-    if (is_nullable()) {
-        std::vector<UInt8> null_signs(num_rows, 1);
-        const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
-    }
-    return Status::OK();
-}
-
 Status StructColumnWriter::finish_current_page() {
     return Status::NotSupported("struct writer has no data, can not finish_current_page");
 }
@@ -1318,23 +1306,6 @@ Status MapColumnWriter::write_ordinal_index() {
         if (sub_writer->get_next_rowid() != 0) {
             RETURN_IF_ERROR(sub_writer->write_ordinal_index());
         }
-    }
-    return Status::OK();
-}
-
-Status MapColumnWriter::append_nulls(size_t num_rows) {
-    for (auto& sub_writer : _kv_writers) {
-        RETURN_IF_ERROR(sub_writer->append_nulls(num_rows));
-    }
-    const UInt64 offset = cast_set<UInt64>(_kv_writers[0]->get_next_rowid());
-    std::vector<UInt64> offsets_data(num_rows + 1, offset);
-    const uint8_t* offsets_ptr = reinterpret_cast<const uint8_t*>(offsets_data.data());
-    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
-
-    if (is_nullable()) {
-        std::vector<UInt8> null_signs(num_rows, 1);
-        const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
     }
     return Status::OK();
 }

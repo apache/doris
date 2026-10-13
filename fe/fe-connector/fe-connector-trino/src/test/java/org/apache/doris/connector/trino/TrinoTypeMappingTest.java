@@ -82,7 +82,7 @@ public class TrinoTypeMappingTest {
         Assertions.assertEquals("CHAR", name(CharType.createCharType(10)));
         Assertions.assertEquals("STRING", name(VarcharType.createVarcharType(20)));
         Assertions.assertEquals("STRING", name(VarcharType.VARCHAR));
-        Assertions.assertEquals("STRING", name(VarbinaryType.VARBINARY));
+        Assertions.assertEquals("VARBINARY", name(VarbinaryType.VARBINARY));
     }
 
     @Test
@@ -164,9 +164,8 @@ public class TrinoTypeMappingTest {
     }
 
     @Test
-    public void testUnknownTypeThrows() {
-        // An unmapped Trino type must fail loudly rather than silently produce a wrong type.
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> TrinoTypeMapping.toConnectorType(UuidType.UUID));
+    public void testNativeUuidType() {
+        // A native UUID must not lose its logical type at the connector boundary.
+        Assertions.assertEquals("UUID", name(UuidType.UUID));
     }
 }

@@ -20,6 +20,7 @@ import io
 import json
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,6 +52,19 @@ def completed():
     return {"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 3}}
 
 
+def write_fake_gh(root):
+    # CLI lifecycle tests must never use real GitHub credentials or the network.
+    gh = root / "gh"
+    gh.write_text(
+        f"#!{sys.executable}\n"
+        "import json\nfrom pathlib import Path\n"
+        f"head_file = Path({str(root / 'new-head')!r})\n"
+        f"head = head_file.read_text() if head_file.exists() else {'a' * 40!r}\n"
+        "print(json.dumps({'head': {'sha': head}}))\n"
+    )
+    gh.chmod(0o700)
+
+
 class ResumeReviewTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -71,6 +85,7 @@ class ResumeReviewTest(unittest.TestCase):
             head_sha="a" * 40,
             base_sha="b" * 40,
             model="gpt-5.6-sol",
+            fallback_model=None,
             effort="xhigh",
             budget_seconds=1000,
         )
@@ -97,7 +112,14 @@ class ResumeReviewTest(unittest.TestCase):
         self.target_check = self.enterContext(
             mock.patch.object(runner, "check_resume_target")
         )
+        self.watchdog = self.enterContext(mock.patch.object(runner, "HeadWatchdog")).return_value
+        self.watchdog.wait.side_effect = lambda seconds: runner.time.sleep(seconds)
         self.help = self.enterContext(mock.patch.object(runner.subprocess, "run"))
+        self.verification = self.enterContext(mock.patch.object(
+            runner, "verify_completion", return_value={
+                "state": "success", "p0": 0, "p1": 0, "review_id": 123,
+            }
+        ))
 
     def write_rollout(self, *, thread_id=THREAD, cwd=None):
         (self.sessions / f"rollout-2026-09-07-{thread_id}.jsonl").write_text(
@@ -117,7 +139,7 @@ class ResumeReviewTest(unittest.TestCase):
     def execute(self, attempts):
         pending = iter(attempts)
 
-        def fake_attempt(command, events_path, stderr_path, timeout, reaper=None):
+        def fake_attempt(command, events_path, stderr_path, timeout, reaper=None, watchdog=None):
             self.commands.append(command)
             self.timeouts.append(timeout)
             spec = next(pending)
@@ -146,6 +168,62 @@ class ResumeReviewTest(unittest.TestCase):
     def last_error(self):
         return self.events()[-1]["error"]["message"]
 
+    def assert_superseded(self):
+        result = json.loads((self.context / runner.RESULT_FILE).read_text())
+        self.assertEqual("superseded", result["state"])
+        self.assertEqual("c" * 40, result["superseding_head_sha"])
+        self.assertEqual(self.args.head_sha, result["head_sha"])
+        self.assertEqual("review.superseded", self.events()[-1]["type"])
+        self.assertIn("superseded", (self.context / "codex-final-message.txt").read_text())
+
+    def test_stale_before_start_does_not_launch_codex(self):
+        self.watchdog.check.side_effect = runner.ReviewSuperseded("c" * 40)
+        self.assertEqual(runner.SUPERSEDED_EXIT_CODE, self.execute([]))
+        self.assertEqual([], self.commands)
+        self.assertEqual(self.args.model, (self.context / "codex-review-model.txt").read_text().strip())
+        self.verification.assert_not_called()
+        self.assert_superseded()
+
+    def test_superseded_attempt_preserves_logs_without_verification_or_resume(self):
+        self.assertEqual(runner.SUPERSEDED_EXIT_CODE, self.execute([{
+            "events": [thread_event()], "stderr": "attempt diagnostic",
+            "output": "interrupted partial review",
+            "raises": runner.ReviewSuperseded("c" * 40),
+        }]))
+        self.assertEqual(thread_event(), self.events()[0])
+        self.assertIn("attempt diagnostic", (self.context / "codex-stderr.log").read_text())
+        self.assertEqual("interrupted partial review",
+                         (self.context / "codex-attempts/1.final.txt").read_text())
+        self.verification.assert_not_called()
+        self.target_check.assert_not_called()
+        self.assertEqual([], self.sleeps)
+        self.assert_superseded()
+
+    def test_stale_at_exit_does_not_report_missing_submission(self):
+        self.watchdog.check.side_effect = [None, runner.ReviewSuperseded("c" * 40)]
+        self.assertEqual(runner.SUPERSEDED_EXIT_CODE, self.execute([
+            {"events": [thread_event(), completed()], "status": 0},
+        ]))
+        self.verification.assert_not_called()
+        self.assert_superseded()
+
+    def test_stale_during_verification_is_superseded(self):
+        self.verification.side_effect = ValueError("PR head moved during readback")
+        self.watchdog.check.side_effect = [None, None, runner.ReviewSuperseded("c" * 40)]
+        self.assertEqual(runner.SUPERSEDED_EXIT_CODE, self.execute([
+            {"events": [thread_event(), completed()], "status": 0},
+        ]))
+        self.assert_superseded()
+
+    def test_superseded_in_backoff_never_resumes(self):
+        self.watchdog.wait.side_effect = runner.ReviewSuperseded("c" * 40)
+        self.assertEqual(runner.SUPERSEDED_EXIT_CODE, self.execute([
+            {"events": [thread_event(), failed()]},
+        ]))
+        self.assertEqual(1, len(self.commands))
+        self.target_check.assert_not_called()
+        self.assert_superseded()
+
     def test_success_does_not_retry(self):
         self.assertEqual(
             0, self.execute([{"events": [thread_event(), completed()], "status": 0}])
@@ -153,6 +231,164 @@ class ResumeReviewTest(unittest.TestCase):
         self.help.assert_not_called()
         self.target_check.assert_not_called()
         self.assertEqual([], self.sleeps)
+
+    def test_completed_turn_without_verified_delivery_fails(self):
+        self.verification.side_effect = ValueError("No final review submission was declared")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), completed()], "status": 0}]))
+        self.assertIn("No final review submission", self.last_error())
+        self.assertFalse((self.context / "review-result.json").exists())
+
+    def test_partial_submission_at_capacity_does_not_resume_or_pass(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.verification.side_effect = ValueError("Final review inline comments were not completely verified")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}]))
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_not_called()
+        self.assertFalse((self.context / "review-result.json").exists())
+
+    def test_only_capacity_can_recover_after_submission(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed("Other failure")]}]))
+        self.verification.assert_not_called()
+
+    def test_cancellation_after_submission_is_still_failure(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()], "status": 143}]))
+        self.verification.assert_not_called()
+
+    def test_unsupported_model_falls_back_before_review_work(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        server_error = json.dumps(
+            {
+                "type": "error",
+                "status": 400,
+                "error": {"type": "invalid_request_error", "message": rejection},
+            }
+        )
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            {"type": "turn.started"},
+                            failed(server_error),
+                        ]
+                    },
+                    {"events": [thread_event(OTHER), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual(
+            ["gpt-6-sol", "gpt-5.6-sol"],
+            [command[command.index("--model") + 1] for command in self.commands],
+        )
+        self.assertNotIn("resume", self.commands[1])
+        self.assertEqual(
+            "gpt-5.6-sol\n", (self.context / "codex-review-model.txt").read_text()
+        )
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_called_once()
+
+    def test_unsupported_model_does_not_restart_after_item(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            {"type": "item.started"},
+                            failed(rejection),
+                        ]
+                    }
+                ]
+            ),
+        )
+        self.assertEqual(1, len(self.commands))
+        self.target_check.assert_not_called()
+
+    def test_both_models_rejected_stops_after_one_fallback(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+
+        def rejection(model):
+            return (
+                f"The '{model}' model is not supported when using Codex "
+                "with a ChatGPT account."
+            )
+
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed(rejection("gpt-6-sol"))]},
+                    {"events": [thread_event(OTHER), failed(rejection("gpt-5.6-sol"))]},
+                ]
+            ),
+        )
+        self.assertEqual(2, len(self.commands))
+        self.assertEqual(rejection("gpt-5.6-sol"), self.last_error())
+
+    def test_capacity_resume_uses_the_fallback_model(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        self.write_rollout(thread_id=OTHER)
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed(rejection)]},
+                    {"events": [thread_event(OTHER), failed()]},
+                    {"events": [thread_event(OTHER), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual([300], self.sleeps)
+        self.assertEqual(
+            ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-sol"],
+            [command[command.index("--model") + 1] for command in self.commands],
+        )
+        self.assertEqual(["resume", OTHER], self.commands[2][-3:-1])
+        self.assertEqual(
+            "gpt-5.6-sol\n", (self.context / "codex-review-model.txt").read_text()
+        )
+
+    def test_unsupported_model_during_resume_never_starts_another_review(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed()]},
+                    {"events": [thread_event(), failed(rejection)]},
+                ]
+            ),
+        )
+        self.assertEqual(2, len(self.commands))
+        self.assertEqual([300], self.sleeps)
+        self.assertEqual(rejection, self.last_error())
 
     def test_capacity_resumes_exact_session_with_same_settings_and_ledger(self):
         before = self.ledger.read_text()
@@ -173,8 +409,8 @@ class ResumeReviewTest(unittest.TestCase):
                 ]
             ),
         )
-        self.assertEqual([30], self.sleeps)
-        self.assertEqual([1000, 965], self.timeouts)
+        self.assertEqual([300], self.sleeps)
+        self.assertEqual([1000, 695], self.timeouts)
         command = self.commands[1]
         self.assertEqual(["resume", THREAD], command[-3:-1])
         self.assertNotIn("--last", command)
@@ -188,28 +424,34 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual("done", (self.context / "codex-final-message.txt").read_text())
         self.target_check.assert_called_once()
 
-    def test_zero_exit_capacity_on_resume_still_retries(self):
+    def test_zero_exit_capacity_can_complete_on_the_sixth_resume(self):
+        self.args.budget_seconds = 3600
         self.assertEqual(
             0,
             self.execute(
-                [
-                    {"events": [thread_event(), failed()]},
-                    {"events": [thread_event(), failed()], "status": 0},
-                    {"events": [thread_event(), completed()], "status": 0},
-                ]
+                [{"events": [thread_event(), failed()]}]
+                + [{"events": [thread_event(), failed()], "status": 0}] * 5
+                + [{"events": [thread_event(), completed()], "status": 0}]
             ),
         )
-        self.assertEqual(3, len(self.commands))
-        self.assertEqual([30, 60], self.sleeps)
-        self.assertEqual(2, self.target_check.call_count)
+        self.assertEqual(7, len(self.commands))
+        self.assertEqual([300] * 6, self.sleeps)
+        self.assertEqual([3600, 3300, 3000, 2700, 2400, 2100, 1800], self.timeouts)
+        self.assertEqual(6, self.target_check.call_count)
+        for command in self.commands[1:]:
+            self.assertEqual(["resume", THREAD], command[-3:-1])
+        retries = [e for e in self.events() if e["type"] == "review.capacity_retry"]
+        self.assertEqual([2, 3, 4, 5, 6, 7], [e["next_attempt"] for e in retries])
+        self.assertEqual([300] * 6, [e["delay_seconds"] for e in retries])
         self.assertEqual("completed", exporter.latest_turn_result(self.events())[0])
 
     def test_zero_exit_capacity_stops_at_the_retry_limit(self):
+        self.args.budget_seconds = 3600
         self.assertEqual(
-            1, self.execute([{"events": [thread_event(), failed()], "status": 0}] * 4)
+            1, self.execute([{"events": [thread_event(), failed()], "status": 0}] * 7)
         )
-        self.assertEqual([30, 60, 120], self.sleeps)
-        self.assertEqual(4, len(self.commands))
+        self.assertEqual([300] * 6, self.sleeps)
+        self.assertEqual(7, len(self.commands))
         self.assertEqual(runner.CAPACITY_MESSAGE, self.last_error())
 
     def test_zero_exit_error_event_can_identify_capacity(self):
@@ -228,7 +470,7 @@ class ResumeReviewTest(unittest.TestCase):
                 ]
             ),
         )
-        self.assertEqual([30], self.sleeps)
+        self.assertEqual([300], self.sleeps)
 
     def test_zero_exit_auth_usage_and_generic_failures_do_not_retry(self):
         for message in (
@@ -268,7 +510,7 @@ class ResumeReviewTest(unittest.TestCase):
             ),
         )
         self.assertEqual(2, len(self.commands))
-        self.assertEqual([30], self.sleeps)
+        self.assertEqual([300], self.sleeps)
         self.assertIn("without a terminal turn event", self.last_error())
         self.assertNotEqual(runner.CAPACITY_MESSAGE, self.last_error())
 
@@ -332,9 +574,10 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual([], self.sleeps)
 
     def test_retry_count_is_bounded(self):
-        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 4))
-        self.assertEqual([30, 60, 120], self.sleeps)
-        self.assertEqual(4, len(self.commands))
+        self.args.budget_seconds = 3600
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 7))
+        self.assertEqual([300] * 6, self.sleeps)
+        self.assertEqual(7, len(self.commands))
         self.assertEqual(runner.CAPACITY_MESSAGE, self.last_error())
 
     def test_no_retry_for_auth_usage_or_generic_errors_even_before_session_starts(self):
@@ -420,7 +663,7 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual([], self.sleeps)
 
     def test_budget_is_not_reset_between_attempts(self):
-        self.args.budget_seconds = 100
+        self.args.budget_seconds = 400
         self.assertEqual(
             1,
             self.execute(
@@ -430,8 +673,8 @@ class ResumeReviewTest(unittest.TestCase):
                 ]
             ),
         )
-        self.assertEqual([100, 60], self.timeouts)
-        self.assertEqual([30], self.sleeps)
+        self.assertEqual([400, 90], self.timeouts)
+        self.assertEqual([300], self.sleeps)
         self.assertIn("Insufficient shared review budget", self.last_error())
 
     def test_normal_review_can_run_past_the_old_89_minute_limit(self):
@@ -562,6 +805,162 @@ class ResumeReviewTest(unittest.TestCase):
         )
 
 
+
+class HeadWatchdogTest(unittest.TestCase):
+    def setUp(self):
+        self.clock = 0
+        self.args = SimpleNamespace(repository="apache/doris", pr_number="123", head_sha="a" * 40)
+        self.enterContext(mock.patch.object(runner.time, "monotonic", side_effect=lambda: self.clock))
+        self.sleep = self.enterContext(mock.patch.object(runner.time, "sleep", side_effect=self.advance))
+        self.api = self.enterContext(mock.patch.object(runner.subprocess, "run"))
+        self.api.return_value = SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}}))
+        self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
+        self.watchdog = runner.HeadWatchdog(self.args, lambda: 1000 - self.clock)
+
+    def advance(self, seconds):
+        self.clock += seconds
+
+    def test_unchanged_head_is_polled_once_per_minute(self):
+        self.watchdog.check()
+        self.clock = 59
+        self.watchdog.check()
+        self.assertEqual(1, self.api.call_count)
+        self.clock = 60
+        self.watchdog.check()
+        self.assertEqual(2, self.api.call_count)
+        self.assertEqual(10, self.api.call_args.kwargs["timeout"])
+
+    def test_only_head_changes_cancel_not_base_or_open_state(self):
+        self.api.return_value.stdout = json.dumps({
+            "head": {"sha": "a" * 40}, "base": {"sha": "c" * 40}, "state": "closed",
+        })
+        self.watchdog.check()
+        self.api.return_value.stdout = json.dumps({"head": {"sha": "c" * 40}})
+        with self.assertRaises(runner.ReviewSuperseded) as raised:
+            self.watchdog.check(force=True)
+        self.assertEqual("c" * 40, raised.exception.head_sha)
+
+    def test_invalid_response_does_not_cancel(self):
+        for payload in ("not json", "null", "[]", "{}", '{"head":null}',
+                        '{"head":{"sha":null}}', '{"head":{"sha":"short"}}',
+                        '{"head":{"sha":123}}'):
+            with self.subTest(payload=payload):
+                self.api.return_value.stdout = payload
+                self.watchdog.check(force=True)
+        self.assertIn("head check unavailable", self.stderr.getvalue())
+
+    def test_api_failures_keep_review_and_allow_later_detection(self):
+        for error in (subprocess.TimeoutExpired("gh", 10),
+                      subprocess.CalledProcessError(1, "gh"), OSError("unavailable")):
+            with self.subTest(error=type(error)):
+                self.api.side_effect = error
+                self.watchdog.check(force=True)
+        self.api.side_effect = None
+        self.api.return_value.stdout = json.dumps({"head": {"sha": "c" * 40}})
+        with self.assertRaises(runner.ReviewSuperseded):
+            self.watchdog.check(force=True)
+
+    def test_cancellation_is_not_swallowed_as_api_failure(self):
+        self.api.side_effect = KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.watchdog.check()
+
+    def test_api_timeout_is_bounded_by_remaining_budget(self):
+        self.clock = 998
+        self.watchdog.check()
+        self.assertEqual(2, self.api.call_args.kwargs["timeout"])
+
+    def test_backoff_polls_and_stops_before_another_model_request(self):
+        self.api.side_effect = [
+            SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}})),
+            SimpleNamespace(stdout=json.dumps({"head": {"sha": "c" * 40}})),
+        ]
+        with self.assertRaises(runner.ReviewSuperseded):
+            self.watchdog.wait(300)
+        self.assertEqual(60, self.clock)
+
+    def test_backoff_api_time_counts_toward_wait(self):
+        def slow_api(*args, **kwargs):
+            self.clock += 5
+            return SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}}))
+        self.api.side_effect = slow_api
+        self.watchdog.wait(125)
+        self.assertEqual(125, self.clock)
+        self.assertEqual([mock.call(55), mock.call(55)], self.sleep.call_args_list)
+
+    def test_running_process_keeps_shared_deadline_despite_poll_time(self):
+        self.watchdog.remaining = lambda: 65 - self.clock
+        process = mock.Mock(stderr=io.StringIO())
+        def wait(timeout=None):
+            if timeout is None or timeout == runner.PROCESS_EXIT_GRACE_SECONDS:
+                return 0  # cleanup
+            self.clock += timeout
+            raise subprocess.TimeoutExpired("codex", timeout)
+        process.wait.side_effect = wait
+        def slow_api(*args, **kwargs):
+            self.clock += min(10, kwargs["timeout"])
+            raise subprocess.TimeoutExpired("gh", kwargs["timeout"])
+        self.api.side_effect = slow_api
+        reaper = mock.Mock()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(runner.subprocess, "Popen", return_value=process):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                runner.run_attempt(["codex"], Path(tmp) / "events", Path(tmp) / "stderr", 65,
+                                   reaper=reaper, watchdog=self.watchdog)
+        self.assertEqual(65, self.clock)
+        process.send_signal.assert_called_once_with(signal.SIGINT)
+        reaper.reap.assert_called_once()
+
+
+@unittest.skipUnless(shutil.which("jq"), "workflow shell test requires jq")
+class SupersededWorkflowTest(unittest.TestCase):
+    def test_shell_accepts_only_matching_superseded_result(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml").read_text()
+        step = workflow.split("      - name: Run automated code review\n", 1)[1].split("\n      - name:", 1)[0]
+        script = textwrap.dedent(step.split("          set -e\n\n", 1)[1])
+        for case, status, state, head, expected in (
+            ("superseded", 75, "superseded", "a" * 40, 0),
+            ("wrong head", 75, "superseded", "b" * 40, 1),
+            ("wrong state", 75, "success", "a" * 40, 1),
+            ("generic failure", 1, "superseded", "a" * 40, 1),
+        ):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "review-result.json").write_text(json.dumps({
+                    "state": state, "repository": "apache/doris", "pr_number": "123",
+                    "head_sha": head, "superseding_head_sha": "c" * 40,
+                    "message": "PR head changed; stopping superseded review",
+                }))
+                (root / "codex-events.jsonl").touch()
+                (root / "codex-stderr.log").touch()
+                result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True, env={
+                    **os.environ, "status": str(status), "REPO": "apache/doris", "PR_NUMBER": "123",
+                    "HEAD_SHA": "a" * 40, "REVIEW_CONTEXT_DIR": tmp,
+                    "GITHUB_OUTPUT": str(root / "output"), "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                })
+                self.assertEqual(expected, result.returncode, result.stderr)
+                output = (root / "output").read_text() if (root / "output").exists() else ""
+                if expected == 0:
+                    self.assertEqual("review_state=superseded\n", output)
+                    self.assertIn("superseded", (root / "summary").read_text())
+                else:
+                    self.assertNotIn("review_state=superseded", output)
+
+
+class SupersededCleanupTest(unittest.TestCase):
+    def test_cleanup_failure_does_not_become_handled_supersession(self):
+        process = mock.Mock(stderr=io.StringIO())
+        watchdog = mock.Mock()
+        watchdog.check.side_effect = runner.ReviewSuperseded("c" * 40)
+        reaper = mock.Mock()
+        reaper.reap.side_effect = OSError("descendant cleanup failed")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(runner.subprocess, "Popen", return_value=process):
+            with self.assertRaisesRegex(OSError, "cleanup failed"):
+                runner.run_attempt(["codex"], Path(tmp) / "events", Path(tmp) / "stderr", 60,
+                                   reaper=reaper, watchdog=watchdog)
+        process.send_signal.assert_called_once_with(signal.SIGINT)
+        process.kill.assert_called_once()
+
+
 class WorkflowBudgetTest(unittest.TestCase):
     def test_cli_requires_the_workflow_budget(self):
         with (
@@ -626,9 +1025,9 @@ HELPER
 }
 """
         for minutes, setup, expected in (
-            (default_minutes, 12, 7068),
-            ("150", 30, 8850),
-            ("120", 7201, -121),
+            (default_minutes, 12, 7056),
+            ("150", 30, 8820),
+            ("120", 7201, -7322),
         ):
             with (
                 self.subTest(minutes=minutes, setup=setup),
@@ -699,6 +1098,11 @@ class ResumeTargetTest(unittest.TestCase):
     def test_changed_pr_prevents_resume(self):
         self.pr["base"]["sha"] = "c" * 40
         with self.assertRaisesRegex(ValueError, "changed"):
+            self.check([[]])
+
+    def test_new_head_before_resume_has_explicit_outcome(self):
+        self.pr["head"]["sha"] = "c" * 40
+        with self.assertRaises(runner.ReviewSuperseded):
             self.check([[]])
 
     def test_unavailable_api_does_not_blindly_resume(self):
@@ -896,6 +1300,7 @@ class ProcessLifecycleTest(unittest.TestCase):
     def test_real_process_capacity_then_resume_preserves_state(self):
         with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
             root = Path(tmp)
+            write_fake_gh(root)
             (root / "codex_goal_prompt.txt").write_text("test review")
             ledger = root / "subagent_review_findings.md"
             ledger.write_text("completed round 1")
@@ -955,6 +1360,9 @@ else:
                 ),
                 mock.patch.object(runner, "RETRY_DELAYS", (0, 0, 0)),
                 mock.patch.object(runner, "check_resume_target"),
+                mock.patch.object(runner, "verify_completion", return_value={
+                    "state": "success", "p0": 0, "p1": 0, "review_id": 123,
+                }),
             ):
                 self.assertEqual(0, runner.run_review(args))
             self.assertEqual("2", (root / "request-count").read_text())
@@ -999,6 +1407,7 @@ else:
     def test_cli_sigterm_cleans_up_child_and_does_not_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            write_fake_gh(root)
             (root / "codex_goal_prompt.txt").write_text(
                 "test only; do not call a service"
             )
@@ -1069,7 +1478,7 @@ else:
 
     @unittest.skipUnless(sys.platform == "linux", "requires Linux subreaper/pidfd")
     def test_cli_reaps_detached_descendants_without_touching_other_processes(self):
-        for stop in ("cancel", "timeout", "exit"):
+        for stop in ("cancel", "timeout", "exit", "superseded"):
             for graceful in (True, False):
                 with self.subTest(stop=stop, graceful=graceful):
                     self.check_detached_descendants(stop, graceful)
@@ -1083,6 +1492,7 @@ else:
     def check_detached_descendants(self, stop, graceful):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            write_fake_gh(root)
             (root / "codex_goal_prompt.txt").write_text("local process test only")
             fake_codex = root / "codex"
             fake_codex.write_text(
@@ -1127,7 +1537,7 @@ while time.monotonic() < deadline:
                 (
                     "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                     "import run_review_with_resume as r; "
-                    "r.PROCESS_EXIT_GRACE_SECONDS = 0.5; "
+                    "r.PROCESS_EXIT_GRACE_SECONDS = 0.5; r.HEAD_POLL_SECONDS = 0.05; "
                     + (
                         """
 import os, signal
@@ -1196,11 +1606,14 @@ r.os.pidfd_open = interrupt_cleanup
                     self.assertTrue(
                         (root / "pids.json").exists(), "fake Codex did not start"
                     )
+                    if stop == "superseded":
+                        (root / "new-head").write_text("c" * 40)
                     if stop.startswith("cancel"):
                         process.send_signal(signal.SIGTERM)
                     _, stderr = process.communicate(timeout=10)
                     self.assertEqual(
-                        130 if "cancel" in stop else 1, process.returncode, stderr
+                        75 if stop == "superseded" else 130 if "cancel" in stop else 1,
+                        process.returncode, stderr
                     )
                     for pid in json.loads((root / "pids.json").read_text()):
                         with self.assertRaises(ProcessLookupError):
@@ -1217,7 +1630,13 @@ r.os.pidfd_open = interrupt_cleanup
                             "Review cancelled; not resuming",
                             events[-1]["error"]["message"],
                         )
-                    if stop in ("cancel", "timeout", "cancel_reap_repeat"):
+                    if stop == "superseded":
+                        result = json.loads((root / runner.RESULT_FILE).read_text())
+                        self.assertEqual("superseded", result["state"])
+                        self.assertEqual("c" * 40, result["superseding_head_sha"])
+                        self.assertEqual("review.superseded",
+                                         runner.read_events(root / "codex-events.jsonl")[-1]["type"])
+                    if stop in ("cancel", "timeout", "cancel_reap_repeat", "superseded"):
                         self.assertEqual(graceful, (root / "interrupted").exists())
                 finally:
                     if process.poll() is None:

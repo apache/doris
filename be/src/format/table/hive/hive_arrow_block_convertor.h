@@ -21,7 +21,7 @@
 
 namespace doris::hive {
 
-// Hive currently shares Parquet's physical bindings, with the writer timezone supplied
+// Hive currently shares Parquet's physical bindings, with the catalog timezone supplied
 // explicitly by the writer. Keep its protocol separate from Arrow Flight and other tables.
 class HiveArrowBlockConvertor final : public ParquetArrowBlockConvertor {
 public:

@@ -20,9 +20,12 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
+#include <vector>
+
 #include "cloud/cloud_tablets_channel.h"
 #include "cloud/config.h"
 #include "common/logging.h"
+#include "load/channel/eos_completion.h"
 #include "load/channel/tablets_channel.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -179,7 +182,8 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& ch
 }
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
-                              PTabletWriterAddBlockResult* response) {
+                              PTabletWriterAddBlockResult* response,
+                              std::shared_ptr<EosCompletion>* eos_completion) {
     DBUG_EXECUTE_IF("LoadChannel.add_batch.failed",
                     { return Status::InternalError("fault injection"); });
     SCOPED_TIMER(_add_batch_timer);
@@ -205,8 +209,12 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     }
 
     // 3. handle eos
-    // if channel is incremental, maybe hang on close until all close request arrived.
+    // Keep the RPC pending without occupying a heavy worker while senders arrive.
     if (request.has_eos() && request.eos()) {
+        if (request.hang_wait()) {
+            DCHECK(!channel->is_incremental_channel());
+            *eos_completion = channel->eos_completion();
+        }
         st = _handle_eos(channel.get(), request, response);
         _report_profile(response);
         if (!st.ok()) {
@@ -228,24 +236,9 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     bool finished = false;
     auto index_id = request.index_id();
 
+    // close() publishes sender arrival before flushing. Final flush/commit
+    // errors belong to this RPC and cannot revoke earlier EOS responses.
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
-
-    // for init node, we close waiting(hang on) all close request and let them return together.
-    if (request.has_hang_wait() && request.hang_wait()) {
-        DCHECK(!channel->is_incremental_channel());
-        VLOG_DEBUG << fmt::format("txn {}: reciever index {} close waiting by sender {}", _txn_id,
-                                  request.index_id(), request.sender_id());
-        int count = 0;
-        while (!channel->is_finished()) {
-            bthread_usleep(1000);
-            count++;
-        }
-        // now maybe finished or cancelled.
-        VLOG_TRACE << "reciever close wait finished!" << request.sender_id();
-        if (count >= 1000 * _timeout_s) { // maybe config::streaming_load_rpc_max_alive_time_sec
-            return Status::InternalError("Tablets channel didn't wait all close");
-        }
-    }
 
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
@@ -306,9 +299,22 @@ bool LoadChannel::is_finished() {
 
 Status LoadChannel::cancel() {
     _cancelled.store(true);
-    std::lock_guard<std::mutex> l(_lock);
-    for (auto& it : _tablets_channels) {
-        static_cast<void>(it.second->cancel());
+    std::vector<std::shared_ptr<BaseTabletsChannel>> channels;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        channels.reserve(_tablets_channels.size());
+        for (auto& [id, channel] : _tablets_channels) {
+            channels.push_back(channel);
+        }
+    }
+    // Complete pending RPCs before waiting for writer cancellation. No callback
+    // may run under _lock, including when the timeout cleaner calls cancel().
+    for (auto& channel : channels) {
+        channel->eos_completion()->complete(
+                Status::Cancelled("Load channel {} cancelled", _load_id.to_string()));
+    }
+    for (auto& channel : channels) {
+        static_cast<void>(channel->cancel());
     }
     return Status::OK();
 }

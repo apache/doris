@@ -21,19 +21,28 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <optional>
 #include <set>
 
 #include "common/config.h"
+#include "core/assert_cast.h"
+#include "core/column/column_vector.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/olap_common.h"
+#include "storage/predicate/block_column_predicate.h"
+#include "storage/predicate/comparison_predicate.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/column_reader.h"
+#include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_helper.h"
+#include "storage/utils.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -195,7 +204,10 @@ protected:
         rs_meta->set_tablet_schema(tablet_schema);
     }
 
-    void prepare_single_index_build(int64_t rowset_id) {
+    void prepare_single_index_build(int64_t rowset_id, bool with_commit_tso = false) {
+        if (with_commit_tso) {
+            _tablet_schema->append_column(*create_commit_tso_column(3));
+        }
         auto tablet_path = _absolute_dir + "/" + std::to_string(rowset_id);
         _tablet->_tablet_path = tablet_path;
         ASSERT_TRUE(io::global_local_filesystem()->delete_directory(tablet_path).ok());
@@ -223,6 +235,9 @@ protected:
             int32_t k2 = i;
             columns[0]->insert_data(reinterpret_cast<const char*>(&k1), sizeof(k1));
             columns[1]->insert_data(reinterpret_cast<const char*>(&k2), sizeof(k2));
+            if (with_commit_tso) {
+                columns[2]->insert_default();
+            }
         }
         block.set_columns(std::move(columns));
         ASSERT_TRUE(rowset_writer->add_block(&block).ok());
@@ -690,6 +705,110 @@ TEST_F(IndexBuilderTest, BasicBuildTest) {
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 }
+
+class IndexBuilderCommitTsoTest : public IndexBuilderTest,
+                                  public testing::WithParamInterface<std::optional<TsoRange>> {
+protected:
+    void check_rowset(const RowsetSharedPtr& rowset) {
+        const auto& tso = GetParam();
+        const int64_t expected_tso = tso.has_value() && tso->end_tso() != -1 ? tso->end_tso() : 0;
+        EXPECT_EQ(tso.has_value(), rowset->rowset_meta()->has_commit_tso());
+        if (tso.has_value()) {
+            EXPECT_EQ(*tso, rowset->rowset_meta()->commit_tso());
+        }
+        // Open a fresh segment so an old cached constant reader cannot hide lost metadata.
+        auto segment_path = rowset->segment(0).path();
+        ASSERT_TRUE(segment_path.has_value()) << segment_path.error();
+        segment_v2::SegmentSharedPtr segment;
+        auto st = segment_v2::Segment::open(
+                io::global_local_filesystem(), segment_path.value(), _tablet->tablet_id(), 0,
+                rowset->rowset_id(), rowset->tablet_schema(), io::FileReaderOptions {}, &segment);
+        ASSERT_TRUE(st.ok()) << st;
+        OlapReaderStatistics stats;
+        StorageReadOptions options;
+        options.stats = &stats;
+        options.version = rowset->version();
+        options.commit_tso = rowset->rowset_meta()->commit_tso();
+        options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        segment_v2::ColumnIteratorUPtr iter;
+        st = segment->new_column_iterator(rowset->tablet_schema()->column(2), &iter, &options);
+        ASSERT_TRUE(st.ok()) << st;
+        segment_v2::ColumnIteratorOptions iter_options;
+        iter_options.stats = &stats;
+        iter_options.file_reader = segment->file_reader().get();
+        iter_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        ASSERT_TRUE(iter->init(iter_options).ok());
+        ASSERT_TRUE(iter->seek_to_ordinal(0).ok());
+        MutableColumnPtr values = ColumnInt64::create();
+        size_t rows = 8;
+        bool has_null = true;
+        st = iter->next_batch(&rows, values, &has_null);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(8, rows);
+        ASSERT_EQ(8, values->size());
+        EXPECT_FALSE(has_null);
+        const auto& column = assert_cast<const ColumnInt64&>(*values);
+        for (size_t i = 0; i < rows; ++i) {
+            EXPECT_EQ(expected_tso, column.get_element(i));
+        }
+        auto read_schema = std::make_shared<ReadSchema>(rowset->tablet_schema()->columns());
+        auto predicate = AndBlockColumnPredicate::create_shared();
+        std::shared_ptr<ColumnPredicate> greater_than_zero =
+                std::make_shared<ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>>(
+                        2, COMMIT_TSO_COL, Field::create_field<TYPE_BIGINT>(0));
+        predicate->add_column_predicate(
+                SingleColumnBlockPredicate::create_unique(greater_than_zero));
+        options.col_id_to_predicates.emplace(2, predicate);
+        std::unique_ptr<RowwiseIterator> filtered;
+        st = segment->new_iterator(read_schema, options, &filtered);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_EQ(expected_tso == 0, filtered->empty());
+    }
+};
+
+TEST_P(IndexBuilderCommitTsoTest, BuildPreservesCommitTso) {
+    ASSERT_NO_FATAL_FAILURE(prepare_single_index_build(16605, true));
+    auto source = _tablet->get_rowset_by_version(Version(10, 10));
+    ASSERT_NE(source, nullptr);
+    if (GetParam().has_value()) {
+        source->rowset_meta()->set_commit_tso(*GetParam());
+    }
+
+    ASSERT_NO_FATAL_FAILURE(check_rowset(source));
+    auto st = build_single_index();
+    ASSERT_TRUE(st.ok()) << st;
+    auto built = _tablet->get_rowset_by_version(Version(10, 10));
+    ASSERT_NE(built, nullptr);
+    EXPECT_NE(source->rowset_id(), built->rowset_id());
+    ASSERT_NO_FATAL_FAILURE(check_rowset(built));
+}
+
+TEST_P(IndexBuilderCommitTsoTest, DropPreservesCommitTso) {
+    ASSERT_NO_FATAL_FAILURE(prepare_single_index_build(16606, true));
+    // Seed the TSO after building the index so DROP has a valid input even on the old implementation.
+    auto st = build_single_index();
+    ASSERT_TRUE(st.ok()) << st;
+    auto source = _tablet->get_rowset_by_version(Version(10, 10));
+    ASSERT_NE(source, nullptr);
+    if (GetParam().has_value()) {
+        source->rowset_meta()->set_commit_tso(*GetParam());
+    }
+    ASSERT_NO_FATAL_FAILURE(check_rowset(source));
+
+    IndexBuilder drop_builder(*_engine_ref, _tablet, _columns, _alter_indexes, true);
+    ASSERT_TRUE(drop_builder.init().ok());
+    st = drop_builder.do_build_inverted_index();
+    ASSERT_TRUE(st.ok()) << st;
+    auto dropped = _tablet->get_rowset_by_version(Version(10, 10));
+    ASSERT_NE(dropped, nullptr);
+    EXPECT_NE(source->rowset_id(), dropped->rowset_id());
+    ASSERT_NO_FATAL_FAILURE(check_rowset(dropped));
+}
+
+INSTANTIATE_TEST_SUITE_P(CommitTso, IndexBuilderCommitTsoTest,
+                         testing::Values(std::optional<TsoRange> {},
+                                         std::optional<TsoRange> {TsoRange(-1, -1)},
+                                         std::optional<TsoRange> {TsoRange(100, 100)}));
 
 TEST_F(IndexBuilderTest, HandleSingleRowsetPreservesOrdinaryAppendFailure) {
     prepare_single_index_build(16604);

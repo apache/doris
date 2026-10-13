@@ -194,6 +194,15 @@ suite("test_adbc_metadata_ops", "p0,external") {
         sql """DESC ${catalogName}.${sqliteDb}.meta_a"""
         sqliteExec("ALTER TABLE meta_a ADD COLUMN added_by_refresh_table TEXT;"
                 + " UPDATE meta_a SET added_by_refresh_table = 'x';")
+
+        // The DESC above paid for this schema once. Until a REFRESH arrives the connector keeps serving
+        // that copy, which is the half that gives the assertion below its meaning -- a connector that
+        // re-read on every statement would satisfy that one while remembering nothing. The DATABASE and
+        // CATALOG levels below assert only the positive half: they exercise the same rule at a coarser key.
+        def columnsBeforeRefresh = sql("DESC ${catalogName}.${sqliteDb}.meta_a").collect { it[0] } as Set
+        assertFalse(columnsBeforeRefresh.contains("added_by_refresh_table"),
+                "the source's new column was visible before any REFRESH: ${columnsBeforeRefresh}")
+
         sql """REFRESH TABLE ${catalogName}.${sqliteDb}.meta_a"""
         def afterTableRefresh = sql("DESC ${catalogName}.${sqliteDb}.meta_a").collect { it[0] } as Set
         assertTrue(afterTableRefresh.contains("added_by_refresh_table"),

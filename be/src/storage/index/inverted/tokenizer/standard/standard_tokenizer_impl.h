@@ -166,6 +166,10 @@ public:
         return {_zz_buffer.data() + _zz_start_read, (size_t)(_zz_marked_pos - _zz_start_read)};
     }
 
+    int32_t get_token_start_offset() const { return _zz_buffer_offset + _zz_start_read; }
+
+    int32_t get_token_end_offset() const { return _zz_buffer_offset + _zz_marked_pos; }
+
     inline void yyreset(const ReaderPtr& reader) {
         _zz_reader = reader;
         _zz_at_eof = false;
@@ -174,6 +178,7 @@ public:
         _zz_start_read = 0;
         _zz_end_read = 0;
         _zz_final_partial_char = 0;
+        _zz_buffer_offset = 0;
         _zz_lexical_state = YYINITIAL;
     }
 
@@ -190,6 +195,7 @@ private:
 
     bool zz_refill() {
         if (_zz_start_read > 0) {
+            _zz_buffer_offset += _zz_start_read;
             _zz_end_read += _zz_final_partial_char;
             _zz_final_partial_char = 0;
 
@@ -291,6 +297,7 @@ private:
     int32_t _zz_start_read = 0;
     int32_t _zz_end_read = 0;
     int32_t _zz_final_partial_char = 0;
+    int32_t _zz_buffer_offset = 0;
 
     bool _zz_at_eof = false;
 };

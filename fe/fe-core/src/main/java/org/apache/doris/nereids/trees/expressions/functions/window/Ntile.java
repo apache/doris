@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -32,6 +31,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -86,7 +86,7 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
         // rewrite phase after this check runs. Reject early a bucket that FE already evaluates to a non-positive
         // or NULL value. A bucket FE can not evaluate, e.g. `3 % 2`, may still be folded by BE when
         // enable_fold_constant_by_be is set, so it is left to checkLegalityAfterRewrite.
-        Expression evaluated = FoldConstantRuleOnFE.evaluateWithoutContext(buckets);
+        Expression evaluated = ExpressionUtils.foldConstantArgument(buckets);
         if (evaluated instanceof Literal) {
             checkPositiveBucket(evaluated);
         }

@@ -877,6 +877,9 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_downgrade_count);
     COUNTER_UPDATE(local_state->_inverted_index_conjuncts_short_circuited_counter,
                    stats.inverted_index_conjuncts_short_circuited);
+    COUNTER_UPDATE(local_state->_gram_index_filter_counter, stats.rows_gram_index_filtered);
+    COUNTER_UPDATE(local_state->_gram_index_candidate_counter, stats.gram_index_candidate_rows);
+    COUNTER_UPDATE(local_state->_gram_index_gate_gave_up_counter, stats.gram_index_gate_gave_up);
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
@@ -920,6 +923,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
+    COUNTER_UPDATE(local_state->_condition_cache_lookup_counter,
+                   stats.condition_cache_lookup_count);
     COUNTER_UPDATE(local_state->_condition_cache_hit_counter, stats.condition_cache_hit_seg_nums);
     COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
                    stats.condition_cache_filtered_rows);

@@ -410,6 +410,9 @@ Status IndexBuilder::update_inverted_index_info() {
         rowset_meta->set_num_segments(input_rowset_meta->num_segments());
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
         rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
+        if (input_rowset_meta->has_commit_tso()) {
+            rowset_meta->set_commit_tso(input_rowset_meta->commit_tso());
+        }
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds_truncated(

@@ -20,7 +20,9 @@
 #include <gen_cpp/Exprs_types.h>
 
 #include <algorithm>
+#include <numeric>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -220,6 +222,62 @@ bool EqualityDeletePredicate::_equal(const Block& data_block, size_t data_row,
         }
     }
     return true;
+}
+
+Block EqualityDeletePredicate::distinct_rows(const Block& keys) {
+    const size_t rows = keys.rows();
+    if (rows <= 1) {
+        return keys;
+    }
+    const auto hashes = _build_hashes(keys);
+    // Grouped by the same hash the matching uses, then settled by the same comparison: a hash collision
+    // must not be allowed to drop a key that is merely similar to one already kept.
+    // Keep the temporary index flat. A node map plus one vector for every distinct hash is especially
+    // expensive for the common all-distinct tail, while sorting row indexes gives the same hash groups
+    // with two contiguous allocations.
+    std::vector<size_t> rows_by_hash(rows);
+    std::iota(rows_by_hash.begin(), rows_by_hash.end(), 0);
+    std::sort(rows_by_hash.begin(), rows_by_hash.end(), [&](size_t lhs, size_t rhs) {
+        return hashes[lhs] < hashes[rhs] || (hashes[lhs] == hashes[rhs] && lhs < rhs);
+    });
+    IColumn::Filter keep(rows, 0);
+    size_t distinct = 0;
+    for (size_t group_begin = 0; group_begin < rows;) {
+        size_t group_end = group_begin + 1;
+        while (group_end < rows &&
+               hashes[rows_by_hash[group_end]] == hashes[rows_by_hash[group_begin]]) {
+            ++group_end;
+        }
+        for (size_t position = group_begin; position < group_end; ++position) {
+            const size_t row = rows_by_hash[position];
+            const bool duplicate = std::ranges::any_of(
+                    rows_by_hash.begin() + group_begin, rows_by_hash.begin() + position,
+                    [&](size_t candidate) {
+                        if (keep[candidate] == 0) {
+                            return false;
+                        }
+                        for (size_t column_idx = 0; column_idx < keys.columns(); ++column_idx) {
+                            const auto& column = keys.get_by_position(column_idx).column;
+                            if (!column_value_equal(column, row, column, candidate)) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    });
+            if (!duplicate) {
+                keep[row] = 1;
+                ++distinct;
+            }
+        }
+        group_begin = group_end;
+    }
+    if (distinct == rows) {
+        // Nothing to drop, and filtering would copy every column to say so.
+        return keys;
+    }
+    Block distinct_block = keys;
+    Block::filter_block_internal(&distinct_block, keep);
+    return distinct_block;
 }
 
 std::string EqualityDeletePredicate::debug_string() const {

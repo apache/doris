@@ -46,6 +46,12 @@ class IvmAggBitmapUnionCountProcessor extends IvmAggBitmapProcessor {
     }
 
     @Override
+    boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        // The visible value is bitmap_count(hidden bitmap state), so the bitmap is the merged state.
+        return false;
+    }
+
+    @Override
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext applyContext) {
         // Keep the bitmap union as hidden MV state; the visible BITMAP_UNION_COUNT value is bitmap_count(state).
         Slot oldBitmap = applyContext.rawMvSlot(target.getHiddenStateSlot(IvmAggStateKey.BITMAP_UNION).getName());

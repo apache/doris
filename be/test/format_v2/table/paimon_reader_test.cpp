@@ -36,6 +36,7 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -44,8 +45,14 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/field.h"
 #include "exec/common/endian.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/paimon_reader.h"
@@ -59,6 +66,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/options.h"
+#include "util/timezone_utils.h"
 
 namespace doris::format {
 namespace {
@@ -478,6 +486,70 @@ TEST(PaimonReaderTest, AnnotatesTimestampSemanticsFromSplitHistorySchema) {
     EXPECT_EQ(remove_nullable(file_schema[1].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
 }
 
+TEST(PaimonReaderTest, RebuildsNestedTimestampTypesAndPreservesNullability) {
+    const auto timestamp = std::make_shared<DataTypeDateTimeV2>(3);
+    auto instant = make_file_column(2, "instant", make_nullable(timestamp));
+    instant.timestamp_is_adjusted_to_utc = true;
+    auto wall = make_file_column(3, "wall", timestamp);
+    wall.timestamp_is_adjusted_to_utc = false;
+    auto map =
+            make_file_column(1, "entries", std::make_shared<DataTypeMap>(instant.type, wall.type));
+    map.children = {instant, wall};
+    auto array =
+            make_file_column(0, "events", make_nullable(std::make_shared<DataTypeArray>(map.type)));
+    array.children = {map};
+    std::vector<ColumnDefinition> schema {array};
+    TFileScanRangeParams params;
+    paimon::PaimonReader reader;
+    reader.TEST_set_scan_params(&params);
+    reader.TEST_set_format(FileFormat::PARQUET);
+    ASSERT_TRUE(reader.TEST_annotate_file_schema(&schema).ok());
+    ASSERT_TRUE(schema[0].type->is_nullable());
+    const auto& result_array = assert_cast<const DataTypeArray&>(*remove_nullable(schema[0].type));
+    // ARRAY elements use nullable carriers even when the physical child is required.
+    ASSERT_TRUE(result_array.get_nested_type()->is_nullable());
+    const auto& result_map =
+            assert_cast<const DataTypeMap&>(*remove_nullable(result_array.get_nested_type()));
+    EXPECT_EQ(remove_nullable(result_map.get_key_type())->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(result_map.get_key_type()->get_scale(), 3);
+    EXPECT_EQ(remove_nullable(result_map.get_value_type())->get_primitive_type(), TYPE_DATETIMEV2);
+    EXPECT_EQ(result_map.get_value_type()->get_scale(), 3);
+    EXPECT_TRUE(schema[0].children[0].children[0].type->is_nullable());
+    EXPECT_FALSE(schema[0].children[0].children[1].type->is_nullable());
+}
+
+TEST(PaimonReaderTest, RejectsMalformedTimestampContainersBeforeChangingChildren) {
+    const auto timestamp = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    for (bool is_array : {true, false}) {
+        for (size_t count : {0U, 1U, 2U, 3U}) {
+            if (count == (is_array ? 1U : 2U)) {
+                continue;
+            }
+            SCOPED_TRACE(std::to_string(count));
+            DataTypePtr type =
+                    is_array ? DataTypePtr(std::make_shared<DataTypeArray>(timestamp))
+                             : DataTypePtr(std::make_shared<DataTypeMap>(timestamp, timestamp));
+            auto parent = make_file_column(0, "container", type);
+            for (size_t i = 0; i < count; ++i) {
+                auto child = make_file_column(i + 1, "child", timestamp);
+                child.timestamp_is_adjusted_to_utc = true;
+                parent.children.push_back(std::move(child));
+            }
+            std::vector<ColumnDefinition> schema {parent};
+            TFileScanRangeParams params;
+            paimon::PaimonReader reader;
+            reader.TEST_set_scan_params(&params);
+            reader.TEST_set_format(FileFormat::PARQUET);
+            const auto status = reader.TEST_annotate_file_schema(&schema);
+            EXPECT_FALSE(status.ok());
+            for (const auto& child : schema[0].children) {
+                EXPECT_EQ(child.type, timestamp);
+            }
+            EXPECT_EQ(schema[0].type, type);
+        }
+    }
+}
+
 // Scenario: when FE does not send a matching historical schema for the split schema id, Paimon must
 // stay on BY_NAME mapping and must not rewrite the file schema identifiers.
 TEST(PaimonReaderTest, FallsBackToByNameWhenSplitHistorySchemaIsMissing) {
@@ -655,6 +727,193 @@ TEST(PaimonReaderTest, NativeDataFilesAreMarkedImmutableForPageCache) {
         ASSERT_TRUE(reader.prepare_split(split_options).ok());
         EXPECT_TRUE(reader.TEST_current_data_file_is_immutable());
     }
+}
+
+// Read real INT96 files through the table mapper: testing ParquetReader alone can hide a stale
+// DATETIMEV2 block template by supplying the corrected TIMESTAMPTZ column directly.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): exercise one file across mapping and projection combinations.
+TEST(PaimonReaderTest, ReadsInt96HistorySemanticsThroughTableMapper) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto path =
+            (std::filesystem::temp_directory_path() / "paimon_int96_history.parquet").string();
+    const auto arrow_ts = arrow::timestamp(arrow::TimeUnit::MICRO);
+    arrow::TimestampBuilder builder(arrow_ts, arrow::default_memory_pool());
+    ASSERT_TRUE(builder.Append(0).ok());
+    ASSERT_TRUE(builder.Append(123456).ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::Array> timestamps;
+    ASSERT_TRUE(builder.Finish(&timestamps).ok());
+    auto nested = arrow::StructArray::Make({timestamps}, {arrow::field("ltz", arrow_ts)});
+    ASSERT_TRUE(nested.ok());
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("id", arrow::int32(), false),
+                           arrow::field("wall", arrow_ts), arrow::field("instant", arrow_ts),
+                           arrow::field("nested", (*nested)->type())}),
+            {build_int32_array({1, 2, 3}), timestamps, timestamps, *nested});
+    auto out = arrow::io::FileOutputStream::Open(path);
+    ASSERT_TRUE(out.ok());
+    ::parquet::ArrowWriterProperties::Builder arrow_props;
+    arrow_props.enable_force_write_int96_timestamps();
+    ASSERT_TRUE(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *out, 3,
+                                             ::parquet::WriterProperties::Builder().build(),
+                                             arrow_props.build())
+                        .ok());
+    ASSERT_TRUE((*out)->Close().ok());
+    auto physical = ::parquet::ParquetFileReader::OpenFile(path, false);
+    for (int i = 1; i < 4; ++i) {
+        ASSERT_EQ(::parquet::Type::INT96,
+                  physical->metadata()->schema()->Column(i)->physical_type());
+    }
+    physical->Close();
+
+    auto wall = external_schema_field("wall", 11);
+    wall.field_ptr->__set_timestamp_is_adjusted_to_utc(false);
+    auto instant = external_schema_field("instant", 12);
+    instant.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+    auto ltz = external_schema_field("ltz", 14);
+    ltz.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+    auto parent = external_schema_field("nested", 13);
+    schema::external::TStructField struct_field;
+    struct_field.__set_fields({ltz});
+    parent.field_ptr->nestedField.__set_struct_field(struct_field);
+    parent.field_ptr->__isset.nestedField = true;
+
+    for (bool mapping : {false, true}) {
+        for (bool filter_only : {false, true}) {
+            SCOPED_TRACE(mapping);
+            SCOPED_TRACE(filter_only);
+            const auto datetime_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+            const DataTypePtr instant_type =
+                    mapping ? make_nullable(std::make_shared<DataTypeTimeStampTz>(6))
+                            : datetime_type;
+            auto nested_col = make_table_column(
+                    13, "nested",
+                    std::make_shared<DataTypeStruct>(DataTypes {instant_type}, Strings {"ltz"}));
+            nested_col.children = {make_table_column(14, "ltz", instant_type)};
+            std::vector<ColumnDefinition> columns {
+                    make_table_column(10, "id", std::make_shared<DataTypeInt32>())};
+            if (!filter_only) {
+                columns.push_back(make_table_column(11, "wall", datetime_type));
+                columns.push_back(make_table_column(12, "instant", instant_type));
+                columns.push_back(nested_col);
+            } else if (!mapping) {
+                // A TIMESTAMPTZ-to-DATETIME cast can leave a residual predicate for Scanner.
+                // Keep its input in the scan block, as FE does, even when SELECT omits it.
+                columns.push_back(nested_col);
+            }
+            auto params = make_local_parquet_scan_params();
+            params.__set_parquet_timestamp_semantics_version(1);
+            params.__set_enable_mapping_timestamp_tz(mapping);
+            params.__set_current_schema_id(100);
+            params.__set_history_schema_info({external_schema(
+                    100, {external_schema_field("id", 10), wall, instant, parent})});
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            state.set_timezone("Asia/Shanghai");
+            VExprContextSPtrs conjuncts;
+            if (filter_only) {
+                auto function = [](const std::string& name, const DataTypePtr& result,
+                                   const DataTypes& args) {
+                    TFunctionName fn_name;
+                    fn_name.__set_function_name(name);
+                    TFunction fn;
+                    fn.__set_name(fn_name);
+                    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+                    for (const auto& arg : args) {
+                        fn.arg_types.push_back(arg->to_thrift());
+                    }
+                    fn.__set_ret_type(result->to_thrift());
+                    fn.__set_has_var_args(false);
+                    TExprNode node;
+                    node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+                    node.__set_type(result->to_thrift());
+                    node.__set_is_nullable(result->is_nullable());
+                    node.__set_num_children(args.size());
+                    node.__set_fn(fn);
+                    return VectorizedFnCall::create_shared(node);
+                };
+                auto string_type = std::make_shared<DataTypeString>();
+                auto leaf = function("element_at", instant_type, {nested_col.type, string_type});
+                const int nested_index = mapping ? 3 : 1;
+                leaf->add_child(VSlotRef::create_shared(nested_index, nested_index, -1,
+                                                        nested_col.type, "nested"));
+                leaf->add_child(VLiteral::create_shared(string_type,
+                                                        Field::create_field<TYPE_STRING>("ltz")));
+                auto predicate = function("is_not_null_pred", std::make_shared<DataTypeUInt8>(),
+                                          {instant_type});
+                predicate->add_child(leaf);
+                auto ctx = VExprContext::create_shared(predicate);
+                const auto prepare_status = ctx->prepare(&state, RowDescriptor());
+                ASSERT_TRUE(prepare_status.ok()) << prepare_status;
+                const auto open_status = ctx->open(&state);
+                ASSERT_TRUE(open_status.ok()) << open_status;
+                conjuncts.push_back(ctx);
+            }
+            RuntimeProfile profile("paimon_int96_history");
+            io::FileReaderStats stats;
+            io::FileCacheStatistics cache_stats;
+            auto io_ctx = make_io_context(&stats, &cache_stats);
+            ShardedKVCache cache(1);
+            paimon::PaimonReader reader;
+            ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                     .conjuncts = conjuncts,
+                                     .format = FileFormat::PARQUET,
+                                     .scan_params = &params,
+                                     .io_ctx = io_ctx,
+                                     .runtime_state = &state,
+                                     .scanner_profile = &profile})
+                                .ok());
+            auto split = build_split_options(path);
+            split.cache = &cache;
+            split.current_range.__set_table_format_params(
+                    make_paimon_schema_table_format_desc(100));
+            ASSERT_TRUE(reader.prepare_split(split).ok());
+            bool eos = false;
+            std::vector<int32_t> ids;
+            while (!eos) {
+                Block block = build_table_block(columns);
+                const auto status = reader.get_block(&block, &eos);
+                ASSERT_TRUE(status.ok()) << status;
+                if (block.rows() == 0) {
+                    continue;
+                }
+                if (filter_only && !mapping) {
+                    ASSERT_TRUE(VExprContext::filter_block(conjuncts, &block, columns.size()).ok());
+                }
+                const auto& id_column =
+                        assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    const auto id = id_column.get_element(row);
+                    ids.push_back(id);
+                    if (filter_only) {
+                        continue;
+                    }
+                    const auto& wall_col = *block.get_by_position(1).column;
+                    const auto& instant_col = *block.get_by_position(2).column;
+                    const auto& nested_col_data =
+                            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 3))
+                                    .get_column(0);
+                    if (id == 3) {
+                        EXPECT_TRUE(wall_col.is_null_at(row));
+                        EXPECT_TRUE(instant_col.is_null_at(row));
+                        EXPECT_TRUE(nested_col_data.is_null_at(row));
+                    } else {
+                        const auto* const fraction = id == 1 ? "000000" : "123456";
+                        EXPECT_EQ(std::string("1970-01-01 00:00:00.") + fraction,
+                                  datetime_type->to_string(wall_col, row));
+                        const auto expected =
+                                mapping ? std::string("1970-01-01 00:00:00.") + fraction + "+00:00"
+                                        : std::string("1970-01-01 08:00:00.") + fraction;
+                        EXPECT_EQ(expected, instant_type->to_string(instant_col, row));
+                        EXPECT_EQ(expected, instant_type->to_string(nested_col_data, row));
+                    }
+                }
+            }
+            EXPECT_EQ(ids,
+                      filter_only ? std::vector<int32_t>({1, 2}) : std::vector<int32_t>({1, 2, 3}));
+            ASSERT_TRUE(reader.close().ok());
+        }
+    }
+    std::filesystem::remove(path);
 }
 
 // Scenario: Paimon reader should parse its bitmap deletion vector and let TableReader apply the

@@ -95,12 +95,21 @@ jobs:
           # against, so it comes with it into the distribution. Same Category B reasoning, recorded
           # under the "CDDL v1.0" section of dist/LICENSE-dist.txt, which is the version that
           # artifact itself declares.
+          #
+          # The three Apache Paimon jars are Apache-2.0 artifacts and carry Apache LICENSE and
+          # NOTICE files. They are shaded binary bundles, so GitHub aggregates the licenses of
+          # their embedded dependencies and reports expressions that the repository-level allow
+          # list cannot represent. Keep the exception on these exact package names; the embedded
+          # dependency licenses and notices remain carried inside the jars.
           allow-dependencies-licenses: >-
             pkg:npm/caniuse-lite@1.0.30001809,
             pkg:maven/org.junit.jupiter/junit-jupiter,
             pkg:maven/junit/junit,
             pkg:maven/com.sun.jersey/jersey-client,
-            pkg:maven/javax.ws.rs/jsr311-api
+            pkg:maven/javax.ws.rs/jsr311-api,
+            pkg:maven/org.apache.paimon/paimon-common,
+            pkg:maven/org.apache.paimon/paimon-format,
+            pkg:maven/org.apache.paimon/paimon-hive-connector-3.1
           # ([String]). Acknowledged advisories that must not fail the review (optional)
           # org.codehaus.jackson:jackson-mapper-asl (GHSA-c27h-mcmw-48hv, GHSA-r6j9-8759-g62w):
           # legacy Jackson 1.x is EOL and neither advisory has a fixed version. Hive's metastore

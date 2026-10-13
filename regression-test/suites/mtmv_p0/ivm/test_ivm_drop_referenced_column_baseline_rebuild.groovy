@@ -25,9 +25,14 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // The base table change is metadata-only (light schema change) and emits no binlog, so the
 // delta is empty and the refresh has nothing to apply -- the MV baseline is simply stale.
 //
-// Expected: dropping a referenced column invalidates the IVM baseline, so a strict
-// INCREMENTAL refresh is rejected and the user is told to run a COMPLETE refresh.
-// Dropping an unreferenced column must still leave the incremental path untouched.
+// Expected: dropping a referenced column invalidates the IVM baseline. The invalidation puts the MV
+// in SCHEMA_CHANGE, so a strict INCREMENTAL refresh runs as a whole-MV COMPLETE instead of being
+// refused -- while the column is gone the query cannot be analysed at all, so that refresh fails on
+// the analysis error, and once a same-name column is added back the query analyses again and the
+// rebuild succeeds. Rebuilding is what keeps the ABA case safe: the rows are recomputed under the
+// current column semantics rather than an empty delta being applied to rows computed under the old
+// ones, which is the silent staleness this case exists to catch.
+// Dropping an unreferenced column must not invalidate the IVM baseline.
 suite("test_ivm_drop_referenced_column_baseline_rebuild") {
     def tableName = "ivm_drop_ref_col_t"
     def mvName = "ivm_drop_ref_col_mv"
@@ -83,7 +88,7 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
         def taskResult
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             taskResult = sql_return_maparray("""
-                SELECT TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg
+                SELECT TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg, IvmRebuiltPartitions
                 FROM tasks('type'='mv')
                 WHERE MvDatabaseName = '${context.dbName}' AND MvName = '${mv}'
                 ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
@@ -104,6 +109,11 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
     order_qt_mv_rows_baseline "SELECT grp, cnt, total FROM ${mvName}"
 
     // ------------------------------------- 2. unreferenced column: no baseline invalidation
+    // Neither half is touched: no partition requirement is raised, and the shared base-table change hook
+    // leaves the MV alone as well -- its criterion is a re-analysis of the MV's own query, and a column
+    // the query does not name leaves that query analysable, so there is no rebuild for the state to stand
+    // for. How that shows up is what the refresh below reports: it stays on the incremental path, which is
+    // the path that records no refresh mode at all, instead of being escalated to a whole-MV COMPLETE.
     def before = ddlJobCount(tableName)
     sql """ALTER TABLE ${tableName} DROP COLUMN spare"""
     waitDdlFinished(tableName, before)
@@ -111,9 +121,15 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
     sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
     task = waitTerminalTask(mvName)
     assertEquals("SUCCESS", task.Status.toString(),
-            "dropping an unreferenced column must not invalidate the IVM baseline: " + task.ErrorMsg)
+            "dropping an unreferenced column must not invalidate the MV: " + task.ErrorMsg)
+    // Only the partition and whole-MV attempts set a mode; an incremental one leaves the column unset,
+    // which comes back as the same literal the folding in the other suites turns into a token.
+    assertEquals("\\N", task.RefreshMode.toString(),
+            "the refresh must not be escalated to a whole-MV COMPLETE, so it records no refresh mode")
+    assertEquals("0", task.IvmRebuiltPartitions.toString(),
+            "and it rebuilds no partition the request did not ask for")
 
-    // ---------------------------------------- 3. referenced column: strict INCREMENTAL rejected
+    // --------------------------- 3. referenced column: the refresh can no longer analyse
     before = ddlJobCount(tableName)
     sql """ALTER TABLE ${tableName} DROP COLUMN grp"""
     waitDdlFinished(tableName, before)
@@ -123,17 +139,25 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
     assertEquals("FAILED", task.Status.toString(),
             "dropping a referenced column must reject a strict INCREMENTAL refresh")
 
-    // -------------------------------- 4. same-name re-add (schema ABA) is still rejected
+    // --------------------------------- 4. same-name re-add (schema ABA): rebuilt, not accepted
+    // The re-added column makes the MV query analysable again while the MV is still in
+    // SCHEMA_CHANGE, so the strict INCREMENTAL runs as a whole-MV COMPLETE refresh. That is the
+    // difference the ABA case turns on: every row is recomputed under the current column semantics,
+    // instead of an empty delta being applied to rows computed under the old ones. Succeeding from
+    // the incremental path here would be exactly the silent staleness this case exists to catch,
+    // which is why the refresh mode is asserted and not just the status.
     before = ddlJobCount(tableName)
     sql """ALTER TABLE ${tableName} ADD COLUMN grp INT NULL DEFAULT '0'"""
     waitDdlFinished(tableName, before)
 
     sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
     task = waitTerminalTask(mvName)
-    assertEquals("FAILED", task.Status.toString(),
-            "schema ABA must not be silently accepted by a strict INCREMENTAL refresh")
-    assertTrue(task.ErrorMsg.toString().contains("baseline rebuild is pending"),
-            "expected a pending baseline rebuild hint, got: " + task.ErrorMsg)
+    assertEquals("SUCCESS", task.Status.toString(),
+            "with the column re-added the query analyses, so the escalated refresh succeeds: "
+                    + task.ErrorMsg)
+    assertEquals("COMPLETE", task.RefreshMode.toString(),
+            "the ABA refresh must rebuild the whole MV rather than apply an empty delta")
+    order_qt_mv_rows_after_aba_strict "SELECT grp, cnt, total FROM ${mvName}"
 
     // ------------------------------------ 5. COMPLETE rebuild reflects current base semantics
     // Every pre-existing row now reads the re-added column's default value.

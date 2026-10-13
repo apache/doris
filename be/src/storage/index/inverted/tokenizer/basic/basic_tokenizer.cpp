@@ -51,6 +51,11 @@ Token* BasicTokenizer::next(Token* token) {
     std::string_view& token_text = _tokens_text[_buffer_index++];
     size_t size = std::min(token_text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
     token->setNoCopy(token_text.data(), 0, static_cast<int32_t>(size));
+    const auto source_start = static_cast<int32_t>(token_text.data() - _buffer.data());
+    std::string_view term(token_text.data(), size);
+    set_source_byte_offsets(term, source_start);
+    token->setStartOffset(correct_source_start_offset(source_start));
+    token->setEndOffset(correct_source_offset(source_start + static_cast<int32_t>(size)));
     return token;
 }
 

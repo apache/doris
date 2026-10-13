@@ -40,7 +40,12 @@
 //   suffix_len  varint   # number of suffix bytes
 //   suffix      u8[]     # suffix bytes that differ from prev_term
 //   flags       u8       # bit0 kind / bit1 enc / bit2 has_sb / bit3
-//   has_champion(=0) / bit4 offsets_ref(=0) df          varint locator:
+//   has_champion(=0) / bit4 offsets_ref(=0) / bit5 posting_dropped
+//   df          varint
+//   # bit5 posting_dropped ends the body here: no locator, no payload. bit0-2 are
+//   # then meaningless. The term is present with a real df but matches every
+//   # document; it is not the same as a term absent from the dictionary.
+//   locator:
 //     pod_ref: frq_off_delta varint, frq_len varint,
 //              [prelude_len varint when enc=windowed]
 //              [slim region meta when enc=slim]:
@@ -69,6 +74,13 @@ struct DictEntry {
     DictEntryKind kind = DictEntryKind::kPodRef;
     DictEntryEnc enc = DictEntryEnc::kSlim;
     bool has_sb = false;
+    // stop-gram: the writer dropped this term's posting list. The entry still carries the
+    // term key and df; kind/enc/has_sb and every locator field below are meaningless and
+    // nothing after the term stats is encoded. A reader must treat the term as matching
+    // every document, and must not read a posting for it -- there is none. Keeping the
+    // entry rather than removing the term is the whole point: an absent term means the
+    // opposite (matching no document), and conflating the two drops matching rows.
+    bool posting_dropped = false;
 
     // document frequency.
     uint32_t df = 0;
@@ -96,9 +108,10 @@ Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, Ind
 
 // Same encoding with caller-owned body scratch. The scratch is cleared before
 // use while retaining capacity, allowing block builders to avoid one allocation
-// per dictionary entry. sink and body_scratch must be distinct objects.
+// per dictionary entry. sink and body_scratch must be distinct objects. A nonempty
+// external_inline_frq replaces an empty frq_bytes field during bounded replay.
 Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
-                         ByteSink* sink, ByteSink* body_scratch);
+                         ByteSink* sink, ByteSink* body_scratch, Slice external_inline_frq = {});
 
 // Decodes one entry from the current position of src; term is reconstructed
 // from prev_term + suffix. Verifies the trailing CRC; out-of-range / CRC
