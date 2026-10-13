@@ -23,6 +23,7 @@
 #include <unicode/uchar.h>
 #include <unicode/unistr.h>
 #include <unicode/ustream.h>
+#include <unicode/utf8.h>
 
 #include <bitset>
 #include <compare>
@@ -74,6 +75,31 @@ struct StringASCII {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             res[i] = (offsets[i] == offsets[i - 1]) ? 0 : static_cast<uint8_t>(raw_str[0]);
+        }
+        return Status::OK();
+    }
+};
+
+struct NameStringOrd {
+    static constexpr auto name = "ord";
+};
+
+struct StringOrd {
+    using ReturnType = DataTypeInt32;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
+    using ReturnColumnType = ColumnInt32;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<Int32>& res) {
+        res.resize(offsets.size());
+        for (size_t i = 0; i < offsets.size(); ++i) {
+            const auto length = offsets[i] - offsets[i - 1];
+            res[i] = -1;
+            if (length != 0) {
+                const auto* str = &data[offsets[i - 1]];
+                size_t position = 0;
+                U8_NEXT(str, position, length, res[i]);
+            }
         }
         return Status::OK();
     }
@@ -1370,6 +1396,7 @@ using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, Find
 
 // ready for regist function
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
+using FunctionStringOrd = FunctionUnaryToType<StringOrd, NameStringOrd>;
 using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
 using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
@@ -1501,6 +1528,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionStringParseDataSize>();
     factory.register_function<FunctionStringASCII>();
+    factory.register_function<FunctionStringOrd>();
     factory.register_function<FunctionStringLength>();
     factory.register_function<FunctionCrc32>();
     factory.register_function<FunctionStringUTF8Length>();
@@ -1563,6 +1591,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsValidUTF8>();
 
     factory.register_alias(FunctionIsValidUTF8::name, "isValidUTF8");
+    factory.register_alias(FunctionStringOrd::name, "unicode");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
