@@ -36,11 +36,13 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class S3SourceOffsetProviderTest {
@@ -199,15 +201,16 @@ public class S3SourceOffsetProviderTest {
     }
 
     private void assertLiteralFiles(String prefix, List<String> files, List<String> otherKeys) throws Exception {
-        // Exercise escapeGlob through the generated URI and the matcher used by S3 listing.
+        // Check the audit URI with the LIST matcher; execution uses the original file statuses.
         String uri = S3SourceOffsetProvider.buildFileListUri(statuses(prefix, files));
         String keyPattern = S3URI.create(uri).getKey();
-        Pattern matcher = S3Util.compileGlobPattern(keyPattern);
+        PathMatcher matcher = FileSystems.getDefault()
+                .getPathMatcher("glob:" + Paths.get(S3Util.extendGlobs(keyPattern)));
         for (String file : files) {
-            Assertions.assertTrue(matcher.matcher(prefix + file).matches(), "Missing file: " + file);
+            Assertions.assertTrue(matcher.matches(Paths.get(prefix + file)), "Missing file: " + file);
         }
         for (String key : otherKeys) {
-            Assertions.assertFalse(matcher.matcher(key).matches(), "Unexpected file: " + key);
+            Assertions.assertFalse(matcher.matches(Paths.get(key)), "Unexpected file: " + key);
         }
     }
 }

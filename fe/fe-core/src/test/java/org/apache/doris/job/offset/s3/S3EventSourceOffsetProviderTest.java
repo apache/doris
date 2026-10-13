@@ -296,8 +296,30 @@ public class S3EventSourceOffsetProviderTest {
 
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
 
+        S3EventOffset offset = nextOffset();
         Assertions.assertEquals(Arrays.asList("logs/001.csv", "logs/abc.csv",
-                "logs/1.csv", "logs/2.csv"), nextOffset().getFiles());
+                "logs/1.csv", "logs/2.csv", "logs//1.csv"), offset.getFiles());
+        Assertions.assertEquals("s3://bucket/logs//1.csv", offset.getFileStatuses().get(4).getPath());
+    }
+
+    @Test
+    public void testNotificationPreservesRepeatedSlashesInObjectKey() throws Exception {
+        assertSelection("logs/*.csv", "logs//a.csv", true);
+    }
+
+    @Test
+    public void testNotificationSkipsNegativeRangeInMixedAlternatives() throws Exception {
+        assertSelection("logs/{x,-1..1}.csv", "logs/0.csv", false);
+    }
+
+    @Test
+    public void testNotificationPreservesSpacesInLiteralAlternatives() throws Exception {
+        assertSelection("logs/{1..2, abc }.csv", "logs/ abc .csv", true);
+    }
+
+    @Test
+    public void testNotificationUsesFilesystemCaretCharacterClass() throws Exception {
+        assertSelection("logs/[^a].csv", "logs/a.csv", true);
     }
 
     @Test
@@ -1085,6 +1107,29 @@ public class S3EventSourceOffsetProviderTest {
             Assertions.assertEquals("event-external-id", assumed.getValue().externalId());
             Mockito.verify(sqsBuilder).region(Region.US_WEST_2);
             Mockito.verify(sqsClient, Mockito.never()).close();
+        }
+    }
+
+    private void assertSelection(String pattern, String key, boolean expected) throws Exception {
+        provider.close();
+        tvfProperties.put("uri", "s3://bucket/" + pattern);
+        provider = new S3EventSourceOffsetProvider(QUEUE_URL);
+        provider.ensureInitialized(1L, tvfProperties);
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("selection", key)), ReceiveMessageResponse.builder().build());
+
+        provider.fetchRemoteMeta(jobProperties(256), tvfProperties);
+
+        Assertions.assertEquals(expected, provider.hasMoreDataToConsume());
+        if (expected) {
+            S3EventOffset offset = nextOffset();
+            Assertions.assertEquals(Collections.singletonList(key), offset.getFiles());
+            Assertions.assertEquals("s3://bucket/" + key, offset.getFileStatuses().get(0).getPath());
+            Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
+        } else {
+            ArgumentCaptor<DeleteMessageBatchRequest> deletes = ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
+            Mockito.verify(sqsClient).deleteMessageBatch(deletes.capture());
+            Assertions.assertEquals(Collections.singletonList("selection"), deleteHandles(deletes.getValue()));
         }
     }
 

@@ -60,6 +60,9 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -69,7 +72,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -84,7 +86,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
     private final String queueUrl;
     private transient Long jobId;
     private transient String sourceBucket;
-    private transient Pattern sourceKeyMatcher;
+    private transient PathMatcher sourceKeyMatcher;
     // Only one task batch is retained, either ready for scheduling or assigned to a task.
     private transient TaskBatch readyBatch;
     private transient TaskBatch runningBatch;
@@ -130,7 +132,8 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             sourceBucket = bucketAndKey[0];
             if (sourceKeyMatcher == null) {
                 String key = bucketAndKey.length == 1 ? "" : bucketAndKey[1].replaceFirst("^/+", "");
-                sourceKeyMatcher = S3Util.compileGlobPattern(key);
+                sourceKeyMatcher = FileSystems.getDefault()
+                        .getPathMatcher("glob:" + Paths.get(S3Util.extendGlobs(key)));
             }
 
             if (StringUtils.isBlank(s3Properties.getRegion())) {
@@ -558,7 +561,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             String key;
             try {
                 key = record.getS3().getObject().getUrlDecodedKey();
-                if (!sourceBucket.equals(bucket) || !sourceKeyMatcher.matcher(key).matches()) {
+                if (!sourceBucket.equals(bucket) || !sourceKeyMatcher.matches(Paths.get(key))) {
                     continue;
                 }
             } catch (IllegalArgumentException e) {

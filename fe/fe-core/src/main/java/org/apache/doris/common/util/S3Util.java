@@ -570,172 +570,6 @@ public class S3Util {
         }
     }
 
-    /**
-     * Expands {@code {N..M}} numeric range syntax in a glob pattern to the equivalent
-     * comma-separated alternation {@code {N,N+1,...,M}} that Java's PathMatcher understands.
-     * Supports simple non-negative ranges like {@code {1..3}}, reverse ranges like {@code {3..1}},
-     * and mixed comma-separated patterns like {@code {1..2,3,1..3}} or {@code {Refrain,1..3}}.
-     * For simple (no-comma) brace groups, only non-negative ranges are expanded;
-     * negative-start ranges like {@code {-1..1}} are left unchanged.
-     * Duplicate values are removed. For example:
-     * <ul>
-     *   <li>{@code data_{1..3}.csv} → {@code data_{1,2,3}.csv}</li>
-     *   <li>{@code data_{1..2,3,1..3}.csv} → {@code data_{1,2,3}.csv}</li>
-     *   <li>{@code data_{Refrain,1..3}.csv} → {@code data_{Refrain,1,2,3}.csv}</li>
-     *   <li>{@code data_{-1..1}.csv} → unchanged (no expansion)</li>
-     * </ul>
-     */
-    private static String expandNumericRanges(String pattern) {
-        java.util.regex.Pattern rangeSegment = java.util.regex.Pattern.compile(
-                "(-?\\d+)\\.\\.(-?\\d+)");
-        java.util.regex.Pattern simpleRange = java.util.regex.Pattern.compile(
-                "\\{(\\d+)\\.\\.(\\d+)\\}");
-        // Match any brace group that contains at least one N..M range
-        java.util.regex.Pattern braceGroup = java.util.regex.Pattern.compile(
-                "\\{([^}]*\\d+\\.\\.\\d+[^}]*)\\}");
-        java.util.regex.Matcher m = braceGroup.matcher(pattern);
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) {
-            String content = m.group(1);
-            boolean isMixed = content.contains(",");
-            if (!isMixed) {
-                // Simple brace group (no comma): only expand non-negative ranges
-                java.util.regex.Matcher sm = simpleRange.matcher(m.group(0));
-                if (!sm.matches()) {
-                    // Not a simple non-negative range (e.g., {-1..1}) — leave unchanged
-                    continue;
-                }
-            }
-            String[] segments = content.split(",", -1);
-            java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>();
-            for (String seg : segments) {
-                java.util.regex.Matcher rm = rangeSegment.matcher(seg.trim());
-                if (rm.matches()) {
-                    int from = Integer.parseInt(rm.group(1));
-                    int to = Integer.parseInt(rm.group(2));
-                    int step = from <= to ? 1 : -1;
-                    for (int i = from; step > 0 ? i <= to : i >= to; i += step) {
-                        values.add(String.valueOf(i));
-                    }
-                } else {
-                    values.add(seg.trim());
-                }
-            }
-            StringBuilder expansion = new StringBuilder("{");
-            expansion.append(String.join(",", values));
-            expansion.append('}');
-            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(expansion.toString()));
-        }
-        m.appendTail(sb);
-        return sb.toString();
-    }
-
-    /** Compiles numeric ranges and glob syntax for matching raw S3 notification keys. */
-    public static Pattern compileGlobPattern(String keyPattern) {
-        return Pattern.compile(globToRegex(expandNumericRanges(keyPattern)));
-    }
-
-    /**
-     * Translates a Java NIO glob pattern to a regular expression that can be matched
-     * against raw object storage object keys. Mirrors the JDK's glob → regex conversion but operates
-     * on plain strings instead of {@link java.nio.file.Path}, so it tolerates keys with
-     * characters that the OS-level FileSystem refuses (e.g. {@code :}, {@code \}, spaces
-     * with arbitrary code points). Supports:
-     * <ul>
-     *   <li>{@code *} → any run of non-{@code /} characters;</li>
-     *   <li>{@code **} → any run of characters including {@code /};</li>
-     *   <li>{@code ?} → any single non-{@code /} character;</li>
-     *   <li>{@code [...]} character class (with {@code !} for negation);</li>
-     *   <li>{@code {a,b,c}} alternation;</li>
-     *   <li>{@code \X} escapes the next character literally.</li>
-     * </ul>
-     * All other regex metacharacters are escaped, and {@code /} is always literal so that
-     * a single {@code *} does not cross directory levels.
-     */
-    private static String globToRegex(String glob) {
-        StringBuilder sb = new StringBuilder("^");
-        boolean inClass = false;
-        boolean inGroup = false;
-        int i = 0;
-        while (i < glob.length()) {
-            char c = glob.charAt(i);
-            if (c == '\\') {
-                if (i + 1 < glob.length()) {
-                    sb.append(Pattern.quote(String.valueOf(glob.charAt(i + 1))));
-                    i += 2;
-                } else {
-                    sb.append("\\\\");
-                    i++;
-                }
-                continue;
-            }
-            if (inClass) {
-                if (c == ']') {
-                    inClass = false;
-                    sb.append(']');
-                } else if (c == '\\' || c == '[') {
-                    sb.append('\\').append(c);
-                } else {
-                    sb.append(c);
-                }
-                i++;
-                continue;
-            }
-            switch (c) {
-                case '*':
-                    if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
-                        sb.append(".*");
-                        i += 2;
-                    } else {
-                        sb.append("[^/]*");
-                        i++;
-                    }
-                    break;
-                case '?':
-                    sb.append("[^/]");
-                    i++;
-                    break;
-                case '[':
-                    inClass = true;
-                    sb.append('[');
-                    i++;
-                    if (i < glob.length() && glob.charAt(i) == '!') {
-                        sb.append('^');
-                        i++;
-                    }
-                    break;
-                case '{':
-                    inGroup = true;
-                    sb.append("(?:");
-                    i++;
-                    break;
-                case '}':
-                    inGroup = false;
-                    sb.append(')');
-                    i++;
-                    break;
-                case ',':
-                    if (inGroup) {
-                        sb.append('|');
-                    } else {
-                        sb.append(',');
-                    }
-                    i++;
-                    break;
-                default:
-                    if ("\\.^$|+()".indexOf(c) >= 0) {
-                        sb.append('\\').append(c);
-                    } else {
-                        sb.append(c);
-                    }
-                    i++;
-                    break;
-            }
-        }
-        sb.append('$');
-        return sb.toString();
-    }
-
     // Apply some rules to extend the globs parsing behavior
     public static String extendGlobs(String pathPattern) {
         return extendGlobNumberRange(pathPattern);
@@ -743,7 +577,7 @@ public class S3Util {
 
     /**
      * Convert range patterns to brace enumeration patterns for glob matching.
-     * Parts containing negative numbers or non-numeric characters are skipped.
+     * Literal alternatives are preserved; ranges containing negative bounds are skipped.
      * eg(valid):
      *    -> "file{1..3}" => "file{1,2,3}"
      *    -> "file_{1..3,4,5..6}" => "file_{1,2,3,4,5,6}"
@@ -760,13 +594,12 @@ public class S3Util {
 
         while (braceMatcher.find()) {
             String braceContent = braceMatcher.group(1);
-            String[] parts = braceContent.split(",");
-            List<Integer> allNumbers = new ArrayList<>();
+            String[] parts = braceContent.split(",", -1);
+            List<String> values = new ArrayList<>();
             Pattern rangePattern = Pattern.compile("^(-?\\d+)\\.\\.(-?\\d+)$");
 
             for (String part : parts) {
-                part = part.trim();
-                Matcher rangeMatcher = rangePattern.matcher(part);
+                Matcher rangeMatcher = rangePattern.matcher(part.trim());
 
                 if (rangeMatcher.matches()) {
                     int start = Integer.parseInt(rangeMatcher.group(1));
@@ -783,39 +616,35 @@ public class S3Util {
                         end = temp;
                     }
                     for (int i = start; i <= end; i++) {
-                        if (!allNumbers.contains(i)) {
-                            allNumbers.add(i);
+                        String value = String.valueOf(i);
+                        if (!values.contains(value)) {
+                            values.add(value);
                         }
                     }
-                } else if (part.matches("^\\d+$")) {
-                    // This is a single non-negative number like "4"
-                    int num = Integer.parseInt(part);
-                    if (!allNumbers.contains(num)) {
-                        allNumbers.add(num);
-                    }
                 } else {
-                    // Not a valid number or range (e.g., negative number, or contains non-numeric chars)
-                    // Just skip this part and continue processing other parts
-                    continue;
+                    // Preserve literal file names, including leading zeros and non-numeric characters.
+                    if (!values.contains(part)) {
+                        values.add(part);
+                    }
                 }
             }
 
-            // If no valid numbers found after filtering, keep original content
-            if (allNumbers.isEmpty()) {
-                braceMatcher.appendReplacement(result, "{" + braceContent + "}");
+            // If all alternatives were skipped, keep the original content.
+            if (values.isEmpty()) {
+                braceMatcher.appendReplacement(result, Matcher.quoteReplacement("{" + braceContent + "}"));
                 continue;
             }
 
             // Build comma-separated result
             StringBuilder sb = new StringBuilder("{");
-            for (int i = 0; i < allNumbers.size(); i++) {
+            for (int i = 0; i < values.size(); i++) {
                 if (i > 0) {
                     sb.append(",");
                 }
-                sb.append(allNumbers.get(i));
+                sb.append(values.get(i));
             }
             sb.append("}");
-            braceMatcher.appendReplacement(result, sb.toString());
+            braceMatcher.appendReplacement(result, Matcher.quoteReplacement(sb.toString()));
         }
         braceMatcher.appendTail(result);
 
