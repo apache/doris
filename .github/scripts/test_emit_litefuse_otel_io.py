@@ -779,6 +779,118 @@ class LitefuseOtelExporterTest(unittest.TestCase):
             self.assertEqual(target["result"]["verified"]["observation_count"], 3)
             self.assertNotIn("verification_diagnostic", target["result"])
 
+    def test_complete_trace_detail_skips_observation_endpoints(self):
+        for subagent in (False, True):
+            with self.subTest(subagent=subagent):
+                target, rows, _ = self.verification_fixture(subagent=subagent)
+                with mock.patch.object(
+                    MODULE, "fetch_trace", return_value={"observations": rows}
+                ) as detail, mock.patch.object(
+                    MODULE, "fetch_observations_legacy", return_value={"data": rows}
+                ) as legacy, mock.patch.object(MODULE, "fetch_observations_v2") as v2:
+                    MODULE.verify_traces(
+                        self.verification_args(), "public", "secret", [target]
+                    )
+                detail.assert_called_once()
+                legacy.assert_not_called()
+                v2.assert_not_called()
+                self.assertEqual(target["result"]["verified"]["read_source"], "legacy_trace")
+                self.assertEqual(target["result"]["verified"]["observation_count"], 3)
+
+    def test_incomplete_trace_detail_falls_back_to_validated_observations(self):
+        for subagent in (False, True):
+            defects = ("count", "root", "duplicate", "empty_id", "input", "output")
+            if subagent:
+                defects += ("wrong_id",)
+            for defect in defects:
+                with self.subTest(subagent=subagent, defect=defect):
+                    target, rows, _ = self.verification_fixture(subagent=subagent)
+                    incomplete = [dict(row) for row in rows]
+                    if defect == "count":
+                        incomplete.pop()
+                    elif defect == "root":
+                        incomplete[0]["name"] = "codex.command"
+                    elif defect == "duplicate":
+                        incomplete[1]["id"] = incomplete[2]["id"]
+                    elif defect == "empty_id":
+                        incomplete[1]["id"] = ""
+                    elif defect == "wrong_id":
+                        incomplete[1]["id"] = "unexpected"
+                    else:
+                        incomplete[1][defect] = None
+                    with mock.patch.object(
+                        MODULE, "fetch_trace", return_value={"observations": incomplete}
+                    ), mock.patch.object(
+                        MODULE, "fetch_observations_legacy", return_value={"data": rows}
+                    ) as legacy:
+                        MODULE.verify_traces(
+                            self.verification_args(), "public", "secret", [target]
+                        )
+                    legacy.assert_called_once()
+                    self.assertEqual(
+                        target["result"]["verified"]["read_source"], "legacy_observations"
+                    )
+
+    def test_trace_detail_does_not_bypass_agent_message_context_validation(self):
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                target, rows, _ = self.verification_fixture()
+                rows[1]["name"] = "codex.agent_message"
+                rows[1]["input"] = {"text": "missing context"}
+                if complete:
+                    rows[1]["input"] = {
+                        "context_window": {"event_count": 0},
+                        "events_since_previous_agent_message": [],
+                        "turn_input": {"prompt": "p"},
+                    }
+                with mock.patch.object(
+                    MODULE, "fetch_trace", return_value={"observations": rows}
+                ), mock.patch.object(
+                    MODULE, "fetch_observations_legacy", return_value={"data": rows}
+                ) as legacy:
+                    if complete:
+                        MODULE.verify_traces(
+                            self.verification_args(), "public", "secret", [target]
+                        )
+                        legacy.assert_not_called()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "main"):
+                            MODULE.verify_traces(
+                                self.verification_args(verify_attempts=1),
+                                "public", "secret", [target],
+                            )
+                        legacy.assert_called_once()
+
+    def test_complete_details_allow_all_traces_within_shared_deadline(self):
+        targets = []
+        replies = {}
+        for index in range(9):
+            target, rows, _ = self.verification_fixture(subagent=index > 0)
+            target["result"]["trace_id"] = f"trace-{index}"
+            targets.append(target)
+            replies[f"trace-{index}"] = rows
+        now = [0]
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            # Model cumulative IO latency without sleeping in the test.
+            now[0] += 8
+            requests.append(request.full_url)
+            if "/api/public/traces/" in request.full_url:
+                trace_id = request.full_url.rsplit("/", 1)[1]
+                return JsonResponse({"observations": replies[trace_id]})
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+            trace_id = query["traceId"][0]
+            return JsonResponse({"data": replies[trace_id]})
+
+        with mock.patch.object(MODULE.time, "monotonic", side_effect=lambda: now[0]), mock.patch.object(
+            MODULE.urllib.request, "urlopen", side_effect=fake_urlopen
+        ):
+            MODULE.verify_traces(self.verification_args(), "public", "secret", targets)
+        self.assertEqual(len(requests), len(targets))
+        self.assertEqual(now[0], 72)
+        self.assertTrue(all("verified" in target["result"] for target in targets))
+
     def test_reports_all_missing_subagents_and_preserves_main_success(self):
         main, main_rows, _ = self.verification_fixture()
         children = [self.verification_fixture(subagent=True)[0] for _ in range(2)]

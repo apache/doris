@@ -1787,44 +1787,15 @@ def observation_has_expected_io(observation, target):
     return all(observation.get(field) is not None for field in fields)
 
 
-def inspect_trace(args, public_key, secret_key, target, deadline):
+def inspect_observations(
+    args, target, observations, legacy_detail, read_source, legacy_trace_error
+):
     result = target["result"]
-    trace_id = result["trace_id"]
     subagent = target["subagent"]
     root_name = "codex.subagent.review" if subagent else "codex.review"
     required_observation_count = max(
         1 if subagent else args.min_observations, result["observation_count"]
     )
-    legacy_trace_error = ""
-    try:
-        legacy_detail = fetch_trace(
-            args.base_url, public_key, secret_key, trace_id, deadline=deadline
-        )
-    except Exception as exc:
-        legacy_detail = {}
-        legacy_trace_error = type(exc).__name__
-    try:
-        observations_payload = fetch_observations_legacy(
-            args.base_url, public_key, secret_key, trace_id,
-            max_pages=max(10, required_observation_count // 100 + 1),
-            deadline=deadline,
-        )
-        observations = observation_rows_from_v2(observations_payload)
-        read_source = "legacy_observations"
-    except Exception as exc:
-        try:
-            observations_payload = fetch_observations_v2(
-                args.base_url, public_key, secret_key, trace_id,
-                max_pages=max(10, required_observation_count // 1000 + 1),
-                deadline=deadline,
-                start_time=target.get("start_time"),
-                end_time=target.get("end_time"),
-            )
-            observations = observation_rows_from_v2(observations_payload)
-            read_source = "v2_observations"
-        except Exception:
-            observations = legacy_detail.get("observations") or []
-            read_source = f"legacy_trace_fallback:{type(exc).__name__}"
     observations_missing_io = [
         observation
         for observation in observations
@@ -1954,6 +1925,59 @@ def inspect_trace(args, public_key, secret_key, target, deadline):
         ]
     )
     return ok, last_diagnostic
+
+
+def inspect_trace(args, public_key, secret_key, target, deadline):
+    result = target["result"]
+    trace_id = result["trace_id"]
+    required_observation_count = max(
+        1 if target["subagent"] else args.min_observations, result["observation_count"]
+    )
+    legacy_trace_error = ""
+    try:
+        legacy_detail = fetch_trace(
+            args.base_url, public_key, secret_key, trace_id, deadline=deadline
+        )
+    except Exception as exc:
+        legacy_detail = {}
+        legacy_trace_error = type(exc).__name__
+
+    # Some deployments return all observation IO in trace detail. Apply the
+    # same complete validation before downloading those observations again.
+    ok, detail_diagnostic = inspect_observations(
+        args, target, legacy_detail.get("observations") or [], legacy_detail,
+        "legacy_trace", legacy_trace_error,
+    )
+    if ok:
+        return ok, detail_diagnostic
+
+    try:
+        observations_payload = fetch_observations_legacy(
+            args.base_url, public_key, secret_key, trace_id,
+            max_pages=max(10, required_observation_count // 100 + 1),
+            deadline=deadline,
+        )
+        observations = observation_rows_from_v2(observations_payload)
+        read_source = "legacy_observations"
+    except Exception as exc:
+        try:
+            observations_payload = fetch_observations_v2(
+                args.base_url, public_key, secret_key, trace_id,
+                max_pages=max(10, required_observation_count // 1000 + 1),
+                deadline=deadline,
+                start_time=target.get("start_time"),
+                end_time=target.get("end_time"),
+            )
+            observations = observation_rows_from_v2(observations_payload)
+            read_source = "v2_observations"
+        except Exception:
+            return False, {
+                **detail_diagnostic,
+                "read_source": f"legacy_trace_fallback:{type(exc).__name__}",
+            }
+    return inspect_observations(
+        args, target, observations, legacy_detail, read_source, legacy_trace_error
+    )
 
 
 def verify_traces(args, public_key, secret_key, targets):
