@@ -46,6 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class SplitAssignment {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
+    private static final int MAX_QUEUED_BATCHES = 10000;
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
@@ -116,7 +117,7 @@ public class SplitAssignment {
             }
             while (needMoreSplit()) {
                 BlockingQueue<Collection<TScanRangeLocations>> queue =
-                        assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
+                        getOrCreateAssignmentQueue(backend);
                 try {
                     if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
                         break;
@@ -161,12 +162,15 @@ public class SplitAssignment {
         }
     }
 
+    private BlockingQueue<Collection<TScanRangeLocations>> getOrCreateAssignmentQueue(Backend backend) {
+        return assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(MAX_QUEUED_BATCHES));
+    }
+
     public BlockingQueue<Collection<TScanRangeLocations>> getAssignedSplits(Backend backend) throws UserException {
         if (exception != null) {
             throw exception;
         }
-        BlockingQueue<Collection<TScanRangeLocations>> splits = assignment.computeIfAbsent(backend,
-                be -> new LinkedBlockingQueue<>());
+        BlockingQueue<Collection<TScanRangeLocations>> splits = getOrCreateAssignmentQueue(backend);
         if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;
         }
