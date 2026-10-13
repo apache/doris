@@ -19,12 +19,18 @@ package org.apache.doris.datasource.scan;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.datasource.split.SplitGenerator;
+import org.apache.doris.datasource.split.SplitSourceManager;
+import org.apache.doris.datasource.split.SplitToScanRange;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -75,6 +81,25 @@ public class PluginDrivenScanNodeRedispatchTest {
         Deencapsulation.invoke(node, "toSplit", range(true));
         Assertions.assertTrue(node.cannotBeRedispatched());
         Deencapsulation.invoke(node, "toSplit", range(false));
+        Assertions.assertTrue(node.cannotBeRedispatched());
+    }
+
+    @Test
+    public void batchScanWhoseSplitAssignmentWasStoppedCannotBeRedispatched() {
+        // Overriding the method for single-use ranges keeps the rule of every scan with a split assignment
+        // (ScanNode#cannotBeRedispatched): a batch-mode scan whose ranges the source serves afresh on every read
+        // cannot be dispatched again either once its split assignment was stopped.
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        SplitAssignment assignment = new SplitAssignment(Mockito.mock(FederationBackendPolicy.class),
+                Mockito.mock(SplitGenerator.class), Mockito.mock(SplitToScanRange.class), new HashMap<>(),
+                new ArrayList<>(), false, new SplitSourceManager());
+        Deencapsulation.setField(node, "splitAssignment", assignment);
+        Deencapsulation.invoke(node, "toSplit", range(false));
+        // Not stopped yet - never dispatched, or failed before anything stopped it: the plan can run again.
+        Assertions.assertFalse(node.cannotBeRedispatched());
+
+        // The failed attempt's cancel() stopped it: the split sources the scan ranges point the BE at are gone.
+        assignment.stop();
         Assertions.assertTrue(node.cannotBeRedispatched());
     }
 }

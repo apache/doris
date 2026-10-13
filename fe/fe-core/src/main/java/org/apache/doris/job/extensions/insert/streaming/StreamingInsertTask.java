@@ -38,6 +38,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -49,6 +50,7 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
@@ -69,6 +71,11 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private InsertIntoTableCommand taskCommand;
     private String currentDb;
     private ConnectContext ctx;
+    // The statement of the attempt the task thread runs: before() creates it and endAttempt() ends it, both on the
+    // task thread. ctx, by contrast, may be dropped by the job's control thread (closeOrReleaseResources, when it
+    // pauses the job) while the attempt still runs.
+    @Getter(AccessLevel.NONE)
+    private StatementContext attemptStatementContext;
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     private String cloudCluster;
@@ -113,6 +120,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         }
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
+        attemptStatementContext = statementContext;
 
         this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
         log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
@@ -121,6 +129,10 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         StmtExecutor baseStmtExecutor =
                 new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
         baseCommand.initPlan(ctx, baseStmtExecutor, false);
+        // This plan is built only for its parsed plan, whose TVF is rewritten below, and is never dispatched: stop the
+        // split generation its scans started while planned (a batch scan of a table joined with the TVF) now, rather
+        // than leave it running while run() plans and reads the same table again.
+        ScanNode.stopAllUndispatched(baseStmtExecutor.planner().getScanNodes());
         if (!baseCommand.getParsedPlan().isPresent()) {
             throw new JobException("Can not get Parsed plan");
         }
@@ -229,6 +241,22 @@ public class StreamingInsertTask extends AbstractStreamingTask {
                     getJobId(), getTaskId());
             stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
                     needWaitCancelComplete);
+        }
+    }
+
+    /**
+     * Stops the split generation the attempt's planning started for a plan no coordinator dispatched: run()'s, failing
+     * between planning and dispatch (a transaction it cannot begin, a cancel), or before()'s, should before() fail
+     * after planning. The streaming scheduler runs this task itself, not through TaskProcessor, which ends the
+     * statements of the tasks it runs; and the attempts recur, so what one leaves running would add up.
+     */
+    @Override
+    protected void endAttempt() {
+        StatementContext statementContext = attemptStatementContext;
+        attemptStatementContext = null;
+        // None if the attempt was canceled before it began, before() returning at once.
+        if (statementContext != null) {
+            statementContext.stopUndispatchedSplitAssignments();
         }
     }
 

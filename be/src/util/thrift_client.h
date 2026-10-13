@@ -62,6 +62,12 @@ public:
     // repeatedly.
     void close();
 
+    // Whether the server has closed the connection: its end of stream, or an error, is waiting to
+    // be read. A client that sits idle between calls - in a client cache - reads nothing otherwise,
+    // so a server that restarted, or closed the connection as idle, shows here before the next
+    // call on it fails. Never blocks.
+    bool peer_closed();
+
     // Set the connect timeout
     void set_conn_timeout(int ms) {
         if (!_socket) {

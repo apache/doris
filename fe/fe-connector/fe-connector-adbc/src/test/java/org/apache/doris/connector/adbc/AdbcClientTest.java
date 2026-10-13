@@ -19,18 +19,32 @@ package org.apache.doris.connector.adbc;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.arrow.adbc.core.AdbcConnection;
+import org.apache.arrow.adbc.core.AdbcDatabase;
 import org.apache.arrow.adbc.core.AdbcException;
+import org.apache.arrow.adbc.core.AdbcStatement;
 import org.apache.arrow.adbc.core.AdbcStatusCode;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.ipc.ArrowReader;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Exercises {@link AdbcClient} against the real JNI bridge and the real SQLite driver from thirdparty.
- * Skips (loudly) when those libraries are absent -- see {@link AdbcNativeTestSupport}.
+ * Skips (loudly) when those libraries are absent -- see {@link AdbcNativeTestSupport}. The tests of when the
+ * driver is released stand a {@link RecordingClient} in for it instead, so they run everywhere.
  */
 class AdbcClientTest {
 
@@ -72,6 +86,106 @@ class AdbcClientTest {
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> client.withConnection(connection -> connection.getCurrentCatalog()));
         Assertions.assertTrue(e.getMessage().contains("closed"), e.getMessage());
+    }
+
+    @Test
+    void closeLeavesACallThatIsStillUsingTheDriverAlone(@TempDir Path tempDir) throws Exception {
+        AdbcClient client = sqliteClient(tempDir.resolve("probe.db"));
+        CountDownLatch insideCall = new CountDownLatch(1);
+        CountDownLatch mayContinue = new CountDownLatch(1);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> call = caller.submit(() -> client.withConnection(connection -> {
+                insideCall.countDown();
+                Assertions.assertTrue(mayContinue.await(30, TimeUnit.SECONDS));
+                // Back into the driver after the client was closed, as a statistics loader is when the catalog
+                // it reads is dropped under it. Closing the database used to close this connection too; here
+                // the JNI handle check turns that into an error, but a thread already inside the driver read
+                // freed memory and took FE down with it (SIGSEGV in sqlite3FindTable).
+                return connection.getCurrentCatalog();
+            }));
+            Assertions.assertTrue(insideCall.await(30, TimeUnit.SECONDS));
+            closeWithoutWaitingForCalls(client);
+            mayContinue.countDown();
+            Assertions.assertEquals("main", call.get(30, TimeUnit.SECONDS));
+        } finally {
+            caller.shutdownNow();
+        }
+    }
+
+    @Test
+    void theLastCallToLeaveAClosedClientReleasesTheDatabase(@TempDir Path tempDir) throws Exception {
+        RecordingClient client = new RecordingClient(Files.createFile(tempDir.resolve("driver.so")));
+        CountDownLatch insideCall = new CountDownLatch(1);
+        CountDownLatch mayLeave = new CountDownLatch(1);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> call = caller.submit(() -> client.withConnection(connection -> {
+                insideCall.countDown();
+                Assertions.assertTrue(mayLeave.await(30, TimeUnit.SECONDS));
+                return "done";
+            }));
+            Assertions.assertTrue(insideCall.await(30, TimeUnit.SECONDS));
+
+            closeWithoutWaitingForCalls(client);
+            // Refused from now on, yet nothing is released while a call is still inside.
+            DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> client.withConnection(connection -> "late"));
+            Assertions.assertTrue(e.getMessage().contains("closed"), e.getMessage());
+            Assertions.assertEquals(0, client.database.closes.get());
+
+            mayLeave.countDown();
+            Assertions.assertEquals("done", call.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, client.database.closes.get());
+        } finally {
+            caller.shutdownNow();
+        }
+        client.close();
+        Assertions.assertEquals(1, client.database.closes.get());
+    }
+
+    @Test
+    void releaseFailingAsTheLastCallLeavesIsNotThatCallsFailure(@TempDir Path tempDir) throws Exception {
+        RecordingClient client = new RecordingClient(Files.createFile(tempDir.resolve("driver.so")),
+                new RecordingDatabase(true));
+        CountDownLatch insideCall = new CountDownLatch(1);
+        CountDownLatch mayLeave = new CountDownLatch(1);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> call = caller.submit(() -> client.withConnection(connection -> {
+                insideCall.countDown();
+                Assertions.assertTrue(mayLeave.await(30, TimeUnit.SECONDS));
+                return "done";
+            }));
+            Assertions.assertTrue(insideCall.await(30, TimeUnit.SECONDS));
+            closeWithoutWaitingForCalls(client);
+
+            mayLeave.countDown();
+            // The call did its work; the driver failing to close as it leaves is logged, not thrown at a caller that
+            // did not close the catalog - a statistics load or a statement that happened to be the last one in.
+            Assertions.assertEquals("done", call.get(30, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, client.database.closes.get());
+        } finally {
+            caller.shutdownNow();
+        }
+        // Released, if unsuccessfully: nothing is closed again.
+        client.close();
+        Assertions.assertEquals(1, client.database.closes.get());
+    }
+
+    @Test
+    void closingAClientNoCallIsUsingReleasesTheDatabaseAtOnce(@TempDir Path tempDir) throws Exception {
+        RecordingClient client = new RecordingClient(Files.createFile(tempDir.resolve("driver.so")));
+        Assertions.assertEquals("done", client.withConnection(connection -> "done"));
+        Assertions.assertEquals(0, client.database.closes.get());
+
+        client.close();
+        Assertions.assertEquals(1, client.database.closes.get());
+    }
+
+    /** Fails instead of hanging the run if close() ever starts waiting for the calls still in flight. */
+    private static void closeWithoutWaitingForCalls(AdbcClient client) throws Exception {
+        CompletableFuture.runAsync(client::close).get(30, TimeUnit.SECONDS);
     }
 
     @Test
@@ -129,5 +243,68 @@ class AdbcClientTest {
         Assertions.assertTrue(message.contains("relation \"t\" does not exist"), message);
         Assertions.assertTrue(message.contains("42P01"), message);
         Assertions.assertTrue(message.contains("7"), message);
+    }
+
+    /** An {@link AdbcClient} whose database records how it is used instead of reaching a driver. */
+    private static final class RecordingClient extends AdbcClient {
+
+        private final RecordingDatabase database;
+
+        private RecordingClient(Path driver) {
+            this(driver, new RecordingDatabase(false));
+        }
+
+        private RecordingClient(Path driver, RecordingDatabase database) {
+            super(driver, driver.toString(), null, "file:/unused.db", null, null, Map.of());
+            this.database = database;
+        }
+
+        @Override
+        AdbcDatabase openDatabase(BufferAllocator allocator, Map<String, Object> parameters) {
+            return database;
+        }
+    }
+
+    private static final class RecordingDatabase implements AdbcDatabase {
+
+        private final AtomicInteger openConnections = new AtomicInteger();
+        private final AtomicInteger closes = new AtomicInteger();
+        private final boolean closeFails;
+
+        private RecordingDatabase(boolean closeFails) {
+            this.closeFails = closeFails;
+        }
+
+        @Override
+        public AdbcConnection connect() {
+            openConnections.incrementAndGet();
+            return new AdbcConnection() {
+                @Override
+                public AdbcStatement createStatement() {
+                    throw new AssertionError("these tests run no statement");
+                }
+
+                @Override
+                public ArrowReader getInfo(int[] infoCodes) {
+                    throw new AssertionError("these tests ask for no info");
+                }
+
+                @Override
+                public void close() {
+                    openConnections.decrementAndGet();
+                }
+            };
+        }
+
+        @Override
+        public void close() throws AdbcException {
+            // The JNI driver closes every connection still open on the database first, from this thread --
+            // whichever thread is still using one.
+            Assertions.assertEquals(0, openConnections.get(), "the database was released under an open connection");
+            closes.incrementAndGet();
+            if (closeFails) {
+                throw new AdbcException("the driver failed to close the database", null, AdbcStatusCode.IO, null, 0);
+            }
+        }
     }
 }

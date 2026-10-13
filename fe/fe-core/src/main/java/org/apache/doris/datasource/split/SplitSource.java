@@ -38,8 +38,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * It is completely possible to split files whiling scanning data on the ready splits at once.
  * `SplitSource` introduce a lazy and batch mode to provide the file splits. Each `SplitSource` has a unique ID,
  * which is used by backends to call `FrontendServiceImpl#fetchSplitBatch` to fetch splits batch by batch.
- * `SplitSource`s are managed by `SplitSourceManager`, which stores `SplitSource` as a weak reference, and clean
- * the split source when its related scan node is GC.
+ * `SplitSource`s are managed by `SplitSourceManager`: registered there while their `SplitAssignment` is started and
+ * not stopped, and held as a weak reference, so that the split source is cleaned when its related scan node is GC.
  */
 public class SplitSource {
     private static final AtomicLong UNIQUE_ID_GENERATOR = new AtomicLong(0);
@@ -57,7 +57,7 @@ public class SplitSource {
         this.splitAssignment = splitAssignment;
         this.maxWaitTime = maxWaitTime;
         this.isLastBatch = new AtomicBoolean(false);
-        splitAssignment.registerSource(uniqueId);
+        splitAssignment.registerSource(this);
     }
 
     public long getUniqueId() {
@@ -81,7 +81,10 @@ public class SplitSource {
             }
             while (scanRanges.size() < maxBatchSize) {
                 try {
-                    Collection<TScanRangeLocations> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
+                    // Once the generator is done - or the assignment is stopped or failed - nothing more can arrive
+                    // in the queue: take what is there without waiting for more.
+                    Collection<TScanRangeLocations> splitCollection = splitAssignment.needMoreSplit()
+                            ? splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS) : splits.poll();
                     if (splitCollection != null) {
                         scanRanges.addAll(splitCollection);
                     }

@@ -38,6 +38,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
@@ -66,7 +67,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
@@ -98,7 +98,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -223,18 +222,15 @@ public class StatementContext implements Closeable {
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
 
-    // Scan nodes that hold something on this frontend for the backend (a remote Doris scan's Flight
-    // SQL session on the other frontend) and release it in ScanNode.stop(), which the coordinator
-    // of the statement calls when it closes. Not every plan gets a coordinator, and not every
-    // coordinator is closed: a plan probed and discarded (INSERT OVERWRITE), a statement failing
-    // between planning and dispatch (a SQL block rule on the scan, an INSERT whose transaction
-    // cannot begin), a load job created from the plan. close() stops what is still registered here
-    // as the fallback (stop() is idempotent, so a coordinator that already closed costs nothing).
-    // A coordinator that outlives the statement on purpose - an Arrow Flight SQL query kept alive
-    // until DoGet, StmtExecutor.deferForArrowFlight - takes its nodes out first
-    // (handOverScanNodesToDeferredCoordinator). Guarded by its own monitor: registered on the
-    // planning thread, closed on the statement's thread or the forwarded-request finally.
-    private final Set<ScanNode> scanNodesToStopAtClose = Collections.newSetFromMap(new IdentityHashMap<>());
+    // The split assignments the scans of this statement's plans started while they were planned (a batch scan that
+    // plans with its first split, FileQueryScanNode#needsSampleSplit), each the statement's until the coordinator
+    // dispatching its plan takes it over (SplitAssignment#start). Those no coordinator took - the plan CREATE JOB
+    // validates, a statement refused or failing before dispatch - would go on generating splits nobody fetches: they
+    // are stopped when the statement ends (stopUndispatchedSplitAssignments). A plan the statement drops while it goes
+    // on is stopped where it is dropped (ScanNode#stopAllUndispatched: EXPLAIN, the INSERT OVERWRITE probe, an INSERT
+    // planned again, DELETE, the plan a streaming insert task rewrites its TVF in). Guarded by its own monitor:
+    // registered on the planning thread, stopped on the statement's.
+    private final List<SplitAssignment> splitAssignmentsStartedWhilePlanning = new ArrayList<>();
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -1141,45 +1137,31 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Registers a scan node whose {@link ScanNode#stop()} must have run by the time this statement
-     * ends: the coordinator of the statement runs it when it closes, and {@link #close()} runs it
-     * for a plan that never got a coordinator or whose coordinator nobody closed (see
-     * {@link #scanNodesToStopAtClose}).
+     * Registers a split assignment a scan of this statement starts while it is planned: the statement stops it when it
+     * ends unless a coordinator took it over (see {@link #splitAssignmentsStartedWhilePlanning}).
      */
-    public void stopScanNodeAtClose(ScanNode scanNode) {
-        synchronized (scanNodesToStopAtClose) {
-            scanNodesToStopAtClose.add(scanNode);
+    public void addSplitAssignmentStartedWhilePlanning(SplitAssignment splitAssignment) {
+        synchronized (splitAssignmentsStartedWhilePlanning) {
+            splitAssignmentsStartedWhilePlanning.add(splitAssignment);
         }
     }
 
     /**
-     * The coordinator of the statement outlives it on purpose (an Arrow Flight SQL query kept alive
-     * until the client has pulled its result, see {@code StmtExecutor.deferForArrowFlight}) and
-     * takes over these nodes: their {@link ScanNode#stop()} runs when that coordinator closes, not
-     * when this statement ends.
+     * Stops the split assignments this statement's planning started that no coordinator took over, their plans never
+     * dispatched, and forgets them all: the context may outlive the statement (a prepared statement keeps that of its
+     * last execution), and must not keep a plan alive through them. Called when the statement ends - {@link #close()},
+     * or where it ends without closing this context: a binary COM_STMT_EXECUTE (MysqlConnectProcessor#handleExecute),
+     * an http_stream load (FrontendServiceImpl#initHttpStreamPlan) - and when an attempt of it ends that the next one
+     * plans again: a cloud re-plan (StmtExecutor#queryRetry), an attempt of a streaming insert task. Never throws
+     * (SplitAssignment#stopIfNotDispatched).
      */
-    public void handOverScanNodesToDeferredCoordinator(Collection<ScanNode> scanNodes) {
-        synchronized (scanNodesToStopAtClose) {
-            scanNodesToStopAtClose.removeAll(scanNodes);
+    public void stopUndispatchedSplitAssignments() {
+        List<SplitAssignment> startedWhilePlanning;
+        synchronized (splitAssignmentsStartedWhilePlanning) {
+            startedWhilePlanning = new ArrayList<>(splitAssignmentsStartedWhilePlanning);
+            splitAssignmentsStartedWhilePlanning.clear();
         }
-    }
-
-    // The fallback of scanNodesToStopAtClose. Never throws: this runs on the statement's teardown
-    // path, after the statement's outcome is decided, and one node failing to stop must not keep
-    // the next from stopping.
-    private void stopScanNodesLeftBehind() {
-        List<ScanNode> leftBehind;
-        synchronized (scanNodesToStopAtClose) {
-            leftBehind = new ArrayList<>(scanNodesToStopAtClose);
-            scanNodesToStopAtClose.clear();
-        }
-        for (ScanNode scanNode : leftBehind) {
-            try {
-                scanNode.stop();
-            } catch (Throwable t) {
-                LOG.warn("failed to stop scan node {} at the end of the statement", scanNode.getId(), t);
-            }
-        }
+        startedWhilePlanning.forEach(SplitAssignment::stopIfNotDispatched);
     }
 
     // CHECKSTYLE OFF
@@ -1196,9 +1178,7 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         releasePlannerResources();
-        // After the table locks: stopping a remote Doris scan's node sends a CloseSession to the other
-        // frontend, which must not be waited for under a lock.
-        stopScanNodesLeftBehind();
+        stopUndispatchedSplitAssignments();
         // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
         // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
         // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()

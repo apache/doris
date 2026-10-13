@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -144,8 +145,11 @@ public class StreamingInsertTaskAuditTest {
             return null;
         }).when(taskCommand).run(Mockito.eq(ctx), Mockito.any(StmtExecutor.class));
 
+        // The plan before() builds to rewrite the TVF, which the command's initPlan leaves to the executor.
+        Planner planner = Mockito.mock(Planner.class);
         try (MockedStatic<InsertTask> insertTask = Mockito.mockStatic(InsertTask.class);
-                MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class);
+                MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class,
+                        (executor, construction) -> Mockito.when(executor.planner()).thenReturn(planner));
                 MockedConstruction<NereidsParser> parsers = Mockito.mockConstruction(NereidsParser.class,
                         (parser, construction) -> {
                             Mockito.when(parser.parseSingle(S3_SQL)).thenReturn(baseCommand);

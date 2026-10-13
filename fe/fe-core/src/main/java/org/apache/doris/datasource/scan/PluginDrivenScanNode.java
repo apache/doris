@@ -1848,11 +1848,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     /**
      * True once the connector planned a range that can be read only once (ConnectorScanRange#isSingleUse):
      * a partition of a remote query that already ran, which the failed attempt may have drained. The same
-     * plan dispatched again would read only what that attempt left of it.
+     * plan dispatched again would read only what that attempt left of it. Also true, as for any scan, once
+     * the split assignment of a batch-mode scan was stopped (ScanNode#cannotBeRedispatched).
      */
     @Override
     public boolean cannotBeRedispatched() {
-        return plannedSingleUseRange;
+        return plannedSingleUseRange || super.cannotBeRedispatched();
     }
 
     /**

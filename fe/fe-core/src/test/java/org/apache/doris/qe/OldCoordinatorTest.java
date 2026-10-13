@@ -20,7 +20,9 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -36,6 +38,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -109,6 +112,42 @@ public class OldCoordinatorTest extends TestWithFeService {
             }
         }.test();
         Assertions.assertTrue(shuffleFragmentHasMultiInstances.get());
+    }
+
+    @Test
+    public void testScansStartOnceTheQueryIsAdmittedAndBeforeItsFragmentsAreSent() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
+        connectContext.setThreadLocalInfo();
+        connectContext.setQueryId(new TUniqueId(3L, 4L));
+        NereidsPlanner planner = PlanChecker.from(connectContext).plan("select * from test.tbl");
+        List<String> steps = new ArrayList<>();
+        Coordinator coordinator = new Coordinator(connectContext, planner) {
+            @Override
+            protected void execInternal() throws Exception {
+                steps.add("send fragments");
+                throw new UserException("stop before the fragments are sent");
+            }
+        };
+        // A scan that runs something somewhere else when it starts - a remote Doris scan runs its remote query -
+        // must not do so while the query still waits in its workload group's queue.
+        ScanNode scanNode = Mockito.mock(ScanNode.class);
+        Mockito.doAnswer(invocation -> {
+            steps.add("start scan, admitted: "
+                    + (coordinator.getQueueToken() != null && coordinator.getQueueToken().isReadyToRun()));
+            return null;
+        }).when(scanNode).start();
+        // The coordinator scans what the planner holds.
+        planner.getScanNodes().clear();
+        planner.getScanNodes().add(scanNode);
+
+        try {
+            UserException e = Assertions.assertThrows(UserException.class, coordinator::exec);
+            Assertions.assertTrue(e.getMessage().contains("stop before the fragments are sent"), e.getMessage());
+        } finally {
+            coordinator.close();
+        }
+
+        Assertions.assertEquals(Arrays.asList("start scan, admitted: true", "send fragments"), steps);
     }
 
     @ParameterizedTest
