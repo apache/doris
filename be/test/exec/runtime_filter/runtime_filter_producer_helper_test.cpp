@@ -55,6 +55,15 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
     ObjectPool _pool;
 };
 
+class RuntimeFilterProducerHelperForTest : public RuntimeFilterProducerHelper {
+public:
+    RuntimeFilterProducerHelperForTest() : RuntimeFilterProducerHelper(true, false) {}
+
+    Status init_expr_for_test(const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
+        return _init_expr({}, runtime_filter_descs);
+    }
+};
+
 TEST_F(RuntimeFilterProducerHelperTest, basic) {
     auto helper = RuntimeFilterProducerHelper(true, false);
 
@@ -78,6 +87,71 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.build(_runtime_states[0].get(), &block, false, runtime_filters));
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.publish(_runtime_states[0].get()));
+}
+
+TEST_F(RuntimeFilterProducerHelperTest, decoupled_filter_init) {
+    auto helper = RuntimeFilterProducerHelper(true, false);
+
+    std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
+            TRuntimeFilterDescBuilder(0, TRuntimeFilterDescBuilder::get_default_expr(), -1,
+                                      {{0, TRuntimeFilterDescBuilder::get_default_expr()}})
+                    .build()};
+
+    SlotDescriptor slot_desc;
+    slot_desc._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot_desc);
+    RowDescriptor row_desc;
+    _tbl._slot_desc_map[0] = &slot_desc;
+    const_cast<std::vector<TupleDescriptor*>&>(row_desc._tuple_desc_map).push_back(&tuple_desc);
+
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.init(_runtime_states[0].get(), {}, runtime_filter_descs, row_desc));
+
+    Block block;
+    auto column = ColumnInt32::create();
+    column->insert(Field::create_field<TYPE_INT>(1));
+    column->insert(Field::create_field<TYPE_INT>(2));
+    block.insert({std::move(column), std::make_shared<DataTypeInt32>(), "col1"});
+
+    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.build(_runtime_states[0].get(), &block, false, runtime_filters));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.publish(_runtime_states[0].get()));
+}
+
+TEST_F(RuntimeFilterProducerHelperTest, decoupled_filter_init_with_empty_expr) {
+    auto helper = RuntimeFilterProducerHelper(true, false);
+
+    std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
+            TRuntimeFilterDescBuilder(0, TExpr(), -1,
+                                      {{0, TRuntimeFilterDescBuilder::get_default_expr()}})
+                    .build()};
+
+    SlotDescriptor slot_desc;
+    slot_desc._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot_desc);
+    RowDescriptor row_desc;
+    _tbl._slot_desc_map[0] = &slot_desc;
+    const_cast<std::vector<TupleDescriptor*>&>(row_desc._tuple_desc_map).push_back(&tuple_desc);
+
+    auto st = helper.init(_runtime_states[0].get(), {}, runtime_filter_descs, row_desc);
+    ASSERT_FALSE(st.ok());
+    ASSERT_TRUE(st.to_string().find("empty src_expr") != std::string::npos);
+}
+
+TEST_F(RuntimeFilterProducerHelperTest, decoupled_expr_init_with_empty_expr) {
+    RuntimeFilterProducerHelperForTest helper;
+
+    std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
+            TRuntimeFilterDescBuilder(0, TExpr(), -1,
+                                      {{0, TRuntimeFilterDescBuilder::get_default_expr()}})
+                    .build()};
+
+    auto st = helper.init_expr_for_test(runtime_filter_descs);
+    ASSERT_FALSE(st.ok());
+    ASSERT_TRUE(st.to_string().find("empty src_expr") != std::string::npos);
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
