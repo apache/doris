@@ -379,3 +379,9 @@ Iceberg V3 schema
 - clang-tidy 可解析后发现空间反序列化 `auto` 和 geo 循环索引 signed/unsigned 告警，已修复。整文件检查另有既有 writer `std::reverse` 建议；随后改按 feature 基线 `2413c00b143^` 的完整 diff 检查改动行，日志 `clang-tidy-spatial-scope.log`，仍在运行，未宣称通过。
 - `be-spatial-ut-current-5.log`：上述修改后，标准 BE UT 再次 86/86，通过。
 - 个人环境 `health-check.sh` 失败 9 项：Doris FE/BE、MinIO、HDFS 等个人端口未就绪，Docker socket 查询无权限。部署 dry-run 亦无法创建只读环境目录中的 lock；未更改或重启任何个人/其他服务。后续外部验证必须先恢复健康环境，或在当前 worktree output 下用隔离端口部署再接入个人 Iceberg fixture。
+
+### 健康检查结论更正
+
+前述 9 项个人环境失败来自受限沙箱网络和 Docker socket 访问，并非服务故障。使用 require_escalated 重新运行相同 health-check 后全部通过，Doris SELECT 1 成功；未重启或更改服务。只读确认个人 `doris-yuze-spark-iceberg`、REST、MinIO 服务健康，Spark fixture 包含 Iceberg 1.10.1。当前分支二进制仍未部署，故不能把现有服务健康或旧二进制查询作为本 PR 端到端证据。
+
+完整 diff clang-tidy 已开始发现新 ColumnSpatial qualified-auto 告警，两处已修复；检查继续进行。后续需再验证完整检查终态，不能用此前窄范围格式和 86/86 单测替代全部阶段验收。
