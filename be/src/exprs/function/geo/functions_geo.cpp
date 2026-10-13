@@ -54,10 +54,6 @@ static bool is_spatial_type(const DataTypePtr& type) {
     return primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY;
 }
 
-static bool is_geometry_type(const DataTypePtr& type) {
-    return remove_nullable(type)->get_primitive_type() == TYPE_GEOMETRY;
-}
-
 static Status validate_geography_semantics(const DataTypePtr& type, const char* function_name) {
     const auto& nested_type = remove_nullable(type);
     if (!is_spatial_type(nested_type)) {
@@ -261,7 +257,7 @@ struct StAsText {
         std::unique_ptr<GeoShape> shape;
         for (size_t row = 0; row < size; ++row) {
             auto shape_value = input->get_data_at(row);
-            if (is_geometry_type(input_type)) {
+            if (is_spatial_type(input_type)) {
                 std::string wkt;
                 if (WkbParse::wkb_to_wkt(shape_value.data, shape_value.size, &wkt) ==
                     GEO_PARSE_OK) {
@@ -308,7 +304,7 @@ struct StX {
 
         for (size_t row = 0; row < size; ++row) {
             auto point_value = input->get_data_at(row);
-            if (is_geometry_type(input_type)) {
+            if (is_spatial_type(input_type)) {
                 double x;
                 double y;
                 if (WkbParse::point_coordinates(point_value.data, point_value.size, &x, &y) ==
@@ -357,7 +353,7 @@ struct StY {
 
         for (size_t row = 0; row < size; ++row) {
             auto point_value = input->get_data_at(row);
-            if (is_geometry_type(input_type)) {
+            if (is_spatial_type(input_type)) {
                 double x;
                 double y;
                 if (WkbParse::point_coordinates(point_value.data, point_value.size, &x, &y) ==
@@ -978,7 +974,7 @@ struct StAsBinary {
                 continue;
             }
             auto shape_value = col->get_data_at(row);
-            if (is_geometry_type(input_type)) {
+            if (is_spatial_type(input_type)) {
                 res->insert_data(shape_value.data, shape_value.size);
                 continue;
             }
@@ -1059,7 +1055,7 @@ struct StGeometryType {
         std::unique_ptr<GeoShape> shape;
         for (size_t row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
-            if (is_geometry_type(input_type)) {
+            if (is_spatial_type(input_type)) {
                 std::string geo_type;
                 if (WkbParse::geometry_type(shape_value.data, shape_value.size, &geo_type) ==
                     GEO_PARSE_OK) {

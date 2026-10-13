@@ -168,13 +168,13 @@ const char* ColumnSpatial::deserialize_and_insert_from_arena(const char* pos) {
     return pos + deserialize_impl(pos);
 }
 
-void ColumnSpatial::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnSpatial::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
-void ColumnSpatial::deserialize_vec(StringRef* keys, size_t num_rows) {
+void ColumnSpatial::deserialize(StringRef* keys, size_t num_rows) {
     for (size_t i = 0; i < num_rows; ++i) {
         const auto size = deserialize_impl(keys[i].data);
         keys[i].data += size;

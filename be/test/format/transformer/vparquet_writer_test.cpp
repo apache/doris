@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
@@ -162,6 +163,27 @@ TEST_F(VParquetWriterTest, WritesIcebergPrimitiveAndCollectsMetrics) {
     EXPECT_GT(stats.column_sizes.at(7), 0);
     EXPECT_EQ(std::string("\x01\x00\x00\x00", 4), stats.lower_bounds.at(7));
     EXPECT_EQ(std::string("\x03\x00\x00\x00", 4), stats.upper_bounds.at(7));
+}
+
+TEST_F(VParquetWriterTest, RejectsExistingIcebergNestedSpatialSchema) {
+    auto type = make_nullable(std::make_shared<DataTypeArray>(
+            make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY))));
+    auto output_exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+    const std::string json = R"JSON({"type":"struct","fields":[
+        {"id":1,"name":"shapes","required":false,"type":{"type":"list",
+         "element-id":2,"element-required":false,"element":"geometry"}}]})JSON";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+    VIcebergParquetWriter writer(&state, file_writer.get(), output_exprs, {"shapes"}, false,
+                                 options, &json, *schema);
+    const auto status = writer.open();
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Nested Iceberg spatial columns"), std::string::npos);
 }
 
 TEST_F(VParquetWriterTest, IcebergDecimalBoundsUseMinimalSignedBytes) {

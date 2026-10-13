@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstring>
 #include <string>
 
@@ -48,7 +49,7 @@ TEST(DataTypeSpatialTest, FactoryCreatesDistinctSpatialColumns) {
     EXPECT_FALSE(geometry->check_column(*ColumnVarbinary::create()).ok());
 
     const std::string wkb(
-            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00@", 21);
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
     auto& column = assert_cast<ColumnSpatial&>(*geometry_column);
     column.insert_data(wkb.data(), wkb.size());
 
@@ -109,6 +110,47 @@ TEST(DataTypeSpatialTest, ColumnPreservesWkbThroughFilterAndPermute) {
     ASSERT_EQ(2, permuted->size());
     EXPECT_EQ(third, permuted->get_data_at(0).to_string());
     EXPECT_EQ(first, permuted->get_data_at(1).to_string());
+}
+
+TEST(DataTypeSpatialTest, SpatialCompositeKeysRoundTripThroughIColumn) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto source = ColumnSpatial::create(TYPE_GEOMETRY);
+    source->insert_data(wkb.data(), wkb.size());
+    source->insert_default();
+    auto trailing = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    trailing->insert_default();
+    trailing->insert_data(wkb.data(), wkb.size());
+    const IColumn& source_interface = *source;
+    const IColumn& trailing_interface = *trailing;
+    const auto key_capacity =
+            source_interface.get_max_row_byte_size() + trailing_interface.get_max_row_byte_size();
+    std::array<std::string, 2> buffers = {std::string(key_capacity, '\0'),
+                                          std::string(key_capacity, '\0')};
+    std::array<StringRef, 2> keys = {StringRef(buffers[0].data(), 0),
+                                     StringRef(buffers[1].data(), 0)};
+    source_interface.serialize(keys.data(), keys.size());
+    trailing_interface.serialize(keys.data(), keys.size());
+    const auto serialized_size = wkb.size() + 2 * sizeof(uint32_t);
+    EXPECT_EQ(keys[0].size, serialized_size);
+    EXPECT_EQ(keys[1].size, serialized_size);
+
+    auto restored = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto restored_trailing = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    IColumn& restored_interface = *restored;
+    IColumn& restored_trailing_interface = *restored_trailing;
+    restored_interface.deserialize(keys.data(), keys.size());
+    restored_trailing_interface.deserialize(keys.data(), keys.size());
+    ASSERT_EQ(restored->size(), 2);
+    ASSERT_EQ(restored_trailing->size(), 2);
+    EXPECT_EQ(restored->get_data_at(0).to_string(), wkb);
+    EXPECT_EQ(restored->get_data_at(1).size, 0);
+    EXPECT_EQ(restored_trailing->get_data_at(0).size, 0);
+    EXPECT_EQ(restored_trailing->get_data_at(1).to_string(), wkb);
+    EXPECT_EQ(keys[0].size, 0);
+    EXPECT_EQ(keys[1].size, 0);
+    EXPECT_EQ(keys[0].data, buffers[0].data() + serialized_size);
+    EXPECT_EQ(keys[1].data, buffers[1].data() + serialized_size);
 }
 
 } // namespace doris

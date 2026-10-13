@@ -86,8 +86,8 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          IColumn::Permutation& res) const override;
     size_t get_max_row_byte_size() const override;
-    void deserialize_vec(StringRef* keys, size_t num_rows);
-    void serialize_vec(StringRef* keys, size_t num_rows) const;
+    void deserialize(StringRef* keys, size_t num_rows) override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
     void pop_back(size_t n) override { resize(size() - n); }
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;

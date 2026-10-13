@@ -429,6 +429,61 @@ TEST(VGeoFunctionsTest, function_geo_projected_geometry_accessors) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyRawAccessorsPreserveBigEndianWkb) {
+    const std::string wkb(
+            "\x00\x00\x00\x00\x01\x40\x66\x80\x00\x00\x00\x00\x00"
+            "\x40\x56\x80\x00\x00\x00\x00\x00",
+            21);
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "vincenty");
+    for (const auto& [name, expected] :
+         std::vector<std::pair<std::string, std::string>> {{"st_asbinary", wkb},
+                                                           {"st_astext", "POINT (180 90)"},
+                                                           {"st_geometrytype", "ST_POINT"}}) {
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        ColumnsWithTypeAndName arguments {{std::move(column), type, "geography"}};
+        const auto result_type = make_nullable(std::make_shared<DataTypeString>());
+        auto function =
+                SimpleFunctionFactory::instance().get_function(name, arguments, result_type);
+        ASSERT_NE(function, nullptr);
+        Block block;
+        block.insert(arguments.front());
+        block.insert({nullptr, result_type, "result"});
+        const auto status = function->execute(nullptr, block, {0}, 1, 1);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_FALSE(block.get_by_position(1).column->is_null_at(0));
+        EXPECT_EQ(block.get_by_position(1).column->get_data_at(0).to_string(), expected);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyRawPointCoordinatesPreservePoleLongitude) {
+    const std::string wkb(
+            "\x00\x00\x00\x00\x01\x40\x66\x80\x00\x00\x00\x00\x00"
+            "\x40\x56\x80\x00\x00\x00\x00\x00",
+            21);
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "vincenty");
+    for (const auto& [name, expected] :
+         std::vector<std::pair<std::string, double>> {{"st_x", 180}, {"st_y", 90}}) {
+        auto column = type->create_column();
+        column->insert_data(wkb.data(), wkb.size());
+        ColumnsWithTypeAndName arguments {{std::move(column), type, "geography"}};
+        const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+        auto function =
+                SimpleFunctionFactory::instance().get_function(name, arguments, result_type);
+        ASSERT_NE(function, nullptr);
+        Block block;
+        block.insert(arguments.front());
+        block.insert({nullptr, result_type, "result"});
+        const auto status = function->execute(nullptr, block, {0}, 1, 1);
+        ASSERT_TRUE(status.ok()) << status;
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        ASSERT_FALSE(result.is_null_at(0));
+        EXPECT_DOUBLE_EQ(
+                assert_cast<const ColumnFloat64&>(result.get_nested_column()).get_data()[0],
+                expected);
+    }
+}
+
 TEST(VGeoFunctionsTest, function_geo_spatial_null_map_overrides_valid_payload) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
