@@ -17,16 +17,25 @@
 
 package org.apache.doris.datasource.connector.converter;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
@@ -80,6 +89,50 @@ public class ConnectorSpatialWriteValidatorTest {
                         ImmutableList.of(new Column("payload", targetType)), ImmutableList.of(source)));
         Assertions.assertTrue(exception.getMessage().contains("CRS mismatch"), exception.getMessage());
         Assertions.assertTrue(exception.getMessage().contains("payload"), exception.getMessage());
+    }
+
+    @Test
+    public void testNestedSpatialTargetsAreRejectedForExistingSchemas() {
+        ScalarType geometry = ScalarType.createGeometryType("OGC:CRS84");
+        for (Type target : ImmutableList.of(new ArrayType(geometry), new MapType(Type.STRING, geometry),
+                new StructType(new StructField("geom", geometry)))) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> ConnectorSpatialWriteValidator.validate(new Column("payload", target),
+                            new SlotReference("payload", DataType.fromCatalogType(target))));
+            Assertions.assertTrue(exception.getMessage().contains("Nested spatial"), exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testTransparentWrappersDoNotHideCrsMismatch() {
+        ScalarType target = ScalarType.createGeometryType("OGC:CRS84");
+        DataType targetDataType = DataType.fromCatalogType(target);
+        Expression mismatched = new Cast(new SlotReference("projected", DataType.fromCatalogType(
+                ScalarType.createGeometryType("EPSG:3857"))), targetDataType);
+        Expression matching = new SlotReference("matching", targetDataType);
+        for (Expression source : ImmutableList.of(new Cast(mismatched, targetDataType),
+                new CaseWhen(ImmutableList.of(new WhenClause(BooleanLiteral.TRUE, matching)), mismatched),
+                new Coalesce(matching, mismatched))) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> ConnectorSpatialWriteValidator.validate(new Column("payload", target), source));
+            Assertions.assertTrue(exception.getMessage().contains("CRS mismatch"), exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testTransparentWrappersAcceptMatchingValuesAndNulls() {
+        ScalarType target = ScalarType.createGeometryType("OGC:CRS84");
+        DataType targetDataType = DataType.fromCatalogType(target);
+        Expression matching = new SlotReference("matching", targetDataType);
+        Expression castNull = new Cast(NullLiteral.INSTANCE, targetDataType);
+        for (Expression source : ImmutableList.of(NullLiteral.INSTANCE, castNull,
+                new Cast(new Cast(matching, targetDataType), targetDataType),
+                new If(BooleanLiteral.TRUE, matching, castNull),
+                new CaseWhen(ImmutableList.of(new WhenClause(BooleanLiteral.TRUE, matching)), castNull),
+                new Coalesce(matching, castNull))) {
+            Assertions.assertDoesNotThrow(() -> ConnectorSpatialWriteValidator.validate(
+                    new Column("payload", target), source));
+        }
     }
 
     private static void assertRejected(Type sourceType, ScalarType targetType, String message) {

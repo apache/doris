@@ -23,7 +23,6 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
@@ -390,22 +389,7 @@ public class ColumnDefinition {
     }
 
     private static boolean containsSpatialType(DataType dataType) {
-        PrimitiveType primitiveType = dataType.toCatalogDataType().getPrimitiveType();
-        if (primitiveType == PrimitiveType.GEOMETRY || primitiveType == PrimitiveType.GEOGRAPHY) {
-            return true;
-        }
-        if (dataType instanceof ArrayType) {
-            return containsSpatialType(((ArrayType) dataType).getItemType());
-        }
-        if (dataType instanceof MapType) {
-            MapType mapType = (MapType) dataType;
-            return containsSpatialType(mapType.getKeyType()) || containsSpatialType(mapType.getValueType());
-        }
-        if (dataType instanceof StructType) {
-            return ((StructType) dataType).getFields().stream()
-                    .anyMatch(field -> containsSpatialType(field.getDataType()));
-        }
-        return false;
+        return dataType.toCatalogDataType().typeContainsSpatialType();
     }
 
     /**

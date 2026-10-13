@@ -473,6 +473,25 @@ public abstract class Type {
         return false;
     }
 
+    /** Whether this type or a nested complex type contains spatial values. */
+    public boolean typeContainsSpatialType() {
+        if (getPrimitiveType() == PrimitiveType.GEOMETRY || getPrimitiveType() == PrimitiveType.GEOGRAPHY) {
+            return true;
+        } else if (isStructType()) {
+            return ((StructType) this).getFields().stream()
+                    .anyMatch(field -> field.getType().typeContainsSpatialType());
+        } else if (isMapType()) {
+            MapType mapType = (MapType) this;
+            return mapType.getKeyType().typeContainsSpatialType()
+                    || mapType.getValueType().typeContainsSpatialType();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().typeContainsSpatialType();
+        } else if (isAggStateType()) {
+            return ((AggStateType) this).getSubTypes().stream().anyMatch(Type::typeContainsSpatialType);
+        }
+        return false;
+    }
+
     /** Whether this type or a nested complex type contains Variant. */
     public boolean typeContainsVariant() {
         if (isVariantType()) {

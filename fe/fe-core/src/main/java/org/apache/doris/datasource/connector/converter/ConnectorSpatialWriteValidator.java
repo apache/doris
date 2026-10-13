@@ -22,9 +22,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.types.DataType;
 
@@ -54,6 +56,9 @@ public final class ConnectorSpatialWriteValidator {
         Type targetType = targetColumn.getType();
         if (targetType instanceof ScalarType && ((ScalarType) targetType).isSpatialType()) {
             validateExpression(source, (ScalarType) targetType, targetColumn.getName());
+        } else if (targetType.typeContainsSpatialType()) {
+            throw new AnalysisException("Nested spatial columns are not supported for connector writes: "
+                    + targetColumn.getName());
         }
     }
 
@@ -70,7 +75,18 @@ public final class ConnectorSpatialWriteValidator {
             return;
         }
         if (expression instanceof Cast && expression.getDataType().equals(targetDataType)) {
-            validateType(expression.child(0).getDataType().toCatalogDataType(), targetType, columnName);
+            validateExpression(expression.child(0), targetType, columnName);
+            return;
+        }
+        if (expression instanceof CaseWhen && expression.getDataType().equals(targetDataType)) {
+            CaseWhen caseWhen = (CaseWhen) expression;
+            caseWhen.getWhenClauses().forEach(clause ->
+                    validateExpression(clause.getResult(), targetType, columnName));
+            caseWhen.getDefaultValue().ifPresent(value -> validateExpression(value, targetType, columnName));
+            return;
+        }
+        if (expression instanceof Coalesce && expression.getDataType().equals(targetDataType)) {
+            expression.children().forEach(child -> validateExpression(child, targetType, columnName));
             return;
         }
         validateType(expression.getDataType().toCatalogDataType(), targetType, columnName);
