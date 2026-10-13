@@ -110,6 +110,18 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     // cannot encode. Preserve the whole input container so residual values stay visible.
                     exprCollector.collect(function.child(0));
                 } else {
+                    if (function.arity() > 1) {
+                        // Every argument of a multi-argument explode determines how many rows it
+                        // generates, including one whose generated field is never read: in
+                        // explode(v1, v2) AS (x1, x2), a row with v1 = [{"k":1}] and v2 = [1, 2]
+                        // yields two rows even if only x1 is used. Keep the whole container of each
+                        // ordinary Variant argument, not only of those whose field is referenced.
+                        for (Expression argument : function.children()) {
+                            if (argument.getDataType().isVariantType() && !isNestedGroupVariant(argument)) {
+                                exprCollector.collect(argument);
+                            }
+                        }
+                    }
                     for (CollectAccessPathResult accessPath : accessPaths) {
                         List<String> path = accessPath.getPath();
                         if (function.arity() == 1) {
@@ -131,9 +143,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             argumentContext.setType(accessPath.getType());
                             if (function.child(colIndex).getDataType().isVariantType()
                                     && !isNestedGroupVariant(function.child(colIndex))) {
-                                // Every Variant argument determines the generated array shape, so
-                                // an output-field path must not narrow the input container.
-                                exprCollector.collect(function.child(colIndex));
+                                // Its whole container is collected above, so an output-field path
+                                // must not narrow it.
                                 continue;
                             } else if (function.child(colIndex).getDataType().isVariantType()) {
                                 argumentContext.getAccessPathBuilder().addSuffix(path.subList(2, path.size()));
