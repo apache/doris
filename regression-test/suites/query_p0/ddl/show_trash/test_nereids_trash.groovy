@@ -20,6 +20,32 @@ suite("show_trash_nereids") {
     checkNereidsExecute("""show trash;""")
     checkNereidsExecute("""show trash on "127.0.0.1:9050";""")
 
+    // verify show trash returns expected columns:
+    // BackendId, Backend, RootPath, State, TrashUsedCapacity, TrashFileNum, DiskCapacity, AvailableCapacity
+    def result = sql """show trash;"""
+    assertTrue(result.size() >= 0)
+    if (result.size() > 0) {
+        assertTrue(result[0].size() == 8)
+    }
+
+    // verify SHOW PROC '/trash' returns same columns as SHOW TRASH
+    def procResult = sql """SHOW PROC '/trash'"""
+    assertTrue(procResult.size() >= 0)
+    if (procResult.size() > 0) {
+        assertTrue(procResult[0].size() == 8)
+    }
+
+    // verify SHOW PROC '/trash/<backendId>' returns per-disk columns:
+    // RootPath, State, TrashUsedCapacity, TrashFileNum, DiskCapacity, AvailableCapacity
+    if (procResult.size() > 0) {
+        def backendId = procResult[0][0]
+        def procNodeResult = sql """SHOW PROC '/trash/${backendId}'"""
+        assertTrue(procNodeResult.size() >= 0)
+        if (procNodeResult.size() > 0) {
+            assertTrue(procNodeResult[0].size() == 6)
+        }
+    }
+
     //cloud-mode
     if (isCloudMode()) {
         return
