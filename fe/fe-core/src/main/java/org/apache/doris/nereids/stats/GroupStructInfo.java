@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
 
@@ -403,9 +405,9 @@ public class GroupStructInfo {
 
     private static GroupStructInfo describeGroup(Group group, Ctx ctx) {
         if (!ctx.visited.add(group)) {
-            // shared sub graph (e.g. CTE / repeated child group): cannot be expressed by a single
-            // canonical tree, mark invalid so that callers fall back to legacy behavior
-            invalid(ctx);
+            // shared sub graph (e.g. CTE: two consumers of one producer): cannot be expressed by a
+            // single canonical tree, mark invalid so that callers fall back to legacy behavior
+            invalid(ctx, "sharing=group " + group.getGroupId().asInt() + " reached twice");
             return INVALID;
         }
         return describeVisited(group, ctx);
@@ -446,7 +448,7 @@ public class GroupStructInfo {
         }
         if (group.getLogicalExpressions().isEmpty()) {
             // physical only group: there is no expression to describe
-            return INVALID;
+            return invalidStructInfo("no logical expression in group " + group.getGroupId().asInt());
         }
         GroupExpression ge = group.getFirstLogicalExpression();
         Canonical out = new Canonical();
@@ -456,10 +458,10 @@ public class GroupStructInfo {
             // memo content not supported by the simplified struct info: treat as invalid and
             // fall back to legacy behavior instead of failing the optimizer on the hot path
             LOG.debug("failed to compute hbo struct info for group {}", group.getGroupId(), e);
-            return ctx.retryable ? transientStructInfo() : INVALID;
+            return ctx.retryable ? transientStructInfo() : invalidStructInfo(ctx.reason);
         }
         if (!ctx.valid) {
-            return ctx.retryable ? transientStructInfo() : INVALID;
+            return ctx.retryable ? transientStructInfo() : invalidStructInfo(ctx.reason);
         }
         return ofPieces(out.getPieces(), out.getScans());
     }
@@ -495,20 +497,24 @@ public class GroupStructInfo {
             out.modes(withLiteralHeader.append("}(").toString(), noLiteralHeader.append("}(").toString());
             appendChild(ge, 0, out, ctx);
             out.same(")");
-        } else if (plan instanceof LogicalProject) {
-            // project is transparent for structure matching
+        } else if (plan instanceof LogicalProject || plan instanceof LogicalSort
+                || plan instanceof LogicalWindow) {
+            // a project, a sort and a window are transparent for structure matching: none of them
+            // changes the number of rows, and the parameters of a sort / window do not influence a row
+            // count either, so the nodes above them are described by the shape below and they must not
+            // make the struct info of those nodes disappear
             if (ge.arity() == 1) {
                 appendChild(ge, 0, out, ctx);
             } else {
-                invalid(ctx);
+                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
         } else if (plan instanceof LogicalJoin) {
             appendJoin((LogicalJoin<?, ?>) plan, ge, out, ctx);
         } else if (plan instanceof LogicalAggregate) {
             appendAggregate((LogicalAggregate<?>) plan, ge, out, ctx);
         } else {
-            // unsupported head operator (sort/topn/limit/window/union/cte/tvf/...)
-            invalid(ctx);
+            // unsupported head operator (topn/limit/union/intersect/except/cte/tvf/generate/...)
+            invalid(ctx, "unsupported=" + plan.getClass().getSimpleName());
         }
     }
 
@@ -523,7 +529,9 @@ public class GroupStructInfo {
             if (child.isRetryable()) {
                 transientFailure(ctx);
             } else {
-                invalid(ctx);
+                // keep the reason of the child: a description which is invalid because of its child
+                // reports the cause of that child (the first reason wins)
+                invalid(ctx, child.getSkipReason());
             }
             return;
         }
@@ -598,12 +606,12 @@ public class GroupStructInfo {
             return;
         }
         if (!ctx.visited.add(group)) {
-            invalid(ctx);
+            invalid(ctx, "sharing=group " + group.getGroupId().asInt() + " reached twice");
             return;
         }
         GroupExpression ge = group.getFirstLogicalExpression();
         if (ge == null) {
-            invalid(ctx);
+            invalid(ctx, "no logical expression in group " + group.getGroupId().asInt());
             return;
         }
         Plan plan = ge.getPlan();
@@ -614,9 +622,10 @@ public class GroupStructInfo {
             }
             return;
         }
-        if (plan instanceof LogicalProject && ge.arity() == 1) {
-            // keep descending through projects so that a project between two joins cannot break the
-            // chain in one expression and not in another
+        if ((plan instanceof LogicalProject || plan instanceof LogicalSort
+                || plan instanceof LogicalWindow) && ge.arity() == 1) {
+            // keep descending through the transparent operators so that a project / sort between two
+            // joins cannot break the chain in one expression and not in another
             collectJoinChain(ge.child(0), conditions, conditionsNoLiteral, leaves, ctx);
             return;
         }
@@ -625,7 +634,7 @@ public class GroupStructInfo {
             if (leaf.isRetryable()) {
                 transientFailure(ctx);
             } else {
-                invalid(ctx);
+                invalid(ctx, leaf.getSkipReason());
             }
             return;
         }
@@ -667,7 +676,15 @@ public class GroupStructInfo {
     }
 
     private static void invalid(Ctx ctx) {
+        invalid(ctx, "");
+    }
+
+    /** Mark the description invalid, remembering why (the first reason is the one reported). */
+    private static void invalid(Ctx ctx, String reason) {
         ctx.valid = false;
+        if (ctx.reason.isEmpty()) {
+            ctx.reason = reason;
+        }
     }
 
     /** Mark the struct info invalid because the table state could not be read (retryable). */
@@ -688,7 +705,7 @@ public class GroupStructInfo {
                 // not be read back, and a pasted one could resolve to another table
                 LOG.debug("scan table {} contains a struct info delimiter, hbo is disabled for it",
                         descriptor.getTable());
-                invalid(ctx);
+                invalid(ctx, "delimiter in table name " + descriptor.getTable());
                 return;
             }
             out.scan(descriptor);
@@ -1037,25 +1054,6 @@ public class GroupStructInfo {
         return new HboStructSummary(scanCount, relations);
     }
 
-    /**
-     * Why the struct info of the group of {@code planNode} was refused, if it was refused by a limit.
-     * Cheap: only the memoized structural summary is read, no canonical string is built.
-     */
-    public static Optional<String> limitSkipReasonOfPlanNode(AbstractPlan planNode,
-            Map<Integer, Group> groupsById) {
-        Group group = resolveGroup(planNode, groupsById);
-        if (group == null) {
-            return Optional.empty();
-        }
-        int maxScansPerGroup = hboMaxScansPerGroup();
-        int scans = group.getOrComputeHboStructSummary().getScanCount();
-        if (maxScansPerGroup > 0 && scans > maxScansPerGroup) {
-            return Optional.of("subtree scans=" + scans
-                    + " > hbo_max_scans_per_group=" + maxScansPerGroup);
-        }
-        return Optional.empty();
-    }
-
     /** The number of groups described since the last reset. For tests only. */
     @VisibleForTesting
     public static int getDescribedGroupCount() {
@@ -1080,6 +1078,26 @@ public class GroupStructInfo {
         materializedGroups.set(0);
     }
 
+    /**
+     * Why the struct info of the group of {@code planNode} is missing, when the reason is known: the
+     * group is too wide for {@code hbo_max_scans_per_group}, its sub tree is shared by two consumers,
+     * it contains an operator the canonical form does not describe, its table name carries a struct
+     * info delimiter, ... Empty for a failure which is a property of the environment (a retried
+     * catalog read) or when the group is not reachable at all.
+     */
+    public static Optional<String> skipReasonOfPlanNode(AbstractPlan planNode,
+            Map<Integer, Group> groupsById) {
+        Group group = resolveGroup(planNode, groupsById);
+        if (group == null || group.getLogicalExpressions().isEmpty()) {
+            return Optional.empty();
+        }
+        GroupStructInfo structInfo = group.getOrComputeHboStructInfo();
+        if (structInfo.isValid() || structInfo.isRetryable() || structInfo.getSkipReason().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(structInfo.getSkipReason());
+    }
+
     /** The relation key of the group of a plan node, or null when that group is not reachable. */
     public static String relationKeyOfPlanNode(AbstractPlan planNode, Map<Integer, Group> groupsById) {
         Group group = resolveGroup(planNode, groupsById);
@@ -1091,6 +1109,8 @@ public class GroupStructInfo {
         private boolean valid = true;
         /** whether the failure was an environment problem which a later lookup may survive */
         private boolean retryable = false;
+        /** why the description was refused: the first reason wins, it is shown by EXPLAIN */
+        private String reason = "";
         private final Set<Group> visited = new HashSet<>();
     }
 

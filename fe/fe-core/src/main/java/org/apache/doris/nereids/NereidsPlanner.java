@@ -753,7 +753,7 @@ public class NereidsPlanner extends Planner {
         } else {
             // no struct info: record why, when the reason is a limit rather than an unsupported plan
             // pattern, so the annotation can tell "no fingerprint by design" from "hbo is broken"
-            GroupStructInfo.limitSkipReasonOfPlanNode(node, groupsById)
+            GroupStructInfo.skipReasonOfPlanNode(node, groupsById)
                     .ifPresent(reason -> node.setMutableState(MutableState.KEY_HBO_STRUCT_SKIP, reason));
         }
     }
