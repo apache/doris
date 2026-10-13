@@ -84,11 +84,22 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
      * 'abc', not the hex text '616263'. A Java string carries those bytes only when they are valid UTF-8; for
      * other bytes, such as X'FF', this throws, and FoldConstantRuleOnFE.visitCast then leaves the cast for BE
      * to evaluate (it turns only a CastException into NULL).
+     *
+     * <p>Valid UTF-8 with a NUL byte or a supplementary character is left for BE too, because FE does not
+     * evaluate such string literals like BE does: StringLikeLiteral.compareTo takes the bytes after a NUL for
+     * padding, so CAST(X'610062' AS STRING) = 'a' would fold to TRUE while BE compares all three bytes, and
+     * VARCHAR(n) truncation and trim_in work on UTF-16 units, so CAST(X'F09F9880' AS VARCHAR(1)) would keep
+     * half of U+1F600 where BE keeps the whole character.</p>
      */
     @Override
     protected String castValueToString() {
-        return toUtf8String().orElseThrow(() -> new AnalysisException(
+        String value = toUtf8String().orElseThrow(() -> new AnalysisException(
                 "Cannot cast VARBINARY " + computeToSql() + " to a string type on FE: it is not valid UTF-8"));
+        if (value.indexOf('\0') >= 0 || value.codePoints().anyMatch(Character::isSupplementaryCodePoint)) {
+            throw new AnalysisException("Cannot cast VARBINARY " + computeToSql()
+                    + " to a string type on FE: it has a NUL byte or a supplementary character");
+        }
+        return value;
     }
 
     /** The bytes decoded as UTF-8, or empty when they are not valid UTF-8 and only BE can cast them. */

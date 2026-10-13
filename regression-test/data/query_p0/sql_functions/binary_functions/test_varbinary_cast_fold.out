@@ -8,6 +8,9 @@ YWJj	/w==
 -- !cast_fold --
 abc	3	中	1
 
+-- !edge_fold --
+false	F09F9880	F09F9880
+
 -- !hex_no_fold --
 616263	E4B8AD	FF	
 
@@ -16,4 +19,7 @@ YWJj	/w==
 
 -- !cast_no_fold --
 abc	3	中	1
+
+-- !edge_no_fold --
+false	F09F9880	F09F9880
 

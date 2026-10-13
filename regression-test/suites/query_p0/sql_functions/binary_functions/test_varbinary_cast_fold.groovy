@@ -18,8 +18,10 @@
 // A cast of a VARBINARY value to a string type keeps its bytes, so hex(), to_base64() and length() of a
 // VARBINARY constant, which take the value through that cast, must give the same results whether FE folds
 // the constant or BE evaluates it. The *_fold and *_no_fold results below must match. X'FF' is not valid
-// UTF-8, so FE leaves its cast to BE. The two blocks use different aliases so that they are not served from
-// a cached result of the same statement text.
+// UTF-8, so FE leaves its cast to BE. So does text with a NUL byte or a supplementary character, which FE does
+// not evaluate like BE (edge_*): 'a', NUL, 'b' is not equal to 'a', and VARCHAR(1) and trim_in keep U+1F600
+// (F09F9880) whole. The two blocks use different aliases so that they are not served from a cached result of
+// the same statement text.
 
 suite("test_varbinary_cast_fold") {
     sql "set debug_skip_fold_constant = false"
@@ -35,6 +37,11 @@ suite("test_varbinary_cast_fold") {
                cast(X'E4B8AD' AS string),
                length(cast(X'FF' AS string))
     """
+    order_qt_edge_fold """
+        SELECT cast(X'610062' AS string) = 'a',
+               hex(cast(X'F09F9880' AS varchar(1))),
+               hex(trim_in(cast(X'F09F9880' AS string), cast(X'F09F9881' AS string)))
+    """
 
     sql "set debug_skip_fold_constant = true"
     order_qt_hex_no_fold """
@@ -48,5 +55,10 @@ suite("test_varbinary_cast_fold") {
                length(cast(cast('abc' AS varbinary(16)) AS varchar(16))) b,
                cast(X'E4B8AD' AS string) c,
                length(cast(X'FF' AS string)) d
+    """
+    order_qt_edge_no_fold """
+        SELECT cast(X'610062' AS string) = 'a' a,
+               hex(cast(X'F09F9880' AS varchar(1))) b,
+               hex(trim_in(cast(X'F09F9880' AS string), cast(X'F09F9881' AS string))) c
     """
 }

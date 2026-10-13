@@ -341,6 +341,16 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         // 0xFF is not valid UTF-8, so no FE string literal carries it; the cast is left for BE.
         Cast notUtf8 = new Cast(new VarBinaryLiteral(new byte[] {(byte) 0xFF}), StringType.INSTANCE);
         Assertions.assertEquals(notUtf8, executor.rewrite(notUtf8, context));
+
+        // FE does not evaluate a NUL byte or a supplementary character like BE: a string comparison takes the
+        // bytes after a NUL for padding, and VARCHAR(n) truncation splits U+1F600 into a lone surrogate. Those
+        // casts are left for BE as well.
+        Cast withNul = new Cast(new VarBinaryLiteral(new byte[] {'a', 0, 'b'}), StringType.INSTANCE);
+        Assertions.assertEquals(withNul, executor.rewrite(withNul, context));
+        VarBinaryLiteral grinningFace = new VarBinaryLiteral(
+                new byte[] {(byte) 0xF0, (byte) 0x9F, (byte) 0x98, (byte) 0x80});
+        Cast supplementary = new Cast(grinningFace, VarcharType.createVarcharType(1));
+        Assertions.assertEquals(supplementary, executor.rewrite(supplementary, context));
     }
 
     @Test
