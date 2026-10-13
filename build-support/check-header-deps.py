@@ -471,6 +471,11 @@ ANGLE_BANS = [
         "query algorithms use the format SPI and do not include CLucene headers",
     ),
     (
+        "storage/index/inverted/query/",
+        "CLucene.h",
+        "query algorithms use the format SPI and do not include CLucene headers",
+    ),
+    (
         "core/uint24.h",
         "fmt/",
         "to_string/to_buffer bodies live in uint24.cpp precisely so the "

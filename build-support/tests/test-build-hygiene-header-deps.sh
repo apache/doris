@@ -88,6 +88,16 @@ echo "${OUT}" | grep -q "fix:" || fail "query-format rule lacks a fix path"
 cp "${BACKUP}/be/src/storage/index/inverted/query/spi/index_source.h" \
     "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
 
+# ---- RED: a directory's third-party ban (query headers must not include CLucene) ----
+printf '#include <CLucene.h>\n' \
+    >> "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
+OUT="$(run_gate)"; EC=$?
+[ "${EC}" -eq 1 ] || fail "directory angle-ban injection expected exit 1, got ${EC}"
+echo "${OUT}" | grep -q "query/spi/index_source.h must not include <CLucene.h>" \
+    || fail "directory angle-ban violation not reported"
+cp "${BACKUP}/be/src/storage/index/inverted/query/spi/index_source.h" \
+    "${ROOT}/be/src/storage/index/inverted/query/spi/index_source.h"
+
 # ---- RED: third-party ban (uint24.h must not include fmt) ----
 printf '#include <fmt/format.h>\n' >> "${ROOT}/be/src/core/uint24.h"
 OUT="$(run_gate)"; EC=$?
