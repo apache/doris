@@ -31,6 +31,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -93,17 +94,17 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
 }
 
 BaseDeltaWriter::~BaseDeltaWriter() {
+    // Initialization may have created bitmap tokens before memtable init failed.
+    // Stop producers and drain both bitmap phases before any builder cleanup.
+    // A derived constructor can fail before it installs its builder.
+    if (_rowset_builder != nullptr) {
+        auto st = _get_load_cancel_status();
+        WARN_IF_ERROR(BaseDeltaWriter::cancel_with_status(
+                              st.ok() ? Status::Cancelled("delta writer destroyed") : st),
+                      "failed to cancel work while destroying delta writer");
+    }
     if (!_is_init) {
         return;
-    }
-
-    // Stop flush producers before releasing their rowset builders.
-    static_cast<void>(_memtable_writer->cancel());
-    // Close may observe cancellation after submitting bitmap work. Drain that
-    // work before derived builders roll back transactions or clear rowset caches.
-    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
-        WARN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap(),
-                      "delete bitmap calculation failed while destroying cancelled writer");
     }
 
     if (_rowset_builder->tablet() != nullptr) {
@@ -158,6 +159,8 @@ Status BaseDeltaWriter::init() {
         wg_sptr = doris::thread_context()->resource_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("BaseDeltaWriter::init:before_memtable_init", Status::OK(),
+                                      this);
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
             _rowset_builder->get_partial_update_info(), wg_sptr,
@@ -271,6 +274,7 @@ Status BaseDeltaWriter::cancel_with_status(const Status& st) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
+    RETURN_IF_ERROR(_rowset_builder->cancel(st));
     _is_cancelled = true;
     return Status::OK();
 }

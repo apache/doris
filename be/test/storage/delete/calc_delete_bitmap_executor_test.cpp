@@ -22,6 +22,7 @@
 #include <chrono>
 #include <future>
 
+#include "cpp/sync_point.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/resource_context.h"
@@ -76,6 +77,45 @@ TEST(CalcDeleteBitmapTokenTest, PreservesTaskFailure) {
     ASSERT_TRUE(token->submit_func([&] { return failure; }).ok());
     EXPECT_EQ(token->wait().to_string(), failure.to_string());
     EXPECT_EQ(token->submit_func([] { return Status::OK(); }).to_string(), failure.to_string());
+}
+
+TEST(CalcDeleteBitmapTokenTest, CreatedAfterCancellationRejectsEverySubmissionEntry) {
+    SCOPED_INIT_THREAD_CONTEXT();
+    CalcDeleteBitmapExecutor executor;
+    executor.init("BitmapLateTokenTest", 1);
+    auto status = std::make_shared<AtomicStatus>();
+    const auto reason = Status::Cancelled("load already cancelled");
+    status->update(reason);
+    auto token = executor.create_token(status);
+    EXPECT_EQ(token->submit_func([] { return Status::OK(); }), reason);
+    // Neither typed callback may dereference its inputs after cancellation.
+    EXPECT_EQ(token->submit(nullptr, nullptr, nullptr, {}, 0, nullptr, nullptr, nullptr), reason);
+    EXPECT_EQ(token->submit(nullptr, nullptr, RowsetId {}, {}, nullptr), reason);
+    EXPECT_EQ(token->wait(), reason);
+}
+
+TEST(CalcDeleteBitmapTokenTest, FailedSubmitKeepsCancellationReason) {
+    SCOPED_INIT_THREAD_CONTEXT();
+    CalcDeleteBitmapExecutor executor;
+    executor.init("BitmapSubmitCancelRaceTest", 1);
+    auto status = std::make_shared<AtomicStatus>();
+    auto token = executor.create_token(status);
+    const auto reason = Status::Cancelled("cancelled between check and submit");
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    Defer cleanup {[&] { sync_point->disable_processing(); }};
+    sync_point->set_call_back(
+            "CalcDeleteBitmapToken::submit_func:before_submit",
+            [&](auto&& args) {
+                if (try_any_cast<CalcDeleteBitmapToken*>(args[0]) == token.get()) {
+                    status->update(reason);
+                    token->cancel();
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+    EXPECT_EQ(token->submit_func([] { return Status::OK(); }), reason);
+    EXPECT_EQ(token->wait(), reason);
 }
 
 TEST(CalcDeleteBitmapTokenTest, DestructionWaitsForRunningCallback) {

@@ -88,6 +88,7 @@ struct RowsetWriterContext {
     int64_t txn_id {0};
     int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
+    std::shared_ptr<AtomicStatus> load_cancel_status;
     TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
