@@ -455,6 +455,14 @@ public class GroupStructInfo {
         return computed;
     }
 
+    /** Why a group has nothing to describe: its chosen id and how many expressions it holds. */
+    private static String describeGroupState(Group group) {
+        return group.getGroupId().asInt()
+                + " (logical=" + group.getLogicalExpressions().size()
+                + ", physical=" + group.getPhysicalExpressions().size()
+                + ", enforcers=" + group.getEnforcers().size() + ")";
+    }
+
     /**
      * The expression which describes a group: the one which was chosen for the final plan as soon as the
      * choice has been made, the first logical expression before that. The chosen expression may be a
@@ -475,7 +483,11 @@ public class GroupStructInfo {
         // or which a rule filled with physical expressions only has no logical expression to describe:
         // its first physical one is the only alternative to giving the whole struct info up
         List<GroupExpression> physical = group.getPhysicalExpressions();
-        return physical.isEmpty() ? null : physical.get(0);
+        if (!physical.isEmpty()) {
+            return physical.get(0);
+        }
+        // an enforcer group keeps its expression in the enforcer list, not among the physical ones
+        return group.getEnforcers().isEmpty() ? null : group.getEnforcers().keySet().iterator().next();
     }
 
     /**
@@ -494,11 +506,12 @@ public class GroupStructInfo {
             return invalidStructInfo("subtree scans=" + summary.getScanCount()
                     + " > hbo_max_scans_per_group=" + maxScansPerGroup);
         }
-        if (group.getLogicalExpressions().isEmpty()) {
-            // physical only group: there is no expression to describe
-            return invalidStructInfo("no logical expression in group " + group.getGroupId().asInt());
-        }
         GroupExpression ge = representativeExpression(group);
+        if (ge == null) {
+            // a group without any expression (no logical one, no chosen or physical one, no enforcer):
+            // there is nothing to describe
+            return invalidStructInfo("no expression in group " + describeGroupState(group));
+        }
         Canonical out = new Canonical();
         try {
             appendPlan(ge.getPlan(), ge, out, ctx);
@@ -775,7 +788,7 @@ public class GroupStructInfo {
     private static ChainInfo buildChainInfo(Group group) {
         GroupExpression ge = representativeExpression(group);
         if (ge == null) {
-            return ChainInfo.failed(false, "no logical expression in group " + group.getGroupId().asInt());
+            return ChainInfo.failed(false, "no logical expression in group " + describeGroupState(group));
         }
         Plan plan = ge.getPlan();
         if (plan instanceof Join && isFlattenableJoinType(((Join) plan).getJoinType())) {
