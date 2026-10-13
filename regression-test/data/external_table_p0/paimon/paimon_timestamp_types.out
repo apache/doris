@@ -74,6 +74,38 @@
 -- !timestamp_nested_jni_predicate --
 1969-12-31T23:59:59	1969-12-31T23:59:59
 
+-- !cross_family_UTC_projection --
+1	true	true	0	0
+2	true	true	0	0
+
+-- !cross_family_UTC_ntz_to_ltz_eq_1 --
+1
+
+-- !cross_family_UTC_ntz_to_ltz_eq_2 --
+2
+
+-- !cross_family_UTC_ltz_to_ntz_eq_1 --
+1
+
+-- !cross_family_UTC_ltz_to_ntz_eq_2 --
+2
+
+-- !cross_family_Asia_Shanghai_projection --
+1	true	true	0	0
+2	true	true	0	0
+
+-- !cross_family_Asia_Shanghai_ntz_to_ltz_eq_1 --
+1
+
+-- !cross_family_Asia_Shanghai_ntz_to_ltz_eq_2 --
+2
+
+-- !cross_family_Asia_Shanghai_ltz_to_ntz_eq_1 --
+1
+
+-- !cross_family_Asia_Shanghai_ltz_to_ntz_eq_2 --
+2
+
 -- !c1 --
 1	2024-01-02T10:04:05.100	2024-01-02T10:04:05.120	2024-01-02T10:04:05.123	2024-01-02T10:04:05.123400	2024-01-02T10:04:05.123450	2024-01-02T10:04:05.123456	2024-01-02T10:04:05.123456	2024-01-02T10:04:05.123456	2024-01-02T10:04:05.123456	2024-01-02 10:04:05.1+08:00	2024-01-02 10:04:05.12+08:00	2024-01-02 10:04:05.123+08:00	2024-01-02 10:04:05.1234+08:00	2024-01-02 10:04:05.12345+08:00	2024-01-02 10:04:05.123456+08:00	2024-01-02 10:04:05.123456+08:00	2024-01-02 10:04:05.123456+08:00	2024-01-02 10:04:05.123456+08:00
 

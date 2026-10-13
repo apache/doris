@@ -252,7 +252,37 @@ suite("paimon_timestamp_types", "p0,external") {
             order by nested_array[1]
         """
 
+        // Historical Parquet p6 values evolve across timestamp families to p0 in both
+        // directions. Control columns make the same family change at p6, preserving the
+        // SDK's JVM-zone conversion without precision loss. Compare against these controls
+        // so expected results do not depend on the community worker's default JVM timezone.
         sql """set force_jni_scanner=true"""
+        for (def zone : ["UTC", "Asia/Shanghai"]) {
+            sql "set time_zone = '${zone}'"
+            def zoneTag = zone.replace('/', '_')
+            "order_qt_cross_family_${zoneTag}_projection" """
+                select id,
+                    ntz_to_ltz = date_trunc(ntz_to_ltz_control, 'second'),
+                    ltz_to_ntz = date_trunc(ltz_to_ntz_control, 'second'),
+                    microsecond(ntz_to_ltz), microsecond(ltz_to_ntz)
+                from timestamp_cross_family_evolution_parquet order by id
+            """
+            for (def direction : ["ntz_to_ltz", "ltz_to_ntz"]) {
+                // Controls are unaffected by narrowing. Their SDK-converted civil values
+                // provide literals for FE file pruning and the Doris post-repair residual.
+                def literals = sql """select id,
+                    cast(date_trunc(${direction}_control, 'second') as string)
+                    from timestamp_cross_family_evolution_parquet order by id
+                """
+                for (def row : literals) {
+                    "order_qt_cross_family_${zoneTag}_${direction}_eq_${row[0]}" """
+                        select id from timestamp_cross_family_evolution_parquet
+                        where ${direction} = '${row[1]}' order by id
+                    """
+                }
+            }
+        }
+        sql """set time_zone = 'Asia/Shanghai'"""
         test_scale("2024-01-02 10:04:05.123456")
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")
