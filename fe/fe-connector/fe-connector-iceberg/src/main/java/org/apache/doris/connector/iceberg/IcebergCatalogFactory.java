@@ -156,12 +156,20 @@ public final class IcebergCatalogFactory {
             opts.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         }
         appendManifestCacheProperties(props, opts, metaCacheWeightLimited);
-        // iceberg-aws's default "apache" client type is Apache5HttpClient since iceberg 1.12, which needs an AWS SDK
-        // newer than the one Doris pins (2.29.x, see #58566), so every S3FileIO / Glue / STS client iceberg builds
-        // would fail to load. url-connection-client ships with that SDK. The key travels with S3FileIO's properties,
-        // so the BE metadata scanner, which rebuilds the FileIO from them, uses the same client.
-        opts.putIfAbsent(HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION);
+        applyDefaultAwsHttpClient(opts);
         return opts;
+    }
+
+    /**
+     * Defaults iceberg-aws's HTTP client to {@code urlconnection} unless {@code opts} sets one. iceberg-aws's default
+     * "apache" client type is Apache5HttpClient since iceberg 1.12, which needs an AWS SDK newer than the one Doris
+     * pins (2.29.x, see #58566), so every S3FileIO / Glue / STS client iceberg builds from a map without this key fails
+     * with NoClassDefFoundError; url-connection-client ships with that SDK. Every map that ends up building an
+     * iceberg AWS client must go through here. The key travels with S3FileIO's properties, so the BE metadata
+     * scanner, which rebuilds the FileIO from them, uses the same client.
+     */
+    static void applyDefaultAwsHttpClient(Map<String, String> opts) {
+        opts.putIfAbsent(HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION);
     }
 
     /**
