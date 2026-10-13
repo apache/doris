@@ -552,11 +552,10 @@ static Status insert_search_dsl_cache(
         segment_v2::InvertedIndexQueryCache* cache,
         const std::shared_ptr<segment_v2::IndexFileReader>& index_file_reader,
         const TSearchParam& search_param, roaring::Roaring bitmap) {
-    ThriftSerializer serializer(false, 1024);
-    TSearchParam copy = search_param;
-    std::string signature;
-    RETURN_IF_ERROR(serializer.serialize(&copy, &signature));
-
+    std::string signature = FunctionSearch::dsl_cache_signature(search_param, nullptr);
+    if (signature.empty()) {
+        return Status::InternalError("the search param cannot be serialized");
+    }
     segment_v2::InvertedIndexQueryCache::CacheKey key {
             index_file_reader->get_index_path_prefix(), "__search_dsl__",
             segment_v2::InvertedIndexQueryType::SEARCH_DSL_QUERY, std::move(signature)};
@@ -3772,6 +3771,73 @@ TEST_F(FunctionSearchTest, SearchConvertsExceptionInsideSearchToStatus) {
     EXPECT_FALSE(status.ok()) << status;
     EXPECT_NE(status.to_string().find("token stream failed on first use"), std::string::npos)
             << status;
+}
+
+// One fake SNII reader bound to field "body" with `properties`, wired the way SEARCH resolves it.
+// The maps outlive every query built on them.
+struct SniiBodyField {
+    SniiBodyField(int64_t index_id, std::map<std::string, std::string> index_properties)
+            : properties(std::move(index_properties)),
+              index_meta(make_test_inverted_index(index_id, properties)),
+              index_file_reader(std::make_shared<RejectingCluceneIndexFileReader>()),
+              reader(std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta,
+                                                                          index_file_reader)) {
+        iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+        data_type_with_names.emplace(
+                "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+        iterators["body"] = &iterator;
+        binding.field_name = "body";
+        binding.index_properties = properties;
+        binding.__isset.index_properties = true;
+    }
+
+    TSearchParam search_param(TSearchClause root, const std::string& dsl) const {
+        TSearchParam param;
+        param.original_dsl = dsl;
+        param.root = std::move(root);
+        param.field_bindings = {binding};
+        return param;
+    }
+
+    std::map<std::string, std::string> properties;
+    TabletIndex index_meta;
+    std::shared_ptr<RejectingCluceneIndexFileReader> index_file_reader;
+    std::shared_ptr<RecordingNativeInvertedIndexReader> reader;
+    segment_v2::InvertedIndexIterator iterator;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    TSearchFieldBinding binding;
+};
+
+// PREFIX, WILDCARD and REGEXP read at most inverted_index_max_expansions terms, so the DSL cache
+// answers a query only from a result computed under the same limit.
+TEST_F(FunctionSearchTest, TestSearchDslCacheKeysExpansionsByTheirLimit) {
+    ScopedInvertedIndexQueryCache cache_guard;
+    SniiBodyField body(27, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
+    body.reader->fake_source->add("foa", {0});
+    body.reader->fake_source->add("fob", {1});
+    const auto search_param = body.search_param(make_leaf_clause("PREFIX", "fo*"), "body:fo*");
+
+    const auto search_with_limit = [&](int32_t max_expansions) {
+        TQueryOptions query_options;
+        query_options.inverted_index_max_expansions = max_expansions;
+        RuntimeState runtime_state;
+        runtime_state.set_query_options(query_options);
+        OlapReaderStatistics stats;
+        auto context = std::make_shared<IndexQueryContext>();
+        context->runtime_state = &runtime_state;
+        context->stats = &stats;
+        InvertedIndexResultBitmap result;
+        std::unordered_map<std::string, int> field_name_to_column_id;
+        const auto status = function_search->evaluate_inverted_index_with_search_param(
+                search_param, body.data_type_with_names, body.iterators, 4, result, true, nullptr,
+                field_name_to_column_id, context);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        return result.get_data_bitmap() != nullptr ? *result.get_data_bitmap() : roaring::Roaring();
+    };
+    expect_bitmap_eq(search_with_limit(1), {0});
+    expect_bitmap_eq(search_with_limit(2), {0, 1});
+    expect_bitmap_eq(search_with_limit(1), {0});
 }
 
 // A prefix goes through the index's character filter before it is lowercased, as the indexed

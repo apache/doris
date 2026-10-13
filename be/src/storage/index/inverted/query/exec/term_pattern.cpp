@@ -138,10 +138,13 @@ bool TermPattern::matches(std::string_view term) {
     return true;
 }
 
+int32_t max_expansions(const RuntimeState* runtime_state) {
+    return runtime_state == nullptr ? 50
+                                    : runtime_state->query_options().inverted_index_max_expansions;
+}
+
 int32_t max_expansions(const segment_v2::IndexQueryContext& context) {
-    return context.runtime_state == nullptr
-                   ? 50
-                   : context.runtime_state->query_options().inverted_index_max_expansions;
+    return max_expansions(context.runtime_state);
 }
 
 int32_t expansion_limit(TermPatternKind kind, int32_t max_expansions) {

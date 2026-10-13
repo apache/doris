@@ -111,6 +111,10 @@ public:
                                  const std::string& default_operator, int32_t minimum_should_match,
                                  uint32_t num_rows = 0, bool scoring = true) const;
 
+    // The signature of `search_param` in the DSL result cache, empty when it cannot be serialized.
+    static std::string dsl_cache_signature(const TSearchParam& search_param,
+                                           const IndexQueryContext* context);
+
 private:
     Status _evaluate_search_param(
             const TSearchParam& search_param,

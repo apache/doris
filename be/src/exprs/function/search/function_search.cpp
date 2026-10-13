@@ -54,6 +54,7 @@
 #include "storage/index/inverted/query/engine/boolean_query/operator.h"
 #include "storage/index/inverted/query/engine/collect/doc_set_collector.h"
 #include "storage/index/inverted/query/engine/collect/top_k_collector.h"
+#include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/query/logical/node.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/olap_common.h"
@@ -64,13 +65,12 @@ namespace doris {
 
 namespace query_v2 = segment_v2::inverted_index::query_v2;
 
-// Build canonical DSL signature for cache key.
-// Serializes the entire TSearchParam via Thrift binary protocol so that
-// every field (DSL, AST root, field bindings, default_operator,
-// minimum_should_match, etc.) is included automatically.
-static std::string build_dsl_signature(const TSearchParam& param) {
+// Serializes the whole TSearchParam, so every field of the DSL takes part in the signature, and
+// adds the limit on the terms PREFIX, WILDCARD and REGEXP clauses expand to.
+std::string FunctionSearch::dsl_cache_signature(const TSearchParam& search_param,
+                                                const IndexQueryContext* context) {
     ThriftSerializer ser(false, 1024);
-    TSearchParam copy = param;
+    TSearchParam copy = search_param;
     std::string sig;
     auto st = ser.serialize(&copy, &sig);
     if (UNLIKELY(!st.ok())) {
@@ -78,6 +78,9 @@ static std::string build_dsl_signature(const TSearchParam& param) {
                      << ", caching disabled for this query";
         return "";
     }
+    sig += "|max_expansions=";
+    sig += std::to_string(
+            index_query::max_expansions(context != nullptr ? context->runtime_state : nullptr));
     return sig;
 }
 
@@ -411,7 +414,7 @@ Status FunctionSearch::_evaluate_search_param(
     bool cache_usable = false;
     if (dsl_cache) {
         seg_prefix = extract_segment_prefix(iterators);
-        dsl_sig = build_dsl_signature(search_param);
+        dsl_sig = dsl_cache_signature(search_param, index_query_context.get());
         if (!seg_prefix.empty() && !dsl_sig.empty()) {
             dsl_cache_key = InvertedIndexQueryCache::CacheKey {
                     seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY,

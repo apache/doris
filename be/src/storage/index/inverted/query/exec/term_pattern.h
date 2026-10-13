@@ -32,6 +32,10 @@
 struct hs_database;
 struct hs_scratch;
 
+namespace doris {
+class RuntimeState;
+} // namespace doris
+
 namespace doris::segment_v2 {
 struct IndexQueryContext;
 } // namespace doris::segment_v2
@@ -160,6 +164,7 @@ private:
 
 // The number of terms a pattern may expand to, 0 for no limit: the session's
 // inverted_index_max_expansions, or 50 when the query has no runtime state.
+int32_t max_expansions(const RuntimeState* runtime_state);
 int32_t max_expansions(const segment_v2::IndexQueryContext& context);
 
 // The number of terms a pattern of `kind` may expand to under a session limit of
