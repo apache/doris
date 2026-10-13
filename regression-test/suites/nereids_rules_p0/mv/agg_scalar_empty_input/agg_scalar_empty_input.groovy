@@ -104,6 +104,10 @@ suite("agg_scalar_empty_input") {
     order_qt_min_on_matched "${qMinMatched}"
     order_qt_max_on_empty "${qMaxEmpty}"
     order_qt_max_on_matched "${qMaxMatched}"
+    // Whether the scalar aggregate is split into a local and a global aggregate is a cost based
+    // choice which depends on the number of backends, so pin the one phase aggregation here to keep
+    // the shape assertion about the aggregate itself independent of the cluster it runs on.
+    sql "set agg_phase=1"
     qt_shape_count_on """explain shape plan ${qCountEmpty}"""
     // MIN rolls up to MIN, which is nullable already, so no empty-input compensation is needed here.
     qt_shape_min_on """explain shape plan ${qMinEmpty}"""
