@@ -59,6 +59,10 @@
 #include "storage/utils.h"
 #include "util/once.h"
 
+namespace roaring {
+class Roaring;
+}
+
 namespace doris {
 
 class BlockCompressionCodec;
@@ -204,18 +208,31 @@ public:
 
     Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const;
 
-    // get row ranges with zone map
-    // - cond_column is user's query predicate
-    // - delete_condition is a delete predicate of one version
+    // Narrow `row_ranges` (in/out, sorted and disjoint) to the pages whose zone map may match
+    // `col_predicates`. Only pages holding at least one row of `row_bitmap` are evaluated, so
+    // rows the key range or another index already removed cost no zone map work.
+    // - col_predicates is user's query predicate
+    // - delete_predicates are the delete predicates of one version
     Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts);
+            const roaring::Roaring& row_bitmap, RowRanges* row_ranges,
+            const ColumnIteratorOptions& iter_opts);
 
-    // get row ranges with bloom filter index
+    // Narrow `row_ranges` (in/out) to the pages whose Bloom filter may match `col_predicates`.
+    // Only the Bloom filters of pages holding a row of `row_bitmap` are read.
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
-                                          RowRanges* row_ranges,
+                                          const roaring::Roaring& row_bitmap, RowRanges* row_ranges,
                                           const ColumnIteratorOptions& iter_opts);
+
+    // Return the ids of the pages holding at least one row of `row_bitmap` inside `row_ranges`,
+    // ascending and unique. `row_ranges` must be sorted and disjoint. The walk seeks the bitmap
+    // page by page instead of enumerating rows, so a sparse bitmap over a large segment costs
+    // one seek per candidate page rather than one step per row or per page.
+    Status get_candidate_page_indexes(const roaring::Roaring& row_bitmap,
+                                      const RowRanges& row_ranges,
+                                      const ColumnIteratorOptions& iter_opts,
+                                      std::vector<uint32_t>* page_indexes);
 
     PagePointer get_dict_page_pointer() const { return _meta_dict_page; }
 
@@ -281,6 +298,7 @@ private:
     Status _get_filtered_pages(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            const roaring::Roaring& row_bitmap, const RowRanges& row_ranges,
             std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
@@ -365,11 +383,12 @@ public:
     virtual Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges) {
+            const roaring::Roaring& row_bitmap, RowRanges* row_ranges) {
         return Status::OK();
     }
 
     virtual Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
+                                                  const roaring::Roaring& row_bitmap,
                                                   RowRanges* row_ranges) {
         return Status::OK();
     }
@@ -588,9 +607,10 @@ public:
     Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges) override;
+            const roaring::Roaring& row_bitmap, RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
+                                          const roaring::Roaring& row_bitmap,
                                           RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
