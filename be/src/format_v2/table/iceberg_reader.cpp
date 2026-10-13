@@ -48,8 +48,8 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_default_value.h"
-#include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
+#include "format_v2/expr/evolution_cast.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
@@ -653,7 +653,7 @@ static Status build_missing_equality_delete_key_expr(const format::ColumnDefinit
         *key_expr = std::move(literal);
         return Status::OK();
     }
-    auto cast_expr = Cast::create_shared(delete_key_type, true);
+    auto cast_expr = EvolutionCast::create_shared(delete_key_type);
     cast_expr->add_child(literal);
     *key_expr = std::move(cast_expr);
     return Status::OK();
@@ -1511,7 +1511,7 @@ Status IcebergTableReader::_build_missing_equality_delete_key_expr(
     DORIS_CHECK(table_leaf != nullptr);
     DORIS_CHECK(table_leaf->type != nullptr);
     if (!table_leaf->type->equals(*filter.key_types[key_idx])) {
-        auto cast_expr = Cast::create_shared(filter.key_types[key_idx], true);
+        auto cast_expr = EvolutionCast::create_shared(filter.key_types[key_idx]);
         cast_expr->add_child(default_expr);
         default_expr = std::move(cast_expr);
     }
@@ -1565,7 +1565,7 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
             if (field->type->equals(*filter.key_types[idx])) {
                 delete_predicate->add_child(key_expr);
             } else {
-                auto cast_expr = Cast::create_shared(filter.key_types[idx], true);
+                auto cast_expr = EvolutionCast::create_shared(filter.key_types[idx]);
                 cast_expr->add_child(key_expr);
                 delete_predicate->add_child(cast_expr);
             }
@@ -1834,7 +1834,7 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
         if (!key_expr->data_type()->equals(*key_type)) {
             // Historical delete values share the promoted comparison domain. DATE-to-nanos
             // must report overflow rather than turn a non-NULL equality key into NULL.
-            auto cast_expr = Cast::create_shared(key_type, true);
+            auto cast_expr = EvolutionCast::create_shared(key_type);
             cast_expr->add_child(key_expr);
             key_expr = std::move(cast_expr);
         }

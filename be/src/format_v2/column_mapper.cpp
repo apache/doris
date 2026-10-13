@@ -51,6 +51,7 @@
 #include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
+#include "format_v2/expr/evolution_cast.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
@@ -1104,7 +1105,7 @@ static VExprSPtr cast_file_expr_to_table_type(const VExprSPtr& file_expr,
     DORIS_CHECK(rewrite_context != nullptr);
     // Localized filters perform the same evolution as projection; SQL non-strict casts must
     // not replace an overflowing retained DATE with NULL and filter it out before materialization.
-    auto cast_expr = Cast::create_shared(table_type, true);
+    auto cast_expr = EvolutionCast::create_shared(table_type);
     cast_expr->add_child(file_expr);
     rewrite_context->add_created_expr(cast_expr);
     return cast_expr;
@@ -2191,7 +2192,7 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
         return;
     }
 
-    auto expr = Cast::create_shared(mapping->table_type, true);
+    auto expr = EvolutionCast::create_shared(mapping->table_type);
     expr->add_child(VSlotRef::create_shared(cast_set<int>(block_position.value()),
                                             cast_set<int>(block_position.value()), -1,
                                             mapping->file_type, mapping->file_column_name));
