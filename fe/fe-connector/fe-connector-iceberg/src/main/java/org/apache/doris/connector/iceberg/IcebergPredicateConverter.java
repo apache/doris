@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -38,6 +39,7 @@ import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -104,6 +106,7 @@ public class IcebergPredicateConverter {
     private static final List<Object> SIGNED_ZEROS = Collections.unmodifiableList(Arrays.asList(-0.0d, 0.0d));
 
     private final Schema schema;
+    private final Set<Integer> promotedDateFields = new LinkedHashSet<>();
     private final ZoneId sessionZone;
     // The conversion matrix. SCAN = scan-time pushdown (BE re-filters, so widening is safe). CONFLICT = O5-2
     // write-time optimistic conflict detection (no-missed-conflict, so widening is also safe) -- a port of
@@ -128,6 +131,23 @@ public class IcebergPredicateConverter {
         this.schema = schema;
         this.sessionZone = sessionZone == null ? ZoneOffset.UTC : sessionZone;
         this.mode = mode;
+    }
+
+    public static IcebergPredicateConverter forTable(Table table, Schema schema, ZoneId zone, Mode mode) {
+        IcebergPredicateConverter converter = new IcebergPredicateConverter(schema, zone, mode);
+        for (Types.NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
+            if (field.type().typeId() != TypeID.TIMESTAMP_NANO) {
+                continue;
+            }
+            for (Schema historical : table.schemas().values()) {
+                Type oldType = historical.findType(field.fieldId());
+                if (oldType != null && oldType.typeId() == TypeID.DATE) {
+                    converter.promotedDateFields.add(field.fieldId());
+                    break;
+                }
+            }
+        }
+        return converter;
     }
 
     /**
@@ -476,7 +496,10 @@ public class IcebergPredicateConverter {
                 || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(colName)) {
             return null;
         }
-        return schema.caseInsensitiveFindField(colName);
+        Types.NestedField field = schema.caseInsensitiveFindField(colName);
+        // Iceberg 1.11 widens retained four-byte DATE bounds to unscaled longs. Pruning those
+        // epoch-day bounds with nanosecond predicates can discard matching files in every planner.
+        return field != null && promotedDateFields.contains(field.fieldId()) ? null : field;
     }
 
     /**

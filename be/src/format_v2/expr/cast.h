@@ -38,7 +38,8 @@ class Cast final : public VExpr {
     ENABLE_FACTORY_CREATOR(Cast);
 
 public:
-    Cast(const DataTypePtr& type) {
+    Cast(const DataTypePtr& type, bool is_schema_evolution = false)
+            : _is_schema_evolution(is_schema_evolution) {
         _node_type = TExprNodeType::CAST_EXPR;
         _opcode = TExprOpcode::CAST;
         _data_type = type;
@@ -58,11 +59,12 @@ public:
     bool is_safe_to_execute_on_selected_rows() const override { return false; }
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = Cast::create_shared(_data_type);
+        *cloned_expr = Cast::create_shared(_data_type, _is_schema_evolution);
         return Status::OK();
     }
 
 private:
+    bool _is_schema_evolution;
     Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
                        size_t count, ColumnPtr& result_column) const;
     std::string _expr_name;

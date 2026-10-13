@@ -1140,7 +1140,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         // matrix is a conservative port of legacy convertPredicateToIcebergExpression (IS NULL / BETWEEN /
         // same-column OR / NOT(IS NULL); drops NE / cross-column OR) — different from scan pushdown.
         List<Expression> converted =
-                new IcebergPredicateConverter(icebergTable.schema(), zone, true).convert(expr);
+                IcebergPredicateConverter.forTable(icebergTable, icebergTable.schema(), zone,
+                        IcebergPredicateConverter.Mode.CONFLICT).convert(expr);
         if (converted.isEmpty()) {
             return Optional.empty();
         }

@@ -56,6 +56,8 @@ namespace doris {
 class VOrcTransformerTest : public testing::Test {
 protected:
     void SetUp() override {
+        // Writers use the startup timezone cache; each test must work without another suite initializing it.
+        TimezoneUtils::load_timezones_to_cache();
         _file_path = "./vorc_transformer_" + UniqueId::gen_uid().to_string() + ".orc";
         _fs = io::global_local_filesystem();
     }
@@ -111,7 +113,8 @@ TEST_F(VOrcTransformerTest, NanosecondBoundsUseUtcWallClockCarrier) {
     for (auto value : nanos) {
         column->insert(Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(value)));
     }
-    ASSERT_TRUE(writer.write(Block({{std::move(column), type, "ts"}})).ok());
+    const auto write_status = writer.write(Block({{std::move(column), type, "ts"}}));
+    ASSERT_TRUE(write_status.ok()) << write_status;
     ASSERT_TRUE(writer.close().ok());
     TIcebergColumnStats stats;
     ASSERT_TRUE(writer.collect_file_statistics_after_close(&stats).ok());

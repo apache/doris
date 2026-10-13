@@ -27,6 +27,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
+#include "core/data_type/data_type_nullable.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -65,6 +66,13 @@ Status Cast::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContex
         return Status::InternalError("Could not find function {} ", _expr_name);
     }
     VExpr::register_function_context(state, context);
+    if (_is_schema_evolution &&
+        remove_nullable(_children[0]->data_type())->get_primitive_type() == TYPE_DATEV2 &&
+        remove_nullable(_data_type)->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+        // A retained DATE file must fail outside the promoted nanosecond range, never synthesize NULL.
+        // Keep this independent of SQL CAST semantics and the session's strict-cast setting.
+        context->fn_context(_fn_context_index)->set_enable_strict_mode(true);
+    }
     _prepare_finished = true;
     return Status::OK();
 }

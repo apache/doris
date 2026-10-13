@@ -2189,7 +2189,7 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
         return;
     }
 
-    auto expr = Cast::create_shared(mapping->table_type);
+    auto expr = Cast::create_shared(mapping->table_type, true);
     expr->add_child(VSlotRef::create_shared(cast_set<int>(block_position.value()),
                                             cast_set<int>(block_position.value()), -1,
                                             mapping->file_type, mapping->file_column_name));

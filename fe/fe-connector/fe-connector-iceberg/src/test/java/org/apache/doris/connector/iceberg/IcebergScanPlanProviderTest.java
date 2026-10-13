@@ -4045,6 +4045,52 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(0L, cache.takeStats("q")[2], "the cache path must not fall back to the SDK");
     }
 
+    @Test
+    public void promotedDateBoundsDoNotPruneNanosecondMatches() {
+        Schema oldSchema = new Schema(Types.NestedField.optional(1, "ts", Types.DateType.get()));
+        Table table = createTable("promoted_date", oldSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        Map<Integer, ByteBuffer> bounds = Collections.singletonMap(
+                1, Conversions.toByteBuffer(Types.DateType.get(), 19724));
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("/data/retained-date.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds))
+                .withFormat(FileFormat.PARQUET).build()).commit();
+        org.apache.iceberg.TableOperations operations = ((org.apache.iceberg.HasTableOperations) table).operations();
+        org.apache.iceberg.TableMetadata base = operations.current();
+        // Publish the v3 promotion directly: retained manifests still encode DATE bounds in days.
+        operations.commit(base, org.apache.iceberg.TableMetadata.buildFrom(base)
+                .setCurrentSchema(new Schema(
+                        Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()),
+                        Types.NestedField.optional(2, "fresh", Types.TimestampNanoType.withoutZone())), 2).build());
+        table.refresh();
+        ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-02 00:00:00"));
+        for (IcebergPredicateConverter.Mode mode : IcebergPredicateConverter.Mode.values()) {
+            IcebergPredicateConverter converter = IcebergPredicateConverter.forTable(
+                    table, table.schema(), java.time.ZoneOffset.UTC, mode);
+            Assertions.assertTrue(converter.convert(filter).isEmpty());
+            Assertions.assertEquals(1, converter.convert(new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("fresh", ConnectorType.of("TIMESTAMP_NS")),
+                    new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-02 00:00:00"))).size(),
+                    "fields without historical DATE bounds must retain pushdown");
+        }
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "promoted_date"), Collections.emptyList())
+                .filter(Optional.of(filter)).build();
+        List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
+                .planScan(emptySession(), request);
+        Assertions.assertEquals(1, sdk.size(), "SDK planning must preserve the matching DATE file");
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> cached = manifestProvider(manifestCacheProps(), table, cache)
+                .planScan(emptySession(), request);
+        Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
+        Assertions.assertTrue(cache.size() > 0);
+        Assertions.assertEquals(0L, cache.takeStats("q")[2], "must exercise cached planning without fallback");
+    }
+
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---
 
     @Test
