@@ -26,8 +26,10 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "common/status.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -67,9 +69,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     int64_t transaction_id = _cal_delete_bitmap_req.transaction_id;
     OlapStopWatch watch;
     VLOG_NOTICE << "begin to calculate delete bitmap. transaction_id=" << transaction_id;
-    std::unique_ptr<ThreadPoolToken> token =
-            _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
-                    ThreadPool::ExecutionMode::CONCURRENT);
+    std::vector<std::unique_ptr<CalcDeleteBitmapToken>> tokens;
     DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", {
         auto sleep_time = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                 "CloudEngineCalcDeleteBitmapTask.execute.enable_wait", "sleep_time", 3);
@@ -93,6 +93,19 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             if (has_tablet_states) {
                 tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
             }
+            // A partition's first subtransaction need not have written this tablet.
+            auto wg =
+                    _engine.txn_delete_bitmap_cache().get_workload_group(transaction_id, tablet_id);
+            for (auto sub_txn_id : partition.sub_txn_ids) {
+                if (wg) {
+                    break;
+                }
+                wg = _engine.txn_delete_bitmap_cache().get_workload_group(sub_txn_id, tablet_id);
+            }
+            auto& token =
+                    tokens.emplace_back(_engine.calc_delete_bitmap_executor()->create_load_token(
+                            transaction_id, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT,
+                            std::move(wg)));
             const auto submit_time_us = MonotonicMicros();
             auto submit_st = token->submit_func(
                     [tablet_id, tablet_calc_delete_bitmap_ptr, this, submit_time_us]() {
@@ -104,16 +117,28 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
                             LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
                             add_error_tablet_id(tablet_id, st);
                         }
+                        return Status::OK();
                     });
             VLOG_DEBUG << "submit TabletCalcDeleteBitmapTask for tablet=" << tablet_id;
             if (!submit_st.ok()) {
-                _res = submit_st;
+                add_error_tablet_id(tablet_id, submit_st);
                 break;
             }
         }
     }
-    // wait for all finished
-    token->wait();
+    // Drain every submitted token before reading _res, which running tablet
+    // callbacks may still update. Keep the recorded tablet/submission error
+    // ahead of a generic cancellation reported by another token's wait().
+    Status wait_status;
+    for (auto& token : tokens) {
+        auto st = token->wait();
+        if (wait_status.ok() && !st.ok()) {
+            wait_status = st;
+        }
+    }
+    if (_res.ok()) {
+        _res = wait_status;
+    }
 
     LOG(INFO) << "finish to calculate delete bitmap on transaction."
               << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
@@ -149,7 +174,8 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
 Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id
                << ", txn_id=" << _transaction_id;
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    // The bitmap token attaches the request context at the worker entry.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     int64_t t1 = MonotonicMicros();
     auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));
     auto get_tablet_time_us = MonotonicMicros() - t1;

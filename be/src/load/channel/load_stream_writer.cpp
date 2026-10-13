@@ -316,6 +316,10 @@ Status LoadStreamWriter::close() {
     if (!_pre_closed) {
         RETURN_IF_ERROR(_pre_close());
     }
+    // The heavy-work callback has no attached load context, and _pre_close()
+    // detaches its context on return. Keep the owner attached through commit so
+    // the transaction retains its workload group for later publish work.
+    SCOPED_ATTACH_TASK(_resource_ctx);
     RETURN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap());
     // FIXME(plat1ko): No `commit_txn` operation in cloud mode, need better abstractions
     RETURN_IF_ERROR(static_cast<RowsetBuilder*>(_rowset_builder.get())->commit_txn());

@@ -49,6 +49,7 @@
 
 namespace doris {
 class OlapMeta;
+class WorkloadGroup;
 struct TabletPublishStatistics;
 struct PartialUpdateInfo;
 
@@ -79,6 +80,8 @@ struct TxnPublishInfo {
 
 struct TabletTxnInfo {
     PUniqueId load_id;
+    // Runtime-only write-stage owner, retained through local publish/retries.
+    std::shared_ptr<WorkloadGroup> workload_group;
     RowsetSharedPtr rowset;
     // The row-binlog tablet is attached while PREPARED; its rowset is filled at commit.
     RowBinlogTxnInfo attach_row_binlog;
