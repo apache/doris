@@ -7187,7 +7187,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
-        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        checkHboStatementWords(ctx.statistics);
         Double value = null;
         String typeName = null;
         String fingerprint = null;
@@ -7263,7 +7263,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitHboDeleteStaleStatistics(DorisParser.HboDeleteStaleStatisticsContext ctx) {
-        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        checkHboStatementWords(ctx.statistics);
         checkHboWord(ctx.staleWord, "STALE");
         Long olderThanSeconds = null;
         if (ctx.olderWord != null && ctx.olderThan != null) {
@@ -7280,7 +7280,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitHboDeleteStatistics(DorisParser.HboDeleteStatisticsContext ctx) {
-        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        checkHboStatementWords(ctx.statistics);
         checkHboWord(ctx.fingerprintWord, "FINGERPRINT");
         return new HboStatisticsCommand(HboStatisticsCommand.Op.DELETE,
                 ctx.scope == null ? null : ctx.scope.getText(),
@@ -7289,7 +7289,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitHboShowStatistics(DorisParser.HboShowStatisticsContext ctx) {
-        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        checkHboStatementWords(ctx.statistics);
         String scope = ctx.scope == null ? null : ctx.scope.getText();
         String likePattern = ctx.likePattern == null
                 ? null : SqlLiteralUtils.parseStringLiteral(ctx.likePattern.getText());
@@ -7316,12 +7316,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 + " STRUCT / LITERAL_MODE");
     }
 
-    private void checkHboStatementWords(
-            org.antlr.v4.runtime.ParserRuleContext hboWord,
-            org.antlr.v4.runtime.ParserRuleContext statisticsWord) {
-        if (hboWord == null || !"hbo".equalsIgnoreCase(hboWord.getText())) {
-            throw new ParseException("expect 'HBO' at the beginning of hbo statement");
-        }
+    private void checkHboStatementWords(org.antlr.v4.runtime.ParserRuleContext statisticsWord) {
         if (statisticsWord == null || !"statistics".equalsIgnoreCase(statisticsWord.getText())) {
             throw new ParseException("expect 'STATISTICS' keyword in hbo statement");
         }

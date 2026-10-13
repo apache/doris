@@ -135,22 +135,26 @@ statementBase
     | hboStatement
     ;
 
-// HBO manual statistics management. 'HBO', 'STATISTICS' and 'EXPANSION' are not reserved
-// keywords, so they are matched as identifiers and validated in the logical plan builder (adding
-// them to the lexer would break user identifiers). The more specific STATISTICS forms come first:
+// HBO manual statistics management. 'HBO' is a lexer keyword which is also listed in nonReserved,
+// so it stays usable as an identifier everywhere else; the statement has to start with that token
+// rather than with a plain identifier, otherwise a statement which matches no alternative at all
+// (e.g. 'abcdefg') would enter these alternatives, consume the identifier and be reported as
+// "no viable alternative" instead of as the plain syntax error of an unknown statement. The
+// remaining words are not reserved: 'STATISTICS' and 'EXPANSION' are matched as identifiers and
+// validated in the logical plan builder. The more specific STATISTICS forms come first:
 // 'HBO DELETE EXPANSION <fp>' can only match the expansion alternative because the statistics
 // alternative would require an extra identifier token after the scope.
 hboStatement
     // 'VALUE' / 'TYPE' / 'STRUCT' are non reserved words, i.e. they are also valid identifiers, so
     // the parameter names are matched with hboWord (plain identifiers only) to keep
     // 'SET STATISTICS VALUE=1 TYPE=EXACT' distinguishable from 'SET STATISTICS VALUE=1 FINGERPRINT=..'
-    : hbo=identifier SET scope=identifier? statistics=identifier
+    : HBO SET scope=identifier? statistics=identifier
           hboSetParam+                                                 #hboSetStatistics
-    | hbo=identifier DELETE staleWord=identifier statistics=identifier
+    | HBO DELETE staleWord=identifier statistics=identifier
           (olderWord=identifier olderThan=INTEGER_VALUE)?               #hboDeleteStaleStatistics
-    | hbo=identifier DELETE scope=identifier? statistics=identifier
+    | HBO DELETE scope=identifier? statistics=identifier
           fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL      #hboDeleteStatistics
-    | hbo=identifier SHOW scope=identifier? statistics=identifier (FULL)?
+    | HBO SHOW scope=identifier? statistics=identifier (FULL)?
           (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
     ;
 
@@ -2686,4 +2690,5 @@ nonReserved
     | YEAR
     | YEAR_MONTH
 //--DEFAULT-NON-RESERVED-END
+    | HBO
     ;
