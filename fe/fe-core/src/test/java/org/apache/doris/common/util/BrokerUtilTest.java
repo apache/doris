@@ -130,13 +130,13 @@ public class BrokerUtilTest {
     public void parseColumnsFromPathPreservesNullMetadataAndInputKeys() throws Exception {
         // A case-insensitive parse lowercases its own copy of the keys, not the caller's list, and turns the Hive
         // default partition into SQL NULL.
-        List<String> partitionKeys = Lists.newArrayList("region", "dt");
+        List<String> partitionKeys = Lists.newArrayList("Region", "Dt");
         FilePartitionUtils.ParsedColumnsFromPath parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
-                "hdfs://host/table/Region=cn/Dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME + "/data.parquet",
+                "hdfs://host/table/REGION=cn/dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME + "/data.parquet",
                 partitionKeys, false, false);
         Assertions.assertEquals(Lists.newArrayList("cn", ""), parsed.getValues());
         Assertions.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
-        Assertions.assertEquals(Lists.newArrayList("region", "dt"), partitionKeys);
+        Assertions.assertEquals(Lists.newArrayList("Region", "Dt"), partitionKeys);
 
         // A literal \N is data on the query path.
         parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
