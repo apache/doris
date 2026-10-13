@@ -22,6 +22,7 @@ import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
@@ -323,6 +324,36 @@ public class HudiConnectorPartitionListingTest {
     // ── item 5: use_hive_sync_partition source selection ───────────────────────────────────────────────
 
     @Test
+    public void hiveSyncListingUsesStorageLocationForEncodedValues() {
+        List<String> names = Arrays.asList("dt=2023-12-01 08%253A00%253A00", "dt=%25253A", "dt=a%2Fb");
+        RecordingHmsClient hms = new RecordingHmsClient(names);
+        hms.locations = Map.of(names.get(0), "s3://b/t/dt=2023-12-01 08%3A00%3A00",
+                names.get(1), "s3://b/t/dt=%253A", names.get(2), "s3://b/t/dt=a%2Fb");
+        HudiConnectorMetadata md = metadata(true, hms, stub(7L));
+        HudiTableHandle handle = partitioned().toBuilder()
+                .partitionKeyNames(Collections.singletonList("dt")).build();
+        List<ConnectorPartitionInfo> parts = md.listPartitions(null, handle, Optional.empty());
+        Assertions.assertEquals(Arrays.asList("2023-12-01 08:00:00", "%3A", "a/b"),
+                parts.stream().map(p -> p.getPartitionValues().get("dt")).collect(Collectors.toList()));
+        Assertions.assertEquals(Arrays.asList("dt=2023-12-01 08%3A00%3A00", "dt=%253A", "dt=a%2Fb"),
+                parts.stream().map(ConnectorPartitionInfo::getPartitionName).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void encodedPartitionWithoutValidStorageLocationFailsInsteadOfLosingRows() {
+        for (String location : Arrays.asList(null, "", "s3://b/other/dt=a%3Ab",
+                "s3://b/table/dt=a%3Ab", "s3://other/t/dt=a%3Ab")) {
+            RecordingHmsClient hms = new RecordingHmsClient(Collections.singletonList("dt=a%253Ab"));
+            hms.locations = Collections.singletonMap("dt=a%253Ab", location);
+            HudiConnectorMetadata md = metadata(true, hms, stub(7L));
+            HudiTableHandle handle = partitioned().toBuilder()
+                    .partitionKeyNames(Collections.singletonList("dt")).build();
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> md.listPartitions(null, handle, Optional.empty()), location);
+        }
+    }
+
+    @Test
     public void hiveSyncTableListsPartitionsFromHms() {
         RecordingHmsClient hms = new RecordingHmsClient(Arrays.asList("year=2024/month=01", "year=2024/month=02"));
         // Stub returns the instant (a Long) for the timeline call; the partition NAMES must come from HMS.
@@ -332,6 +363,7 @@ public class HudiConnectorPartitionListingTest {
 
         Assertions.assertEquals(Arrays.asList("year=2024/month=01", "year=2024/month=02"), names);
         Assertions.assertTrue(hms.listPartitionNamesCalled, "hive-sync must list partitions from HMS");
+        Assertions.assertEquals(0, hms.getPartitionsCalls, "plain partition names need no extra RPC");
     }
 
     @Test
@@ -515,9 +547,11 @@ public class HudiConnectorPartitionListingTest {
         return sb.toString();
     }
 
-    /** Minimal {@link HmsClient} double: records whether listPartitionNames was called; the rest fail loud. */
+    /** Records partition lookups and supplies locations; unrelated HMS operations fail loudly. */
     private static final class RecordingHmsClient implements HmsClient {
         private final List<String> partitionNames;
+        private Map<String, String> locations = Collections.emptyMap();
+        private int getPartitionsCalls;
         private boolean listPartitionNamesCalled;
 
         RecordingHmsClient(List<String> partitionNames) {
@@ -565,7 +599,13 @@ public class HudiConnectorPartitionListingTest {
 
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
-            throw new UnsupportedOperationException();
+            getPartitionsCalls++;
+            List<HmsPartitionInfo> result = new ArrayList<>();
+            for (String name : partNames) {
+                result.add(new HmsPartitionInfo(Collections.emptyList(),
+                        locations.getOrDefault(name, "s3://b/t/" + name), null, null, null, null));
+            }
+            return result;
         }
 
         @Override

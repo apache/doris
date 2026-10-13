@@ -39,6 +39,43 @@ import java.util.Set;
  */
 class S3CompatibleFileSystemTest {
 
+    @Test
+    void numericRangesRejectExcessiveExpansion() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3CompatibleFileSystem.compileGlobPattern("data_{1..10001}.csv"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3CompatibleFileSystem.compileGlobPattern("{1..101}/data_{1..101}.csv"));
+    }
+
+    @Test
+    void numericRangesPreserveMixedReverseAndLiteralKeySyntax() {
+        for (String name : List.of("data_3.csv", "data_2.csv", "data_1.csv", "data_other.csv")) {
+            Assertions.assertTrue(S3CompatibleFileSystem.compileGlobPattern("data_{3..1,other,2}.csv")
+                    .matcher(name).matches());
+        }
+        Assertions.assertTrue(S3CompatibleFileSystem.compileGlobPattern("part=a+b/$x%2F#_{1..2}.csv")
+                .matcher("part=a+b/$x%2F#_2.csv").matches());
+    }
+
+    @Test
+    void numericRangesHandleIntegerEndpointsWithoutOverflow() {
+        Assertions.assertEquals("{2147483646,2147483647}",
+                GlobPattern.expandNumericRanges("{2147483646..2147483647}"));
+        Assertions.assertEquals("{-2147483647,-2147483648,x}",
+                GlobPattern.expandNumericRanges("{-2147483647..-2147483648,x}"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> GlobPattern.expandNumericRanges("{-2147483648..2147483647,x}"));
+    }
+
+    @Test
+    void numericRangesLeaveLiteralBracesAndOtherGlobSyntaxUnchanged() {
+        for (String pattern : List.of("data_\\{1..3}.csv", "data_[{1..3}].csv", "data_{one,two}.csv",
+                "data_{-1..3}.csv", "data_*.csv")) {
+            Assertions.assertEquals(pattern, GlobPattern.expandNumericRanges(pattern));
+        }
+        Assertions.assertEquals("[{1..3}]/{1,2}", GlobPattern.expandNumericRanges("[{1..3}]/{1..2}"));
+    }
+
     /**
      * A truncated page whose keys are all directory markers filters down to an empty buffer;
      * the iterator must continue to the next page rather than stop with files left behind.

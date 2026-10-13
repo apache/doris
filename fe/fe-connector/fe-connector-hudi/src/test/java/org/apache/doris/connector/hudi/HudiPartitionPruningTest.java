@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -178,9 +179,55 @@ public class HudiPartitionPruningTest {
     }
 
     @Test
+    public void timestampTzPredicatesRemainForTypedFiltering() {
+        List<String> paths = Arrays.asList("dt=2023-12-01 08%3A00%3A00/region=east",
+                "dt=2023-12-01 10%3A00%3A00/region=west");
+        HudiTableHandle handle = partitionedHandle().toBuilder()
+                .partitionKeyNames(Arrays.asList("dt", "region")).build();
+        ConnectorType type = ConnectorType.of("TIMESTAMPTZ", 6, 0);
+        ConnectorColumnRef column = new ConnectorColumnRef("dt", type);
+        // The neutral converter carries TIMESTAMPTZ fields in UTC, while the path has session-local text.
+        ConnectorLiteral instant = new ConnectorLiteral(type, LocalDateTime.of(2023, 12, 1, 0, 0));
+        ConnectorExpression equality = new ConnectorComparison(ConnectorComparison.Operator.EQ, column, instant);
+        ConnectorExpression inList = new ConnectorIn(column, Collections.singletonList(instant), false);
+        for (boolean hiveSync : Arrays.asList(false, true)) {
+            HudiConnectorMetadata metadata = new HudiConnectorMetadata(new FakeHmsClient(paths),
+                    HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, String.valueOf(hiveSync)),
+                    new StubMetaClientExecutor(paths));
+            for (ConnectorExpression predicate : Arrays.asList(equality, inList)) {
+                Assertions.assertFalse(metadata.applyFilter(null, handle,
+                        new ConnectorFilterConstraint(predicate)).isPresent());
+                ConnectorExpression conjunction = and(predicate, eq("region", "east"));
+                Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                        null, handle, new ConnectorFilterConstraint(conjunction));
+                Assertions.assertEquals(Collections.singletonList(paths.get(0)), prunedPaths(result));
+                Assertions.assertSame(conjunction, result.get().getRemainingFilter(),
+                        "the BE must still evaluate the instant predicate");
+            }
+        }
+    }
+
+    @Test
+    public void testHiveSyncPrunesPhysicalPathsWithoutDecodingLiteralPercentTwice() {
+        List<String> names = Arrays.asList("dt=08%253A00", "dt=%25253A", "dt=other");
+        FakeHmsClient hms = new FakeHmsClient(names);
+        hms.locations = Map.of(names.get(0), "s3://b/t/dt=08%3A00",
+                names.get(1), "s3://b/t/dt=%253A", names.get(2), "s3://b/t/dt=other");
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(hms,
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new StubMetaClientExecutor(Collections.emptyList()));
+        HudiTableHandle handle = partitionedHandle().toBuilder()
+                .partitionKeyNames(Collections.singletonList("dt")).build();
+        Assertions.assertEquals(Collections.singletonList("dt=08%3A00"), prunedPaths(
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(eq("dt", "08:00")))));
+        Assertions.assertEquals(Collections.singletonList("dt=%253A"), prunedPaths(
+                metadata.applyFilter(null, handle, new ConnectorFilterConstraint(eq("dt", "%3A")))));
+        Assertions.assertEquals(names.subList(0, 2), hms.loadedNames);
+    }
+
+    @Test
     public void testHiveSyncBranchPrunesHmsNames() {
-        // use_hive_sync_partition=true: partitions are registered in HMS and the hive-style name IS the relative
-        // storage layout, so applyFilter prunes the HMS names directly (no Hudi metadata listing / stub unused).
+        // Plain hive-style names need no location lookup or Hudi metadata listing.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS),
                 HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
@@ -335,11 +382,13 @@ public class HudiPartitionPruningTest {
     }
 
     /**
-     * Minimal {@link HmsClient} double returning a fixed partition-name list.
-     * Only {@code listPartitionNames} is exercised by partition pruning; the rest fail loud.
+     * Minimal {@link HmsClient} double returning partition names and locations.
+     * Unrelated HMS operations fail loudly.
      */
     private static final class FakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
+        private Map<String, String> locations = Collections.emptyMap();
+        private List<String> loadedNames;
 
         FakeHmsClient(List<String> partitionNames) {
             this.partitionNames = partitionNames;
@@ -383,7 +432,13 @@ public class HudiPartitionPruningTest {
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName,
                 List<String> partNames) {
-            throw new UnsupportedOperationException();
+            loadedNames = new ArrayList<>(partNames);
+            List<HmsPartitionInfo> result = new ArrayList<>();
+            for (String name : partNames) {
+                result.add(new HmsPartitionInfo(Collections.emptyList(),
+                        locations.getOrDefault(name, "s3://b/t/" + name), null, null, null, null));
+            }
+            return result;
         }
 
         @Override

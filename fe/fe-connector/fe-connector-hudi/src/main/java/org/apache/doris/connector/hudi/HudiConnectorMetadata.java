@@ -19,6 +19,7 @@ package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -33,6 +34,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
@@ -45,6 +47,7 @@ import org.apache.doris.thrift.TTableType;
 
 import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.util.Option;
@@ -55,6 +58,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -65,6 +69,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -284,14 +289,13 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         List<String> allPartPaths;
         List<String> matchedPartPaths;
         if (hiveSync && !pinned) {
-            // hive-sync: HMS registers the hive-style names, which ARE the relative storage layout, so fsView
-            // accepts them directly (no relativization, matching legacy / collectPartitions). Prune the HMS names.
             allPartPaths = hmsClient.listPartitionNames(
                     hudiHandle.getDbName(), hudiHandle.getTableName(), -1);
             if (allPartPaths == null || allPartPaths.isEmpty()) {
                 return Optional.empty();
             }
-            matchedPartPaths = prunePartitionNames(allPartPaths, partKeyNames, partitionPredicates);
+            allPartPaths = hmsPartitionPaths(hudiHandle, allPartPaths);
+            matchedPartPaths = prunePartitionPaths(allPartPaths, partKeyNames, partitionPredicates);
         } else {
             // non-hive-sync (Hudi default), or any pinned read: list the RELATIVE storage paths from Hudi
             // metadata -- the SAME source the unpruned scan (resolvePartitions -> listAllPartitionPaths) uses --
@@ -794,7 +798,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 // HoodieTableMetaClient built just to read a timeline zone - plus a fallback that
                 // would have published epoch 0 as a partition's last-modified time for any
                 // non-numeric pin, the day it became reachable.
-                return buildPartitionInfos(hmsNames, partKeyNames, latestInstantMillis(handle));
+                return buildPartitionInfos(hmsPartitionPaths(handle, hmsNames),
+                        partKeyNames, latestInstantMillis(handle));
             }
             LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
                     + "falling back to hudi metadata partition listing",
@@ -920,6 +925,42 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         LOG.info("Hudi partition listing at instant {}: {}.{} -> {} of {} partitions",
                 queryInstant, handle.getDbName(), handle.getTableName(), atPin.size(), partitions.size());
         return atPin;
+    }
+
+    private List<String> hmsPartitionPaths(HudiTableHandle handle, List<String> names) {
+        List<String> encodedNames = names.stream().filter(name -> name.indexOf('%') >= 0)
+                .collect(Collectors.toList());
+        if (encodedNames.isEmpty()) {
+            return names;
+        }
+        // Hive sync can register an already escaped Hudi value, which HMS escapes again in its name.
+        // The storage location identifies the physical path regardless of the sync extractor's decoding
+        // policy. Decode that path only in parsePartitionValues, preserving literal percent sequences.
+        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+                handle.getDbName(), handle.getTableName(), encodedNames);
+        Map<String, String> paths = new HashMap<>();
+        for (int i = 0; i < encodedNames.size(); i++) {
+            paths.put(encodedNames.get(i),
+                    relativePartitionPath(handle.getBasePath(), partitions.get(i).getLocation()));
+        }
+        return names.stream().map(name -> paths.getOrDefault(name, name)).collect(Collectors.toList());
+    }
+
+    private static String relativePartitionPath(String basePath, String location) {
+        if (location == null || location.isEmpty()) {
+            throw new DorisConnectorException("Hudi HMS partition has no storage location");
+        }
+        // Path quotes literal percent signs when creating its URI; getPath retains the Hudi path's
+        // own escapes. URI.create(location).getPath() would incorrectly consume that escaping layer.
+        URI base = new Path(basePath).toUri();
+        URI partition = new Path(location).toUri();
+        String prefix = base.getPath().endsWith("/") ? base.getPath() : base.getPath() + "/";
+        if (!Objects.equals(base.getScheme(), partition.getScheme())
+                || !Objects.equals(base.getAuthority(), partition.getAuthority())
+                || !partition.getPath().startsWith(prefix) || partition.getPath().length() == prefix.length()) {
+            throw new DorisConnectorException("Hudi HMS partition location is outside the table base path");
+        }
+        return partition.getPath().substring(prefix.length());
     }
 
     /**
@@ -1298,8 +1339,15 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     private String extractColumnName(ConnectorExpression expr) {
-        if (expr instanceof org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) {
-            return ((org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) expr).getColumnName();
+        if (expr instanceof ConnectorColumnRef) {
+            ConnectorColumnRef column = (ConnectorColumnRef) expr;
+            // TIMESTAMPTZ literals carry UTC fields across the SPI, but partition text is session-local.
+            // String equality could discard matching partitions; leave instant comparisons to typed FE/BE
+            // filtering. applyFilter retains the original expression as its remaining filter.
+            if ("TIMESTAMPTZ".equals(column.getType().getTypeName())) {
+                return null;
+            }
+            return column.getColumnName();
         }
         return null;
     }
