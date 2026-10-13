@@ -1456,7 +1456,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     auto skip_bitmap_col_idx = rowset_schema->skip_bitmap_col_idx();
     const std::vector<BitmapValue>* skip_bitmaps =
             &(assert_cast<const ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
-                      update_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
+                      update_block.get_by_position(skip_bitmap_col_idx).column.get())
                       ->get_data());
 
     if (rowset_schema->has_sequence_col() && !rids_be_overwritten.empty()) {
