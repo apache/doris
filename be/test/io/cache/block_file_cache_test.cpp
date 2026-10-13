@@ -3784,6 +3784,87 @@ TEST_F(BlockFileCacheTest, remove_downloading_block_forgets_its_queue_iterator) 
     }
 }
 
+TEST_F(BlockFileCacheTest, change_cache_type_keeps_removed_downloading_block_out_of_queues) {
+    std::string my_cache_path = caches_dir / "change_cache_type_removed_downloading_block" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+
+    constexpr size_t block_size = 4;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 64;
+    settings.query_queue_elements = 16;
+    settings.index_queue_size = 64;
+    settings.index_queue_elements = 16;
+    settings.disposable_queue_size = 64;
+    settings.disposable_queue_elements = 16;
+    settings.capacity = 192;
+    settings.max_file_block_size = 64;
+    settings.max_query_cache_size = 64;
+
+    io::BlockFileCache cache(my_cache_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("change_cache_type_removed_downloading_block");
+
+    io::FileBlockSPtr block;
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.add_cell(key, context, 0, block_size, io::FileBlock::State::DOWNLOADED,
+                                    cache_lock);
+        ASSERT_NE(cell, nullptr);
+        FileBlockTestAccessor::set_state(*cell->file_block, io::FileBlock::State::DOWNLOADING);
+        FileBlockTestAccessor::set_downloader_id(*cell->file_block, 1234);
+        block = cell->file_block;
+    }
+    // remove() takes a downloading block out of its LRU queue but leaves the cell in _files.
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        std::lock_guard<std::mutex> block_lock(block->_mutex);
+        cache.remove(block, cache_lock, block_lock, false);
+    }
+
+    // The download finishes, and the block is converted to another cache type before its holder
+    // lets go of it, as BlockFileCacheTtlMgr does. It must stay out of every queue.
+    FileBlockTestAccessor::set_state(*block, io::FileBlock::State::DOWNLOADED);
+    auto& normal_queue = cache.get_queue(io::FileCacheType::NORMAL);
+    auto& ttl_queue = cache.get_queue(io::FileCacheType::TTL);
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        cache.change_cache_type(key, 0, io::FileCacheType::TTL, cache_lock);
+        auto* cell = cache.get_cell(key, 0, cache_lock);
+        ASSERT_NE(cell, nullptr);
+        EXPECT_FALSE(cell->queue_iterator.has_value());
+        EXPECT_EQ(normal_queue.get_elements_num(cache_lock), 0);
+        EXPECT_EQ(ttl_queue.get_elements_num(cache_lock), 0);
+    }
+
+    // The holder releases the block: erasing the cell must not touch any queue either.
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        std::lock_guard<std::mutex> block_lock(block->_mutex);
+        cache.remove(block, cache_lock, block_lock, false);
+    }
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        EXPECT_EQ(cache.get_cell(key, 0, cache_lock), nullptr);
+        EXPECT_EQ(normal_queue.get_elements_num(cache_lock), 0);
+        EXPECT_EQ(normal_queue.get_capacity(cache_lock), 0);
+        EXPECT_EQ(ttl_queue.get_elements_num(cache_lock), 0);
+        EXPECT_EQ(ttl_queue.get_capacity(cache_lock), 0);
+    }
+    EXPECT_EQ(cache._cur_cache_size, 0);
+
+    block.reset();
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, recycle_deleting_blocks_reclaims_stranded_busy_blocks) {
     std::string my_cache_path = caches_dir / "recycle_deleting_blocks" / "";
     if (fs::exists(my_cache_path)) {

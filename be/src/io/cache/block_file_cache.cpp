@@ -2191,8 +2191,12 @@ void BlockFileCache::change_cache_type(const UInt128Wrapper& hash, size_t offset
         auto& file_blocks = iter->second;
         if (auto cell_it = file_blocks.find(offset); cell_it != file_blocks.end()) {
             FileBlockCell& cell = cell_it->second;
+            // No iterator means remove() already took the block out of its queue while it was
+            // downloading. The block is deleting, so keep it out of every queue.
+            if (!cell.queue_iterator) {
+                return;
+            }
             auto& cur_queue = get_queue(cell.file_block->cache_type());
-            DCHECK(cell.queue_iterator.has_value());
             cur_queue.remove(*cell.queue_iterator, cache_lock);
             _lru_recorder->record_queue_event(
                     cell.file_block->cache_type(), CacheLRULogType::REMOVE,
