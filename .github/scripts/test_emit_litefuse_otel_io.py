@@ -18,6 +18,7 @@
 
 import importlib.util
 from contextlib import redirect_stdout
+import gzip
 import io
 import json
 from pathlib import Path
@@ -135,8 +136,11 @@ class LitefuseOtelExporterTest(unittest.TestCase):
 
     def reject_payloads_above(self, server_limit, request_sizes):
         def fake_urlopen(request, timeout):
-            request_sizes.append(len(request.data))
-            if len(request.data) > server_limit:
+            data = request.data
+            if request.get_header("Content-encoding") == "gzip":
+                data = gzip.decompress(data)
+            request_sizes.append(len(data))
+            if len(data) > server_limit:
                 raise urllib.error.HTTPError(
                     request.full_url,
                     413,
@@ -450,10 +454,66 @@ class LitefuseOtelExporterTest(unittest.TestCase):
 
         headers = {key.lower(): value for key, value in captured["request"].header_items()}
         self.assertEqual(headers["content-type"], "application/json")
+        self.assertNotIn("content-encoding", headers)
+        self.assertEqual(json.loads(captured["request"].data), payload)
         self.assertEqual(headers["x-langfuse-ingestion-version"], "4")
         self.assertEqual(headers["x-langfuse-sdk-name"], "doris-code-review")
         self.assertEqual(captured["timeout"], 30)
         self.assertEqual(status["success_count"], 1)
+
+    def test_gzip_preserves_io_and_uncompressed_chunk_limits(self):
+        events = [
+            self.span_event(f"{index:032x}", output_size=2_000)
+            for index in range(1, 5)
+        ]
+        for event in events:
+            event["body"]["input"] = {"command": "检查 gzip 上传 🌏"}
+        payload = {"batch": [{"type": "trace-create", "body": self.trace_body()}, *events]}
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            requests.append(request)
+            return FakeResponse()
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=fake_urlopen):
+            status = MODULE.post_payload(
+                "https://litefuse.example/api/public/otel/v1/traces",
+                "public", "secret", payload, 8_000, 30, 3, 0, gzip_enabled=True,
+            )
+
+        self.assertGreater(len(requests), 1)
+        raw_sizes = []
+        spans = []
+        for request in requests:
+            self.assertEqual(request.get_header("Content-encoding"), "gzip")
+            self.assertEqual(request.get_header("Content-type"), "application/json")
+            raw = gzip.decompress(request.data)
+            raw_sizes.append(len(raw))
+            self.assertLessEqual(len(raw), 8_000)
+            self.assertLess(len(request.data), len(raw))
+            for resource in json.loads(raw)["resourceSpans"]:
+                for scope in resource["scopeSpans"]:
+                    spans.extend(scope["spans"])
+        self.assertEqual(len(spans), len(events))
+        self.assertEqual(
+            [span["spanId"] for span in spans],
+            [MODULE.otel_id(event["body"]["id"], 8) for event in events],
+        )
+        for span in spans:
+            attrs = attribute_values(span)
+            self.assertEqual(
+                json.loads(attrs["langfuse.observation.input"]),
+                {"command": "检查 gzip 上传 🌏"},
+            )
+            self.assertEqual(
+                json.loads(attrs["langfuse.observation.output"])["text"], "x" * 2_000
+            )
+        self.assertEqual(status["compression"], "gzip")
+        self.assertEqual(status["request_sizes"], raw_sizes)
+        self.assertEqual(
+            status["wire_request_sizes"], [len(request.data) for request in requests]
+        )
+        self.assertGreaterEqual(status["upload_seconds"], 0)
 
     def test_paginates_v2_observations_until_root_is_visible(self):
         first_page = [{"id": f"child-{index}"} for index in range(1_000)]
@@ -516,6 +576,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                     "secret",
                     payload,
                     30,
+                    gzip_enabled=True,
                 )
 
     def test_splits_multi_span_chunk_after_transport_error(self):
@@ -546,11 +607,38 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                 30,
                 3,
                 0,
+                gzip_enabled=True,
             )
 
         self.assertEqual(status["transport_retries"], 1)
         self.assertEqual(status["request_count"], 2)
         self.assertEqual(status["success_count"], 2)
+
+    def test_gzip_upload_failures_are_not_reported_as_success(self):
+        payload = {"batch": [
+            {"type": "trace-create", "body": self.trace_body()},
+            self.span_event("2" * 32),
+        ]}
+        for code, attempts in ((415, 1), (429, 2), (503, 2)):
+            with self.subTest(code=code):
+                errors = [urllib.error.HTTPError(
+                    "https://litefuse.example/api/public/otel/v1/traces",
+                    code, "ingestion failed", {}, io.BytesIO(b"ingestion failed"),
+                ) for _ in range(attempts)]
+                with mock.patch.object(
+                    MODULE.urllib.request, "urlopen", side_effect=errors
+                ) as send:
+                    with self.assertRaisesRegex(RuntimeError, f"HTTP {code}"):
+                        MODULE.post_payload(
+                            "https://litefuse.example/api/public/otel/v1/traces",
+                            "public", "secret", payload, 10_000, 30, 1, 0,
+                            gzip_enabled=True,
+                        )
+                self.assertEqual(send.call_count, attempts)
+                for call in send.call_args_list:
+                    self.assertEqual(
+                        call.args[0].get_header("Content-encoding"), "gzip"
+                    )
 
     def test_splits_multi_span_chunk_after_http_413(self):
         trace_event = {"type": "trace-create", "body": self.trace_body()}
@@ -583,6 +671,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                 30,
                 3,
                 0,
+                gzip_enabled=True,
             )
 
         self.assertEqual(status["payload_too_large_retries"], 1)
@@ -615,6 +704,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                 30,
                 3,
                 0,
+                gzip_enabled=True,
             )
 
         self.assertEqual(status["payload_too_large_retries"], 1)
@@ -652,6 +742,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                 30,
                 5,
                 0,
+                gzip_enabled=True,
             )
 
         self.assertEqual(initial_size, 9_486)
@@ -687,6 +778,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                     30,
                     3,
                     0,
+                    gzip_enabled=True,
                 )
 
         self.assertEqual(len(request_sizes), 4)
@@ -757,6 +849,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                 30,
                 3,
                 0,
+                gzip_enabled=True,
             )
 
         self.assertEqual(status["http_retries"], 1)
@@ -975,7 +1068,7 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                 self.assertEqual(timeouts, [5, 2])
 
     def test_main_exports_and_verifies_all_traces_with_failure_diagnostics(self):
-        for mode in ("success", "missing_subagent", "main_only", "no_verify", "dry_run"):
+        for mode in ("success", "gzip", "missing_subagent", "main_only", "no_verify", "dry_run"):
             with self.subTest(mode=mode):
                 argv = [
                     "exporter", "--input-file", "prompt", "--events-file", "events",
@@ -988,6 +1081,8 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                     argv.append("--verify")
                 if mode == "dry_run":
                     argv.append("--dry-run")
+                if mode == "gzip":
+                    argv.append("--gzip")
                 with mock.patch.object(sys, "argv", argv):
                     args = MODULE.parse_args()
                 events = [
@@ -1011,7 +1106,12 @@ class LitefuseOtelExporterTest(unittest.TestCase):
                 def fake_urlopen(request, timeout):
                     requests.append(request)
                     if request.method == "POST":
-                        payload = json.loads(request.data)
+                        if mode == "gzip":
+                            self.assertEqual(request.get_header("Content-encoding"), "gzip")
+                            payload = json.loads(gzip.decompress(request.data))
+                        else:
+                            self.assertIsNone(request.get_header("Content-encoding"))
+                            payload = json.loads(request.data)
                         for resource in payload["resourceSpans"]:
                             for scope in resource["scopeSpans"]:
                                 for span in scope["spans"]:

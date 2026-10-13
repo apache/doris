@@ -1137,6 +1137,7 @@ jobs:
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}
+        # Telemetry errors must not change the code review result.
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -1188,6 +1189,7 @@ jobs:
             --reasoning-effort "xhigh" \
             --environment "github-actions" \
             --max-payload-bytes 4000000 \
+            --gzip \
             --min-observations "$min_observations" \
             --min-step-observations "$min_step_observations" \
             --verify-attempts 24 \
