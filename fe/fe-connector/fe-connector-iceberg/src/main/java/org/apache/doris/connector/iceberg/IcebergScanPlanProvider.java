@@ -3193,9 +3193,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (auth == null) {
             return table;
         }
-        TableOperations rawOps = ((BaseTable) table).operations();
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations rawOps = baseTable.operations();
+        // Keep the table's metrics reporter: every scan of a Kerberos catalog runs on this wrapper.
         return new BaseTable(new IcebergAuthenticatedTableOperations(
-                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name());
+                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name(), baseTable.reporter());
     }
 
     /**

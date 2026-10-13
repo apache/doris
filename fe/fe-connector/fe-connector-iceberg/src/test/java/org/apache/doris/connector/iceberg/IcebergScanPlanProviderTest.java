@@ -47,6 +47,7 @@ import org.apache.doris.thrift.schema.external.TFieldPtr;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
@@ -76,6 +77,7 @@ import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
+import org.apache.iceberg.metrics.ScanReport;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
@@ -308,6 +310,13 @@ public class IcebergScanPlanProviderTest {
         // never consults requiredPartitions (same as the legacy IcebergScanNode / paimon). So a GENUINE FE
         // prune-to-zero must scan-all rather than short-circuit to zero rows. MUTATION: default false -> red.
         Assertions.assertTrue(provider.ignorePartitionPruneShortCircuit());
+    }
+
+    @Test
+    public void doesNotUseHiveParquetInt96TimeZone() {
+        // Iceberg INT96 values are UTC instants; Hive's session-zone rule would shift them.
+        Assertions.assertFalse(new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()),
+                new RecordingIcebergCatalogOps()).usesHiveParquetInt96TimeZone());
     }
 
     @Test
@@ -2256,6 +2265,44 @@ public class IcebergScanPlanProviderTest {
     @Test
     public void historicalPlanningIgnoresUnusedConflictingPartitionSpecs() throws IOException {
         assertHistoricalPredicatePlansAfterSchemaEvolution(false, true);
+    }
+
+    @Test
+    public void historicalSchemaScanReportsToTheTableMetricsReporter() throws IOException {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "y", Types.IntegerType.get()));
+        Table table = createTable("historical_metrics_reporter", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newFastAppend().appendFile(dataFile(table.spec(), "s3://b/db/historical.parquet",
+                1024, null, null)).commit();
+        long snapshotId = table.currentSnapshot().snapshotId();
+        int schemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("x", "renamed_x").commit();
+        List<ScanReport> reports = new ArrayList<>();
+        ((BaseTable) table).combineMetricsReporter(report -> {
+            if (report instanceof ScanReport) {
+                reports.add((ScanReport) report);
+            }
+        });
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        // Control: a scan of the current schema goes through table.newScan() and reports to the table's reporter.
+        provider.planScan(emptySession(), ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).build());
+        Assertions.assertEquals(1, reports.size());
+
+        // WHY: a scan of a historical schema is built by SchemaAwareDataTableScan instead of table.newScan(), and it
+        // must keep the table's scan context, or a catalog's metrics reporter (for example a REST catalog's scan
+        // reports) misses the scans of an old snapshot or tag. branch-4.x DorisDataTableScan.wrap() kept it (#67479).
+        // MUTATION: building the historical scan from an empty context -> no second report -> red.
+        IcebergTableHandle historical = new IcebergTableHandle("db1", "t1").withSnapshot(snapshotId, null, schemaId);
+        List<ConnectorScanRange> ranges = provider.planScan(emptySession(), ConnectorScanRequest.builder(
+                historical, Collections.emptyList()).filter(Optional.of(eqInt("x", 1))).build());
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(2, reports.size());
+        Assertions.assertEquals(snapshotId, reports.get(1).snapshotId());
+        Assertions.assertEquals(schemaId, reports.get(1).schemaId());
     }
 
     private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn, boolean evolveSpec)

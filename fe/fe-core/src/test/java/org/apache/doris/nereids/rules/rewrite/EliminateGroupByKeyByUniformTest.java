@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
+
+import java.util.Arrays;
 
 public class EliminateGroupByKeyByUniformTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -131,22 +134,26 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
 
     @Test
     void testLeftJoinOnConditionNotRewrite() {
+        // An ON predicate does not filter the preserved side. The nullable side can introduce NULL,
+        // so its non-null constant is not a uniform output value either; all three keys must remain.
         PlanChecker.from(connectContext)
                 .analyze("select  t1.b,t2.b from eli_gbk_by_uniform_t t1 left join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t1.b=100 group by t1.b,t2.b,t2.c;")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalResultSink(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2
-                        && agg.getGroupByExpressions().get(0).toSql().equals("b"))));
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().stream()
+                        .map(Expression::toSql).toList().equals(Arrays.asList("b", "b", "c"))));
     }
 
     @Test
     void testLeftJoinWhereConditionRewrite() {
+        // WHERE makes the preserved-side key constant. Keep the nullable-side key because unmatched
+        // rows can still contain NULL instead of the constant inferred for the right input.
         PlanChecker.from(connectContext)
                 .analyze("select  t1.b,t2.b from eli_gbk_by_uniform_t t1 left join eli_gbk_by_uniform_t t2 on t1.b=t2.b where t1.b=100 group by t1.b,t2.b,t2.c;")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalResultSink(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1
-                        && agg.getGroupByExpressions().get(0).toSql().equals("c"))));
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().stream()
+                        .map(Expression::toSql).toList().equals(Arrays.asList("b", "c"))));
     }
 
     @Test

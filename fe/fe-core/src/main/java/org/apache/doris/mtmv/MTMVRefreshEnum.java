@@ -55,6 +55,15 @@ public class MTMVRefreshEnum {
     public enum MTMVState {
         INIT,
         NORMAL,
+        // The state means "this MV needs a whole rebuild", which its name no longer says on its own: it is
+        // not only a base table schema change that sets it. A dropped base table, a replace and a change to
+        // a base view set it for a plain MV as well as an IVM one; an entire-table truncate, and a property
+        // change that brings base table partitions back into the set an MV maintains, do so for an IVM MV.
+        //
+        // The constant name is what is written to disk, so it is not renamed: MTMV.status is serialized
+        // with Gson without an enum adapter, which writes the constant name and reads an unknown one back
+        // as null -- silently dropping the state of every MV loaded from such an image. The status an
+        // ALTER_STATUS record carries is serialized the same way.
         SCHEMA_CHANGE
     }
 

@@ -102,9 +102,8 @@ struct TPaloScanRange {
   10: optional i64 start_tso
   11: optional i64 end_tso
   12: optional TBinlogScanType binlog_scan_type
-  // Bucket metadata for BE-side runtime-filter bucket pruning. These fields
-  // are populated only when the scan has an eligible single-column HASH
-  // distribution runtime-filter target.
+  // Full distribution bucket ordinal/count for runtime-filter bucket pruning
+  // and exact scan-key bucket pruning. The count is not the selected tablet count.
   13: optional i32 bucket_seq
   14: optional i32 bucket_num
 }
@@ -374,6 +373,7 @@ enum TPaimonReaderType {
     PAIMON_JNI = 1,
     // Deprecated wire value kept during rolling upgrades. New plans never emit it.
     PAIMON_CPP = 2,
+    PAIMON_RUST = 3,
 }
 
 struct TPaimonFileDesc {
@@ -395,9 +395,13 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // Reserved for the Paimon Rust reader. Keep these ids aligned with branch-4.1.
+    18: optional string paimon_table_schema_json
+    19: optional string paimon_branch
     // Original Paimon RawFile.path() before Doris storage path normalization. Native readers use this
-    // to materialize the public file-location metadata column.
-    18: optional string original_file_path;
+    // to materialize the public file-location metadata column. This master-only field is appended after
+    // the branch-4.1 fields instead of reusing field 18.
+    20: optional string original_file_path;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -1098,6 +1102,10 @@ struct TOlapScanNode {
   27: optional list<TPartitionBoundary> partition_boundaries
   // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
   28: optional set<i32> extra_key_column_slot_ids
+  // FE attests: unpartitioned base index, sole non-null VARCHAR storage key
+  // equals the sole HASH distribution key, and all scan ranges carry bucket metadata.
+  // BE may prune only final inclusive point ranges; absent means disabled.
+  29: optional bool enable_scan_key_bucket_prune
 }
 
 struct TEqJoinCondition {

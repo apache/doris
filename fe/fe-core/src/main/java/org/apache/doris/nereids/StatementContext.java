@@ -77,6 +77,7 @@ import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
@@ -132,6 +133,10 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    // Immutable for one statement execution. PREPARE does not initialize this value: each EXECUTE
+    // receives a fresh StatementContext and NereidsPlanner pins the query-option snapshot before
+    // analysis starts.
+    private Integer beExecVersion;
     // Initialized on first cost calculation so per-query SET_VAR hints have already taken effect.
     private CostWeight costWeight;
     private Optional<IvmRewriteContext> ivmRewriteContext = Optional.empty();
@@ -470,6 +475,26 @@ public class StatementContext implements Closeable {
         next.isShortCircuitQuery = isShortCircuitQuery;
         next.hasNondeterministic = hasNondeterministic;
         return next;
+    }
+
+    /** Pins the backend execution version selected for this statement execution. */
+    public void initializeBeExecVersion(int beExecVersion) {
+        Preconditions.checkState(this.beExecVersion == null || this.beExecVersion == beExecVersion,
+                "BE execution version is already pinned to %s, cannot change it to %s",
+                this.beExecVersion, beExecVersion);
+        this.beExecVersion = beExecVersion;
+    }
+
+    /** Returns whether this context belongs to an execution whose query options have been pinned. */
+    public boolean hasBeExecVersion() {
+        return beExecVersion != null;
+    }
+
+    /** Returns the backend execution version pinned for this statement execution. */
+    public int getBeExecVersion() {
+        Preconditions.checkState(beExecVersion != null,
+                "BE execution version must be initialized at the execution entry point");
+        return beExecVersion;
     }
 
     public void setNeedLockTables(boolean needLockTables) {

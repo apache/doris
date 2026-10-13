@@ -311,7 +311,8 @@ public class VariantType extends PrimitiveType {
                 || dataType.isDecimalV2Type()
                 || dataType.isDateLikeType()
                 || dataType.isStringLikeType()
-                || dataType.isIPType();
+                || dataType.isIPType()
+                || dataType.isUuidType();
     }
 
 }

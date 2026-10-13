@@ -81,6 +81,10 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
     for (size_t tablet_idx = 0; tablet_idx < _tablets.size(); ++tablet_idx) {
+        const auto& key_ranges = *_tablet_key_ranges[tablet_idx];
+        if (key_ranges.empty()) {
+            continue;
+        }
         auto&& [tablet, version] = _tablets[tablet_idx];
         const auto& scan_range = *_scan_ranges[tablet_idx];
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
@@ -144,7 +148,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                         partitial_read_source.rs_splits.emplace_back(std::move(split));
 
                         scanners.emplace_back(_build_scanner(
-                                tablet, version, _key_ranges, scan_range,
+                                tablet, version, key_ranges, scan_range,
                                 {.rs_splits = std::move(partitial_read_source.rs_splits),
                                  .delete_predicates = entire_read_source.delete_predicates,
                                  .delete_bitmap = entire_read_source.delete_bitmap},
@@ -191,7 +195,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
             }
 #endif
             scanners.emplace_back(
-                    _build_scanner(tablet, version, _key_ranges, scan_range,
+                    _build_scanner(tablet, version, key_ranges, scan_range,
                                    {.rs_splits = std::move(partitial_read_source.rs_splits),
                                     .delete_predicates = entire_read_source.delete_predicates,
                                     .delete_bitmap = entire_read_source.delete_bitmap},
@@ -211,6 +215,10 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
     for (size_t tablet_idx = 0; tablet_idx < _tablets.size(); ++tablet_idx) {
+        const auto& key_ranges = *_tablet_key_ranges[tablet_idx];
+        if (key_ranges.empty()) {
+            continue;
+        }
         auto&& [tablet, version] = _tablets[tablet_idx];
         const auto& scan_range = *_scan_ranges[tablet_idx];
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
@@ -244,7 +252,7 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
                 partitial_read_source.rs_splits.emplace_back(std::move(split));
 
                 scanners.emplace_back(_build_scanner(
-                        tablet, version, _key_ranges, scan_range,
+                        tablet, version, key_ranges, scan_range,
                         {.rs_splits = std::move(partitial_read_source.rs_splits),
                          .delete_predicates = entire_read_source.delete_predicates,
                          .delete_bitmap = entire_read_source.delete_bitmap},
@@ -262,11 +270,14 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
  */
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
-    size_t idx = 0;
     bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
                                         ? _state->query_options().enable_segment_cache
                                         : true;
-    for (auto&& [tablet, version] : _tablets) {
+    for (size_t idx = 0; idx < _tablets.size(); ++idx) {
+        if (_tablet_key_ranges[idx]->empty()) {
+            continue;
+        }
+        auto&& [tablet, version] = _tablets[idx];
         const auto tablet_id = tablet->tablet_id();
         _all_read_sources[tablet_id] = _read_sources[idx];
         const auto& read_source = _all_read_sources[tablet_id];
@@ -288,7 +299,6 @@ Status ParallelScannerBuilder::_load() {
             }
             _total_rows += rowset->num_rows();
         }
-        idx++;
     }
 
     _rows_per_scanner = _total_rows / _max_scanners_count;

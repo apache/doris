@@ -94,9 +94,11 @@ import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -216,6 +218,11 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.tablefunction.FileTableValuedFunction;
+import org.apache.doris.tablefunction.HdfsTableValuedFunction;
+import org.apache.doris.tablefunction.HttpTableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
@@ -565,7 +572,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
         // resolves it by block-name, not by output-expr name.
         rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE,
-                false, false, deleteSink.getBoundWriteMetadataIdentity()));
+                false, false, deleteSink.getBoundWriteMetadataIdentity(), context));
         return rootFragment;
     }
 
@@ -603,7 +610,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
         rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
                 mergeSink.isWritesDataFiles(), mergeSink.isRequireMergeCardinalityCheck(),
-                mergeSink.getBoundWriteMetadataIdentity()));
+                mergeSink.getBoundWriteMetadataIdentity(), context));
         return rootFragment;
     }
 
@@ -621,7 +628,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PluginDrivenTableSink buildPluginRowLevelDmlSink(
             PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation,
             boolean writesDataFiles, boolean requireMergeCardinalityCheck,
-            String boundWriteMetadataIdentity) {
+            String boundWriteMetadataIdentity, PlanTranslatorContext context) {
         PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) sink.getTargetTable();
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) targetTable.getCatalog();
 
@@ -660,7 +667,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
         return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
                 providerTableHandle, connectorColumns, connectorColumns, null, writeOperation,
-                writesDataFiles, requireMergeCardinalityCheck, boundWriteMetadataIdentity, metadata);
+                writesDataFiles, requireMergeCardinalityCheck, boundWriteMetadataIdentity, metadata,
+                context.getBeExecVersion());
     }
 
     @Override
@@ -727,8 +735,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
                 writePlanProvider, connSession, providerTableHandle, connectorColumns,
-                boundTargetColumns, writeSortInfo, writeOperation, false,
-                boundWriteMetadataIdentity, metadata);
+                boundTargetColumns, writeSortInfo, writeOperation, true, false,
+                boundWriteMetadataIdentity, metadata, context.getBeExecVersion());
         rootFragment.setSink(providerSink);
         return rootFragment;
     }
@@ -1148,6 +1156,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        if (context.getRelationPushAggOp(tvfRelation.getRelationId()) == TPushAggOp.COUNT) {
+            scanNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+            scanNode.setPushDownCountSlotIds(ImmutableList.of());
+        }
         scanNode.setEnableConditionCache(true);
         scanNode.setDistributeExprLists(getDistributeExpr(tvfRelation));
         scanNode.setNereidsId(tvfRelation.getId());
@@ -1193,6 +1205,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return visitBucketedFusion(aggregate, context);
         }
 
+        countPushDownFileTvf(aggregate, ConnectContext.get().getSessionVariable()).ifPresent(tvf -> {
+            context.setRelationPushAggOp(tvf.getRelationId(), TPushAggOp.COUNT);
+            context.setRelationPushCountArgumentExprIds(tvf.getRelationId(), ImmutableList.of());
+        });
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(aggregate.child(0));
 
@@ -1259,7 +1275,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // agg(update serialize) <- child, also set colocate = true
             if (aggregate.getAggregateParam().aggMode.consumeAggregateBuffer
                     && child instanceof PhysicalHashAggregate
-                    && !((PhysicalHashAggregate<Plan>) child).getAggregateParam().aggMode.consumeAggregateBuffer
+                    && !((PhysicalHashAggregate<Plan>) child).getAggregateParam().aggMode
+                            .consumeAggregateBuffer
                     && inputPlanFragment.getPlanRoot() instanceof AggregationNode) {
                 AggregationNode childAgg = (AggregationNode) inputPlanFragment.getPlanRoot();
                 childAgg.setColocate(true);
@@ -1293,6 +1310,47 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return inputPlanFragment;
+    }
+
+    /** Match only row-count aggregates over an unfiltered external file TVF. */
+    static Optional<PhysicalTVFRelation> countPushDownFileTvf(
+            PhysicalHashAggregate<? extends Plan> aggregate, SessionVariable sessionVariable) {
+        Plan child = aggregate.child(0);
+        if (child instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) child;
+            // COUNT readers synthesize column values, but retained expressions still execute on those columns.
+            if (project.getProjects().stream()
+                    .anyMatch(expression -> expression.containsType(NoneMovableFunction.class))
+                    || project.getMultiLayerProjects().stream().flatMap(List::stream)
+                            .anyMatch(expression -> expression.containsType(NoneMovableFunction.class))) {
+                return Optional.empty();
+            }
+        }
+        Plan tvfChild = child instanceof PhysicalProject && child.child(0) instanceof PhysicalTVFRelation
+                ? child.child(0) : child;
+        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
+        AggregateFunction aggregateFunction = aggregateFunctions.size() == 1
+                ? aggregateFunctions.iterator().next() : null;
+        if (tvfChild instanceof PhysicalTVFRelation
+                && isCountPushDownFileTvf(((PhysicalTVFRelation) tvfChild).getFunction().getCatalogFunction())
+                && aggregate.getGroupByExpressions().isEmpty()
+                && aggregateFunction instanceof Count
+                && ((Count) aggregateFunction).isCountStar()
+                && !aggregateFunction.isDistinct()
+                && !aggregate.getAggregateParam().aggMode.consumeAggregateBuffer
+                && sessionVariable.enablePushDownNoGroupAgg()
+                && sessionVariable.isEnableCountPushDownForExternalTable()) {
+            return Optional.of((PhysicalTVFRelation) tvfChild);
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isCountPushDownFileTvf(TableValuedFunctionIf catalogFunction) {
+        return catalogFunction instanceof FileTableValuedFunction
+                || catalogFunction instanceof HdfsTableValuedFunction
+                || catalogFunction instanceof HttpTableValuedFunction
+                || catalogFunction instanceof LocalTableValuedFunction
+                || catalogFunction instanceof S3TableValuedFunction;
     }
 
     @Override
@@ -3805,9 +3863,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     partitionExprs.add(context.findSlotRef(partitionExprId));
                 }
             }
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
+            return DataPartition.forHiveTableSink(partitionExprs, context.getBeExecVersion());
         } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
+            return DataPartition.forHiveTableSink(Collections.emptyList(), context.getBeExecVersion());
         } else if (distributionSpec instanceof DistributionSpecMerge) {
             DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;
             Expr operationExpr = context.findSlotRef(mergeSpec.getOperationExprId());

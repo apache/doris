@@ -135,7 +135,7 @@ TEST(ArrowSchemaUtilTest, test_simple_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(2, fields.size());
     EXPECT_EQ("field1", fields[0]->name());
@@ -193,7 +193,7 @@ TEST(ArrowSchemaUtilTest, test_stuct_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("st_col", fields[0]->name());
@@ -245,7 +245,7 @@ TEST(ArrowSchemaUtilTest, test_map_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("map_col", fields[0]->name());
@@ -292,7 +292,7 @@ TEST(ArrowSchemaUtilTest, test_list_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("list_col", fields[0]->name());
@@ -316,7 +316,7 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     Schema schema(1, std::move(nested_fields));
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    Status st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    Status st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(4, fields.size());
 
@@ -371,7 +371,7 @@ TEST(ArrowSchemaUtilTest, test_parquet_filed_id) {
     Schema schema(1, std::move(nested_fields));
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     auto arrow_schema = arrow::schema(fields);
 
     // create arrow table

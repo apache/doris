@@ -23,7 +23,13 @@
 
 namespace doris {
 
-Status ParquetArrowBlockConvertor::init() {
+std::string ParquetArrowSchemaConvertor::timestamp_timezone(PrimitiveType type) const {
+    return type == TYPE_DATETIMEV2 && !_enable_int96_timestamps
+                   ? ""
+                   : DorisArrowSchemaConvertor::timestamp_timezone(type);
+}
+
+Status ParquetArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const {
     if (_types.size() != _names.size()) {
         return Status::InvalidArgument("Parquet column names and types must have the same size");
     }
@@ -33,12 +39,16 @@ Status ParquetArrowBlockConvertor::init() {
     // INT96 normalization and schema construction must use the same instance's timezone.
     for (size_t i = 0; i < _types.size(); ++i) {
         std::shared_ptr<arrow::DataType> type;
-        RETURN_IF_ERROR(
-                convert_to_arrow_type(_types[i], &type, _timezone_name, !_enable_int96_timestamps));
+        RETURN_IF_ERROR(convert_to_arrow_type(_types[i], &type));
         fields.emplace_back(arrow::field(_names[i], type, _types[i]->is_nullable()));
     }
-    _arrow_schema = arrow::schema(std::move(fields));
+    *result = arrow::schema(std::move(fields));
     return Status::OK();
+}
+
+Status ParquetArrowBlockConvertor::init() {
+    return ParquetArrowSchemaConvertor(_types, _names, _timezone_name, _enable_int96_timestamps)
+            .get_arrow_schema(&_arrow_schema);
 }
 
 Status ParquetArrowBlockConvertor::write_column(const DataTypePtr& type, const DataTypeSerDe& serde,

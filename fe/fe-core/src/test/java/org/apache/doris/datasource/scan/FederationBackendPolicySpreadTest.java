@@ -128,6 +128,18 @@ public class FederationBackendPolicySpreadTest {
         return bound -> bound == index + 1 ? 0 : bound - 1;
     }
 
+    private FederationBackendPolicy policySelectingBackend(NodeSelectionStrategy strategy, int spread,
+            Backend target) throws UserException {
+        int[] targetIndex = new int[1];
+        FederationBackendPolicy policy = new FederationBackendPolicy(strategy, spread,
+                bound -> bound == targetIndex[0] + 1 ? 0 : bound - 1);
+        policy.init();
+        // Initialization randomizes the order. Resolve the target in this policy's actual candidate list.
+        targetIndex[0] = new ArrayList<>(policy.getBackends()).indexOf(target);
+        Assertions.assertTrue(targetIndex[0] >= 0);
+        return policy;
+    }
+
     @Test
     public void testIndependentHotQueriesChooseOnlyHashCandidates() throws Exception {
         for (int index = 0; index < 3; index++) {
@@ -278,7 +290,8 @@ public class FederationBackendPolicySpreadTest {
     public void testCandidateCountIsCappedByEligibleBackends() throws Exception {
         Set<Backend> targets = new HashSet<>();
         for (int index = 0; index < 3; index++) {
-            targets.add(assign(policy(Integer.MAX_VALUE, selectCandidate(index)), split()));
+            targets.add(assign(policySelectingBackend(NodeSelectionStrategy.CONSISTENT_HASHING,
+                    Integer.MAX_VALUE, backends.get(index)), split()));
         }
         Assertions.assertEquals(new HashSet<>(backends), targets);
     }
@@ -459,8 +472,7 @@ public class FederationBackendPolicySpreadTest {
                     NodeSelectionStrategy.CONSISTENT_HASHING)) {
                 Set<Backend> targets = new HashSet<>();
                 for (int index = 0; index < count; index++) {
-                    FederationBackendPolicy policy = new FederationBackendPolicy(strategy, 0, selectCandidate(index));
-                    policy.init();
+                    FederationBackendPolicy policy = policySelectingBackend(strategy, 0, backends.get(index));
                     targets.add(assign(policy, split()));
                 }
                 Assertions.assertEquals(new HashSet<>(backends), targets);

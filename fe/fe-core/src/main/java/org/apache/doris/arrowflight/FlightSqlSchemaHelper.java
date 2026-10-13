@@ -18,20 +18,27 @@
 package org.apache.doris.arrowflight;
 
 import org.apache.doris.arrow.DorisArrowTypeMapping;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.thrift.TColumnDef;
+import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableStatus;
 
+import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetDbSchemas;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
 import org.apache.arrow.vector.VarBinaryVector;
@@ -39,7 +46,9 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 import org.apache.logging.log4j.LogManager;
@@ -74,6 +83,56 @@ public class FlightSqlSchemaHelper {
     }
 
     private static final byte[] EMPTY_SERIALIZED_SCHEMA = getSerializedSchema(Collections.emptyList());
+
+    static Field withDorisTypeMetadata(Field field, Type type) {
+        if (type.isVariantType()) {
+            if (field.getMetadata() == null
+                    || !"arrow.parquet.variant".equals(field.getMetadata().get("ARROW:extension:name"))) {
+                throw CallStatus.UNIMPLEMENTED.withDescription(
+                        "Backend returned a non-native Variant schema; use Variant V2 "
+                                + "or cast the result to STRING").toRuntimeException();
+            }
+        }
+        List<Field> children = new ArrayList<>(field.getChildren());
+        if (type.isArrayType()) {
+            children.set(0, withDorisTypeMetadata(children.get(0), ((ArrayType) type).getItemType()));
+        } else if (type.isMapType()) {
+            Field entries = children.get(0);
+            List<Field> pair = new ArrayList<>(entries.getChildren());
+            pair.set(0, withDorisTypeMetadata(pair.get(0), ((MapType) type).getKeyType()));
+            pair.set(1, withDorisTypeMetadata(pair.get(1), ((MapType) type).getValueType()));
+            children.set(0, new Field(entries.getName(), entries.getFieldType(), pair));
+        } else if (type.isStructType()) {
+            StructType struct = (StructType) type;
+            for (int i = 0; i < children.size(); i++) {
+                children.set(i, withDorisTypeMetadata(children.get(i), struct.getFields().get(i).getType()));
+            }
+        }
+        String marker = null;
+        switch (type.getPrimitiveType()) {
+            case LARGEINT:
+            case IPV4:
+            case IPV6:
+            case UUID:
+            case VARIANT:
+                marker = type.getPrimitiveType().name();
+                break;
+            case JSONB:
+                marker = "JSON";
+                break;
+            default:
+                break;
+        }
+        FieldType fieldType = field.getFieldType();
+        if (marker != null && !field.getMetadata().containsKey("doris_type")) {
+            Map<String, String> metadata = new HashMap<>(field.getMetadata());
+            metadata.put("doris_type", marker);
+            fieldType = new FieldType(field.isNullable(), field.getType(), field.getDictionary(), metadata);
+        }
+        // Old BEs omit these markers. Fill only missing ones from the planned Doris type;
+        // preserve conflicting markers and all physical properties for the strict schema comparison.
+        return new Field(field.getName(), fieldType, children);
+    }
 
     protected static byte[] getSerializedSchema(List<Field> fields) {
         if (EMPTY_SERIALIZED_SCHEMA == null && fields == null) {
@@ -175,11 +234,51 @@ public class FlightSqlSchemaHelper {
             Integer tableOffset = describeTablesResult.getTablesOffset().get(tableIndex);
             for (; columnIndex < tableOffset; columnIndex++) {
                 TColumnDef columnDef = describeTablesResult.getColumns().get(columnIndex);
-                fields.add(DorisArrowTypeMapping.toField(dbName, tableName, columnDef.getColumnDesc()));
+                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc()));
             }
             tableToFields.put(tableName, fields);
         }
         return tableToFields;
+    }
+
+    private static Field buildField(String dbName, String tableName, TColumnDesc desc) {
+        return withNativeVariant(DorisArrowTypeMapping.toField(dbName, tableName, desc), desc);
+    }
+
+    private static Field withNativeVariant(Field field, TColumnDesc desc) {
+        if (desc.getColumnType() == TPrimitiveType.VARIANT) {
+            return nativeVariantField(field.getName(), field.isNullable(), field.getMetadata());
+        }
+        if (!desc.isSetChildren() || desc.getChildren().isEmpty()) {
+            return field;
+        }
+        // Preserve the shared mapper's physical types, nullability and column metadata.
+        // Only Variant leaves need the Flight-specific native storage representation.
+        List<Field> children = new ArrayList<>(field.getChildren());
+        if (desc.getColumnType() == TPrimitiveType.MAP && desc.getChildrenSize() == 2) {
+            Field entries = children.get(0);
+            List<Field> pair = new ArrayList<>(entries.getChildren());
+            for (int i = 0; i < pair.size(); i++) {
+                pair.set(i, withNativeVariant(pair.get(i), desc.getChildren().get(i)));
+            }
+            children.set(0, new Field(entries.getName(), entries.getFieldType(), pair));
+        } else if (desc.getColumnType() == TPrimitiveType.STRUCT
+                || (desc.getColumnType() == TPrimitiveType.ARRAY && desc.getChildrenSize() == 1)) {
+            for (int i = 0; i < children.size(); i++) {
+                children.set(i, withNativeVariant(children.get(i), desc.getChildren().get(i)));
+            }
+        }
+        return new Field(field.getName(), field.getFieldType(), children);
+    }
+
+    static Field nativeVariantField(String name, boolean nullable, Map<String, String> columnMetadata) {
+        Map<String, String> metadata = new HashMap<>(columnMetadata);
+        // Discovery and execution must share the extension metadata as well as its storage type.
+        metadata.put("ARROW:extension:name", "arrow.parquet.variant");
+        metadata.put("ARROW:extension:metadata", "");
+        return new Field(name, new FieldType(nullable, new ArrowType.Struct(), null, metadata),
+                Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
+                        Field.notNullable("value", new ArrowType.Binary())));
     }
 
     /**
