@@ -771,6 +771,15 @@ TEST_F(PhraseQueryV2Test, SlopLetsTheTermsMoveApart) {
               (std::set<uint32_t> {0, 5, 8, 11}));
 }
 
+// A repeated term needs its own occurrence for every clause: the single "lazy" of a document
+// cannot stand for both clauses of "lazy lazy". Doc 4 holds "lazy" at positions 1 and 5, so it
+// matches once the slop covers the gap between them.
+TEST_F(PhraseQueryV2Test, ARepeatedTermNeedsAnOccurrencePerClause) {
+    EXPECT_TRUE(phrase_docs(kTestDir, {"lazy", "lazy"}, {}).empty());
+    EXPECT_TRUE(phrase_docs(kTestDir, {"lazy", "lazy"}, {.slop = 1}).empty());
+    EXPECT_EQ(phrase_docs(kTestDir, {"lazy", "lazy"}, {.slop = 3}), (std::set<uint32_t> {4}));
+}
+
 TEST_F(PhraseQueryV2Test, OrderedSlopKeepsTheTermsInOrder) {
     EXPECT_EQ(phrase_docs(kTestDir, {"quick", "fox"}, {.slop = 3, .ordered = true}),
               (std::set<uint32_t> {0, 5, 11}));
@@ -1204,6 +1213,27 @@ TEST_F(PhraseQueryV2Test, AListedMultiPhraseMatchesTheStreamedOne) {
         query_v2::MultiPhraseQuery query(std::make_shared<IndexQueryContext>(), L"content",
                                          term_infos);
         EXPECT_EQ(fake_docs(query, source), (std::set<uint32_t> {0, 1, 5, 8, 11})) << batches;
+    }
+}
+
+// A multi-phrase repeating a slot needs its own occurrence for every clause too, streamed or
+// listed: doc 0 holds "lazy" once and doc 2 "lazier" once, doc 1 holds "lazy" at 1 and 3.
+TEST_F(PhraseQueryV2Test, AMultiPhraseRepeatedSlotNeedsAnOccurrencePerClause) {
+    std::vector<TermInfo> alternatives = phrase_terms({"lazy", "lazy"});
+    for (auto& term_info : alternatives) {
+        term_info.term = std::vector<std::string> {"lazier", "lazy"};
+    }
+    for (const auto& term_infos : {phrase_terms({"lazy", "lazy"}), alternatives}) {
+        for (const bool batches : {false, true}) {
+            auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+            source->batches = batches;
+            source->set_doc_count(3);
+            source->add("lazy", {posting(0, {1}), posting(1, {1, 3})});
+            source->add("lazier", {posting(2, {5})});
+            query_v2::MultiPhraseQuery query(std::make_shared<IndexQueryContext>(), L"content",
+                                             term_infos, {.slop = 1});
+            EXPECT_EQ(fake_docs(query, source), (std::set<uint32_t> {1})) << batches;
+        }
     }
 }
 

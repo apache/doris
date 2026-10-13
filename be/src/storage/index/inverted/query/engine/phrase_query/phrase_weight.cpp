@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <utility>
 
 #include "common/check.h"
@@ -138,15 +139,23 @@ ScorerPtr PhraseWeight::_streamed_scorer(index_query::IndexSource& source, uint3
     const uint32_t first_doc = _options.candidates != nullptr && !_options.candidates->isEmpty()
                                        ? _options.candidates->minimum()
                                        : 0;
+    // A repeated term shares one posting, which is how the scorer knows its clauses need an
+    // occurrence each.
+    std::vector<std::pair<std::string_view, SegmentPostingsPtr>> opened;
     for (const auto& term_info : _term_infos) {
-        size_t offset = term_info.position;
-        auto posting = open_postings(source, term_info.get_single_term(),
-                                     /*positions=*/true, _enable_scoring, _similarity, first_doc);
-        if (posting) {
-            term_postings_list.emplace_back(offset, std::move(posting));
-        } else {
-            return std::make_shared<EmptyScorer>();
+        const std::string& term = term_info.get_single_term();
+        const auto it = std::ranges::find(opened, std::string_view(term),
+                                          &std::pair<std::string_view, SegmentPostingsPtr>::first);
+        SegmentPostingsPtr posting = it != opened.end() ? it->second : nullptr;
+        if (posting == nullptr) {
+            posting = open_postings(source, term, /*positions=*/true, _enable_scoring, _similarity,
+                                    first_doc);
+            if (posting == nullptr) {
+                return std::make_shared<EmptyScorer>();
+            }
+            opened.emplace_back(term, posting);
         }
+        term_postings_list.emplace_back(term_info.position, std::move(posting));
     }
     return PhraseScorer<SegmentPostingsPtr>::create(term_postings_list, _similarity, _options,
                                                     num_docs);

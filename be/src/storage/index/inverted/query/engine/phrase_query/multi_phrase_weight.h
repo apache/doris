@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 #include "storage/index/inverted/query/engine/phrase_query/phrase_scorer.h"
 #include "storage/index/inverted/query/engine/phrase_query/phrase_weight.h"
 #include "storage/index/inverted/query/engine/postings/loaded_postings.h"
@@ -56,8 +60,17 @@ private:
 
     ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) override {
         std::vector<std::pair<size_t, PostingsPtr>> term_postings_list;
+        // A repeated slot shares one posting, which is how the scorer knows its clauses need an
+        // occurrence each.
+        std::vector<std::pair<const TermInfo::Term*, PostingsPtr>> opened;
         for (const auto& term_info : _term_infos) {
             size_t offset = term_info.position;
+            const auto repeated = std::ranges::find_if(
+                    opened, [&](const auto& slot) { return *slot.first == term_info.term; });
+            if (repeated != opened.end()) {
+                term_postings_list.emplace_back(offset, repeated->second);
+                continue;
+            }
             if (term_info.is_single_term()) {
                 auto posting = open_postings(source, term_info.get_single_term(),
                                              /*positions=*/true, _enable_scoring, _similarity);
@@ -68,6 +81,7 @@ private:
                     } else {
                         term_postings_list.emplace_back(offset, std::move(posting));
                     }
+                    opened.emplace_back(&term_info.term, term_postings_list.back().second);
                 } else {
                     return std::make_shared<EmptyScorer>();
                 }
@@ -90,6 +104,7 @@ private:
                 }
                 auto union_posting = SimpleUnion<PostingsPtr>::create(std::move(postings));
                 term_postings_list.emplace_back(offset, std::move(union_posting));
+                opened.emplace_back(&term_info.term, term_postings_list.back().second);
             }
         }
         return PhraseScorer<PostingsPtr>::create(term_postings_list, _similarity, _options,
