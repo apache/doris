@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.datasource.doris.source.RemoteDorisSplit;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
 import org.apache.doris.planner.PlanNodeId;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -198,6 +200,29 @@ public class FederationBackendPolicySpreadTest {
             Assertions.assertTrue(targets.size() > 2,
                     "Distinct work with equal synthetic paths must escape a single two-BE candidate set");
         }
+    }
+
+    @Test
+    public void testRemoteDorisTicketsAtSameProxyUseDistinctCandidateSets() throws Exception {
+        backends = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            Backend backend = new Backend(NEXT_BACKEND_ID.getAndIncrement(), "192.0.2." + (i + 1), 9050);
+            backend.setAlive(true);
+            backends.add(backend);
+        }
+        FederationBackendPolicy policy = policy(2, bound -> 0);
+        Set<Backend> targets = new HashSet<>();
+        for (int i = 0; i < 100; i++) {
+            ByteBuffer ticket = ByteBuffer.wrap(new byte[] {(byte) i});
+            RemoteDorisSplit split = new RemoteDorisSplit("grpc://proxy:8815", ticket);
+            List<Backend> candidates = policy.consistentHash.getNode(split, 2);
+            Backend selected = assign(policy, split);
+            Assertions.assertTrue(candidates.contains(selected));
+            Assertions.assertEquals(0, ticket.position());
+            targets.add(selected);
+        }
+        Assertions.assertTrue(targets.size() > 2,
+                "Different Flight tickets at the same proxy must escape a single candidate pair");
     }
 
     @Test

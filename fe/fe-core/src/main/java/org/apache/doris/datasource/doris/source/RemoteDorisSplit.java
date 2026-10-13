@@ -22,16 +22,23 @@ import org.apache.doris.datasource.scan.TableFormatType;
 import org.apache.doris.datasource.split.FileSplit;
 
 import java.nio.ByteBuffer;
+import java.util.Base64;
 
 public class RemoteDorisSplit extends FileSplit {
     private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
     private final String location;
     private final ByteBuffer ticket;
+    private final String splitIdentity;
 
     public RemoteDorisSplit(String location, ByteBuffer ticket) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
         this.location = location;
         this.ticket = ticket;
+        // Capture the work identity without consuming the buffer used to populate the execution range.
+        ByteBuffer identityTicket = ticket.asReadOnlyBuffer();
+        byte[] ticketBytes = new byte[identityTicket.remaining()];
+        identityTicket.get(ticketBytes);
+        this.splitIdentity = location.length() + ":" + location + Base64.getEncoder().encodeToString(ticketBytes);
         this.tableFormatType = TableFormatType.REMOTE_DORIS;
     }
 
@@ -45,7 +52,7 @@ public class RemoteDorisSplit extends FileSplit {
 
     @Override
     public String getSplitIdentity() {
-        return location;
+        return splitIdentity;
     }
 
     public TableFormatType getTableFormatType() {
