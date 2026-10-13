@@ -479,9 +479,60 @@ std::optional<std::pair<size_t, size_t>> unshredded_child_indices(
     return std::pair {metadata_index, value_index};
 }
 
-ColumnVariantV2::MutablePtr encode_variant_column(const ParquetColumnSchema& schema,
-                                                  const IColumn& physical,
-                                                  bool require_metadata = true) {
+void import_unshredded_variant_range(const ParquetColumnSchema& schema, const ColumnStruct& wrapper,
+                                     const ColumnNullable* outer_nullable, size_t metadata_index,
+                                     size_t value_index, size_t begin, size_t end,
+                                     DorisVector<VariantRef>& encoded_rows,
+                                     ColumnVariantV2::EncodedRowsAppender& appender,
+                                     int64_t* imported_bytes) {
+    encoded_rows.clear();
+    if (encoded_rows.capacity() < end - begin) {
+        encoded_rows.reserve(end - begin);
+    }
+    if (imported_bytes != nullptr) {
+        *imported_bytes = 0;
+    }
+    auto count_imported_bytes = [&](size_t bytes) {
+        if (imported_bytes == nullptr) {
+            return;
+        }
+        DORIS_CHECK_LE(bytes,
+                       static_cast<size_t>(std::numeric_limits<int64_t>::max() - *imported_bytes));
+        *imported_bytes += static_cast<int64_t>(bytes);
+    };
+    for (size_t row = begin; row < end; ++row) {
+        if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
+            encoded_rows.push_back(
+                    {.metadata = {.data = VARIANT_EMPTY_METADATA.data(),
+                                  .size = VARIANT_EMPTY_METADATA.size()},
+                     .value = {VARIANT_NULL_VALUE.data(), VARIANT_NULL_VALUE.size()}});
+            count_imported_bytes(VARIANT_EMPTY_METADATA.size());
+            count_imported_bytes(VARIANT_NULL_VALUE.size());
+            continue;
+        }
+
+        const Cell metadata = cell_at(wrapper.get_column(metadata_index), row);
+        if (metadata.is_null) {
+            throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} has null metadata at row {}",
+                            schema.name, row);
+        }
+        const StringRef metadata_bytes = metadata.column->get_data_at(row);
+        const Cell value = cell_at(wrapper.get_column(value_index), row);
+        const StringRef value_bytes =
+                value.is_null ? StringRef(VARIANT_NULL_VALUE.data(), VARIANT_NULL_VALUE.size())
+                              : value.column->get_data_at(row);
+        encoded_rows.push_back(
+                {.metadata = {.data = metadata_bytes.data, .size = metadata_bytes.size},
+                 .value = value_bytes});
+        count_imported_bytes(metadata_bytes.size);
+        count_imported_bytes(value_bytes.size);
+    }
+    appender.append(std::span<const VariantRef>(encoded_rows));
+}
+
+ColumnVariantV2::MutablePtr encode_variant_column(
+        const ParquetColumnSchema& schema, const IColumn& physical, bool require_metadata = true,
+        const ParquetColumnReaderProfile* profile = nullptr) {
     if (schema.kind != ParquetColumnSchemaKind::VARIANT) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Parquet column {} is not Variant",
                         schema.name);
@@ -496,11 +547,50 @@ ColumnVariantV2::MutablePtr encode_variant_column(const ParquetColumnSchema& sch
     }
 
     auto variants = ColumnVariantV2::create();
-    constexpr size_t MAX_RECONSTRUCTION_BATCH_ROWS = 4096;
-    for (size_t begin = 0; begin < physical.size(); begin += MAX_RECONSTRUCTION_BATCH_ROWS) {
-        encode_variant_range(schema, wrapper, outer_nullable, begin,
-                             std::min(physical.size(), begin + MAX_RECONSTRUCTION_BATCH_ROWS),
-                             require_metadata, *variants);
+    // A complete unshredded root already contains exact Variant Encoding V1 bytes. Keep the
+    // existing lazy materialization boundary, but validate and copy those bytes without rebuilding
+    // the value tree through VariantBatchBuilder.
+    const auto unshredded_indices =
+            require_metadata ? unshredded_child_indices(schema) : std::nullopt;
+    constexpr size_t MAX_MATERIALIZATION_BATCH_ROWS = 4096;
+    DorisVector<VariantRef> encoded_rows;
+    std::optional<ColumnVariantV2::EncodedRowsAppender> encoded_rows_appender;
+    if (unshredded_indices.has_value()) {
+        encoded_rows.reserve(std::min(physical.size(), MAX_MATERIALIZATION_BATCH_ROWS));
+        encoded_rows_appender.emplace(variants->create_encoded_rows_appender());
+    }
+    for (size_t begin = 0; begin < physical.size(); begin += MAX_MATERIALIZATION_BATCH_ROWS) {
+        const size_t end = std::min(physical.size(), begin + MAX_MATERIALIZATION_BATCH_ROWS);
+        if (unshredded_indices.has_value()) {
+            DORIS_CHECK(encoded_rows_appender.has_value());
+            int64_t imported_bytes = 0;
+            RuntimeProfile::Counter* direct_import_time =
+                    profile == nullptr ? nullptr
+                                       : profile->variant_unshredded_direct_import_time.get();
+            {
+                // Update the shared timer on every exit, including validation failures. Rows and
+                // bytes are published only after the complete chunk has been appended.
+                SCOPED_TIMER(direct_import_time);
+                import_unshredded_variant_range(
+                        schema, structure, outer_nullable, unshredded_indices->first,
+                        unshredded_indices->second, begin, end, encoded_rows,
+                        *encoded_rows_appender, profile == nullptr ? nullptr : &imported_bytes);
+            }
+            if (profile != nullptr) {
+                const auto imported_rows = static_cast<int64_t>(end - begin);
+                if (profile->variant_unshredded_direct_import_rows != nullptr) {
+                    COUNTER_UPDATE(profile->variant_unshredded_direct_import_rows.get(),
+                                   imported_rows);
+                }
+                if (profile->variant_unshredded_direct_import_bytes != nullptr) {
+                    COUNTER_UPDATE(profile->variant_unshredded_direct_import_bytes.get(),
+                                   imported_bytes);
+                }
+            }
+        } else {
+            encode_variant_range(schema, wrapper, outer_nullable, begin, end, require_metadata,
+                                 *variants);
+        }
     }
     return variants;
 }
@@ -1041,27 +1131,6 @@ UnshreddedPathScan scan_unshredded_path(const ParquetColumnSchema& schema, const
     return std::move(typed_values).finish(std::move(path_cache));
 }
 
-void append_variant_rows(ColumnVariantV2& output, std::span<const VariantRef> rows) {
-    try {
-        VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows.size()});
-        for (const VariantRef value : rows) {
-            auto row = builder.begin_row();
-            row.add_value(value);
-            row.finish();
-        }
-        output.insert_encoded_batch(builder.finish_batch());
-    } catch (...) {
-        if (rows.size() <= 1) {
-            throw;
-        }
-        // A builder has one metadata dictionary. Split heterogeneous batches while preserving the
-        // original validation error for a malformed single row.
-        const size_t middle = rows.size() / 2;
-        append_variant_rows(output, rows.first(middle));
-        append_variant_rows(output, rows.subspan(middle));
-    }
-}
-
 ColumnPtr normalize_unshredded_path(const ParquetColumnSchema& schema, const IColumn& physical,
                                     std::pair<size_t, size_t> child_indices,
                                     std::span<const VariantShreddedPathSegment> path,
@@ -1074,6 +1143,7 @@ ColumnPtr normalize_unshredded_path(const ParquetColumnSchema& schema, const ICo
     DORIS_CHECK_EQ(structure.tuple_size(), schema.children.size());
 
     auto values = ColumnVariantV2::create();
+    auto appender = values->create_encoded_rows_appender();
     auto nulls = ColumnUInt8::create();
     nulls->reserve(physical.size());
     constexpr size_t MAX_DIRECT_SEEK_BATCH_ROWS = 4096;
@@ -1126,7 +1196,7 @@ ColumnPtr normalize_unshredded_path(const ParquetColumnSchema& schema, const ICo
                 count_copied_bytes(null_value);
             }
         }
-        append_variant_rows(*values, encoded_rows);
+        appender.append(std::span<const VariantRef>(encoded_rows));
     }
     *copied_bytes = total_copied_bytes;
     return ColumnNullable::create(std::move(values), std::move(nulls));
@@ -1503,7 +1573,7 @@ public:
         }
         if (!_materialized) {
             SCOPED_TIMER(_profile.variant_reconstruction_time.get());
-            _materialized = encode_variant_column(*_schema, *_physical);
+            _materialized = encode_variant_column(*_schema, *_physical, true, &_profile);
             update_counter(_profile.variant_reconstructed_rows,
                            static_cast<int64_t>(_physical->size()));
         }
