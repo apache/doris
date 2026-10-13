@@ -1428,6 +1428,28 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL_SPILLABLE) {
                 ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
     }
     {
+        // The reservations succeed now. The query made progress: the wait that a reservation
+        // failed for process memory may have started is ended, and the task is not paused.
+        ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
+                ->_test_low_memory = false;
+        _query_ctx->resource_ctx()->task_controller()->start_process_memory_wait(1);
+        EXPECT_EQ(_query_ctx->resource_ctx()->task_controller()->process_memory_wait_start_ms(), 1);
+        task->_spilling = false;
+        ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused = false;
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_spilling);
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->is_enable_reserve_memory());
+        EXPECT_FALSE(
+                ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
+        EXPECT_EQ(_query_ctx->resource_ctx()->task_controller()->process_memory_wait_start_ms(), 0);
+        ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
+                ->_test_low_memory = true;
+    }
+    {
         // Reserve failed and paused.
         task->_operators.front()->cast<DummyOperator>()._disable_reserve_mem = true;
         task->_spilling = false;
