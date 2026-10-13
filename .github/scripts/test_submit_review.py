@@ -247,7 +247,7 @@ class FinalReviewTest(unittest.TestCase):
                 }, model="gpt-6-sol", effort="xhigh", budget_seconds=60)
                 self.reviews.clear()
 
-                def attempt(command, events, stderr, timeout, reaper=None):
+                def attempt(command, events, stderr, timeout, reaper=None, watchdog=None):
                     run = json.loads((context / submitter.RUN_FILE).read_text())
                     submitter.verify_completion(context, run, self.remaining, submit=True,
                                                 submission=self.submission(level))
@@ -259,6 +259,7 @@ class FinalReviewTest(unittest.TestCase):
 
                 with mock.patch.object(runner, "run_attempt", side_effect=attempt), \
                      mock.patch.object(runner, "RETRY_DELAYS", ()), \
+                     mock.patch.object(runner, "HeadWatchdog"), \
                      mock.patch.object(runner, "check_resume_target") as guard, \
                      mock.patch.object(runner.time, "sleep") as sleep, redirect_stderr(io.StringIO()):
                     self.assertEqual(0, runner.run_review(args))

@@ -205,6 +205,7 @@ jobs:
       base_sha: ${{ steps.review_inputs.outputs.base_sha }}
       head_sha: ${{ steps.review_inputs.outputs.head_sha }}
       manage_status: ${{ steps.review_inputs.outputs.manage_status }}
+      review_state: ${{ steps.review.outputs.review_state }}
       pr_number: ${{ steps.review_inputs.outputs.pr_number }}
     # Pre-finalization steps can use 218 minutes and auth sync can use 8 more,
     # leaving 12 minutes for runner setup and post-job cleanup.
@@ -895,6 +896,20 @@ jobs:
           status=$?
           set -e
 
+          # The runner has stopped Codex and reaped descendants. Treat an
+          # obsolete head as a handled outcome, without publishing a verdict.
+          if [ "$status" -eq 75 ]; then
+            jq -e --arg repo "$REPO" --arg pr "$PR_NUMBER" --arg head "$HEAD_SHA" '
+              .state == "superseded" and .repository == $repo and
+              (.pr_number | tostring) == $pr and .head_sha == $head and
+              (.superseding_head_sha | test("^[0-9a-f]{40}$")) and
+              .superseding_head_sha != $head' \
+              "$REVIEW_CONTEXT_DIR/review-result.json" > /dev/null
+            echo "review_state=superseded" >> "$GITHUB_OUTPUT"
+            jq -r '.message' "$REVIEW_CONTEXT_DIR/review-result.json" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           failure_reason=""
           if [ "$status" -ne 0 ]; then
             if [ -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
@@ -1080,7 +1095,8 @@ jobs:
           ${{
             always() &&
             steps.review_inputs.outcome == 'success' &&
-            steps.review_inputs.outputs.manage_status == 'true'
+            steps.review_inputs.outputs.manage_status == 'true' &&
+            steps.review.outputs.review_state != 'superseded'
           }}
         timeout-minutes: 2
         env:
@@ -1127,6 +1143,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SK }}
+          REVIEW_STATE: ${{ steps.review.outputs.review_state }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
@@ -1144,6 +1161,14 @@ jobs:
             "repos/${REPO}/contents/.github/scripts/emit_litefuse_otel_io.py?ref=${HELPER_REF}" \
             > "$helper"
           chmod 700 "$helper"
+
+          min_observations=4
+          min_step_observations=2
+          if [ "$REVIEW_STATE" = "superseded" ]; then
+            # The head may have changed before the first model/tool request.
+            min_observations=1
+            min_step_observations=0
+          fi
 
           python3 "$helper" \
             --input-file "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" \
@@ -1163,8 +1188,8 @@ jobs:
             --reasoning-effort "xhigh" \
             --environment "github-actions" \
             --max-payload-bytes 4000000 \
-            --min-observations 4 \
-            --min-step-observations 2 \
+            --min-observations "$min_observations" \
+            --min-step-observations "$min_step_observations" \
             --verify-attempts 24 \
             --verify-sleep-seconds 5 \
             --verify-timeout-seconds 120 \
@@ -1255,7 +1280,8 @@ jobs:
     if: >-
       always() &&
       needs.code-review.outputs.manage_status == 'true' &&
-      needs.code-review.outputs.head_sha != ''
+      needs.code-review.outputs.head_sha != '' &&
+      needs.code-review.outputs.review_state != 'superseded'
     uses: ./.github/workflows/code-review-aggregate-status.yml
     with:
       head_sha: ${{ needs.code-review.outputs.head_sha }}
