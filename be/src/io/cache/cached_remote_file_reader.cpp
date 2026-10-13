@@ -180,7 +180,7 @@ void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
         std::lock_guard lock(_mtx);
         DCHECK(file_block->state() == FileBlock::State::DOWNLOADED);
         file_block->_owned_by_cached_reader = true;
-        _cache_file_readers.emplace(file_block->offset(), std::move(file_block));
+        _cache_file_readers.insert_or_assign(file_block->offset(), std::move(file_block));
     }
 }
 
