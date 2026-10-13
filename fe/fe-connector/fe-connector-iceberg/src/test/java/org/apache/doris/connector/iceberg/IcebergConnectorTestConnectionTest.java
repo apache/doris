@@ -156,6 +156,25 @@ public class IcebergConnectorTestConnectionTest {
     }
 
     @Test
+    public void storageProbeTreatsABlankCatalogHttpClientTypeAsUnset() {
+        // WHY: the probe copies the catalog's http-client.* keys, so a blank type must not slip through to iceberg-aws,
+        // which would turn it into "apache". MUTATION: copying "" without normalizing -> NoClassDefFoundError -> red.
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put(HttpClientProperties.CLIENT_TYPE, "");
+
+        Map<String, String> ioProps = IcebergConnector.buildStorageProbeProperties(
+                IcebergCatalogProperties.TYPE_REST,
+                new FakeS3CompatibleStorageProperties("S3").endpoint("http://127.0.0.1:1")
+                        .region("us-east-1").accessKey("ak").secretKey("sk"),
+                catalogProperties);
+
+        Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                ioProps.get(HttpClientProperties.CLIENT_TYPE));
+        Assertions.assertDoesNotThrow(
+                () -> new HttpClientProperties(ioProps).applyHttpClientConfigurations(S3Client.builder()));
+    }
+
+    @Test
     public void storageProbeUsesTheCatalogHttpClientSettings() {
         // WHY: the probe must reach storage the way the catalog will (proxy, timeouts), so the catalog's
         // http-client.* keys win over the default. MUTATION: not copying them -> the probe ignores the proxy -> red.

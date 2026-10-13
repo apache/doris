@@ -232,6 +232,21 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void buildBaseTreatsABlankHttpClientTypeAsUnset() {
+        // WHY: iceberg-aws maps an empty http-client.type back to its "apache" default (Apache5HttpClient), so an
+        // empty value set at CREATE or by ALTER must get the supported default too. MUTATION: putIfAbsent keeps "" ->
+        // NoClassDefFoundError on the client build -> red.
+        for (String blank : new String[] {"", " "}) {
+            Map<String, String> opts = IcebergCatalogFactory.buildBaseCatalogProperties(
+                    props("iceberg.catalog.type", "rest", HttpClientProperties.CLIENT_TYPE, blank), false);
+            Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                    opts.get(HttpClientProperties.CLIENT_TYPE));
+            Assertions.assertDoesNotThrow(
+                    () -> new HttpClientProperties(opts).applyHttpClientConfigurations(S3Client.builder()));
+        }
+    }
+
+    @Test
     public void buildBaseKeepsAnExplicitHttpClientType() {
         // WHY: the default only fills a missing key; a user's choice is passed through (and "apache" is rejected
         // at CREATE/ALTER by IcebergCatalogProperties, not silently rewritten here). MUTATION: put instead of

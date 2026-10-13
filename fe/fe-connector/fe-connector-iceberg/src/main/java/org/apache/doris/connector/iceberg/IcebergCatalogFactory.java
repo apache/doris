@@ -161,7 +161,8 @@ public final class IcebergCatalogFactory {
     }
 
     /**
-     * Defaults iceberg-aws's HTTP client to {@code urlconnection} unless {@code opts} sets one. iceberg-aws's default
+     * Defaults iceberg-aws's HTTP client to {@code urlconnection} unless {@code opts} sets one. A blank value counts as
+     * unset: iceberg-aws turns an empty type back into its own "apache" default. iceberg-aws's default
      * "apache" client type is Apache5HttpClient since iceberg 1.12, which needs an AWS SDK newer than the one Doris
      * pins (2.29.x, see #58566), so every S3FileIO / Glue / STS client iceberg builds from a map without this key fails
      * with NoClassDefFoundError; url-connection-client ships with that SDK. Every map that ends up building an
@@ -169,7 +170,9 @@ public final class IcebergCatalogFactory {
      * scanner, which rebuilds the FileIO from them, uses the same client.
      */
     static void applyDefaultAwsHttpClient(Map<String, String> opts) {
-        opts.putIfAbsent(HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION);
+        if (StringUtils.isBlank(opts.get(HttpClientProperties.CLIENT_TYPE))) {
+            opts.put(HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION);
+        }
     }
 
     /**
