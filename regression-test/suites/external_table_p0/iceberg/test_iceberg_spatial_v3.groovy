@@ -262,8 +262,18 @@ public class CreateIcebergSpatialV3Table {
             properties ('format-version' = '3')"""
         exception "Nested spatial"
     }
+    sql """drop table if exists projected_copy"""
+    sql """create table projected_copy (
+        id int, geom geometry('EPSG:3857'), geog geography('OGC:CRS84', 'vincenty')
+        ) engine=iceberg properties ('format-version' = '3')"""
+    sql """insert into projected_copy select id, geom, geog from projected_values"""
     // Recreate the catalog so the second read resolves schema and files from external metadata.
     createCatalog()
+    qt_projected_copy_schema """desc projected_copy"""
+    order_qt_projected_copy_reread """
+        select id, ST_AsText(geom), ST_X(geom), ST_Y(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
+        from projected_copy
+    """
     order_qt_spatial_reread """
         select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
         from geometry_values
