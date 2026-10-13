@@ -24,7 +24,6 @@ suite("test_iceberg_spatial_v3", "p0,external,iceberg,external_docker,external_d
 
     String catalogName = "test_iceberg_spatial_v3"
     String dbName = "iceberg_spatial_v3_db"
-    String tableName = "geometry_values"
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -62,19 +61,37 @@ suite("test_iceberg_spatial_v3", "p0,external,iceberg,external_docker,external_d
     }
 
     String javaSource = '''
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.io.OutputStream;
 import java.util.HashMap;
+import java.util.UUID;
 import java.util.Map;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
+import org.apache.hadoop.fs.Path;
+import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.SimpleGroupFactory;
+import org.apache.parquet.hadoop.ParquetWriter;
+import org.apache.parquet.hadoop.example.ExampleParquetWriter;
+import org.apache.parquet.io.api.Binary;
+import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.MessageTypeParser;
 
 public class CreateIcebergSpatialV3Table {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "rest");
         properties.put("uri", "http://rest:8181");
@@ -95,11 +112,50 @@ public class CreateIcebergSpatialV3Table {
         }
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
-                Types.NestedField.optional(2, "geom", Types.GeometryType.crs84()));
+                Types.NestedField.optional(2, "geom", Types.GeometryType.crs84()),
+                Types.NestedField.optional(3, "geog", Types.GeographyType.crs84()));
         Map<String, String> tableProperties = new HashMap<>();
         tableProperties.put("format-version", "3");
         tableProperties.put("write.format.default", "parquet");
         catalog.createTable(identifier, schema, PartitionSpec.unpartitioned(), tableProperties);
+        TableIdentifier projected = TableIdentifier.of(namespace, "projected_values");
+        if (catalog.tableExists(projected)) {
+            catalog.dropTable(projected);
+        }
+        Table projectedTable = catalog.createTable(projected, new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "geom", Types.GeometryType.of("EPSG:3857")),
+                Types.NestedField.optional(3, "geog", Types.GeographyType.of("OGC:CRS84",
+                        org.apache.iceberg.types.EdgeAlgorithm.VINCENTY))),
+                PartitionSpec.unpartitioned(), tableProperties);
+        // Iceberg 1.10 exposes spatial schema types but its generic Parquet writer does not implement them.
+        // Store standard WKB BYTE_ARRAY values with field ids; the Iceberg schema carries CRS/algorithm.
+        String parquetSchema = "message spatial { required int32 id = "
+                + projectedTable.schema().findField("id").fieldId() + "; optional binary geom = "
+                + projectedTable.schema().findField("geom").fieldId() + "; optional binary geog = "
+                + projectedTable.schema().findField("geog").fieldId() + "; }";
+        MessageType message = MessageTypeParser.parseMessageType(parquetSchema);
+        Group row = new SimpleGroupFactory(message).newGroup().append("id", 1);
+        ByteBuffer point = ByteBuffer.allocate(21).order(ByteOrder.LITTLE_ENDIAN);
+        point.put((byte) 1).putInt(1).putDouble(1000).putDouble(2000).flip();
+        row.append("geom", Binary.fromConstantByteBuffer(point));
+        ByteBuffer geography = ByteBuffer.allocate(21).order(ByteOrder.LITTLE_ENDIAN);
+        geography.put((byte) 1).putInt(1).putDouble(1).putDouble(2).flip();
+        row.append("geog", Binary.fromConstantByteBuffer(geography));
+        String localFile = "/tmp/spatial-fixture-" + UUID.randomUUID() + ".parquet";
+        try (ParquetWriter<Group> writer = ExampleParquetWriter.builder(new Path(localFile)).withType(message).build()) {
+            writer.write(row);
+        }
+        OutputFile output = projectedTable.io().newOutputFile(projectedTable.location()
+                + "/data/spatial-fixture-" + UUID.randomUUID() + ".parquet");
+        long size = Files.size(Paths.get(localFile));
+        try (OutputStream stream = output.create()) {
+            Files.copy(Paths.get(localFile), stream);
+        }
+        Files.delete(Paths.get(localFile));
+        projectedTable.newAppend().appendFile(DataFiles.builder(projectedTable.spec())
+                .withPath(output.location()).withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(size).withRecordCount(1).build()).commit();
     }
 }
 '''
@@ -107,38 +163,109 @@ public class CreateIcebergSpatialV3Table {
     executeCommand("${dockerCommand} exec ${sparkContainer} bash -lc 'echo ${encodedJavaSource} "
             + "| base64 -d >/tmp/CreateIcebergSpatialV3Table.java && "
             + "javac -cp \"/opt/spark/jars/*\" /tmp/CreateIcebergSpatialV3Table.java && "
-            + "java -cp \"/tmp:/opt/spark/jars/*\" CreateIcebergSpatialV3Table ${dbName} ${tableName}'")
+            + "java -cp \"/tmp:/opt/spark/jars/*\" CreateIcebergSpatialV3Table ${dbName} geometry_values'")
 
-    sql """drop catalog if exists ${catalogName}"""
-    sql """
-        create catalog ${catalogName} properties (
-            'type' = 'iceberg',
-            'iceberg.catalog.type' = 'rest',
-            'uri' = 'http://${externalEnvIp}:${restPort}',
-            's3.access_key' = 'admin',
-            's3.secret_key' = 'password',
-            's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
-            's3.region' = 'us-east-1'
-        )
-    """
-
-    try {
+    def createCatalog = {
+        sql """drop catalog if exists ${catalogName}"""
+        sql """
+            create catalog ${catalogName} properties (
+                'type' = 'iceberg',
+                'iceberg.catalog.type' = 'rest',
+                'uri' = 'http://${externalEnvIp}:${restPort}',
+                's3.access_key' = 'admin',
+                's3.secret_key' = 'password',
+                's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
+                's3.region' = 'us-east-1'
+            )
+        """
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
-        sql """set enable_fallback_to_original_planner = false"""
-        sql """
-            insert into ${tableName} values
-                (1, ST_GeomFromWKB('0101000000000000000000F03F0000000000000040'))
-        """
-        def rows = sql """
-            select id, ST_AsText(geom)
-            from ${tableName}
-            order by id
-        """
-        assertEquals(1, rows.size())
-        assertEquals(1, rows[0][0].toString().toInteger())
-        assertEquals("POINT (1 2)", rows[0][1].toString())
-    } finally {
-        sql """drop catalog if exists ${catalogName}"""
     }
+    createCatalog()
+    sql """
+        insert into geometry_values values
+            (1, ST_GeomFromWKB('0101000000000000000000F03F0000000000000040'),
+                ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')),
+            (2, NULL, NULL),
+            (3, ST_GeomFromWKB('010100000000000000000008400000000000001040'), NULL),
+            (4, NULL, ST_GeogFromWKB('010100000000000000000008400000000000001040'))
+    """
+    qt_spatial_schema """desc geometry_values"""
+    order_qt_spatial_values """
+        select id, ST_AsText(geom), ST_X(geom), ST_Y(geom), ST_GeometryType(geom),
+               hex(ST_AsBinary(geom)), ST_AsText(geog), ST_Distance(geog, geog)
+        from geometry_values
+    """
+    test {
+        sql """insert into geometry_values values (5, 'not WKB', NULL)"""
+        exception "Spatial connector write cannot convert"
+    }
+    test {
+        sql """insert into geometry_values values
+            (5, NULL, ST_GeomFromWKB('0101000000000000000000F03F0000000000000040'))"""
+        exception "Spatial connector write type mismatch"
+    }
+    sql """insert into geometry_values select id + 10, geom, geog
+        from geometry_values where id = 1"""
+    test {
+        sql """insert into geometry_values select id, geom, NULL from projected_values"""
+        exception "Spatial connector write CRS mismatch"
+    }
+    test {
+        sql """insert into geometry_values select id, NULL, geog from projected_values"""
+        exception "Spatial connector write algorithm mismatch"
+    }
+    order_qt_projected_values """
+        select id, ST_AsText(geom), ST_X(geom), ST_Y(geom), ST_GeometryType(geom),
+               hex(ST_AsBinary(geom)), ST_AsText(geog)
+        from projected_values
+    """
+    test {
+        sql """select ST_Distance(geog, geog) from projected_values"""
+        exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+    }
+    sql """drop table if exists spatial_ddl_values"""
+    sql """create table spatial_ddl_values (id int, geom geometry) engine=iceberg
+        properties ('format-version' = '3')"""
+    sql """alter table spatial_ddl_values add column geog geography"""
+    sql """insert into spatial_ddl_values select id, geom, geog from geometry_values"""
+    order_qt_spatial_ddl_values """
+        select id, ST_AsText(geom), ST_AsText(geog) from spatial_ddl_values
+    """
+    sql """drop table if exists spatial_ddl_v2"""
+    sql """create table spatial_ddl_v2 (id int) engine=iceberg
+        properties ('format-version' = '2')"""
+    test {
+        sql """alter table spatial_ddl_v2 add column geom geometry"""
+        exception "require format-version >= 3"
+    }
+    sql """drop table if exists spatial_ddl_orc"""
+    sql """create table spatial_ddl_orc (id int) engine=iceberg
+        properties ('format-version' = '3', 'write-format' = 'orc', 'write.format.default' = 'orc')"""
+    test {
+        sql """alter table spatial_ddl_orc add column geom geometry"""
+        exception "require Parquet"
+    }
+    sql """drop table if exists spatial_create_rejected"""
+    test {
+        sql """create table spatial_create_rejected (geom geometry) engine=iceberg
+            properties ('format-version' = '2')"""
+        exception "require format-version >= 3"
+    }
+    test {
+        sql """create table spatial_create_rejected (geom geometry) engine=iceberg
+            properties ('format-version' = '3', 'write.format.default' = 'orc')"""
+        exception "require Parquet"
+    }
+    test {
+        sql """create table spatial_create_rejected (geom array<geometry>) engine=iceberg
+            properties ('format-version' = '3')"""
+        exception "Nested spatial"
+    }
+    // Recreate the catalog so the second read resolves schema and files from external metadata.
+    createCatalog()
+    order_qt_spatial_reread """
+        select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
+        from geometry_values
+    """
 }
