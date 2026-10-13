@@ -785,13 +785,34 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (!pin.isPartitionViewDeferred()) {
             return pin;
         }
-        Map<String, PartitionItem> partitionItems = super.getNameToPartitionItems(Optional.of(pin));
-        Map<String, Long> partitionLastModified = new HashMap<>();
-        for (String partitionName : partitionItems.keySet()) {
-            partitionLastModified.put(partitionName, ConnectorPartitionInfo.UNKNOWN);
+        // The warmup runs BEFORE the task takes its base-table locks, and a SELF_MANAGE MTMV must still be
+        // refreshed when ONE partition cannot be represented in its column type (an HMS/API-created DATE
+        // partition `dt=not-a-date` is the canonical case). Enumerate with the LIST path's per-partition
+        // contract (listPartitions: log the bad partition, skip it, leave the item map short of the listed
+        // names) rather than the fail-loud eager MTMV-alignment build: the short map makes
+        // isPartitionInvalid() true, which degrades this base table to UNPARTITIONED so the whole-MV refresh
+        // continues as a scan-all instead of aborting the task.
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            // No handle (e.g. the base table was concurrently dropped): the view cannot be materialized at
+            // all, so publish it UNAVAILABLE instead of an authoritative empty map that the consumers would
+            // read as a real zero-partition table.
+            return PluginDrivenMvccSnapshot.unavailable(pin.getConnectorSnapshot(), null);
         }
-        return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), partitionItems, partitionLastModified,
-                null);
+        // Enumerate from the SNAPSHOT-PINNED handle - the same generation the data scan reads - never the
+        // freshly resolved latest one (see pinPartitionViewHandle).
+        ConnectorTableHandle pinnedHandle =
+                pinPartitionViewHandle(handleOpt.get(), metadata, session, Optional.of(pin));
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
+        Map<String, Long> nameToLastModifiedMillis = Maps.newHashMap();
+        listPartitions(metadata, session, pinnedHandle, getPartitionColumns(Optional.of(pin)),
+                nameToPartitionItem, nameToLastModifiedMillis);
+        return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), nameToPartitionItem,
+                nameToLastModifiedMillis, null);
     }
 
     /**

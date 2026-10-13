@@ -139,8 +139,6 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         boolean connectorFilteredPartitions = false;
         Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult = Optional.empty();
         ConnectorExpression connectorPredicate = null;
-        Optional<MvccSnapshot> snapshot = ctx.getStatementContext().getSnapshot(externalTable,
-                scan.getTableSnapshot(), scan.getScanParams());
         if (nameToPartitionItem.isEmpty()
                 && scan.getSelectedPartitions().isDeferredPartitionPruning()
                 && externalTable instanceof PluginDrivenExternalTable

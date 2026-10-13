@@ -221,6 +221,32 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testHmsFilterDeclinesUppercasePartitionKeyForJdoCaseMismatch() {
+        // HMS stores a partition key's directory name LOWERCASED: a STRING key declared `P` is stored as
+        // `p=x`. The JDO filter path (ExpressionTree) accepts the emitted `P = 'x'` fragment's key
+        // case-insensitively but then compares it against that stored lowercase name, returning a SUCCESSFUL
+        // EMPTY partition set - which Doris would adopt as the logical and physical selected view, silently
+        // losing every row. Model that JDO response (any filter path yields nothing) and require the connector
+        // to decline the direct path and prune locally instead.
+        List<String> parts = Arrays.asList("p=1", "p=2");
+        HmsFilterClient client = new HmsFilterClient(parts, Collections.emptyList());
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("P"))
+                .partitionKeyTypes(Collections.singletonMap("P", "STRING"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("P", "1")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("p=1"), prunedLocations(result));
+        Assertions.assertNull(client.filter, "an uppercase key must not build an HMS filter");
+        Assertions.assertTrue(client.wasListPartitionNamesCalled(), "uppercase keys must prune locally");
+    }
+
+    @Test
     public void testEqOnPartitionColumnPrunes() {
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 applyFilter(partitionedHandle(), eq("year", "2024"));

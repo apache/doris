@@ -2618,6 +2618,16 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             if (!isHmsFilterIdentifier(partKeyName)) {
                 return null;
             }
+            // HMS stores a partition key's directory name LOWERCASED (`P` -> `p=x`). The JDO filter path
+            // (ExpressionTree) accepts the key operand case-insensitively but then compares the emitted
+            // `P = 'x'` fragment against that stored lowercase name with a plain string compare, so a
+            // mixed-case key yields a SUCCESSFUL, EMPTY partition set. Doris adopts that response as the
+            // logical AND physical selected view and silently loses every row, so only a key already in its
+            // stored (lowercase) form may be named directly; anything else falls back to the positional local
+            // prefilter. (Not the reserved-word/all-digit decline above: those names are unnameable grammar.)
+            if (!partKeyName.equals(partKeyName.toLowerCase(Locale.ROOT))) {
+                return null;
+            }
             if (isHmsStringType(partKeyTypes.get(partKeyName))
                     && !isHmsStringType(partKeyHiveTypes.get(partKeyName))) {
                 return null;

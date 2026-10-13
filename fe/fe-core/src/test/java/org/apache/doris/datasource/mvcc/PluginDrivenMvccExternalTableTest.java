@@ -977,6 +977,37 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testMtmvWarmupDegradesOnUnrepresentableTypedPartition() {
+        // A scheduled SELF_MANAGE MTMV refresh warms the partitioned Hive base before it takes its base-table
+        // locks. An HMS/API-created DATE partition `dt=not-a-date` cannot be represented in the DATE column, so
+        // the LIST path's per-partition contract must hold here: skip that partition, leave the item map short
+        // of the listed names, and let isPartitionInvalid() degrade the base table to UNPARTITIONED so the
+        // whole-MV refresh continues as a scan-all. Failing loud (the eager MTMV-alignment build) would abort
+        // the task instead.
+        Fixture f = Fixture.connectorPartitionPruning(Type.DATEV2, Arrays.asList(
+                cpiWithPartitionValueMap("dt=2024-01-01", TS_2024_01_01),
+                cpiWithPartitionValueMap("dt=not-a-date", TS_2024_02_02)));
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                f.table.materializePartitionViewForMtmv(lightweight);
+
+        Assertions.assertTrue(materialized.isPartitionViewMaterialized());
+        Assertions.assertEquals(1, materialized.getNameToPartitionItem().size(),
+                "the unrepresentable partition is skipped, not thrown");
+        Assertions.assertTrue(materialized.isPartitionInvalid(),
+                "the short item map must mark the pin invalid so the base degrades to UNPARTITIONED");
+        Assertions.assertEquals(PartitionType.UNPARTITIONED,
+                f.table.getPartitionType(Optional.of(materialized)));
+        Assertions.assertTrue(f.table.getPartitionColumns(Optional.of(materialized)).isEmpty());
+        // Enumerated from the SNAPSHOT-PINNED handle, exactly as the data scan reads it.
+        Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
     public void testConnectorPartitionPruningPinsSnapshotBeforeFilteredMaterialization() {
         Fixture f = Fixture.connectorPartitionPruning();
         PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
