@@ -171,6 +171,32 @@ Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& argu
     return Status::OK();
 }
 
+Status append_spatial_wkb(const ColumnPtr& source, IColumn& destination,
+                          const DataTypePtr& spatial_type, const NullMap::value_type* null_map) {
+    auto validation_column = source;
+    auto validation_type = remove_nullable(spatial_type);
+    if (null_map != nullptr) {
+        auto null_column = ColumnUInt8::create();
+        null_column->get_data().assign(null_map, null_map + source->size());
+        validation_column = ColumnNullable::create(source, ColumnPtr(std::move(null_column)));
+        validation_type = make_nullable(validation_type);
+    } else if (source->is_nullable()) {
+        validation_type = make_nullable(validation_type);
+    }
+    Block validation_block;
+    validation_block.insert({validation_column, validation_type, "spatial_wkb"});
+    RETURN_IF_ERROR(validate_spatial_wkb_inputs(validation_block, {0}));
+    for (size_t row = 0; row < validation_column->size(); ++row) {
+        if (validation_column->is_null_at(row)) {
+            destination.insert_default();
+        } else {
+            const auto value = validation_column->get_data_at(row);
+            destination.insert_data(value.data, value.size);
+        }
+    }
+    return Status::OK();
+}
+
 struct StPoint {
     static constexpr auto NAME = "st_point";
     static const size_t NUM_ARGS = 2;

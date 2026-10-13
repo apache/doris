@@ -55,6 +55,11 @@ struct StContainsState {
 
 Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments);
 
+// Decode physical binary storage using the spatial identity supplied by the table schema.
+Status append_spatial_wkb(const ColumnPtr& source, IColumn& destination,
+                          const DataTypePtr& spatial_type,
+                          const NullMap::value_type* null_map = nullptr);
+
 template <typename Impl>
 class GeoFunction : public IFunction {
 public:

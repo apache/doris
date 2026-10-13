@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
@@ -1944,7 +1945,8 @@ TEST(ParquetV2NativeDecoderTest, LegacyConvertedTimestampsRemainUtcAdjusted) {
 }
 
 TEST(ParquetV2NativeDecoderTest, GeospatialByteArrayAnnotationsDecodeAsRawBytes) {
-    const std::string wkb("\x01\x01\x00\x00\x00", 5);
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00@", 21);
     for (const bool geometry : {true, false}) {
         tparquet::LogicalType logical;
         if (geometry) {
@@ -1962,7 +1964,7 @@ TEST(ParquetV2NativeDecoderTest, GeospatialByteArrayAnnotationsDecodeAsRawBytes)
         EXPECT_EQ(context.physical_type, ParquetPhysicalType::BYTE_ARRAY);
         EXPECT_EQ(context.logical_type, ParquetLogicalType::NONE);
 
-        DataTypeString type;
+        DataTypeSpatial type(geometry ? TYPE_GEOMETRY : TYPE_GEOGRAPHY);
         auto plain_column = type.create_column();
         auto encoded = encode_plain_byte_arrays({wkb});
         Slice plain_slice(encoded.data(), encoded.size());
