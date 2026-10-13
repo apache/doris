@@ -979,14 +979,14 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 Optional.empty(),
                 child);
-        ConnectorSpatialWriteValidator.validate(bindColumns, child.getOutput().stream()
-                .map(NamedExpression.class::cast).collect(ImmutableList.toImmutableList()));
         if (boundSink.getCols().size() != child.getOutput().size()) {
             // Carry the "Expected N columns but got M" detail that legacy (and the sibling count-check in this
             // file) emit; the terser form dropped it on the connector path.
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+        ConnectorSpatialWriteValidator.validate(bindColumns, child.getOutput().stream()
+                .map(NamedExpression.class::cast).collect(ImmutableList.toImmutableList()));
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
             // against the full table schema, so project the child to FULL-SCHEMA order with any

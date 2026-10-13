@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -331,6 +332,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 continue;
             }
             Column column = visibleColumns.get(columnIndex++);
+            ConnectorSpatialWriteValidator.validate(column, expr);
             DataType targetType = DataType.fromCatalogType(column.getType());
             Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
             NamedExpression namedExpr;
