@@ -410,10 +410,10 @@ void QuantileState::add_value(const double& value) {
             for (int i = 0; i < _explicit_data.size(); i++) {
                 _tdigest_ptr->digest.add((float)_explicit_data[i]);
             }
+            _tdigest_ptr->digest.add((float)value);
             _explicit_data.clear();
             _explicit_data.shrink_to_fit();
             _type = TDIGEST;
-
         } else {
             _explicit_data.emplace_back(value);
         }
