@@ -741,6 +741,12 @@ public class NereidsPlanner extends Planner {
             if (isFilter) {
                 node.setMutableState(MutableState.KEY_HBO_FP_NO_LITERAL,
                         structInfo.get().getFingerprint(noLiteralMode));
+            } else if (isJoinOrAgg) {
+                // the read side of a join / aggregation looks the literal carrying key up first: it
+                // names the constants, so a user who measured that exact query can pin it, while the
+                // constant agnostic key below still covers every constant of the same shape
+                node.setMutableState(MutableState.KEY_HBO_FP_WITH_LITERAL,
+                        structInfo.get().getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL));
             }
             node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonical(primaryMode));
             // the constant agnostic form is materialized by the rope as well: folding the literal
@@ -749,6 +755,9 @@ public class NereidsPlanner extends Planner {
             if (isFilter) {
                 node.setMutableState(MutableState.KEY_HBO_STRUCT_NO_LITERAL,
                         structInfo.get().getCanonical(noLiteralMode));
+            } else if (isJoinOrAgg) {
+                node.setMutableState(MutableState.KEY_HBO_STRUCT_WITH_LITERAL,
+                        structInfo.get().getCanonical(GroupStructInfo.LiteralMode.WITH_LITERAL));
             }
         } else {
             // no struct info: record why, when the reason is a limit rather than an unsupported plan
@@ -1388,7 +1397,19 @@ public class NereidsPlanner extends Planner {
                             noLiteralStruct, guardSkips, applyStates, appliedModes, expansion, false);
                 }
             } else {
-                // a join / aggregation entry only has the constant agnostic form
+                // a join / aggregation entry has both forms as well: the literal carrying one (only
+                // that constant matches) and the constant agnostic one (every constant of the same
+                // shape matches), so both are printed as separate injectable entries
+                Object withLiteralFingerprint = node.getMutableState(MutableState.KEY_HBO_FP_WITH_LITERAL)
+                        .orElse(null);
+                Object withLiteralStruct = node.getMutableState(MutableState.KEY_HBO_STRUCT_WITH_LITERAL)
+                        .orElse(null);
+                if (withLiteralFingerprint != null && withLiteralStruct != null
+                        && !withLiteralFingerprint.equals(fingerprint)) {
+                    appendHboEntryLine(sb, node.getId(), kind, "with_literal",
+                            hboEntryTypeOf(String.valueOf(withLiteralFingerprint)), withLiteralFingerprint,
+                            withLiteralStruct, guardSkips, applyStates, appliedModes, expansion, false);
+                }
                 appendHboEntryLine(sb, node.getId(), kind, "no_literal",
                         hboEntryTypeOf(String.valueOf(fingerprint)), fingerprint, struct,
                         guardSkips, applyStates, appliedModes, expansion, false);

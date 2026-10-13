@@ -50,12 +50,14 @@ public class HboStatsCalculator extends StatsCalculator {
     };
 
     /**
-     * Lookup modes of a join / aggregation root. Their canonical form is never keyed with literals
-     * ({@code HBO SET STATISTICS} rejects a {@code J{...}} / {@code A{...}} struct in WITH_LITERAL
-     * mode), so trying that form would only cost a second struct-info computation per group without
-     * any chance to match.
+     * Lookup modes of a join / aggregation root, most specific first: an entry which was pinned with
+     * literals ({@code lit(1:INT)}) only describes that constant, while the constant agnostic entry
+     * ({@code lit(*)}) describes every constant of the same predicate shape. The literal carrying key is
+     * therefore looked up first and the agnostic one remains the fallback, so an entry which was pinned
+     * before this key existed keeps being applied.
      */
     private static final GroupStructInfo.LiteralMode[] JOIN_AGG_LOOKUP_MODES = {
+            GroupStructInfo.LiteralMode.WITH_LITERAL,
             GroupStructInfo.LiteralMode.NO_LITERAL,
     };
 

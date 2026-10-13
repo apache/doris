@@ -36,6 +36,9 @@ public interface MutableState {
      * nodes carry both forms (exact + shape), join / aggregation carry the constant agnostic one
      */
     String KEY_HBO_FP_NO_LITERAL = "hbo-fingerprint-no-literal";
+
+    /** the literal carrying key of a join / aggregation root (see KEY_HBO_FP_NO_LITERAL) */
+    String KEY_HBO_FP_WITH_LITERAL = "hbo-fingerprint-with-literal";
     /** hbo simplified struct info canonical string attached at planning time for explain printing */
     String KEY_HBO_STRUCT = "hbo-struct";
     /**
@@ -43,6 +46,9 @@ public interface MutableState {
      * (never by folding the literal carrying form of {@link #KEY_HBO_STRUCT} as text)
      */
     String KEY_HBO_STRUCT_NO_LITERAL = "hbo-struct-no-literal";
+
+    /** the literal carrying struct info of a join / aggregation root */
+    String KEY_HBO_STRUCT_WITH_LITERAL = "hbo-struct-with-literal";
     /**
      * why no struct info was attached to this node, when it was refused by a limit instead of being
      * unsupported (e.g. its sub tree reads more scans than {@code hbo_max_scans_per_group}); printed
