@@ -23,7 +23,9 @@
 #include <glog/logging.h>
 
 #include <cstdint>
+#include <iostream>
 #include <mutex>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -120,6 +122,19 @@ std::string ResourceContext::describe_live_contexts(size_t max_contexts) {
                        contexts.size() - max_contexts);
     }
     return fmt::to_string(out);
+}
+
+std::string ResourceContext::log_live_contexts() {
+    std::string live_contexts;
+    std::thread describer([&live_contexts]() { live_contexts = describe_live_contexts(100); });
+    describer.join();
+    if (live_contexts.empty()) {
+        LOG(INFO) << "No resource context is alive after shutdown";
+    } else {
+        LOG(WARNING) << live_contexts;
+        std::cerr << live_contexts << '\n';
+    }
+    return live_contexts;
 }
 
 std::string ResourceContext::_describe(long references_held_elsewhere) const {

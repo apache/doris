@@ -868,14 +868,7 @@ int main(int argc, char** argv) {
     // that is still alive is held either by a thread that has not finished or by a reference
     // that is never released; LeakSanitizer reports the latter after main() returns, but cannot
     // tell which task it belonged to, so name the task here.
-    if (std::string live_contexts = doris::ResourceContext::describe_live_contexts(100);
-        !live_contexts.empty()) {
-        LOG(WARNING) << live_contexts;
-        // Also to be.out, where the LeakSanitizer report goes.
-        std::cerr << live_contexts << '\n';
-    } else {
-        LOG(INFO) << "No resource context is alive after shutdown";
-    }
+    doris::ResourceContext::log_live_contexts();
     LOG(INFO) << "All service stopped, doris main exited.";
     return 0;
 }

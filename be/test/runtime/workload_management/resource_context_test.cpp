@@ -26,6 +26,7 @@
 
 #include "common/config.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/workload_group/workload_group.h"
 #include "testutil/mock/mock_query_context.h"
 #include "util/uid_util.h"
 
@@ -91,8 +92,25 @@ TEST_F(ResourceContextLeakCheckTest, DescribesContextUntilItIsReleased) {
     line = line_of(ResourceContext::describe_live_contexts(1000), task_id);
     EXPECT_NE(line.find("finished=true"), std::string::npos) << line;
 
+    // What doris_main logs at exit is the same description.
+    EXPECT_NE(line_of(ResourceContext::log_live_contexts(), task_id), "");
+
     context.reset();
     EXPECT_EQ("", line_of(ResourceContext::describe_live_contexts(1000), task_id));
+    EXPECT_EQ("", line_of(ResourceContext::log_live_contexts(), task_id));
+}
+
+TEST_F(ResourceContextLeakCheckTest, ShowsTheWorkloadGroup) {
+    TUniqueId task_id = make_task_id(4);
+    auto context = ResourceContext::create_shared();
+    context->task_controller()->set_task_id(task_id);
+    WorkloadGroupInfo wg_info {.id = 6894204, .name = "resource_context_test_wg"};
+    context->set_workload_group(std::make_shared<WorkloadGroup>(wg_info));
+
+    std::string line = line_of(ResourceContext::describe_live_contexts(1000), task_id);
+    EXPECT_NE(line.find("workload_group=resource_context_test_wg(6894204)"), std::string::npos)
+            << line;
+    EXPECT_NE(line.find("mem_tracker=none"), std::string::npos) << line;
 }
 
 TEST_F(ResourceContextLeakCheckTest, DoesNotTrackContextsCreatedOutsideLeakCheckMode) {

@@ -110,6 +110,14 @@ public:
     // query or load it belonged to. Call it at shutdown, when no context is being created.
     static std::string describe_live_contexts(size_t max_contexts);
 
+    // For the end of a graceful exit in memleak-check mode: logs describe_live_contexts() to
+    // be.WARNING and to stderr (be.out, where the LeakSanitizer report follows), or one INFO line
+    // if no context is alive, and returns what it logged. The description is built on a thread
+    // of its own and the caller never touches a context: a pointer to a leaked context left on
+    // the caller's stack would be found by LeakSanitizer, which would then take the context for
+    // referenced and stop reporting it, while the stack of a finished thread is not scanned.
+    static std::string log_live_contexts();
+
 private:
     // Registers this context for describe_live_contexts() when memleak-check mode is on.
     void _track_if_leak_check_enabled();
