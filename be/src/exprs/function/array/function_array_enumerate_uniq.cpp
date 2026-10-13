@@ -264,7 +264,7 @@ public:
                     data_columns, *offsets, nullptr, dst_values);
         }
 
-        ColumnPtr nested_column = dst_nested_column->get_ptr();
+        ColumnPtr nested_column = std::move(dst_nested_column);
         const auto& result_array_type = assert_cast<const DataTypeArray&>(
                 *remove_nullable(block.get_by_position(result).type));
         if (result_array_type.get_nested_type()->is_nullable()) {
