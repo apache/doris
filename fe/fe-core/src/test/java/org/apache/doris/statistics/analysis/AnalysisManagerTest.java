@@ -24,7 +24,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -50,6 +52,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -690,5 +694,152 @@ public class AnalysisManagerTest {
         Mockito.when(command.usingSqlForExternalTable()).thenReturn(false);
         Mockito.when(command.getAnalyzeProperties()).thenReturn(analyzeProperties);
         return command;
+    }
+
+    // A table of the given database which reports one replica for the rows a load reports.
+    private OlapTable mockOlapTableInReplica(long tableId, String name, Database db) {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getBaseIndexId()).thenReturn(10001L);
+        Mockito.when(table.getIndexIdList()).thenReturn(ImmutableList.of(10001L));
+        Mockito.when(table.getName()).thenReturn(name);
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        TableProperty tableProperty = Mockito.mock(TableProperty.class);
+        ReplicaAllocation replicaAllocation = Mockito.mock(ReplicaAllocation.class);
+        Mockito.when(tableProperty.getReplicaAllocation()).thenReturn(replicaAllocation);
+        Mockito.when(replicaAllocation.getTotalReplicaNum()).thenReturn((short) 1);
+        Mockito.when(table.getTableProperty()).thenReturn(tableProperty);
+        db.registerTable(table);
+        return table;
+    }
+
+    /**
+     * A load recreates the statistics record of a table whose record was removed, e.g. by TRUNCATE TABLE, and
+     * accumulates the loaded rows into it. The record is created on the transaction visibility of the load,
+     * which the master applies in {@code DatabaseTransactionMgr.updateCatalogAfterVisible} and a follower
+     * applies while it replays the transaction state, so the row count is reported on every frontend without
+     * an edit log entry of its own.
+     */
+    @Test
+    public void testLoadCreatesTheStatisticsRecordOfATableWithoutOne() throws Exception {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20001L, "test_load_creates_stats");
+        catalog.unprotectCreateDb(db);
+        OlapTable table = mockOlapTableInReplica(30001L, "t_load", db);
+
+        Map<Long, Map<Long, Long>> tabletRecords = Maps.newHashMap();
+        tabletRecords.put(30001L, ImmutableMap.of(1L, 3L, 2L, 2L));
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            // What the master does when the loading transaction becomes visible.
+            manager.updateUpdatedRows(tabletRecords, db.getId(), 0L);
+
+            // The record exists with the rows of the load, and the planner reads them as the row count of the
+            // table while the backends have not reported the new tablets yet.
+            TableStatsMeta record = manager.findTableStatsStatus(30001L);
+            Assertions.assertNotNull(record);
+            Assertions.assertEquals(5, record.updatedRows.get());
+            Assertions.assertEquals(5, record.getRowCountWithDeltaRows(table, 10001L));
+            Assertions.assertTrue(record.isColumnsStatsEmpty());
+
+            // A record which exists is accumulated, not replaced.
+            manager.updateUpdatedRows(tabletRecords, db.getId(), 0L);
+            Assertions.assertSame(record, manager.findTableStatsStatus(30001L));
+            Assertions.assertEquals(10, record.updatedRows.get());
+        }
+    }
+
+    @Test
+    public void testReplayOfALoadCreatesTheSameStatisticsRecord() throws Exception {
+        // A follower applies the row counts of a load while it replays the transaction state, through the very
+        // same method. A table whose record the truncation removed gets the same record there.
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20001L, "test_load_replay_creates_stats");
+        catalog.unprotectCreateDb(db);
+        OlapTable table = mockOlapTableInReplica(30002L, "t_replay", db);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Map<Long, Map<Long, Long>> tabletRecords = Maps.newHashMap();
+            tabletRecords.put(30002L, ImmutableMap.of(1L, 4L));
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(tabletRecords, db.getId()));
+        }
+
+        TableStatsMeta record = manager.findTableStatsStatus(30002L);
+        Assertions.assertNotNull(record);
+        Assertions.assertEquals(4, record.updatedRows.get());
+        Assertions.assertEquals(4, record.getRowCountWithDeltaRows(table, 10001L));
+    }
+
+    @Test
+    public void testLoadDoesNotTouchTheCollectedRowCountOfAnExistingRecord() throws Exception {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20001L, "test_load_keeps_stats");
+        catalog.unprotectCreateDb(db);
+        OlapTable table = mockOlapTableInReplica(30003L, "t_keeps", db);
+
+        // The record an analysis left: 100 collected rows, no delta.
+        TableStatsMeta analyzed = new TableStatsMeta(table);
+        analyzed.addIndexRowForTest(10001L, 100);
+        analyzed.rowCount = 100;
+        analyzed.updatedRows.set(100);
+        analyzed.setUpdatedRowsBaseForTest(100);
+        manager.replayUpdateTableStatsStatus(analyzed);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Map<Long, Map<Long, Long>> tabletRecords = Maps.newHashMap();
+            tabletRecords.put(30003L, ImmutableMap.of(1L, 7L));
+            manager.updateUpdatedRows(tabletRecords, db.getId(), 0L);
+        }
+
+        TableStatsMeta record = manager.findTableStatsStatus(30003L);
+        Assertions.assertSame(analyzed, record);
+        Assertions.assertEquals(100, record.getRowCount(10001L));
+        Assertions.assertEquals(107, record.updatedRows.get());
+        Assertions.assertEquals(107, record.getRowCountWithDeltaRows(table, 10001L));
+    }
+
+    @Test
+    public void testALoadWhichReportsRowsByTableIdCreatesTheRecordAsWell() throws Exception {
+        // A cloud commit reports the rows of a transaction by table id instead of by tablet, and journals the
+        // event, so the follower replays it through this branch as well.
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20001L, "test_load_by_table_id");
+        catalog.unprotectCreateDb(db);
+        OlapTable table = mockOlapTableInReplica(30004L, "t_by_table", db);
+
+        Map<Long, Long> records = Maps.newHashMap();
+        records.put(30004L, 6L);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(db.getId(), records));
+        }
+
+        TableStatsMeta record = manager.findTableStatsStatus(30004L);
+        Assertions.assertNotNull(record);
+        Assertions.assertEquals(6, record.updatedRows.get());
+        Assertions.assertEquals(6, record.getRowCountWithDeltaRows(table, 10001L));
+    }
+
+    @Test
+    public void testLoadOfAnUnresolvableTableDoesNotCreateARecord() throws Exception {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20001L, "test_load_missing_table");
+        catalog.unprotectCreateDb(db);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Map<Long, Map<Long, Long>> tabletRecords = Maps.newHashMap();
+            tabletRecords.put(39999L, ImmutableMap.of(1L, 1L));
+            manager.updateUpdatedRows(tabletRecords, db.getId(), 0L);
+        }
+        Assertions.assertNull(manager.findTableStatsStatus(39999L));
     }
 }
