@@ -21,18 +21,24 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -47,6 +53,28 @@ import java.util.Optional;
 public class InsertUtilsTest {
 
     private static final int MAX_TOTAL_BYTES = 512;
+
+    @Test
+    public void spatialValuesPreserveSourceUntilConnectorValidation() {
+        Column column = new Column("geom", ScalarType.createGeometryType("EPSG:3857"));
+        Alias original = new Alias(new StringLiteral("not WKB"), "geom");
+        ImmutableList.Builder<NamedExpression> output = ImmutableList.builder();
+        InsertUtils.addColumnValue(Optional.empty(), output, original,
+                DataType.fromCatalogType(column.getType()), null, false, column);
+        Assertions.assertSame(original, output.build().get(0));
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> ConnectorSpatialWriteValidator.validate(column, original));
+        Assertions.assertTrue(error.getMessage().contains("Spatial connector write cannot convert"));
+    }
+
+    @Test
+    public void ordinaryValuesStillCastDuringNormalization() {
+        Column column = new Column("v", PrimitiveType.INT);
+        ImmutableList.Builder<NamedExpression> output = ImmutableList.builder();
+        InsertUtils.addColumnValue(Optional.empty(), output, new Alias(new StringLiteral("5"), "v"),
+                IntegerType.INSTANCE, null, false, column);
+        Assertions.assertEquals(IntegerType.INSTANCE, output.build().get(0).getDataType());
+    }
 
     private String generateString(int length) {
         return generateString(length, "X");
