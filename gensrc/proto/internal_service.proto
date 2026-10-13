@@ -604,7 +604,13 @@ enum PFilterType {
     IN_OR_BLOOM_FILTER = 4;
     MIN_FILTER = 5;
     MAX_FILTER = 6;
+    // Exact resource-ID allowlist; payload uses Doris BitmapValue serialization.
+    BITMAP_ALLOWLIST_FILTER = 7;
 };
+
+message PBitmapAllowlistFilter {
+    optional bytes bitmap_value = 1;
+}
 
 message PSendFilterSizeRequest {
     required int32 filter_id = 1;
@@ -645,6 +651,7 @@ message PMergeFilterRequest {
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
     optional uint32 stage = 15;
+    optional PBitmapAllowlistFilter bitmap_allowlist_filter = 16;
 };
 
 message PMergeFilterResponse {
@@ -670,6 +677,7 @@ message PPublishFilterRequestV2 {
     repeated PPublishFilterForwardTarget forward_targets = 16;
     optional int32 tree_publish_fanout = 17;
     optional int32 publish_rpc_timeout_ms = 18;
+    optional PBitmapAllowlistFilter bitmap_allowlist_filter = 19;
 };
 
 message PPublishFilterForwardTarget {

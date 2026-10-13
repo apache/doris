@@ -63,6 +63,7 @@
 #include "core/types.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/array/function_array_index.h"
+#include "exprs/vbitmap_predicate.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -566,7 +567,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
-    RETURN_IF_ERROR(_prune_by_constant_bitmap());
+    RETURN_IF_ERROR(_prune_by_bitmap_allowlist());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
 
     _prepare_score_column_materialization();
@@ -2233,20 +2234,45 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
     return Status::OK();
 }
 
-Status SegmentIterator::_prune_by_constant_bitmap() {
+Status SegmentIterator::_prune_by_bitmap_allowlist() {
     if (_row_bitmap.isEmpty() || !_keys_type_allows_skipping_data()) {
         return Status::OK();
     }
 
     for (const auto& context : _common_expr_ctxs_push_down) {
-        const auto* function = dynamic_cast<const VectorizedFnCall*>(context->root().get());
-        if (function == nullptr || function->function_name() != "bitmap_contains" ||
-            function->get_num_children() != 2) {
-            continue;
+        const BitmapValue* bitmap = nullptr;
+        VExprSPtr id_expr;
+        std::shared_ptr<ColumnPtrWrapper> bitmap_column;
+        const auto& root = context->root();
+        if (const auto* function = dynamic_cast<const VectorizedFnCall*>(root.get());
+            function != nullptr && function->function_name() == "bitmap_contains" &&
+            function->get_num_children() == 2 &&
+            function->get_child(0)->is_const_and_have_executed()) {
+            id_expr = function->get_child(1);
+            RETURN_IF_ERROR(function->get_child(0)->get_const_col(context.get(), &bitmap_column));
+            const IColumn* bitmap_data = bitmap_column->column_ptr.get();
+            if (const auto* constant = check_and_get_column<ColumnConst>(bitmap_data)) {
+                bitmap_data = &constant->get_data_column();
+            }
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(bitmap_data)) {
+                if (nullable->is_null_at(0)) {
+                    _opts.stats->rows_bitmap_allowlist_filtered += _row_bitmap.cardinality();
+                    _row_bitmap = roaring::Roaring();
+                    return Status::OK();
+                }
+                bitmap_data = &nullable->get_nested_column();
+            }
+            const auto* values = check_and_get_column<ColumnBitmap>(bitmap_data);
+            DCHECK(values != nullptr);
+            bitmap = &values->get_data()[0];
+        } else if (root->is_rf_wrapper()) {
+            const auto* predicate = dynamic_cast<const VBitmapPredicate*>(root->get_impl().get());
+            if (predicate != nullptr) {
+                id_expr = predicate->get_child(0);
+                bitmap = predicate->bitmap_value().get();
+            }
         }
-        const auto& bitmap_expr = function->get_child(0);
-        const auto& id_expr = function->get_child(1);
-        if (!bitmap_expr->is_const_and_have_executed() || !id_expr->is_slot_ref() ||
+        if (bitmap == nullptr || !id_expr->is_slot_ref() ||
             id_expr->data_type()->get_primitive_type() != TYPE_BIGINT) {
             continue;
         }
@@ -2259,33 +2285,15 @@ Status SegmentIterator::_prune_by_constant_bitmap() {
             continue;
         }
 
-        std::shared_ptr<ColumnPtrWrapper> bitmap_column;
-        RETURN_IF_ERROR(bitmap_expr->get_const_col(context.get(), &bitmap_column));
-        const IColumn* bitmap_data = bitmap_column->column_ptr.get();
-        if (const auto* constant = check_and_get_column<ColumnConst>(bitmap_data)) {
-            bitmap_data = &constant->get_data_column();
-        }
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(bitmap_data)) {
-            if (nullable->is_null_at(0)) {
-                _opts.stats->rows_bitmap_allowlist_filtered += _row_bitmap.cardinality();
-                _row_bitmap = roaring::Roaring();
-                return Status::OK();
-            }
-            bitmap_data = &nullable->get_nested_column();
-        }
-        const auto* bitmap_values = check_and_get_column<ColumnBitmap>(bitmap_data);
-        DCHECK(bitmap_values != nullptr);
-        const auto& bitmap = bitmap_values->get_data()[0];
-
         SCOPED_RAW_TIMER(&_opts.stats->bitmap_allowlist_filter_timer);
         const auto rows_before = _row_bitmap.cardinality();
-        if (bitmap.cardinality() == 0) {
+        if (bitmap->cardinality() == 0) {
             _opts.stats->rows_bitmap_allowlist_filtered += rows_before;
             _row_bitmap = roaring::Roaring();
             return Status::OK();
         }
         // Avoid reading the whole ID column for a handful of indexed values.
-        if (bitmap.cardinality() <= 16 && _index_iterators[cid] != nullptr &&
+        if (bitmap->cardinality() <= 16 && _index_iterators[cid] != nullptr &&
             (_opts.runtime_state == nullptr ||
              _opts.runtime_state->query_options().enable_inverted_index_query)) {
             auto reader = std::dynamic_pointer_cast<BkdIndexReader>(
@@ -2293,7 +2301,7 @@ Status SegmentIterator::_prune_by_constant_bitmap() {
             if (reader != nullptr) {
                 roaring::Roaring matching_rows;
                 bool use_index = true;
-                for (uint64_t value : bitmap) {
+                for (uint64_t value : *bitmap) {
                     auto hits = std::make_shared<roaring::Roaring>();
                     Status status = reader->query(
                             _index_query_context, _storage_name_and_type[cid].first,
@@ -2346,7 +2354,7 @@ Status SegmentIterator::_prune_by_constant_bitmap() {
             uint32_t matched = 0;
             for (uint32_t i = 0; i < count; ++i) {
                 if ((nullable == nullptr || !nullable->is_null_at(i)) &&
-                    bitmap.contains(static_cast<uint64_t>(id_values[i]))) {
+                    bitmap->contains(static_cast<uint64_t>(id_values[i]))) {
                     matching_rows.add(rowids[i]);
                     ++matched;
                 }

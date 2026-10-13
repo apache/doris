@@ -1593,7 +1593,9 @@ enum TRuntimeFilterType {
   MIN_MAX = 4,
   IN_OR_BLOOM = 8,
   // Deprecated: bitmap runtime filters are no longer planned.
-  BITMAP = 16
+  BITMAP = 16,
+  // Exact resource-ID allowlist carried as a Doris BitmapValue.
+  BITMAP_ALLOWLIST = 32
 }
 
 // generate min-max runtime filter for non-equal condition or equal condition. 
@@ -1666,7 +1668,7 @@ struct TRuntimeFilterDesc {
   // the query options. Should be greater than zero for bloom filters, zero otherwise.
   9: optional i64 bloom_filter_size_bytes
 
-  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter target expr
+  // Target expression for BITMAP_ALLOWLIST; retained from the deprecated bitmap filter.
   10: optional Exprs.TExpr bitmap_target_expr
 
   // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter

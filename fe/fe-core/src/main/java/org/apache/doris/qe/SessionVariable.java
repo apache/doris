@@ -1964,6 +1964,10 @@ public class SessionVariable implements Serializable, Writable {
             description = "Expand bitmap IN subqueries into a hash semi join so runtime filters reach scans")
     public boolean enableBitmapSubqueryHashJoin = false;
 
+    @VarAttrDef.VarAttr(name = "enable_bitmap_subquery_runtime_filter",
+            description = "Deliver a compressed bitmap subquery allowlist to BIGINT fact scans")
+    public boolean enableBitmapSubqueryRuntimeFilter = false;
+
     @VarAttrDef.VarAttr(name = CBO_CPU_WEIGHT)
     private double cboCpuWeight = 1.0;
 

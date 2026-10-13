@@ -27,7 +27,8 @@ enum class RuntimeFilterType {
     BLOOM_FILTER,
     IN_OR_BLOOM_FILTER,
     MIN_FILTER, // only min
-    MAX_FILTER  // only max
+    MAX_FILTER, // only max
+    BITMAP_ALLOWLIST_FILTER
 };
 
 struct RuntimeFilterParams {

@@ -103,6 +103,20 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
     params.null_aware = desc->__isset.null_aware && desc->null_aware;
+    if (_runtime_filter_type == RuntimeFilterType::BITMAP_ALLOWLIST_FILTER) {
+        if (build_ctx->root()->data_type()->get_primitive_type() != TYPE_BITMAP ||
+            !desc->__isset.bitmap_target_expr) {
+            return Status::InternalError(
+                    "Bitmap allowlist runtime filter requires a bitmap source and target");
+        }
+        VExprContextSPtr target_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(desc->bitmap_target_expr, target_ctx));
+        params.column_return_type = target_ctx->root()->data_type()->get_primitive_type();
+        if (params.column_return_type != TYPE_BIGINT) {
+            return Status::InternalError(
+                    "Bitmap allowlist runtime filter requires a BIGINT target");
+        }
+    }
     _wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
     return Status::OK();
 }
