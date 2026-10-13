@@ -47,6 +47,7 @@
 #include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_complex.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
@@ -62,6 +63,7 @@
 #include "core/types.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/array/function_array_index.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
@@ -564,6 +566,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
+    RETURN_IF_ERROR(_prune_by_constant_bitmap());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
 
     _prepare_score_column_materialization();
@@ -2226,6 +2229,105 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
         if (num_rows != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows(1) != rows_read({})", num_rows);
         }
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_prune_by_constant_bitmap() {
+    if (_row_bitmap.isEmpty() || !_keys_type_allows_skipping_data()) {
+        return Status::OK();
+    }
+
+    for (const auto& context : _common_expr_ctxs_push_down) {
+        const auto* function = dynamic_cast<const VectorizedFnCall*>(context->root().get());
+        if (function == nullptr || function->function_name() != "bitmap_contains" ||
+            function->get_num_children() != 2) {
+            continue;
+        }
+        const auto& bitmap_expr = function->get_child(0);
+        const auto& id_expr = function->get_child(1);
+        if (!bitmap_expr->is_const_and_have_executed() || !id_expr->is_slot_ref() ||
+            id_expr->data_type()->get_primitive_type() != TYPE_BIGINT) {
+            continue;
+        }
+
+        const auto cid =
+                cast_set<ColumnId>(assert_cast<const VSlotRef*>(id_expr.get())->column_id());
+        if (!_segment->can_apply_predicate_safely(cid, *_schema,
+                                                  _opts.target_cast_type_for_variants, _opts) ||
+            _schema->column(cid)->type() != FieldType::OLAP_FIELD_TYPE_BIGINT) {
+            continue;
+        }
+
+        std::shared_ptr<ColumnPtrWrapper> bitmap_column;
+        RETURN_IF_ERROR(bitmap_expr->get_const_col(context.get(), &bitmap_column));
+        const IColumn* bitmap_data = bitmap_column->column_ptr.get();
+        if (const auto* constant = check_and_get_column<ColumnConst>(bitmap_data)) {
+            bitmap_data = &constant->get_data_column();
+        }
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(bitmap_data)) {
+            if (nullable->is_null_at(0)) {
+                _opts.stats->rows_bitmap_allowlist_filtered += _row_bitmap.cardinality();
+                _row_bitmap = roaring::Roaring();
+                return Status::OK();
+            }
+            bitmap_data = &nullable->get_nested_column();
+        }
+        const auto* bitmap_values = check_and_get_column<ColumnBitmap>(bitmap_data);
+        DCHECK(bitmap_values != nullptr);
+        const auto& bitmap = bitmap_values->get_data()[0];
+
+        SCOPED_RAW_TIMER(&_opts.stats->bitmap_allowlist_filter_timer);
+        const auto rows_before = _row_bitmap.cardinality();
+        if (bitmap.cardinality() == 0) {
+            _opts.stats->rows_bitmap_allowlist_filtered += rows_before;
+            _row_bitmap = roaring::Roaring();
+            return Status::OK();
+        }
+        // Bitmap values are resource IDs; map them to segment row IDs before payload reads.
+        BitmapRangeIterator candidates(_row_bitmap);
+        roaring::Roaring matching_rows;
+        constexpr uint32_t kBatchSize = 4096;
+        std::vector<rowid_t> rowids(kBatchSize);
+        MutableColumnPtr values;
+        RETURN_IF_CATCH_EXCEPTION(
+                values = ReadSchema::get_predicate_column_ptr(_storage_name_and_type[cid].second,
+                                                              _opts.io_ctx.reader_type));
+        auto* column_iter = _column_iterators[cid].get();
+        uint32_t count;
+        bool first_batch = true;
+        while ((count = candidates.read_batch_rowids(rowids.data(), kBatchSize)) != 0) {
+            if (_opts.runtime_state != nullptr && _opts.runtime_state->is_cancelled()) {
+                return _opts.runtime_state->cancel_reason();
+            }
+            values->clear();
+            RETURN_IF_ERROR(column_iter->read_by_rowids(rowids.data(), count, values));
+            const IColumn* data = values.get();
+            const ColumnNullable* nullable = check_and_get_column<ColumnNullable>(data);
+            if (nullable != nullptr) {
+                data = &nullable->get_nested_column();
+            }
+            const auto* ids = check_and_get_column<ColumnInt64>(data);
+            DCHECK(ids != nullptr);
+            const auto& id_values = ids->get_data();
+            uint32_t matched = 0;
+            for (uint32_t i = 0; i < count; ++i) {
+                if ((nullable == nullptr || !nullable->is_null_at(i)) &&
+                    bitmap.contains(static_cast<uint64_t>(id_values[i]))) {
+                    matching_rows.add(rowids[i]);
+                    ++matched;
+                }
+            }
+            // A dense allowlist is cheaper to evaluate in the normal vectorized scan.
+            // Sample one full batch; skip the prepass above 2% matches.
+            if (first_batch && count == kBatchSize && matched > count / 50) {
+                return Status::OK();
+            }
+            first_batch = false;
+        }
+        _row_bitmap = std::move(matching_rows);
+        _opts.stats->rows_bitmap_allowlist_filtered += rows_before - _row_bitmap.cardinality();
+        return Status::OK();
     }
     return Status::OK();
 }

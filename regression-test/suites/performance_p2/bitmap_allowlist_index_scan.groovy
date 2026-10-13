@@ -27,6 +27,7 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
     sql "DROP TABLE IF EXISTS bitmap_allowlist_index_fact"
     sql "DROP TABLE IF EXISTS bitmap_allowlist_plain_fact"
     sql "DROP TABLE IF EXISTS bitmap_allowlist_index_ids"
+    sql "DROP TABLE IF EXISTS bitmap_allowlist_nullable_fact"
 
     // Keep the two layouts identical except for the resource_id inverted index.
     // resource_id is a value column so the point-query control cannot be answered by scan keys.
@@ -64,6 +65,23 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
         ) DUPLICATE KEY(resource_id)
         DISTRIBUTED BY HASH(resource_id) BUCKETS 8
         PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE bitmap_allowlist_nullable_fact (
+            org_id BIGINT NOT NULL,
+            resource_id BIGINT NULL,
+            payload VARCHAR(128) NOT NULL
+        ) DUPLICATE KEY(org_id)
+        DISTRIBUTED BY HASH(org_id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO bitmap_allowlist_nullable_fact VALUES
+            (101, NULL, 'needle'),
+            (101, 97, 'needle'),
+            (101, 4294967393, 'needle'),
+            (101, 4294967393, 'needle'),
+            (202, 4294967393, 'needle')
     """
 
     // Both orgs share IDs, including values above UINT32_MAX.
@@ -130,6 +148,57 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
     assertTrue(indexPruned, "resource_id inverted index did not prune the point lookup")
     sql "SET enable_profile = false"
 
+    test {
+        sql """
+            SELECT COUNT(*) AS n FROM bitmap_allowlist_index_fact
+            WHERE org_id = 101 AND bitmap_contains(bitmap_empty(), resource_id)
+            HAVING n <> 0
+        """
+        rowNum 0
+    }
+    test {
+        sql """
+            SELECT COUNT(*) AS n FROM bitmap_allowlist_nullable_fact
+            WHERE org_id = 101
+              AND bitmap_contains(to_bitmap(4294967393), resource_id)
+              AND payload LIKE '%needle%'
+            HAVING n <> 2
+        """
+        rowNum 0
+    }
+    test {
+        sql """
+            SELECT COUNT(*) AS n FROM bitmap_allowlist_nullable_fact
+            WHERE org_id = 101 AND bitmap_contains(to_bitmap(97), resource_id)
+            HAVING n <> 1
+        """
+        rowNum 0
+    }
+    test {
+        sql """
+            SELECT COUNT(*) AS n FROM bitmap_allowlist_nullable_fact
+            WHERE org_id = 101 AND bitmap_contains(to_bitmap(99), resource_id)
+            HAVING n <> 0
+        """
+        rowNum 0
+    }
+    test {
+        sql """
+            SELECT COUNT(*) AS n FROM bitmap_allowlist_index_fact
+            WHERE org_id = 101 AND bitmap_contains(to_bitmap(4294967393), resource_id)
+            HAVING n <> 1
+        """
+        rowNum 0
+    }
+    test {
+        sql """
+            SELECT COUNT(*) AS n FROM bitmap_allowlist_index_fact
+            WHERE org_id = 101 AND bitmap_contains(bitmap_from_base64(NULL), resource_id)
+            HAVING n <> 0
+        """
+        rowNum 0
+    }
+
     String plainFact = "bitmap_allowlist_plain_fact"
     String indexedFact = "bitmap_allowlist_index_fact"
     for (long size : [250000L, 1000000L, 5000000L, 10000000L]) {
@@ -170,6 +239,37 @@ suite("bitmap_allowlist_index_scan", "p2,nonConcurrent") {
                    OR p.s <> i.s OR p.s <> j.s OR p.s <> k.s
             """
             rowNum 0
+        }
+        if (size == 250000L) {
+            sql "SET enable_profile = true"
+            String bitmapToken = "bitmap_allowlist_index_early_${UUID.randomUUID()}"
+            sql "/* ${bitmapToken} */ ${indexedBitmap}"
+            String bitmapProfile = new ProfileAction(context).getProfileBySql(bitmapToken,
+                    ["RowsBitmapAllowlistFiltered"])
+            def bitmapMatches = Pattern.compile("RowsBitmapAllowlistFiltered:\\s*[^\\n]*?\\((\\d+)\\)")
+                    .matcher(bitmapProfile)
+            boolean bitmapPruned = false
+            while (bitmapMatches.find()) {
+                bitmapPruned |= Long.parseLong(bitmapMatches.group(1)) > 0
+            }
+            assertTrue(bitmapPruned, "bitmap allowlist did not prune before row materialization")
+            sql "SET enable_profile = false"
+        } else if (size == 10000000L) {
+            sql "SET enable_profile = true"
+            String bitmapToken = "bitmap_allowlist_index_dense_${UUID.randomUUID()}"
+            sql "/* ${bitmapToken} */ ${indexedBitmap}"
+            String bitmapProfile = new ProfileAction(context).getProfileBySql(bitmapToken,
+                    ["RowsBitmapAllowlistFiltered"])
+            def bitmapMatches = Pattern.compile("RowsBitmapAllowlistFiltered:\\s*([^\\n]+)")
+                    .matcher(bitmapProfile)
+            boolean foundBitmapCounter = false
+            while (bitmapMatches.find()) {
+                foundBitmapCounter = true
+                assertTrue(bitmapMatches.group(1).trim() == "0",
+                        "dense bitmap allowlist should use the normal scan")
+            }
+            assertTrue(foundBitmapCounter, "bitmap allowlist profile counter is missing")
+            sql "SET enable_profile = false"
         }
         logger.info("Index allowlist size ${size}: SQL 1/8 = plain bitmap; SQL 2/7 = plain IN; "
                 + "SQL 3/6 = indexed IN; SQL 4/5 = indexed bitmap; "

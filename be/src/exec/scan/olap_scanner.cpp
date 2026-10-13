@@ -843,6 +843,10 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_by_bitmap);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_vec_del_cond_filtered);
     COUNTER_UPDATE(local_state->_conditions_filtered_counter, stats.rows_conditions_filtered);
+    COUNTER_UPDATE(local_state->_bitmap_allowlist_filtered_counter,
+                   stats.rows_bitmap_allowlist_filtered);
+    COUNTER_UPDATE(local_state->_bitmap_allowlist_filter_timer,
+                   stats.bitmap_allowlist_filter_timer);
     COUNTER_UPDATE(local_state->_key_range_filtered_counter, stats.rows_key_range_filtered);
     COUNTER_UPDATE(local_state->_total_pages_num_counter, stats.total_pages_num);
     COUNTER_UPDATE(local_state->_cached_pages_num_counter, stats.cached_pages_num);
