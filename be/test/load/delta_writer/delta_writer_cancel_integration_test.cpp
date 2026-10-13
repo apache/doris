@@ -26,6 +26,7 @@
 #include <future>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -285,7 +286,13 @@ protected:
     }
 
     Status open_writer(int64_t id, bool incremental = false) {
-        RETURN_IF_ERROR(_load_channel->open(open_request(id, incremental)));
+        auto request = open_request(id, incremental);
+        Status status;
+        // open() attaches the load task itself. Model its RPC worker separately
+        // from the fixture's attached task to avoid nesting AttachTask.
+        std::thread rpc([&] { status = _load_channel->open(request); });
+        rpc.join();
+        RETURN_IF_ERROR(status);
         _writer = _load_channel->_tablets_channels.at(kIndexId)->_tablet_writers.at(id).get();
         _builder = _writer->_rowset_builder.get();
         if (GetParam()) {
