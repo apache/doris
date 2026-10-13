@@ -299,15 +299,8 @@ public final class IcebergSchemaBuilder {
      */
     public static int getEffectiveFormatVersion(Map<String, String> requestProperties,
             Map<String, String> catalogProperties) {
-        String formatVersion = catalogProperties.get(
-                CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION);
-        if (formatVersion == null) {
-            formatVersion = requestProperties.get(TableProperties.FORMAT_VERSION);
-            if (formatVersion == null) {
-                formatVersion = catalogProperties.get(
-                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION);
-            }
-        }
+        String formatVersion = getEffectiveTableProperty(requestProperties, catalogProperties,
+                TableProperties.FORMAT_VERSION);
         if (formatVersion == null) {
             return 2;
         }
@@ -316,6 +309,19 @@ public final class IcebergSchemaBuilder {
         } catch (NumberFormatException ignored) {
             return 2;
         }
+    }
+
+    /** Catalog overrides take precedence over a table request and catalog defaults. */
+    static String getEffectiveTableProperty(Map<String, String> requestProperties,
+            Map<String, String> catalogProperties, String key) {
+        String value = catalogProperties.get(CatalogProperties.TABLE_OVERRIDE_PREFIX + key);
+        if (value == null) {
+            value = requestProperties.get(key);
+        }
+        if (value == null) {
+            value = catalogProperties.get(CatalogProperties.TABLE_DEFAULT_PREFIX + key);
+        }
+        return value;
     }
 
     /**
