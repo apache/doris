@@ -37,7 +37,8 @@ public class NereidsPlannerConnectorPlanningTest extends TestWithFeService {
     public void planEndsConnectorPlanningWhetherItSucceedsOrFails() {
         // Identical scans share their planned ranges only within one plan, so what a connector keeps for planning
         // must not outlive the plan, whether the plan is complete or planning fails; the values the statement keeps
-        // stay. MUTATION: not ending connector planning in plan()'s finally -> red for both statements.
+        // stay. MUTATION: planWithLock's cleanup (releasePlannerResources) not ending connector planning -> red for
+        // both statements.
         assertPlanEndsConnectorPlanning("select 1", true);
         assertPlanEndsConnectorPlanning("select * from no_such_table", false);
     }

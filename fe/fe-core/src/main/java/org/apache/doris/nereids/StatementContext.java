@@ -829,9 +829,9 @@ public class StatementContext implements Closeable {
     /**
      * Drops the values of this statement's connector scope that only planning reads (see
      * {@link ConnectorStatementScope#endPlanning}), when a connector has opened the scope; unlike
-     * {@link #getOrCreateConnectorStatementScope}, it never creates one.
+     * {@link #getOrCreateConnectorStatementScope}, it never creates one. {@link #releasePlannerResources} calls it.
      */
-    public synchronized void endConnectorPlanning() {
+    private synchronized void endConnectorPlanning() {
         if (this.connectorStatementScope != null) {
             this.connectorStatementScope.endPlanning();
         }
@@ -1145,6 +1145,10 @@ public class StatementContext implements Closeable {
                 }
             }
         }
+        // NereidsPlanner.planWithLock runs this once its plan is translated and the scans are finalized, so what
+        // connectors kept only for planning, such as the ranges identical scans share, can go, also when a resource
+        // failed to close.
+        endConnectorPlanning();
         if (throwable != null) {
             Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
             throw new IllegalStateException("Release resource failed", throwable);

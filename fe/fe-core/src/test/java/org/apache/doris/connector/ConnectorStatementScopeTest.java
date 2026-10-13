@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorWriteOps;
@@ -40,6 +41,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -156,19 +158,41 @@ public class ConnectorStatementScopeTest {
     }
 
     @Test
-    public void statementContextEndsThePlanningOfItsScope() {
-        // NereidsPlanner.plan ends connector planning through the statement context; a statement no connector has
-        // touched has no scope to end. MUTATION: endConnectorPlanning not reaching the scope -> red.
+    public void releasingPlannerResourcesEndsThePlanningOfTheScope() {
+        // NereidsPlanner.planWithLock releases the planner resources when planning is over, which ends connector
+        // planning; a statement no connector has touched has no scope to end. MUTATION: releasePlannerResources not
+        // ending connector planning -> red.
         StatementContext ctx = new StatementContext();
-        ctx.endConnectorPlanning();
+        ctx.releasePlannerResources();
         ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
         Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
         Object table = scope.computeIfAbsent("table", Object::new);
 
-        ctx.endConnectorPlanning();
+        ctx.releasePlannerResources();
 
         Assertions.assertSame(scope, ctx.getOrCreateConnectorStatementScope(), "ending planning keeps the scope");
         Assertions.assertSame(table, scope.computeIfAbsent("table", Object::new));
+        Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
+    }
+
+    @Test
+    public void releasingPlannerResourcesEndsPlanningWhenAResourceFailsToClose() {
+        // A table lock that fails to unlock still reaches the caller, after the planning values are gone.
+        // MUTATION: ending connector planning only after the release succeeded -> the memo survives -> red.
+        StatementContext ctx = new StatementContext();
+        ConnectorStatementScope scope = ctx.getOrCreateConnectorStatementScope();
+        Object memo = scope.computeIfAbsentForPlanning("memo", Object::new);
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(table.tryReadLock(Mockito.anyLong(), Mockito.any(TimeUnit.class))).thenReturn(true);
+        Mockito.when(table.getNameWithFullQualifiers()).thenReturn("internal.db.t");
+        IllegalStateException unlockFailure = new IllegalStateException("unlock failed");
+        Mockito.doThrow(unlockFailure).when(table).readUnlock();
+        ctx.getTables().put(Arrays.asList("internal", "db", "t"), table);
+        ctx.lock();
+
+        Assertions.assertSame(unlockFailure,
+                Assertions.assertThrows(IllegalStateException.class, ctx::releasePlannerResources));
         Assertions.assertNotSame(memo, scope.computeIfAbsentForPlanning("memo", Object::new));
     }
 

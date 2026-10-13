@@ -44,7 +44,8 @@ import java.util.function.Supplier;
  * String-key SPI contract.</p>
  *
  * <p>A value registered through {@link #computeIfAbsentForPlanning} lives only until {@link #endPlanning}, which
- * {@link org.apache.doris.nereids.NereidsPlanner#plan} calls when it returns or throws.</p>
+ * {@link org.apache.doris.nereids.StatementContext#releasePlannerResources} calls once planning is over, whether or
+ * not the plan succeeded.</p>
  */
 public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
 

@@ -170,9 +170,6 @@ public class NereidsPlanner extends Planner {
         } finally {
             statementContext.getStopwatch().stop();
             NereidsPlanner.runningPlanNum.decrementAndGet();
-            // Connectors plan the scans of the statement only inside plan(), so what they kept for planning, such as
-            // the ranges identical scans share, is not needed once it returns or throws.
-            statementContext.endConnectorPlanning();
         }
 
         if (LOG.isDebugEnabled()) {
