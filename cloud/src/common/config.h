@@ -312,7 +312,7 @@ CONF_mBool(enable_load_txn_status_check, "true");
 
 CONF_mBool(enable_tablet_job_check, "true");
 
-CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
+CONF_mBool(enable_commit_rowset_recycle_key_idempotency_check, "true");
 CONF_mBool(enable_mark_delete_rowset_before_recycle, "false");
 CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "false");
 

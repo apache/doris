@@ -651,7 +651,7 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
     auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = true;
+        config::enable_commit_rowset_recycle_key_idempotency_check = true;
     };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -659,7 +659,7 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
         ret->second = true;
     });
     sp->enable_processing();
-    config::enable_recycle_delete_rowset_key_check = false;
+    config::enable_commit_rowset_recycle_key_idempotency_check = false;
 
     int64_t db_id = 1000;
 

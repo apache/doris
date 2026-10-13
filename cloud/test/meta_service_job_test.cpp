@@ -6222,11 +6222,11 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
     config::force_immediate_recycle = true;
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -6352,10 +6352,10 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest1) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     config::force_immediate_recycle = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -6480,11 +6480,11 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
     config::force_immediate_recycle = true;
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -6606,10 +6606,10 @@ TEST(MetaServiceJobTest, AbortCompactionJobForRelatedRowsetTest2) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     config::force_immediate_recycle = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -6743,10 +6743,10 @@ TEST(MetaServiceJobTest, AbortSchemaChangeJobForRelatedRowsetTest2) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     config::force_immediate_recycle = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -6929,11 +6929,11 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
     config::force_immediate_recycle = true;
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -7040,10 +7040,10 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     config::force_immediate_recycle = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -7165,11 +7165,11 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
     config::force_immediate_recycle = true;
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -7289,10 +7289,10 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest4) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     config::force_immediate_recycle = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -7410,11 +7410,11 @@ TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = false;
+        config::enable_commit_rowset_recycle_key_idempotency_check = false;
         config::force_immediate_recycle = false;
     };
     config::force_immediate_recycle = true;
-    config::enable_recycle_delete_rowset_key_check = true;
+    config::enable_commit_rowset_recycle_key_idempotency_check = true;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -7529,7 +7529,7 @@ TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
 }
 
 // Test: Verify that check_idempotent_for_txn_or_job correctly calls check_job_existed
-// when enable_recycle_delete_rowset_key_check is false and tablet_job_id is non-empty.
+// when enable_commit_rowset_recycle_key_idempotency_check is false and tablet_job_id is non-empty.
 // This covers the bug fix where the condition was:
 //   tablet_job_id.empty() && !tablet_job_id.empty()  (always false, check never ran)
 // Fixed to:
@@ -7539,11 +7539,11 @@ TEST(MetaServiceJobTest, CheckIdempotentWithTabletJobId) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
-        config::enable_recycle_delete_rowset_key_check = true;
+        config::enable_commit_rowset_recycle_key_idempotency_check = true;
     };
     // Disable recycle_delete_rowset_key_check so we enter the else-if branch
     // in check_idempotent_for_txn_or_job where the bug existed.
-    config::enable_recycle_delete_rowset_key_check = false;
+    config::enable_commit_rowset_recycle_key_idempotency_check = false;
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
