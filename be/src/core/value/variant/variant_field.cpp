@@ -151,6 +151,15 @@ void VariantPayloadValidator::require_valid_object(VariantRef value, uint32_t de
     const size_t values_size = value.value.size - values_offset;
     // Entries below base belong to the ancestors of this object; see _object_spans.
     const size_t base = _object_spans.size();
+    // Reserve this object's spans up front. A fresh validator, such as the one each
+    // validate_variant_payload() call makes, then allocates once for a flat object of 1000
+    // fields instead of growing ten times (1, 2, 4, ..., 1024). Reserving exactly base + count
+    // would not be enough for nested objects: in a root of 26 fields that are each objects of
+    // 30 fields, field k needs k + 30 entries, so every later sibling would reallocate by one
+    // entry. Taking at least twice the capacity grows 26 -> 52 -> 104 instead.
+    if (_object_spans.capacity() < base + count) {
+        _object_spans.reserve(std::max(base + count, 2 * _object_spans.capacity()));
+    }
 
     StringRef previous_key;
     for (uint32_t index = 0; index < count; ++index) {

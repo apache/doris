@@ -662,6 +662,33 @@ TEST(VariantFieldTest, ReusableValidatorReusesScratchAcrossRows) {
     EXPECT_EQ(validator.object_span_capacity_for_test(), capacity);
 }
 
+TEST(VariantFieldTest, FreshValidatorReservesAnObjectOnce) {
+    // validate_variant_payload() and single-row callers such as ColumnVariantV2::insert_data()
+    // validate with a fresh validator, so its first object must not grow from zero.
+    constexpr size_t FIELDS = 1'000;
+    const VariantField wide = encode_json(wide_object_json(FIELDS));
+    VariantPayloadValidator flat_validator;
+    flat_validator.validate(wide.ref());
+    EXPECT_EQ(flat_validator.object_span_capacity_for_test(), FIELDS);
+
+    // 26 objects of 30 fields: the root reserves 26 entries, and its children, which need
+    // index + 30, double the buffer twice instead of reallocating for every sibling.
+    std::string nested_json = "{";
+    for (char key = 'a'; key <= 'z'; ++key) {
+        if (key != 'a') {
+            nested_json.push_back(',');
+        }
+        nested_json += '"';
+        nested_json += key;
+        nested_json += "\":" + wide_object_json(30);
+    }
+    nested_json.push_back('}');
+    const VariantField nested = encode_json(nested_json);
+    VariantPayloadValidator nested_validator;
+    nested_validator.validate(nested.ref());
+    EXPECT_EQ(nested_validator.object_span_capacity_for_test(), 104);
+}
+
 TEST(VariantFieldTest, ReusableValidatorScratchIsMemTrackerVisible) {
     constexpr size_t FIELDS = 4'096;
     // Each field of the object being checked takes one span of two size_t values.
