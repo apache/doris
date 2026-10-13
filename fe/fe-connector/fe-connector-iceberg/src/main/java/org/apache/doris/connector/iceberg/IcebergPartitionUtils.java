@@ -828,7 +828,9 @@ final class IcebergPartitionUtils {
                 return false;
             }
             PartitionField partitionField = fields.get(0);
-            if (spec.schema().findType(partitionField.sourceId()).typeId() == Type.TypeID.TIMESTAMP_NANO) {
+            Type sourceType = spec.schema().findType(partitionField.sourceId());
+            // Historical void partition fields can outlive their dropped source column.
+            if (sourceType == null || sourceType.typeId() == Type.TypeID.TIMESTAMP_NANO) {
                 // Calendar boundaries and the NULL sentinel can exceed TIMESTAMP_NS's domain.
                 // Leave pruning to Iceberg instead of building invalid Doris RANGE boundaries.
                 return false;

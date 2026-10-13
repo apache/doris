@@ -20,6 +20,7 @@
 #include <cctz/time_zone.h>
 #include <gen_cpp/Types_types.h>
 
+#include <Timezone.hh>
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -766,7 +767,7 @@ public:
         return requires_stripe_reader() && has_timestamp(column_type, true);
     }
 
-    Status configure_stripe(const ::orc::StripeInformation& stripe,
+    Status configure_stripe(const ::orc::StripeInformation& stripe, ::orc::WriterId writer,
                             ::orc::RowReaderOptions* options) {
         DORIS_CHECK(requires_stripe_reader());
         const auto& name = stripe.getWriterTimezone();
@@ -778,6 +779,22 @@ public:
         // Matching zones preserves the SDK's UTC carrier until its negative-fraction correction
         // is complete. SerDes then apply historical offsets to that original second with cctz.
         options->setTimezoneName(writer_timezone);
+        if (writer == ::orc::ORC_JAVA_WRITER) {
+            // Java and C++ ancient carriers differ. Preserve the SDK Java writer rules
+            // instead of applying cctz LMT to a Java standard-offset carrier.
+            const auto* timezone = &::orc::getTimezoneByName(writer_timezone);
+            _context.writer_timezone = [timezone,
+                                        zones = std::unordered_map<int64_t, cctz::time_zone> {}](
+                                               int64_t seconds) mutable {
+                const auto offset = timezone->getVariant(seconds).gmtOffset;
+                auto it = zones.find(offset);
+                if (it == zones.end()) {
+                    // Cache the few SDK offsets; fixed_time_zone takes a global cache lock.
+                    it = zones.emplace(offset, cctz::fixed_time_zone(cctz::seconds(offset))).first;
+                }
+                return it->second;
+            };
+        }
         return Status::OK();
     }
 
@@ -888,6 +905,8 @@ void OrcReader::_init_profile() {
     file_scan_profile::ensure_hierarchy(_profile);
     _orc_profile.total_time =
             ADD_CHILD_TIMER_WITH_LEVEL(_profile, orc_profile, file_scan_profile::FILE_READER, 1);
+    _orc_profile.row_readers_created = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcRowReadersCreated", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_call =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReaderCall", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_inclusive_latency_us = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -1786,20 +1805,33 @@ Status OrcReader::_prepare_timestamp_stripe_ranges() {
     try {
         uint64_t first_row = 0;
         size_t selected = 0;
+        std::string previous_timezone;
         for (uint64_t index = 0; index <= stripes.back(); ++index) {
             const auto stripe = _state->reader->getStripe(index);
             const auto end_row = first_row + stripe->getNumberOfRows();
             if (index == stripes[selected]) {
-                // A RowReader has one timezone, whereas writer timezones belong to stripes.
-                // Read footer timezone metadata only when entering the selected stripe.
-                _state->selected_stripe_ranges.push_back({
-                        .first_stripe = index,
-                        .last_stripe = index + 1,
-                        .offset = stripe->getOffset(),
-                        .length = stripe->getLength(),
-                        .first_row = first_row,
-                        .end_row = end_row,
-                });
+                const auto& name = stripe->getWriterTimezone();
+                const std::string timezone = name.empty() ? "GMT" : name;
+                auto& ranges = _state->selected_stripe_ranges;
+                // Each SDK RowReader scans the entire stripe directory. Reuse it across
+                // adjacent stripes with the same timezone to avoid quadratic setup work.
+                if (!ranges.empty() && ranges.back().last_stripe == index &&
+                    previous_timezone == timezone) {
+                    auto& range = ranges.back();
+                    range.last_stripe = index + 1;
+                    range.length = stripe->getOffset() + stripe->getLength() - range.offset;
+                    range.end_row = end_row;
+                } else {
+                    ranges.push_back({
+                            .first_stripe = index,
+                            .last_stripe = index + 1,
+                            .offset = stripe->getOffset(),
+                            .length = stripe->getLength(),
+                            .first_row = first_row,
+                            .end_row = end_row,
+                    });
+                }
+                previous_timezone = timezone;
                 ++selected;
             }
             first_row = end_row;
@@ -1820,8 +1852,8 @@ Status OrcReader::_apply_current_stripe_range() {
     if (_state->timestamp_plan.requires_stripe_reader()) {
         try {
             const auto stripe = _state->reader->getStripe(stripe_range.first_stripe);
-            RETURN_IF_ERROR(
-                    _state->timestamp_plan.configure_stripe(*stripe, &_state->row_reader_options));
+            RETURN_IF_ERROR(_state->timestamp_plan.configure_stripe(
+                    *stripe, _state->reader->getWriterId(), &_state->row_reader_options));
         } catch (const std::exception& e) {
             if (is_orc_stop(_io_ctx.get(), e)) {
                 return Status::EndOfFile("stop");
@@ -1854,6 +1886,9 @@ Status OrcReader::_create_row_reader() {
         _state->row_reader = _state->reader->createRowReader(
                 _state->row_reader_options,
                 _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
+        if (_profile != nullptr) {
+            COUNTER_UPDATE(_orc_profile.row_readers_created, 1);
+        }
         _state->selected_type = &_state->row_reader->getSelectedType();
         DORIS_CHECK(_state->selected_type->getKind() == ::orc::TypeKind::STRUCT);
         // Row-id fetch seeks before every read; a one-row batch preserves exact selection instead
@@ -2426,6 +2461,22 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             }
             std::unique_ptr<::orc::StripeStatistics> stripe_statistics;
             try {
+                if (leaf_type->getKind() == ::orc::TIMESTAMP &&
+                    orc_serde_utils::has_nanosecond_timestamp(*_state->root_type) &&
+                    _state->reader->getWriterId() == ::orc::ORC_CPP_WRITER) {
+                    // Named-zone C++ statistics use SDK historical offsets, whereas rows use cctz.
+                    // Preserve exact metadata aggregates for fixed-zone writers; otherwise scan rows.
+                    const auto stripe = _state->reader->getStripe(stripe_index);
+                    const auto& name = stripe->getWriterTimezone();
+                    cctz::time_zone writer_zone;
+                    int32_t offset = 0;
+                    if (!TimezoneUtils::find_cctz_time_zone(name.empty() ? "GMT" : name,
+                                                            writer_zone) ||
+                        !TimezoneUtils::try_get_fixed_offset_seconds(writer_zone, &offset)) {
+                        return Status::NotSupported(
+                                "ORC C++ named-zone mixed nanos timestamps require row min/max");
+                    }
+                }
                 stripe_statistics = _state->reader->getStripeStatistics(stripe_index);
             } catch (const std::exception& e) {
                 return Status::InternalError("Failed to read ORC stripe statistics {}: {}",

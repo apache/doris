@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
@@ -4047,11 +4048,13 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void promotedDateBoundsDoNotPruneNanosecondMatches() {
-        Schema oldSchema = new Schema(Types.NestedField.optional(1, "ts", Types.DateType.get()));
+        Schema oldSchema = new Schema(Types.NestedField.optional(1, "ts", Types.DateType.get()),
+                Types.NestedField.optional(2, "id", Types.IntegerType.get()));
         Table table = createTable("promoted_date", oldSchema, PartitionSpec.unpartitioned(),
                 Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
-        Map<Integer, ByteBuffer> bounds = Collections.singletonMap(
-                1, Conversions.toByteBuffer(Types.DateType.get(), 19724));
+        Map<Integer, ByteBuffer> bounds = new HashMap<>();
+        bounds.put(1, Conversions.toByteBuffer(Types.DateType.get(), 19724));
+        bounds.put(2, Conversions.toByteBuffer(Types.IntegerType.get(), 1));
         table.newAppend().appendFile(DataFiles.builder(table.spec())
                 .withPath("/data/retained-date.parquet").withFileSizeInBytes(100).withRecordCount(1)
                 .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds))
@@ -4062,7 +4065,8 @@ public class IcebergScanPlanProviderTest {
         operations.commit(base, org.apache.iceberg.TableMetadata.buildFrom(base)
                 .setCurrentSchema(new Schema(
                         Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()),
-                        Types.NestedField.optional(2, "fresh", Types.TimestampNanoType.withoutZone())), 2).build());
+                        Types.NestedField.optional(2, "id", Types.IntegerType.get()),
+                        Types.NestedField.optional(3, "fresh", Types.TimestampNanoType.withoutZone())), 3).build());
         table.refresh();
         ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                 new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")),
@@ -4103,6 +4107,22 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(sortedPaths(sdk), sortedPaths(cached));
         Assertions.assertTrue(cache.size() > 0);
         Assertions.assertEquals(0L, cache.takeStats("q")[2], "must exercise cached planning without fallback");
+        ConnectorExpression negated = new ConnectorNot(new ConnectorAnd(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")),
+                        new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-03")),
+                new ConnectorComparison(ConnectorComparison.Operator.GT,
+                        new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                        new ConnectorLiteral(ConnectorType.of("INT"), 0)))));
+        ConnectorScanRequest notRequest = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "promoted_date"), Collections.emptyList())
+                .filter(Optional.of(negated)).build();
+        // The retained Jan 2 / id=1 file matches NOT(ts=Jan 3 AND id>0).
+        Assertions.assertEquals(2, new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table))
+                .planScan(emptySession(), notRequest).size());
+        Assertions.assertEquals(2, manifestProvider(manifestCacheProps(), table, cache)
+                .planScan(emptySession(), notRequest).size());
     }
 
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---

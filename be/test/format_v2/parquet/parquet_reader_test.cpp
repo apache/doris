@@ -72,6 +72,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
+#include "format_v2/schema_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/file_meta_cache.h"
@@ -3028,6 +3029,18 @@ TEST_F(NewParquetReaderTest, NanosecondsSurviveWallClockProjectionAndDictionary)
         ASSERT_TRUE(reader->init(&state).ok());
         std::vector<format::ColumnDefinition> schema;
         ASSERT_TRUE(reader->get_schema(&schema).ok());
+        TFileScanRangeParams params;
+        params.__set_file_type(TFileType::FILE_S3);
+        params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        TFileRangeDesc range;
+        range.__set_file_type(TFileType::FILE_LOCAL);
+        range.__set_path(_file_path);
+        std::vector<format::ColumnDefinition> tvf_schema;
+        ASSERT_TRUE(format::fetch_file_schema(params, range, std::make_shared<io::IOContext>(),
+                                              nullptr, &tvf_schema)
+                            .ok());
+        ASSERT_EQ(tvf_schema.size(), 1);
+        EXPECT_EQ(tvf_schema[0].type->get_primitive_type(), TYPE_TIMESTAMP_NS);
         ASSERT_EQ(1, schema.size());
         ASSERT_EQ(TYPE_TIMESTAMP_NS, schema[0].type->get_primitive_type());
         auto projection = field_projection(0);

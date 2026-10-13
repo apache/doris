@@ -19,6 +19,8 @@
 
 #include <cctz/time_zone.h>
 
+#include <functional>
+
 namespace orc {
 class Type;
 }
@@ -30,7 +32,10 @@ struct OrcTimestampDecodeContext {
     explicit OrcTimestampDecodeContext(const cctz::time_zone& timezone)
             : reader_timezone(timezone), session_timezone(timezone) {}
 
-    const cctz::time_zone& timezone_for(const orc::Type& file_type) const;
+    cctz::time_zone timezone_for(const orc::Type& file_type, int64_t seconds = 0) const;
+
+    // Java carriers follow the SDK writer-zone rules rather than cctz historical LMT.
+    std::function<cctz::time_zone(int64_t)> writer_timezone;
 
     cctz::time_zone reader_timezone;
     cctz::time_zone session_timezone;

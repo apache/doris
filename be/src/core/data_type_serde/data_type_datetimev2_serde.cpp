@@ -53,8 +53,7 @@ static const int64_t micro_to_nano_second = 1000;
 
 namespace {
 
-Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view,
-                                   const cctz::time_zone& timezone) {
+Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view) {
     const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
     if (orc_batch == nullptr) {
         return Status::InternalError("Unexpected ORC timestamp batch type {}",
@@ -87,7 +86,8 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         // so rounding cannot jump across a daylight-saving gap or fold.
         status = orc_serde_utils::orc_timestamp_to_datetime(
                 is_timestamp_instant ? timestamp.seconds : seconds, timestamp.microseconds,
-                timezone, !is_timestamp_instant && timestamp.carry, &value);
+                orc_view.timestamp_context->timezone_for(*orc_view.file_type, seconds),
+                !is_timestamp_instant && timestamp.carry, &value);
         if (!status.ok()) {
             data.resize(old_data_size);
             return status;
@@ -1051,8 +1051,7 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
     if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
         return Status::OK();
     }
-    return decode_timestamp_orc_values(column, view,
-                                       view.timestamp_context->timezone_for(*view.file_type));
+    return decode_timestamp_orc_values(column, view);
 }
 
 } // namespace doris

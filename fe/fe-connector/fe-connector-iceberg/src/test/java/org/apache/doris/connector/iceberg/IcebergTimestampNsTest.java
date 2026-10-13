@@ -18,9 +18,11 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -41,6 +43,53 @@ import java.util.List;
 import java.util.Optional;
 
 public class IcebergTimestampNsTest {
+    @Test
+    public void droppedHistoricalPartitionSourceDoesNotBreakMetadata() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db"));
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "ts", Types.TimestampType.withoutZone()));
+        Table table = catalog.createTable(TableIdentifier.of("db", "dropped_source"), schema,
+                PartitionSpec.builderFor(schema).day("ts").build(),
+                Collections.singletonMap("format-version", "1"));
+        table.updateSpec().removeField("ts_day").commit();
+        table.updateSchema().deleteColumn("ts").commit();
+        table.refresh();
+        // V1 retains a void partition field after its source column has been removed.
+        Assertions.assertFalse(IcebergPartitionUtils.isValidRelatedTable(table));
+    }
+
+    @Test
+    public void negatedPartialConjunctionMustNotPruneMatchingRows() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "ts", Types.DateType.get()));
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db"));
+        Table table = catalog.createTable(TableIdentifier.of("db", "negated"), schema,
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
+        org.apache.iceberg.TableOperations ops = ((org.apache.iceberg.HasTableOperations) table).operations();
+        org.apache.iceberg.TableMetadata base = ops.current();
+        ops.commit(base, org.apache.iceberg.TableMetadata.buildFrom(base).setCurrentSchema(new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "ts", Types.TimestampNanoType.withoutZone())), 2).build());
+        table.refresh();
+        ConnectorComparison ts = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("ts", ConnectorType.of("TIMESTAMP_NS")),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-02"));
+        ConnectorComparison id = new ConnectorComparison(ConnectorComparison.Operator.GT,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), 0));
+        IcebergPredicateConverter converter = IcebergPredicateConverter.forTable(
+                table, table.schema(), ZoneId.of("UTC"), IcebergPredicateConverter.Mode.SCAN);
+        ConnectorAnd partial = new ConnectorAnd(java.util.Arrays.asList(ts, id));
+        Assertions.assertEquals(1, converter.convert(partial).size());
+        // id=1, ts=Jan 3 must survive NOT(ts=Jan 2 AND id>0); NOT(id>0) would lose it.
+        Assertions.assertTrue(converter.convert(new ConnectorNot(partial)).isEmpty());
+        Assertions.assertEquals(1, converter.convert(new ConnectorNot(id)).size());
+    }
+
     @Test
     public void nanosecondCalendarPartitionsDoNotBuildOutOfRangeMvBoundaries() {
         Schema schema = new Schema(Types.NestedField.optional(1, "ts", Types.TimestampNanoType.withoutZone()));

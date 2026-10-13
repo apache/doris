@@ -115,6 +115,7 @@ public class IcebergPredicateConverter {
     // so strictly all-or-nothing/precise) -- mirrors IcebergNereidsUtils.convertNereidsToIcebergExpression. The
     // shared leaf helpers (getPushdownField / extractIcebergLiteral / toMicros / checkConversion) are reused.
     private final Mode mode;
+    private final boolean requireExact;
 
     /** Conversion matrix selector. See the field comment and the class javadoc. */
     public enum Mode { SCAN, CONFLICT, REWRITE }
@@ -129,6 +130,11 @@ public class IcebergPredicateConverter {
     }
 
     public IcebergPredicateConverter(Schema schema, ZoneId sessionZone, Mode mode) {
+        this(schema, sessionZone, mode, false);
+    }
+
+    private IcebergPredicateConverter(Schema schema, ZoneId sessionZone, Mode mode, boolean requireExact) {
+        this.requireExact = requireExact;
         this.schema = schema;
         this.sessionZone = sessionZone == null ? ZoneOffset.UTC : sessionZone;
         this.mode = mode;
@@ -136,6 +142,12 @@ public class IcebergPredicateConverter {
 
     public static IcebergPredicateConverter forTable(Table table, Schema schema, ZoneId zone, Mode mode) {
         IcebergPredicateConverter converter = new IcebergPredicateConverter(schema, zone, mode);
+        converter.unsafeNanosFields.addAll(unsafeNanosFields(table, schema));
+        return converter;
+    }
+
+    static Set<Integer> unsafeNanosFields(Table table, Schema schema) {
+        Set<Integer> unsafeFields = new LinkedHashSet<>();
         Map<Integer, Schema> history = table.schemas();
         // Iceberg allocates schema IDs from zero. Gaps mean cleanup removed type history, not
         // necessarily its data files; without that history any nanos field may have DATE bounds.
@@ -147,18 +159,18 @@ public class IcebergPredicateConverter {
                 continue;
             }
             if (incompleteHistory) {
-                converter.unsafeNanosFields.add(field.fieldId());
+                unsafeFields.add(field.fieldId());
                 continue;
             }
             for (Schema historical : history.values()) {
                 Type oldType = historical.findType(field.fieldId());
                 if (oldType != null && oldType.typeId() == TypeID.DATE) {
-                    converter.unsafeNanosFields.add(field.fieldId());
+                    unsafeFields.add(field.fieldId());
                     break;
                 }
             }
         }
-        return converter;
+        return unsafeFields;
     }
 
     /**
@@ -241,7 +253,7 @@ public class IcebergPredicateConverter {
         for (ConnectorExpression child : and.getConjuncts()) {
             Expression c = convertSingle(child);
             if (c == null) {
-                if (mode == Mode.REWRITE) {
+                if (mode == Mode.REWRITE || requireExact) {
                     return null;
                 }
                 continue;
@@ -265,7 +277,10 @@ public class IcebergPredicateConverter {
     }
 
     private Expression buildNot(ConnectorNot not) {
-        Expression child = convertSingle(not.getOperand());
+        // Negating a widened operand narrows the result and can permanently prune matching files.
+        IcebergPredicateConverter exact = new IcebergPredicateConverter(schema, sessionZone, mode, true);
+        exact.unsafeNanosFields.addAll(unsafeNanosFields);
+        Expression child = exact.convertSingle(not.getOperand());
         return child == null ? null : Expressions.not(child);
     }
 
@@ -795,7 +810,7 @@ public class IcebergPredicateConverter {
                 Expression right = checkConversion(andExpr.right());
                 if (left != null && right != null) {
                     return andExpr;
-                } else if (mode == Mode.REWRITE) {
+                } else if (mode == Mode.REWRITE || requireExact) {
                     // all-or-nothing: a single unbindable arm fails the whole AND (no silent widen for rewrite).
                     return null;
                 } else if (left != null) {

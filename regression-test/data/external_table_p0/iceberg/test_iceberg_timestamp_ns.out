@@ -6,6 +6,13 @@ items	array<timestamp_ns>	Yes	true	\N
 detail	struct<t:timestamp_ns>	Yes	true	\N	
 entries	map<text,timestamp_ns>	Yes	true	\N	
 
+-- !parquet_tvf_schema --
+id	int	Yes	false	\N	NONE
+ts	timestamp_ns	Yes	false	\N	NONE
+items	array<timestamp_ns>	Yes	false	\N	NONE
+detail	struct<t:timestamp_ns>	Yes	false	\N	NONE
+entries	map<text,timestamp_ns>	Yes	false	\N	NONE
+
 -- !parquet_UTC_values --
 1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}
 2	2024-01-02 03:04:05.123456788	[]	\N	{}
@@ -189,6 +196,13 @@ ts	timestamp_ns	Yes	true	\N
 items	array<timestamp_ns>	Yes	true	\N	
 detail	struct<t:timestamp_ns>	Yes	true	\N	
 entries	map<text,timestamp_ns>	Yes	true	\N	
+
+-- !orc_tvf_schema --
+id	int	Yes	false	\N	NONE
+ts	timestamp_ns	Yes	false	\N	NONE
+items	array<timestamp_ns>	Yes	false	\N	NONE
+detail	struct<t:timestamp_ns>	Yes	false	\N	NONE
+entries	map<text,timestamp_ns>	Yes	false	\N	NONE
 
 -- !orc_UTC_values --
 1	2024-01-02 03:04:05.123456789	["2024-01-02 03:04:05.123456789", null]	{"t":"1969-12-31 23:59:58.999999999"}	{"x":"1970-01-01 00:00:00.000000001"}

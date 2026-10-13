@@ -54,6 +54,21 @@ suite("test_iceberg_timestamp_ns", "p0,external,iceberg") {
                 (6, '1677-09-21 00:12:43.145224192', NULL, NULL, NULL),
                 (7, '2262-04-11 23:47:16.854775807', NULL, NULL, NULL)"""
             "qt_${format}_schema" "DESC ${table}"
+            // TVF schema discovery must preserve nanos before the V2 scan constructs target columns.
+            def expectedRows = sql("SELECT * FROM ${table} ORDER BY id")
+            def tvfRows = []
+            def files = sql("SELECT file_path FROM ${table}\$files WHERE content=0")
+            assertTrue(!files.isEmpty())
+            for (def file : files) {
+                String tvf = """S3("uri"="${file[0]}", "format"="${format}",
+                    "s3.endpoint"="http://${host}:${minioPort}", "s3.access_key"="admin",
+                    "s3.secret_key"="password", "s3.region"="us-east-1", "use_path_style"="true")"""
+                if (file == files[0]) {
+                    "qt_${format}_tvf_schema" "DESC FUNCTION ${tvf}"
+                }
+                tvfRows.addAll(sql("SELECT * FROM ${tvf}"))
+            }
+            assertEquals(expectedRows, tvfRows.sort { a, b -> a[0] <=> b[0] })
             for (String sessionZone : ["UTC", "Asia/Shanghai"]) {
                 sql "SET time_zone='${sessionZone}'"
                 String tag = "${format}_${sessionZone.replace('/', '_')}"

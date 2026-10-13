@@ -23,11 +23,15 @@
 
 namespace doris {
 
-const cctz::time_zone& OrcTimestampDecodeContext::timezone_for(const orc::Type& file_type) const {
+cctz::time_zone OrcTimestampDecodeContext::timezone_for(const orc::Type& file_type,
+                                                        int64_t seconds) const {
     const auto kind = file_type.getKind();
     DORIS_CHECK(kind == orc::TIMESTAMP || kind == orc::TIMESTAMP_INSTANT);
     // Plain timestamps reconstruct the SDK reader's civil value. Instant-to-DATETIME conversion
     // uses the session zone, which must not follow a plain sibling's stripe writer timezone.
+    if (kind == orc::TIMESTAMP && writer_timezone) {
+        return writer_timezone(seconds);
+    }
     return kind == orc::TIMESTAMP ? reader_timezone : session_timezone;
 }
 

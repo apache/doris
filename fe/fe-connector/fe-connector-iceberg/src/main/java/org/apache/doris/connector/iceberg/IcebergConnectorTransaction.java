@@ -889,6 +889,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             return Expressions.alwaysTrue();
         }
 
+        Set<Integer> unsafeNanosFields = IcebergPredicateConverter.unsafeNanosFields(transaction.table(), schema);
         List<Expression> predicates = new ArrayList<>();
         Set<String> unmatchedFields = new HashSet<>(staticPartitions.keySet());
         for (PartitionField field : spec.fields()) {
@@ -903,6 +904,12 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 }
                 Object partitionValue = IcebergPartitionUtils.parsePartitionValueFromString(
                         partitionValueStr, sourceField.type(), zone);
+                // Dropping an unsafe deletion predicate would widen the overwrite to other partitions.
+                if (partitionValue != null && unsafeNanosFields.contains(sourceField.fieldId())) {
+                    throw new DorisConnectorException(
+                            "Cannot overwrite timestamp_ns partition with historical DATE bounds: "
+                                    + sourceField.name());
+                }
                 predicates.add(identityPartitionPredicate(sourceField, partitionValue));
             }
         }
@@ -1181,6 +1188,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         }
 
         Schema schema = icebergTable.schema();
+        Set<Integer> unsafeNanosFields = IcebergPredicateConverter.unsafeNanosFields(icebergTable, schema);
         int currentSpecId = spec.specId();
 
         Expression combined = null;
@@ -1197,7 +1205,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 return Optional.empty();
             }
 
-            Expression partitionExpr = buildIdentityPartitionExpression(spec, schema, partitionValues);
+            Expression partitionExpr = buildIdentityPartitionExpression(
+                    spec, schema, partitionValues, unsafeNanosFields);
             if (partitionExpr == null) {
                 return Optional.empty();
             }
@@ -1216,7 +1225,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     }
 
     private Expression buildIdentityPartitionExpression(PartitionSpec spec, Schema schema,
-            List<String> partitionValues) {
+            List<String> partitionValues, Set<Integer> unsafeNanosFields) {
         Expression expression = null;
         List<PartitionField> fields = spec.fields();
         for (int i = 0; i < fields.size(); i++) {
@@ -1230,6 +1239,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 valueStr = null;
             }
             Object value = IcebergPartitionUtils.parsePartitionValueFromString(valueStr, sourceField.type(), zone);
+            // Conflict detection may widen, but must never miss files with retained DATE metrics.
+            if (value != null && unsafeNanosFields.contains(sourceField.fieldId())) {
+                continue;
+            }
             Expression predicate = identityPartitionPredicate(sourceField, value);
             expression = expression == null ? predicate : Expressions.and(expression, predicate);
         }
