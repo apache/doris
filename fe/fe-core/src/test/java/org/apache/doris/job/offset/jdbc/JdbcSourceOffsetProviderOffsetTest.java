@@ -19,6 +19,7 @@ package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
@@ -26,11 +27,41 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 public class JdbcSourceOffsetProviderOffsetTest {
+
+    @Test
+    public void testTaskParallelismKeepsUncommittedSplitsForNextTask() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.snapshotParallelism = 10000;
+        provider.remainingSplits.addAll(Arrays.asList(
+                snapshotSplit("source_table:0"), snapshotSplit("source_table:1"), snapshotSplit("source_table:2")));
+        Map<String, String> taskProperties = Collections.singletonMap(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+
+        JdbcOffset first = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(2, first.getSplits().size());
+        Assertions.assertEquals(3, provider.pendingSplitCount());
+        Assertions.assertEquals(10000, provider.snapshotParallelism);
+        // The next task must receive the same uncommitted splits.
+        JdbcOffset nextTask = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(first.getSplits(), nextTask.getSplits());
+
+        provider.updateOffset(first);
+        JdbcOffset second = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(1, second.getSplits().size());
+        Assertions.assertEquals("source_table:2", second.getSplits().get(0).getSplitId());
+        Assertions.assertEquals(1, provider.pendingSplitCount());
+
+        provider.updateOffset(second);
+        Assertions.assertEquals(0, provider.pendingSplitCount());
+        JdbcOffset binlog = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertFalse(binlog.snapshotSplit());
+        Assertions.assertEquals(3, ((BinlogSplit) binlog.getSplits().get(0)).getFinishedSplits().size());
+    }
 
     @Test
     public void testSnapshotOffsetUsesConfiguredPersistInterval() {
