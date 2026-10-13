@@ -36,6 +36,12 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
 
@@ -405,8 +411,17 @@ public class GroupStructInfo {
 
     private static GroupStructInfo describeGroup(Group group, Ctx ctx) {
         if (!ctx.visited.add(group)) {
-            // shared sub graph (e.g. CTE: two consumers of one producer): cannot be expressed by a
-            // single canonical tree, mark invalid so that callers fall back to legacy behavior
+            // the same group is reached twice (a CTE which is consumed twice, a scan which feeds two
+            // consumers, a shared sub tree): a tree cannot express the reuse, so the sub tree is
+            // described again - the description is the one of a plan which writes that sub tree twice
+            // (a self join for instance), and the read side of a query builds the same description, so
+            // an entry recorded from one form applies to the other. The sub tree was read once, so the
+            // repeated reference composes its canonical form but not its scans again (the drift guard
+            // compares the scan states of the tables a query actually reads).
+            GroupStructInfo memoized = group.getHboStructInfoOrNull();
+            if (memoized != null) {
+                return memoized;
+            }
             invalid(ctx, "sharing=group " + group.getGroupId().asInt() + " reached twice");
             return INVALID;
         }
@@ -511,6 +526,23 @@ public class GroupStructInfo {
             out.modes(withLiteralHeader.append("}(").toString(), noLiteralHeader.append("}(").toString());
             appendChild(ge, 0, out, ctx);
             out.same(")");
+        } else if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer
+                || plan instanceof LogicalCTEProducer || plan instanceof PhysicalCTEProducer) {
+            // a CTE consumer describes the sub tree it consumes and a producer the sub tree it
+            // materializes: both are transparent, and a consumer which is reached twice composes the
+            // description of that sub tree twice (see describeGroup)
+            if (ge.arity() == 1) {
+                appendChild(ge, 0, out, ctx);
+            } else {
+                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
+            }
+        } else if (plan instanceof LogicalCTEAnchor || plan instanceof PhysicalCTEAnchor) {
+            // the value of an anchor is its consumer side, which is its first child
+            if (ge.arity() >= 1) {
+                appendChild(ge, 0, out, ctx);
+            } else {
+                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
+            }
         } else if (plan instanceof Project || plan instanceof Sort || plan instanceof Window) {
             // a project, a sort and a window are transparent for structure matching: none of them
             // changes the number of rows, and the parameters of a sort / window do not influence a row
@@ -603,7 +635,7 @@ public class GroupStructInfo {
             if (i > 0) {
                 out.same(SEP);
             }
-            out.append(leaves.get(i).getLeaf());
+            out.append(leaves.get(i).getLeaf(), leaves.get(i).isRepeated());
         }
         out.same(")");
     }
@@ -619,7 +651,17 @@ public class GroupStructInfo {
             return;
         }
         if (!ctx.visited.add(group)) {
-            invalid(ctx, "sharing=group " + group.getGroupId().asInt() + " reached twice");
+            // the group is already part of this chain: describe it again as a leaf (see describeGroup)
+            GroupStructInfo memoized = group.getHboStructInfoOrNull();
+            if (memoized == null) {
+                invalid(ctx, "sharing=group " + group.getGroupId().asInt() + " reached twice");
+                return;
+            }
+            if (!memoized.isValid()) {
+                invalid(ctx, memoized.getSkipReason());
+                return;
+            }
+            leaves.add(new Leaf(memoized, true));
             return;
         }
         GroupExpression ge = representativeExpression(group);
@@ -657,13 +699,24 @@ public class GroupStructInfo {
     /** One leaf of a flattened join chain: the memoized description of that sub tree. */
     private static class Leaf {
         private final GroupStructInfo leaf;
+        /** whether the sub tree of this leaf is referenced by another leaf as well */
+        private final boolean repeated;
 
         Leaf(GroupStructInfo leaf) {
+            this(leaf, false);
+        }
+
+        Leaf(GroupStructInfo leaf, boolean repeated) {
             this.leaf = leaf;
+            this.repeated = repeated;
         }
 
         GroupStructInfo getLeaf() {
             return leaf;
+        }
+
+        boolean isRepeated() {
+            return repeated;
         }
 
         String getShape() {
@@ -1184,9 +1237,11 @@ public class GroupStructInfo {
     /** A child sub tree. */
     private static final class Child implements Piece {
         private final GroupStructInfo child;
+        private final boolean repeated;
 
-        Child(GroupStructInfo child) {
+        Child(GroupStructInfo child, boolean repeated) {
             this.child = child;
+            this.repeated = repeated;
         }
 
         GroupStructInfo getChild() {
@@ -1238,9 +1293,20 @@ public class GroupStructInfo {
          * reference, and the scans of the child are inherited in token order.
          */
         Canonical append(GroupStructInfo child) {
+            return append(child, false);
+        }
+
+        /**
+         * Compose a child which is referenced more than once: its canonical form is written again (so
+         * that a query which reuses a sub tree and a query which writes it twice share one entry), but
+         * its tables are read once, so its scans are inherited by the first reference only.
+         */
+        Canonical append(GroupStructInfo child, boolean repeated) {
             if (child.isValid()) {
-                pieces.add(new Child(child));
-                scans.addAll(child.getScans());
+                pieces.add(new Child(child, repeated));
+                if (!repeated) {
+                    scans.addAll(child.getScans());
+                }
             }
             return this;
         }
