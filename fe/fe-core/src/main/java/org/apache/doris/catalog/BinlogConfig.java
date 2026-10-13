@@ -69,6 +69,16 @@ public class BinlogConfig {
         public int value() {
             return this.value;
         }
+
+        // binlog.format is a user-facing property value, so it is matched case-insensitively.
+        public static BinlogFormat fromString(String format) {
+            for (BinlogFormat binlogFormat : values()) {
+                if (binlogFormat.name().equalsIgnoreCase(format)) {
+                    return binlogFormat;
+                }
+            }
+            throw new IllegalArgumentException("Invalid binlog format value: " + format);
+        }
     }
 
     @SerializedName("needHistoricalValue")
@@ -147,7 +157,7 @@ public class BinlogConfig {
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)) {
             BinlogFormat tmpBinlogFormat =
-                    BinlogFormat.valueOf(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT));
+                    BinlogFormat.fromString(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT));
             if (!force && tmpBinlogFormat != binlogFormat) {
                 LOG.warn("not support change {} from {} to {}",
                         PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT,

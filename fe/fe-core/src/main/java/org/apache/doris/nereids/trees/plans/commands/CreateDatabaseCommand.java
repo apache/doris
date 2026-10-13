@@ -81,6 +81,7 @@ public class CreateDatabaseCommand extends Command implements ForwardWithSync, N
         FeNameFormat.checkDbName(dbName);
         InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
         PropertyAnalyzer.analyzeBinlogConfig(new HashMap<>(properties));
+        PropertyAnalyzer.normalizeBinlogFormat(properties);
         BinlogConfig config = BinlogConfig.fromProperties(properties);
         if (config.isEnableForStreaming() && properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
             config.applyExplicitRowTtl(config.getTtlSeconds());
