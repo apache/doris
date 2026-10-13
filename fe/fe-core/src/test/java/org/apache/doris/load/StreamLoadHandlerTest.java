@@ -32,6 +32,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -44,6 +46,7 @@ import org.apache.doris.thrift.TOlapTablePartitionParam;
 import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTabletLocation;
@@ -51,6 +54,7 @@ import org.apache.doris.thrift.TTabletLocation;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -98,7 +102,8 @@ public class StreamLoadHandlerTest {
         StreamLoadHandler handler = new StreamLoadHandler(request, null, new TStreamLoadPutResult(), "127.0.0.1");
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Assertions.assertThrows(failure, () -> Deencapsulation.invoke(handler, "setDbAndTable"));
+            Deencapsulation.invoke(handler, "setDbAndTable");
+            Assertions.assertThrows(failure, () -> generateMetadataPlan(handler, table, request));
         }
     }
 
@@ -112,6 +117,11 @@ public class StreamLoadHandlerTest {
         MaterializedIndexMeta newIndexMeta = Mockito.mock(MaterializedIndexMeta.class);
         Mockito.when(newIndexMeta.getSchemaVersion()).thenReturn(7);
         table.getMutableIndexIdToMeta().put(2L, newIndexMeta);
+        Mockito.doAnswer(invocation -> {
+            MonitoredReentrantReadWriteLock lock = Deencapsulation.getField(table, "rwLock");
+            Assertions.assertEquals(1, lock.getReadHoldCount());
+            return invocation.callRealMethod();
+        }).when(table).getBaseSchemaVersion();
         CountDownLatch oldIndexRemoved = new CountDownLatch(1);
         CountDownLatch readerStarted = new CountDownLatch(1);
         Mockito.doAnswer(invocation -> {
@@ -150,7 +160,11 @@ public class StreamLoadHandlerTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Assertions.assertTrue(oldIndexRemoved.await(5, TimeUnit.SECONDS));
             Deencapsulation.invoke(handler, "setDbAndTable");
+            // Catalog lookup must not touch index metadata or acquire an extra read lock.
+            Mockito.verify(table, Mockito.never()).getBaseSchemaVersion();
+            generateMetadataPlan(handler, table, request);
             Assertions.assertEquals(7, result.getBaseSchemaVersion());
+            Mockito.verify(table, Mockito.times(1)).tryReadLock(5000, TimeUnit.MILLISECONDS);
         } finally {
             readerStarted.countDown();
             try {
@@ -159,6 +173,53 @@ public class StreamLoadHandlerTest {
                 executor.shutdownNow();
             }
         }
+    }
+
+    private void generateMetadataPlan(StreamLoadHandler handler, OlapTable table,
+            TStreamLoadPutRequest request) throws Exception {
+        NereidsStreamLoadTask task = Mockito.mock(NereidsStreamLoadTask.class);
+        Mockito.when(task.getGroupCommit()).thenReturn("sync_mode");
+        Mockito.doReturn(false).when(table).getEnableUniqueKeyMergeOnWrite();
+        Mockito.doReturn(false).when(table).enableTso();
+        TPipelineFragmentParams plan = buildStreamLoadParams(new TOlapTableSink());
+        plan.setQueryOptions(new TQueryOptions());
+        try (MockedStatic<NereidsStreamLoadTask> tasks = Mockito.mockStatic(NereidsStreamLoadTask.class);
+                MockedConstruction<NereidsStreamLoadPlanner> planners = Mockito.mockConstruction(
+                        NereidsStreamLoadPlanner.class, (planner, context) ->
+                                Mockito.when(planner.plan(Mockito.any(), Mockito.anyInt())).thenReturn(plan))) {
+            tasks.when(() -> NereidsStreamLoadTask.fromTStreamLoadPutRequest(request)).thenReturn(task);
+            handler.generatePlan(table);
+        }
+    }
+
+    @Test
+    public void testResponseKeepsFirstTableMetadata() throws Exception {
+        Database database = new Database(17, "db");
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        TStreamLoadPutResult result = new TStreamLoadPutResult();
+        StreamLoadHandler handler = new StreamLoadHandler(request, null, result, "127.0.0.1");
+        Deencapsulation.setField(handler, "db", database);
+        OlapTable first = Mockito.spy(new OlapTable());
+        Mockito.doReturn(41L).when(first).getId();
+        Mockito.doReturn(7).when(first).getBaseSchemaVersion();
+        generateMetadataPlan(handler, first, request);
+        OlapTable second = Mockito.spy(new OlapTable());
+        Mockito.doReturn(42L).when(second).getId();
+        generateMetadataPlan(handler, second, request);
+        Assertions.assertEquals(17, result.getDbId());
+        Assertions.assertEquals(41, result.getTableId());
+        Assertions.assertEquals(7, result.getBaseSchemaVersion());
+        Mockito.verify(second, Mockito.never()).getBaseSchemaVersion();
+    }
+
+    @Test
+    public void testPlanningWithoutResponseDoesNotReadExtraSchemaMetadata() throws Exception {
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        StreamLoadHandler handler = new StreamLoadHandler(request, null, null, "127.0.0.1");
+        OlapTable table = Mockito.spy(new OlapTable());
+        generateMetadataPlan(handler, table, request);
+        Mockito.verify(table, Mockito.never()).getBaseSchemaVersion();
+        Mockito.verify(table, Mockito.times(1)).tryReadLock(5000, TimeUnit.MILLISECONDS);
     }
 
     @Test

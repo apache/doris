@@ -270,6 +270,7 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPartitionMeta;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
@@ -3185,38 +3186,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return httpStreamParams;
     }
 
-    private void setHttpStreamLoadTableProperties(TStreamLoadPutRequest request,
-            HttpStreamParams httpStreamParams, TStreamLoadPutResult result) throws UserException {
+    private void setHttpStreamLoadTableProperties(HttpStreamParams httpStreamParams,
+            TStreamLoadPutResult result) {
         OlapTable table = (OlapTable) httpStreamParams.getTable();
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
-        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
-            UserException failure = new UserException(
-                    "get table read lock timeout, database=" + httpStreamParams.getDb().getFullName()
-                            + ",table=" + table.getName());
-            // The BE does not receive the transaction ID when planning fails. Group commit
-            // has no FE transaction, whereas a normal load has already begun one here.
-            if (httpStreamParams.getTxnId() > 0) {
-                try {
-                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
-                            httpStreamParams.getDb().getId(), httpStreamParams.getTxnId(), failure.getMessage());
-                } catch (UserException abortFailure) {
-                    failure.addSuppressed(abortFailure);
-                    LOG.warn("Failed to abort http stream transaction {} after table lock timeout",
-                            httpStreamParams.getTxnId(), abortFailure);
-                }
-            }
-            throw failure;
-        }
-        try {
-            result.getPipelineParams().setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
-            result.getPipelineParams().setEnableTso(table.enableTso());
-            result.setTableId(table.getId());
-            result.setBaseSchemaVersion(table.getBaseSchemaVersion());
-            result.setGroupCommitIntervalMs(table.getGroupCommitIntervalMs());
-            result.setGroupCommitDataBytes(table.getGroupCommitDataBytes());
-        } finally {
-            table.readUnlock();
-        }
+        TOlapTableSink sink = httpStreamParams.getParams().getFragment().getOutputSink().getOlapTableSink();
+        result.getPipelineParams().setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+        result.getPipelineParams().setEnableTso(table.enableTso());
+        result.setTableId(sink.getTableId());
+        result.setBaseSchemaVersion(sink.getBaseSchemaVersion());
+        result.setGroupCommitIntervalMs(table.getGroupCommitIntervalMs());
+        result.setGroupCommitDataBytes(table.getGroupCommitDataBytes());
     }
 
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
@@ -3278,7 +3257,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getPipelineParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
             result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
             result.setDbId(httpStreamParams.getDb().getId());
-            setHttpStreamLoadTableProperties(request, httpStreamParams, result);
+            setHttpStreamLoadTableProperties(httpStreamParams, result);
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
