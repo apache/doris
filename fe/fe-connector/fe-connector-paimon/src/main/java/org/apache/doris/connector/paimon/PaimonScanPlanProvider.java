@@ -1390,19 +1390,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static boolean hasTimestampPrecisionNarrowing(
             DataType historicalType, DataType currentType, int minimumHistoricalPrecision) {
-        if (historicalType instanceof org.apache.paimon.types.TimestampType
-                && currentType instanceof org.apache.paimon.types.TimestampType) {
-            return ((org.apache.paimon.types.TimestampType) historicalType).getPrecision()
-                    > ((org.apache.paimon.types.TimestampType) currentType).getPrecision()
-                    && ((org.apache.paimon.types.TimestampType) historicalType).getPrecision()
-                            >= minimumHistoricalPrecision;
-        }
-        if (historicalType instanceof org.apache.paimon.types.LocalZonedTimestampType
-                && currentType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
-            return ((org.apache.paimon.types.LocalZonedTimestampType) historicalType).getPrecision()
-                    > ((org.apache.paimon.types.LocalZonedTimestampType) currentType).getPrecision()
-                    && ((org.apache.paimon.types.LocalZonedTimestampType) historicalType).getPrecision()
-                            >= minimumHistoricalPrecision;
+        if ((historicalType instanceof org.apache.paimon.types.TimestampType
+                || historicalType instanceof org.apache.paimon.types.LocalZonedTimestampType)
+                && (currentType instanceof org.apache.paimon.types.TimestampType
+                || currentType instanceof org.apache.paimon.types.LocalZonedTimestampType)) {
+            // Paimon also casts between timestamp families before truncating precision.
+            int historicalPrecision = org.apache.paimon.types.DataTypeChecks.getPrecision(historicalType);
+            int currentPrecision = org.apache.paimon.types.DataTypeChecks.getPrecision(currentType);
+            return historicalPrecision > currentPrecision && historicalPrecision >= minimumHistoricalPrecision;
         }
         if (historicalType instanceof RowType && currentType instanceof RowType) {
             RowType historicalRow = (RowType) historicalType;

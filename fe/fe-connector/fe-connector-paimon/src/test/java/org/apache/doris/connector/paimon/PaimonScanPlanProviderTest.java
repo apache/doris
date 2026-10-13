@@ -166,6 +166,61 @@ public class PaimonScanPlanProviderTest {
                 widenedHistorical, current));
     }
 
+    @Test
+    public void crossFamilyTimestampHistoryEnablesRepair(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            for (boolean toLtz : new boolean[] {false, true}) {
+                DataType historical = toLtz ? DataTypes.TIMESTAMP(6)
+                        : new org.apache.paimon.types.LocalZonedTimestampType(6);
+                DataType current = toLtz ? new org.apache.paimon.types.LocalZonedTimestampType(0)
+                        : DataTypes.TIMESTAMP(0);
+                Assertions.assertTrue(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(historical, current));
+                Assertions.assertFalse(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(current, historical));
+                DataType equalPrecision = toLtz ? new org.apache.paimon.types.LocalZonedTimestampType(6)
+                        : DataTypes.TIMESTAMP(6);
+                Assertions.assertFalse(PaimonScanPlanProvider.hasTimestampPrecisionNarrowing(
+                        historical, equalPrecision));
+                Identifier id = Identifier.create("db", "cross_family_" + toLtz);
+                catalog.createTable(id, Schema.newBuilder().column("ts", historical)
+                        .option("file.format", "parquet").build(), false);
+                Table table = catalog.getTable(id);
+                BatchWriteBuilder writer = table.newBatchWriteBuilder();
+                try (BatchTableWrite write = writer.newWrite()) {
+                    write.write(GenericRow.of(org.apache.paimon.data.Timestamp.fromLocalDateTime(
+                            java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 600_000_000))));
+                    try (BatchTableCommit commit = writer.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+                catalog.alterTable(id, Collections.singletonList(
+                        SchemaChange.updateColumnType("ts", current, true)), false);
+                table = catalog.getTable(id);
+                PaimonTableHandle handle = new PaimonTableHandle(
+                        "db", id.getObjectName(), Collections.emptyList(), Collections.emptyList());
+                handle.setPaimonTable(table);
+                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+                ops.table = table;
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                        PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+                ConnectorSession session = sessionWithProps(Collections.singletonMap("force_jni_scanner", "true"));
+                List<ConnectorColumnHandle> columns = Collections.singletonList(new PaimonColumnHandle("ts", 0));
+                ConnectorExpression filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorColumnRef("ts", ConnectorType.of(toLtz ? "TIMESTAMPTZ" : "DATETIMEV2")),
+                        ConnectorLiteral.ofDatetime(java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59)));
+                Assertions.assertFalse(provider.planScan(session,
+                        ConnectorScanRequest.builder(handle, columns).filter(Optional.of(filter)).build()).isEmpty());
+                Map<String, String> props = provider.getScanNodeProperties(session, handle, columns, Optional.of(filter));
+                Assertions.assertTrue(props.get("paimon.options_json").contains(
+                        "\"doris.timestamp-precision-repair\":\"true\""));
+                List<Predicate> predicates = InstantiationUtil.deserializeObject(
+                        Base64.getDecoder().decode(props.get("paimon.predicate")), getClass().getClassLoader());
+                Assertions.assertTrue(predicates.isEmpty(), "cross-family timestamp equality must remain residual");
+            }
+        }
+    }
+
     private static final class OrderedLocalFileIO extends LocalFileIO {
         @Override
         public FileStatus[] listFiles(org.apache.paimon.fs.Path path, boolean recursive)

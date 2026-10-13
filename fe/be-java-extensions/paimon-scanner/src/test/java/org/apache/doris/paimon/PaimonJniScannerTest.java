@@ -91,6 +91,75 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void crossFamilyHistoricalParquetTimestampsRetainFractionsUntilRepair() throws Exception {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        java.util.TimeZone originalZone = java.util.TimeZone.getDefault();
+        try (org.apache.paimon.catalog.Catalog catalog = new org.apache.paimon.catalog.FileSystemCatalog(
+                org.apache.paimon.fs.local.LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(temporaryFolder.toUri()))) {
+            catalog.createDatabase("db", false);
+            for (String zone : new String[] {"UTC", "Asia/Shanghai"}) {
+                java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone));
+                for (boolean toLtz : new boolean[] {false, true}) {
+                    DataType historical = toLtz ? DataTypes.TIMESTAMP(6) : new LocalZonedTimestampType(6);
+                    DataType current = toLtz ? new LocalZonedTimestampType(0) : DataTypes.TIMESTAMP(0);
+                    Identifier id = Identifier.create("db", "cross_family_" + toLtz + "_" + zone.replace('/', '_'));
+                    catalog.createTable(id, org.apache.paimon.schema.Schema.newBuilder()
+                            .column("ts", historical).option("file.format", "parquet").build(), false);
+                    Table table = catalog.getTable(id);
+                    java.time.LocalDateTime[] values = {
+                            java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 600_000_000),
+                            java.time.LocalDateTime.of(2025, 1, 1, 0, 0, 1, 1000)};
+                    org.apache.paimon.table.sink.BatchWriteBuilder writer = table.newBatchWriteBuilder();
+                    try (org.apache.paimon.table.sink.BatchTableWrite write = writer.newWrite()) {
+                        for (java.time.LocalDateTime value : values) {
+                            write.write(org.apache.paimon.data.GenericRow.of(
+                                    org.apache.paimon.data.Timestamp.fromLocalDateTime(value)));
+                        }
+                        try (org.apache.paimon.table.sink.BatchTableCommit commit = writer.newCommit()) {
+                            commit.commit(write.prepareCommit());
+                        }
+                    }
+                    catalog.alterTable(id, Collections.singletonList(
+                            org.apache.paimon.schema.SchemaChange.updateColumnType("ts", current, true)), false);
+                    table = catalog.getTable(id);
+                    org.apache.paimon.table.source.Split split = table.newReadBuilder().newScan().plan().splits().get(0);
+                    Map<String, String> params = createBaseParams();
+                    params.put("required_fields", "ts");
+                    params.put("columns_types", toLtz ? "timestamptz(0)" : "datetimev2(0)");
+                    params.put("time_zone", zone);
+                    params.put("paimon." + PaimonJniScanner.DORIS_TIMESTAMP_PRECISION_REPAIR, "true");
+                    params.put(SERIALIZED_TABLE, Base64.getUrlEncoder().withoutPadding().encodeToString(
+                            InstantiationUtil.serializeObject(table)));
+                    params.put("paimon_split", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                            InstantiationUtil.serializeObject(split)));
+                    params.put("paimon_predicate", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                            InstantiationUtil.serializeObject(Collections.emptyList())));
+                    PaimonJniScanner scanner = new PaimonJniScanner(16, params);
+                    try {
+                        scanner.open();
+                        Assertions.assertNotEquals(0, scanner.getNextBatchMeta());
+                        Assertions.assertEquals(values.length, scanner.getTable().getNumRows());
+                        Object[] expected = Arrays.stream(values).map(value -> toLtz
+                                ? value.atZone(java.time.ZoneId.of(zone)).withZoneSameInstant(java.time.ZoneOffset.UTC)
+                                        .toLocalDateTime().withNano(0)
+                                : value.atZone(java.time.ZoneOffset.UTC)
+                                        .withZoneSameInstant(java.time.ZoneId.of(zone)).toLocalDateTime().withNano(0))
+                                .toArray();
+                        Assertions.assertArrayEquals(expected,
+                                scanner.getTable().getColumn(0).getObjectColumn(0, values.length),
+                                "SDK zone conversion must be preserved: " + zone + ", toLtz=" + toLtz);
+                    } finally {
+                        scanner.close();
+                    }
+                }
+            }
+        } finally {
+            java.util.TimeZone.setDefault(originalZone);
+        }
+    }
+
+    @Test
     public void narrowedOrcNanosecondsDoNotRoundAcrossSecondBoundary() throws Exception {
         org.apache.doris.jni.spi.utils.OffHeap.setTesting();
         try (org.apache.paimon.catalog.Catalog catalog = new org.apache.paimon.catalog.FileSystemCatalog(
