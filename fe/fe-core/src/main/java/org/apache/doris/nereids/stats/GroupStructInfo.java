@@ -30,11 +30,19 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.Except;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.Intersect;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
+import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -543,6 +551,35 @@ public class GroupStructInfo {
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
+        } else if (plan instanceof TopN) {
+            // a top-n keeps its sort keys out of the identity (they do not change the number of rows)
+            // but its bound does: the same text is written in both modes so that NO_LITERAL cannot fold
+            // the value away and let two different bounds share one entry
+            if (ge.arity() == 1) {
+                TopN topN = (TopN) plan;
+                out.addText(bound("T", topN.getLimit(), topN.getOffset()),
+                        bound("T", topN.getLimit(), topN.getOffset()));
+                appendChild(ge, 0, out, ctx);
+            } else {
+                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
+            }
+        } else if (plan instanceof Limit) {
+            if (ge.arity() == 1) {
+                Limit limit = (Limit) plan;
+                out.addText(bound("L", limit.getLimit(), limit.getOffset()),
+                        bound("L", limit.getLimit(), limit.getOffset()));
+                appendChild(ge, 0, out, ctx);
+            } else {
+                invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
+            }
+        } else if (plan instanceof Generate) {
+            appendGenerate((Generate) plan, ge, out, ctx);
+        } else if (plan instanceof Repeat) {
+            // a repeat is an aggregate with several grouping key sets; a constant inside a grouping key
+            // does not change the number of groups, so the normal folding is safe here
+            appendRepeat((Repeat<?>) plan, ge, out, ctx);
+        } else if (plan instanceof Union || plan instanceof Intersect || plan instanceof Except) {
+            appendSetOperation(plan, (SetOperation) plan, ge, out, ctx);
         } else if (plan instanceof Project || plan instanceof Sort || plan instanceof Window) {
             // a project, a sort and a window are transparent for structure matching: none of them
             // changes the number of rows, and the parameters of a sort / window do not influence a row
@@ -757,6 +794,133 @@ public class GroupStructInfo {
     private static void transientFailure(Ctx ctx) {
         ctx.valid = false;
         ctx.retryable = true;
+    }
+
+    /** The bound of a limit / top-n: the same text in both modes, a bound is never folded. */
+    private static String bound(String kind, long limit, long offset) {
+        return kind + "{" + limit + "," + offset + "}";
+    }
+
+    /**
+     * A generate expands a row into the rows of its table functions, so its identity is the identity of
+     * those functions: the function and its arguments decide how many rows come out. A literal inside an
+     * argument does change that number (`split(x, ',')` is not `split(x, ';')`), so the arguments are
+     * rendered in both modes with their literal, and the `_outer` variants are distinguished by the
+     * function name itself.
+     */
+    private static void appendGenerate(Generate generate, GroupExpression ge, Canonical out, Ctx ctx) {
+        if (ge.arity() != 1) {
+            invalid(ctx, "arity=" + ge.arity() + " of " + ge.getPlan().getClass().getSimpleName());
+            return;
+        }
+        StringBuilder functions = new StringBuilder();
+        for (int i = 0; i < generate.getGenerators().size(); i++) {
+            if (i > 0) {
+                functions.append(';');
+            }
+            functions.append(identityText(generate.getGenerators().get(i)));
+        }
+        String header = "G{tf:[" + functions + "]}";
+        out.addText(header, header);
+        appendChild(ge, 0, out, ctx);
+    }
+
+    /**
+     * A repeat produces the rows of several grouping sets, so its identity is the list of those sets.
+     * The order of the sets is part of the identity (the grouping id values depend on it) and is kept as
+     * written; the expressions of one set are sorted, because their order does not change the groups.
+     */
+    private static void appendRepeat(Repeat<?> repeat, GroupExpression ge, Canonical out, Ctx ctx) {
+        if (ge.arity() != 1) {
+            invalid(ctx, "arity=" + ge.arity() + " of " + ge.getPlan().getClass().getSimpleName());
+            return;
+        }
+        StringBuilder withLiteral = new StringBuilder("R{gs:[");
+        StringBuilder noLiteral = new StringBuilder("R{gs:[");
+        List<List<Expression>> groupingSets = repeat.getGroupingSets();
+        for (int i = 0; i < groupingSets.size(); i++) {
+            if (i > 0) {
+                withLiteral.append(';');
+                noLiteral.append(';');
+            }
+            withLiteral.append('[');
+            noLiteral.append('[');
+            appendNormalizedSorted(groupingSets.get(i), withLiteral, noLiteral);
+            withLiteral.append(']');
+            noLiteral.append(']');
+        }
+        out.addText(withLiteral.append("]}").toString(), noLiteral.append("]}").toString());
+        appendChild(ge, 0, out, ctx);
+    }
+
+    /**
+     * The identity of a set operation is its kind, its qualifier and the columns which decide whether two
+     * rows are the same (the outputs): a project is transparent, so two plans which differ only in the
+     * columns they compare would otherwise share an entry although their row counts differ. The branches
+     * are sorted, because the memo may reorder them; an except keeps its first branch (the minuend),
+     * the other ones are the subtrahends and therefore order insensitive.
+     */
+    private static void appendSetOperation(Plan plan, SetOperation setOperation, GroupExpression ge,
+            Canonical out, Ctx ctx) {
+        StringBuilder columns = new StringBuilder();
+        for (int i = 0; i < setOperation.getOutputs().size(); i++) {
+            if (i > 0) {
+                columns.append(';');
+            }
+            columns.append(identityText(setOperation.getOutputs().get(i)));
+        }
+        String kind = plan instanceof Union ? "U" : plan instanceof Intersect ? "I" : "E";
+        // the qualifier decides whether the rows of the operation are deduplicated, which changes the
+        // row count, so it is part of the identity (an all and a distinct operation never share an entry)
+        String qualifier = String.valueOf(setOperation.getQualifier()).toLowerCase();
+        String header = kind + "{" + qualifier + ",cols:[" + columns + "]}";
+        List<GroupStructInfo> branches = new ArrayList<>(ge.arity());
+        for (int i = 0; i < ge.arity(); i++) {
+            GroupStructInfo branch = describeGroup(ge.child(i), ctx);
+            if (!branch.isValid()) {
+                if (branch.isRetryable()) {
+                    transientFailure(ctx);
+                } else {
+                    invalid(ctx, branch.getSkipReason());
+                }
+                return;
+            }
+            branches.add(branch);
+        }
+        out.addText(header, header);
+        out.addText("(", "(");
+        if (plan instanceof Except) {
+            // the first branch is the minuend: it keeps its position, the subtrahends are sorted below
+            out.append(branches.get(0));
+            List<GroupStructInfo> subtrahends = new ArrayList<>(branches.subList(1, branches.size()));
+            subtrahends.sort(Comparator.comparing(branch -> branch.getShape(LiteralMode.WITH_LITERAL)));
+            for (GroupStructInfo subtrahend : subtrahends) {
+                out.addText(";", ";");
+                out.append(subtrahend);
+            }
+        } else {
+            List<GroupStructInfo> sorted = new ArrayList<>(branches);
+            sorted.sort(Comparator.comparing(branch -> branch.getShape(LiteralMode.WITH_LITERAL)));
+            for (int i = 0; i < sorted.size(); i++) {
+                if (i > 0) {
+                    out.addText(";", ";");
+                }
+                out.append(sorted.get(i));
+            }
+        }
+        out.addText(")", ")");
+    }
+
+    /**
+     * Render an expression for the identity of an operator whose row count depends on its literals (a
+     * table function argument, the compared columns of a set operation): the WITH_LITERAL rendering is
+     * written into both modes, so that the NO_LITERAL folding cannot merge two different values into one
+     * entry.
+     */
+    private static String identityText(Expression expression) {
+        StringBuilder withLiteral = new StringBuilder();
+        appendNormalizedExpression(expression, withLiteral, new StringBuilder());
+        return withLiteral.toString();
     }
 
     private static void appendScan(OlapScan scan, Canonical out, Ctx ctx) {
