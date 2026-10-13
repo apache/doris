@@ -59,6 +59,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.PartitionPersistInfo;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -777,13 +779,17 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             executeFirstTime);
                 }
                 clearDropPartitionFailedMsg(olapTable.getId());
-                if (olapTable.getPartitionRetentionCount() > 0) {
-                    // Handle AUTO PARTITION cleanup based on partition.retention_count
-                    dropPartitionClauses = getDropPartitionClauseForAutoPartition(db, olapTable);
+                if (VariableMgr.isDynamicPartitionDropProtectionEnabled()) {
+                    logDynamicPartitionDropProtection(db, olapTable);
                 } else {
-                    // Handle dynamic partition cleanup
-                    dropPartitionClauses = getDropPartitionClauseForDynamic(db, olapTable, partitionColumn,
-                            partitionFormat);
+                    if (olapTable.getPartitionRetentionCount() > 0) {
+                        // Handle AUTO PARTITION cleanup based on partition.retention_count
+                        dropPartitionClauses = getDropPartitionClauseForAutoPartition(db, olapTable);
+                    } else {
+                        // Handle dynamic partition cleanup
+                        dropPartitionClauses = getDropPartitionClauseForDynamic(db, olapTable, partitionColumn,
+                                partitionFormat);
+                    }
                 }
                 tableName = olapTable.getName();
             } catch (Exception e) {
@@ -801,6 +807,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     continue;
                 }
                 try {
+                    if (VariableMgr.isDynamicPartitionDropProtectionEnabled()) {
+                        logDynamicPartitionDropProtection(db, olapTable);
+                        break;
+                    }
                     Env.getCurrentEnv().dropPartition(db, olapTable, dropPartitionClause);
                 } catch (Exception e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
@@ -1001,6 +1011,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private void clearCreatePartitionFailedMsg(long tableId) {
         createOrUpdateRuntimeInfo(tableId, DYNAMIC_PARTITION_STATE, State.NORMAL.toString());
         createOrUpdateRuntimeInfo(tableId, CREATE_PARTITION_MSG, DEFAULT_RUNTIME_VALUE);
+    }
+
+    private void logDynamicPartitionDropProtection(Database db, OlapTable olapTable) {
+        LOG.warn("Skip automatic partition drop for db [{}-{}], table [{}-{}] because global session variable "
+                        + "'{}' is enabled. Existing partitions are retained; set it to false to resume automatic "
+                        + "partition cleanup",
+                db.getId(), db.getName(), olapTable.getId(), olapTable.getName(),
+                SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION);
     }
 
     private void recordDropPartitionFailedMsg(String dbName, String tableName, String msg, long tableId) {
