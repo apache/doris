@@ -23,6 +23,7 @@
 
 #include "common/be_mock_util.h"
 #include "runtime/workload_group/workload_group.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -39,18 +40,17 @@ public:
     // Use weak ptr to save resource ctx, to make sure if the query is cancelled
     // the resource will be released
     std::weak_ptr<ResourceContext> resource_ctx_;
-    std::chrono::system_clock::time_point enqueue_at;
+    // Monotonic ms. For a query paused for process memory this is the start of its bounded wait,
+    // which may predate this entry: see TaskController::start_process_memory_wait().
+    int64_t enqueue_at {0};
     size_t last_mem_usage {0};
     double cache_ratio_ {0.0};
     int64_t reserve_size_ {0};
 
     PausedQuery(std::shared_ptr<ResourceContext> resource_ctx_, double cache_ratio,
-                int64_t reserve_size);
+                int64_t reserve_size, int64_t enqueue_at_ms);
 
-    int64_t elapsed_time() const {
-        auto now = std::chrono::system_clock::now();
-        return std::chrono::duration_cast<std::chrono::milliseconds>(now - enqueue_at).count();
-    }
+    int64_t elapsed_time() const { return MonotonicMillis() - enqueue_at; }
 
     std::string query_id() const { return query_id_; }
 
@@ -102,9 +102,26 @@ private:
 
     WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
 
+    using PausedQuerySet = std::set<PausedQuery>;
+    using PausedQueryIterator = PausedQuerySet::iterator;
+
+    bool handle_process_memory_exceeded_(const WorkloadGroupPtr& wg, PausedQuerySet& queries_list,
+                                         PausedQueryIterator& query_it,
+                                         const std::shared_ptr<ResourceContext>& resource_ctx,
+                                         bool has_recently_cancelled_query);
+    void resume_process_paused_query_(const WorkloadGroupPtr& wg, PausedQuerySet& queries_list,
+                                      PausedQueryIterator& query_it,
+                                      const std::shared_ptr<ResourceContext>& resource_ctx);
+    bool release_query_memory_(PausedQuerySet& queries_list, PausedQueryIterator& query_it,
+                               const std::shared_ptr<ResourceContext>& resource_ctx,
+                               bool stop_after_release);
     bool handle_single_query_(const std::shared_ptr<ResourceContext>& requestor,
                               size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
-    int64_t revoke_memory_from_other_groups_();
+    bool resolve_process_memory_exceeded_query_(const std::shared_ptr<ResourceContext>& requestor,
+                                                size_t size_to_reserve, int64_t time_in_queue,
+                                                size_t memory_usage, bool has_running_task);
+    void spill_query_(const std::shared_ptr<ResourceContext>& requestor);
+    int64_t revoke_memory_from_other_groups_(int64_t reserve_size);
     void update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit);
 
     std::shared_mutex _group_mutex;
