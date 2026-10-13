@@ -39,6 +39,12 @@ suite("agg_state_finalize_roll_up") {
         select k, g, v from agg_finalize_rollup_input cross join numbers("number"="99")
     """
     sql "analyze table agg_finalize_rollup_input with sync"
+    // Synchronous ANALYZE does not wait for tablet row-count reports. Pin the fixture
+    // cardinalities so CBO chooses the rollup independently of report timing.
+    sql """
+        alter table agg_finalize_rollup_input modify column k
+        set stats ('row_count'='700', 'ndv'='3')
+    """
 
     String combinedQuery = """
         select k, sum_finalize(sum_combine(avg_finalize(avg_state(v))))
@@ -73,6 +79,10 @@ suite("agg_state_finalize_roll_up") {
         select k, g, sum_combine(avg_finalize(avg_state(v))) s
         from agg_finalize_rollup_input group by k, g
     """)
+    sql """
+        alter table finalize_sum_mv modify column k
+        set stats ('row_count'='5', 'ndv'='3')
+    """
     mv_rewrite_success(combinedQuery, "finalize_sum_mv")
     mv_rewrite_success(plainQuery, "finalize_sum_mv")
     order_qt_combined_after combinedQuery
@@ -83,6 +93,10 @@ suite("agg_state_finalize_roll_up") {
         select k, g, sum_union(sum_state(v)) s
         from agg_finalize_rollup_input group by k, g
     """)
+    sql """
+        alter table finalize_union_mv modify column k
+        set stats ('row_count'='5', 'ndv'='3')
+    """
     String mergeQuery = """
         select k, sum_merge(sum_state(v))
         from agg_finalize_rollup_input group by k
