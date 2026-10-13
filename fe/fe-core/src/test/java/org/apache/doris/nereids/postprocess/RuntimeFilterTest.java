@@ -684,6 +684,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         } finally {
             org.apache.doris.common.Config.enable_variant_v2 = originalEnableVariantV2;
         }
+    }
 
     private List<RuntimeFilter> processSqlAndGetRuntimeFilters(String sql) {
         PlanChecker checker = PlanChecker.from(connectContext)
