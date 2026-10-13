@@ -23,6 +23,7 @@ import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -32,6 +33,20 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class StreamingInsertJobLagTest {
+
+    @Test
+    public void testMessageLagUsesOffsetProvider() {
+        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+        Assert.assertEquals(-1L, job.getLagMessages());
+        Deencapsulation.setField(job, "offsetProvider", new JdbcSourceOffsetProvider());
+        Assert.assertEquals(-1L, job.getLagMessages());
+
+        S3EventSourceOffsetProvider provider = new S3EventSourceOffsetProvider("test-queue");
+        Deencapsulation.setField(job, "offsetProvider", provider);
+        Assert.assertEquals(-1L, job.getLagMessages());
+        Deencapsulation.setField(provider, "approximateNumberOfMessages", 12L);
+        Assert.assertEquals(12L, job.getLagMessages());
+    }
 
     @Test
     public void testLastSourceEventTimestampUsesOffsetProvider() {

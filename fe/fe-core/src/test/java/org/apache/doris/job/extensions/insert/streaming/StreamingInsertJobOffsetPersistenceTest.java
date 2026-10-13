@@ -171,7 +171,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
     @Test
     public void testS3OnceLastBatchFinishesOnlyAfterSuccess() throws Exception {
-        StreamingJobProperties properties = new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", "ONCE"));
+        StreamingJobProperties properties = new StreamingJobProperties(ImmutableMap.of("s3.ingestion_mode", "ONE_TIME"));
         TestStreamingInsertJob failedJob = newJob(new S3SourceOffsetProvider(properties), 1017L);
         NoopStreamingMultiTblTask failedTask =
                 (NoopStreamingMultiTblTask) Deencapsulation.getField(failedJob, "runningStreamTask");
@@ -241,7 +241,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
     @Test
     public void testCloudReplayRefreshesPersistedOffset() {
-        Map<String, String> properties = ImmutableMap.of("s3.ingestion_mode", "ONCE");
+        Map<String, String> properties = ImmutableMap.of("s3.ingestion_mode", "ONE_TIME");
         S3SourceOffsetProvider provider = new S3SourceOffsetProvider(new StreamingJobProperties(properties));
         StreamingInsertJob job = new StreamingInsertJob();
         job.offsetProvider = provider;

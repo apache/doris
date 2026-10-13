@@ -44,6 +44,9 @@ public interface SourceOffsetProvider {
      */
     default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {}
 
+    /** Permanently close runtime resources and prevent subsequent metadata requests. */
+    default void close() {}
+
     /**
      * One-time initialization on fresh job creation (not on FE restart). Subclasses may
      * initialize split progress, fetch initial splits, or open remote readers.
@@ -101,6 +104,11 @@ public interface SourceOffsetProvider {
      * Fetch remote meta information, such as listing files in S3 or getting latest offsets in Kafka.
      */
     void fetchRemoteMeta(Map<String, String> properties) throws Exception;
+
+    default void fetchRemoteMeta(StreamingJobProperties jobProperties, Map<String, String> properties)
+            throws Exception {
+        fetchRemoteMeta(properties);
+    }
 
     /**
      * Whether there is more data to consume
@@ -211,7 +219,12 @@ public interface SourceOffsetProvider {
         return -1;
     }
 
-    /** Get the source event timestamp at the committed offset as Unix seconds, or 0 if unavailable. */
+    /** Get the observed message backlog, or -1 if unavailable or not applicable. */
+    default long getLagMessages() {
+        return -1;
+    }
+
+    /** Get the source event timestamp of the latest committed batch as Unix seconds, or 0 if unavailable. */
     default long getLastSourceEventTimestampSeconds() {
         return 0;
     }
