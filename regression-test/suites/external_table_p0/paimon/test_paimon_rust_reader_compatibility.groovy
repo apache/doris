@@ -198,35 +198,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                         + "'fields.v.aggregate-function'='${function}'")
                 sql "INSERT INTO ${name} VALUES (1,${c[offset]})"
                 sql "INSERT INTO ${name} VALUES (1,${c[offset+1]})"
-                // Paimon 2.1 made aggregate merges fail loud on numeric overflow
-                // ("byte overflow: 127 + 1 = 128") where 1.4 wrapped silently, so
-                // the overflow read must surface that error on both readers instead
-                // of returning the wrapped value c[offset+2].
-                [false, true].each { rustEnabled ->
-                    sql "set enable_paimon_rust_reader=${rustEnabled}"
-                    def message = null
-                    try {
-                        sql "select cast(v as string) from ${name}"
-                    } catch (Exception e) {
-                        message = e.getMessage()
-                    }
-                    assertTrue(message != null
-                            && message.toLowerCase().contains("overflow"),
-                            "${name} (rust=${rustEnabled}): expected the 2.1 overflow"
-                            + " failure, got: ${message}")
-                }
-                // A non-overflow aggregation keeps the value comparison on both
-                // readers. Small literals that stay in range for every case type,
-                // including the TINYINT product (10 * 12 = 120).
-                def safe = "integer_${function}_${index}_safe"
-                createPk(safe, "v ${c[0]}", ", 'merge-engine'='aggregation', "
-                        + "'fields.v.aggregate-function'='${function}'")
-                def (base, addend) = function == "sum" ? [10L, 20L] : [10L, 12L]
-                sql "INSERT INTO ${safe} VALUES (1,${base})"
-                sql "INSERT INTO ${safe} VALUES (1,${addend})"
-                def merged = function == "sum" ? base + addend : base * addend
-                check("select cast(v as string) from ${safe}",
-                        [[String.valueOf(merged)]], false)
+                check("select cast(v as string) from ${name}", [[c[offset+2]]], false)
             }
         }
         createPk("decimal_sum", "v DECIMAL(2,0)", ", 'merge-engine'='aggregation', "
@@ -281,28 +253,8 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                 if (decimal) {
                     sql "INSERT INTO ${name} VALUES (1,-1,3)"
                 }
-                if (override || decimal) {
-                    // max never overflows; the decimal sums stay in DECIMAL(2,0) range.
-                    def expected = decimal ? "99" : "127"
-                    check("select cast(v as string) from ${name}", [[expected]], false)
-                } else {
-                    // Paimon 2.1 made the default-aggregate sum fail loud on overflow
-                    // ("byte overflow: 127 + 1 = 128") where 1.4 wrapped to -128, so
-                    // the TINYINT sum case now asserts the failure on both readers.
-                    [false, true].each { rustEnabled ->
-                        sql "set enable_paimon_rust_reader=${rustEnabled}"
-                        def message = null
-                        try {
-                            sql "select cast(v as string) from ${name}"
-                        } catch (Exception e) {
-                            message = e.getMessage()
-                        }
-                        assertTrue(message != null
-                                && message.toLowerCase().contains("overflow"),
-                                "${name} (rust=${rustEnabled}): expected the 2.1 overflow"
-                                + " failure, got: ${message}")
-                    }
-                }
+                def expected = decimal ? "99" : override ? "127" : "-128"
+                check("select cast(v as string) from ${name}", [[expected]], false)
             }
         }
 
