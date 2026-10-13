@@ -848,21 +848,19 @@ public:
             if (size - offset < sizeof(uint32_t)) {
                 return false;
             }
-            const uint32_t key =
-                    decode_fixed32_le(reinterpret_cast<const uint8_t*>(data + offset));
+            const uint32_t key = decode_fixed32_le(reinterpret_cast<const uint8_t*>(data + offset));
             if (index != 0 && key <= previous_key) {
                 return false;
             }
             offset += sizeof(uint32_t);
-            const size_t roaring_size =
-                    roaring::api::roaring_bitmap_portable_deserialize_size(data + offset,
-                                                                           size - offset);
+            const size_t roaring_size = roaring::api::roaring_bitmap_portable_deserialize_size(
+                    data + offset, size - offset);
             if (roaring_size == 0 || roaring_size > size - offset) {
                 return false;
             }
             try {
-                result->emplaceOrInsert(key, roaring::Roaring::readSafe(data + offset,
-                                                                       roaring_size));
+                result->emplaceOrInsert(key,
+                                        roaring::Roaring::readSafe(data + offset, roaring_size));
             } catch (const std::runtime_error&) {
                 return false;
             }

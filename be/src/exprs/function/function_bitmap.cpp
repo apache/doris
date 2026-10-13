@@ -337,7 +337,7 @@ struct BitmapFromRoaringBase64 {
             }
             decoded.resize(encoded_size + 3);
             const int64_t decoded_size = base64_decode(encoded, encoded_size, decoded.data());
-            if (decoded_size < 0) {
+            if (decoded_size <= 0) {
                 res.emplace_back();
                 null_map[i] = 1;
                 continue;

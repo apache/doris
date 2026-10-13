@@ -139,8 +139,13 @@ TEST(function_bitmap_test, function_bitmap_from_portable_roaring_base64) {
                         {{encoded64}, &expected64},
                         {{std::string("invalid")}, Null()},
                         {{Null()}, Null()}};
+    for (size_t i = 0; i < data_set.size(); ++i) {
+        SCOPED_TRACE(i);
+        static_cast<void>(check_function<DataTypeBitMap, true>("bitmap_from_roaring_base64",
+                                                               input_types, {data_set[i]}));
+    }
     static_cast<void>(check_function<DataTypeBitMap, true>("bitmap_from_roaring_base64",
-                                                          input_types, data_set));
+                                                           input_types, data_set));
     const DataSet doris_format = {{{std::string("AQEAAAA=")}, Null()}};
     const auto status = check_function<DataTypeBitMap, true>(
             "bitmap_from_roaring_base64", input_types, doris_format, -1, -1, true);

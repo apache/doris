@@ -381,6 +381,8 @@ public:
     /// the children are constant.
     virtual bool is_constant() const;
 
+    bool is_const_and_have_executed() const { return _constant_col != nullptr && is_constant(); }
+
     /// If this expr is constant, evaluates the expr with no input row argument and returns
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
@@ -485,10 +487,6 @@ protected:
             res += child->expr_name() + ": " + child->data_type()->get_name();
         }
         return res;
-    }
-
-    bool is_const_and_have_executed() const {
-        return (is_constant() && (_constant_col != nullptr));
     }
 
     ColumnPtr get_result_from_const(size_t count) const;

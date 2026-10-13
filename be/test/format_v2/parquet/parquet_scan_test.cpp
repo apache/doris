@@ -4137,10 +4137,8 @@ TEST_F(ParquetScanTest, ProjectedBigIntDictionaryRangeUsesFusedGather) {
 TEST_F(ParquetScanTest, ConstantBitmapMembershipFiltersBeforeReadingPayload) {
     auto arrow_schema = arrow::schema({arrow::field("id", arrow::int64(), false),
                                        arrow::field("score", arrow::int32(), false)});
-    auto table = arrow::Table::Make(
-            arrow_schema,
-            {build_int64_array({1, 2, 4294967296, 4, 5, 6}),
-             build_int32_array({10, 20, 30, 40, 50, 60})});
+    auto table = arrow::Table::Make(arrow_schema, {build_int64_array({1, 2, 4294967296, 4, 5, 6}),
+                                                   build_int32_array({10, 20, 30, 40, 50, 60})});
     write_table(_file_path, table, 6, true, false, false);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -4172,7 +4170,7 @@ TEST_F(ParquetScanTest, ConstantBitmapMembershipFiltersBeforeReadingPayload) {
     node.__set_num_children(2);
     node.__set_is_nullable(true);
     auto membership = VectorizedFnCall::create_shared(node);
-    BitmapValue allowed_ids {uint64_t(2), uint64_t(4294967296)};
+    BitmapValue allowed_ids(std::vector<uint64_t> {2, 4294967296ULL});
     std::string serialized(allowed_ids.getSizeInBytes(), '\0');
     allowed_ids.write_to(serialized.data());
     std::string encoded;
@@ -4182,7 +4180,8 @@ TEST_F(ParquetScanTest, ConstantBitmapMembershipFiltersBeforeReadingPayload) {
     TFunction decode_function;
     decode_function.__set_name(decode_name);
     decode_function.__set_binary_type(TFunctionBinaryType::BUILTIN);
-    decode_function.__set_arg_types({std::make_shared<DataTypeString>()->to_thrift()});
+    decode_function.__set_arg_types(
+            {make_nullable(std::make_shared<DataTypeString>())->to_thrift()});
     decode_function.__set_ret_type(make_nullable(bitmap_type)->to_thrift());
     decode_function.__set_has_var_args(false);
     TExprNode decode_node;
@@ -4193,7 +4192,7 @@ TEST_F(ParquetScanTest, ConstantBitmapMembershipFiltersBeforeReadingPayload) {
     decode_node.__set_is_nullable(true);
     auto decode = VectorizedFnCall::create_shared(decode_node);
     decode->add_child(VLiteral::create_shared(std::make_shared<DataTypeString>(),
-                                             Field::create_field<TYPE_STRING>(encoded)));
+                                              Field::create_field<TYPE_STRING>(encoded)));
     membership->add_child(decode);
     membership->add_child(VSlotRef::create_shared(0, 0, -1, bigint_type, "id"));
     auto conjunct = VExprContext::create_shared(membership);
