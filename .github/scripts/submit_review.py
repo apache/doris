@@ -32,6 +32,14 @@ SUBMISSION_FILE = "review-submission.json"
 RUN_FILE = "review-run.json"
 RESULT_FILE = "review-result.json"
 PRIORITY = re.compile(r"^\[P([0-3])\]\s+\S")
+# Advisory signals for accidentally capturing the remainder of the review ledger.
+# Legitimate comments may be long or quote these markers, so neither is a ban.
+LONG_COMMENT_CHARS = 4000
+PREVIEW_CHARS = 240
+LEDGER_MARKER = re.compile(
+    r"(?m)^(?:- ID:|## (?:Main Merged Findings|Dismissed Or Duplicate Points|"
+    r"Proposed Final Comment Set|Convergence Rounds))(?:[ \t]|$)"
+)
 
 
 def write_json(path, value):
@@ -72,6 +80,33 @@ def validate_submission(value):
     if len(set(ids)) != len(ids):
         raise ValueError("Existing blocking comment IDs must be unique")
     return value
+
+
+def check_submission(submission):
+    """Inspect the actual payload locally without freezing or publishing it."""
+    validate_submission(submission)
+    comments = []
+    for index, comment in enumerate(submission["comments"], start=1):
+        body = comment["body"]
+        warnings = []
+        if len(body) > LONG_COMMENT_CHARS:
+            warnings.append("Long comment: inspect the full body for unintended extracted text.")
+        if LEDGER_MARKER.search(body):
+            warnings.append("Review ledger marker: check for other findings or internal sections.")
+        comments.append({
+            "index": index, "path": comment["path"], "position": comment["position"],
+            "characters": len(body), "lines": len(body.splitlines()),
+            "preview_start": body[:PREVIEW_CHARS],
+            "preview_end": body[-PREVIEW_CHARS:] if len(body) > PREVIEW_CHARS else "",
+            "preview_truncated": len(body) > 2 * PREVIEW_CHARS,
+            "warnings": warnings,
+        })
+    return {
+        "check_only": True, "schema_valid": True,
+        "note": "Local diagnostics only; no GitHub checks or submission performed. "
+                "Warnings are advisory. Inspect the complete input before submitting.",
+        "comments": comments,
+    }
 
 
 def api(path, remaining, *, payload=None, paginated=False):
@@ -193,11 +228,17 @@ def verify_completion(context, run, remaining, *, submit=False, submission=None)
     }
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--context-dir", type=Path, required=True)
     parser.add_argument("--input-file", type=Path, required=True)
-    args = parser.parse_args()
+    parser.add_argument("--check-only", action="store_true",
+                        help="Validate and preview the input locally without submitting or writing state")
+    args = parser.parse_args(argv)
+    submission = json.loads(args.input_file.read_text())
+    if args.check_only:
+        print(json.dumps(check_submission(submission), indent=2))
+        return
     run = json.loads((args.context_dir / RUN_FILE).read_text())
 
     def remaining():
@@ -208,7 +249,7 @@ def main():
 
     result = verify_completion(
         args.context_dir, run, remaining, submit=True,
-        submission=json.loads(args.input_file.read_text()),
+        submission=submission,
     )
     print(json.dumps(result))
 
