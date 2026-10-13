@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_bitmap_intersect_null_partial", "p0") {
+    sql "SET enable_agg_state=true"
     sql "SET enable_bucketed_hash_agg=false"
     sql "SET parallel_pipeline_task_num=4"
     sql "DROP TABLE IF EXISTS test_bitmap_intersect_null_partial"
@@ -72,6 +73,7 @@ suite("test_bitmap_intersect_null_partial", "p0") {
         }
     }
 
+    sql "set enable_agg_state = true;"
     sql "DROP TABLE IF EXISTS test_bitmap_intersect_partial_state"
     sql """
         CREATE TABLE test_bitmap_intersect_partial_state (
@@ -108,7 +110,7 @@ suite("test_bitmap_intersect_null_partial", "p0") {
     """
     test {
         sql """
-            SELECT bitmap_to_string(bitmap_intersect_merge(state))
+            SELECT bitmap_to_string(bitmap_intersect_v2_merge(state))
             FROM test_bitmap_intersect_legacy_state
         """
         exception "not match function bitmap_intersect_v2_merge"

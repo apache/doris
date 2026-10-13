@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVar
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -113,6 +114,42 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         Expression canonicalFunction = canonicalBuilder.build("bitmap_and_not_count", arguments).first;
         Assertions.assertInstanceOf(BitmapAndNotCount.class, canonicalFunction);
         Assertions.assertFalse(canonicalFunction.nullable());
+    }
+
+    @Test
+    public void testBitmapIntersectCombinatorVersions() {
+        FunctionRegistry registry = new FunctionRegistry();
+        SlotReference bitmap = new SlotReference("bitmap", BitmapType.INSTANCE, true);
+        for (String suffix : ImmutableList.of("", "_state", "_combine")) {
+            String name = "bitmap_intersect" + suffix;
+            BoundFunction function = (BoundFunction) registry.findFunctionBuilder(name, bitmap)
+                    .build(name, bitmap).first;
+            Assertions.assertEquals("bitmap_intersect_v2" + suffix, function.getName());
+        }
+        for (String stateName : ImmutableList.of("bitmap_intersect", "bitmap_intersect_v2")) {
+            SlotReference state = new SlotReference("state", new AggStateType(stateName,
+                    ImmutableList.of(BitmapType.INSTANCE), ImmutableList.of(true), false), false);
+            for (String suffix : ImmutableList.of("_merge", "_union", "_finalize")) {
+                String name = "bitmap_intersect" + suffix;
+                BoundFunction function = (BoundFunction) registry.findFunctionBuilder(name, state)
+                        .build(name, state).first;
+                Assertions.assertEquals(stateName + suffix, function.getName());
+                Assertions.assertEquals(state, function.child(0));
+                // Explicit versions retain their requested decoder, including when the state is incompatible.
+                for (String version : ImmutableList.of("v1", "v2")) {
+                    String explicitName = "bitmap_intersect_" + version + suffix;
+                    String canonicalName = version.equals("v1") ? "bitmap_intersect" : "bitmap_intersect_v2";
+                    if (suffix.equals("_finalize") && !stateName.equals(canonicalName)) {
+                        Assertions.assertThrows(AnalysisException.class,
+                                () -> registry.findFunctionBuilder(explicitName, state).build(explicitName, state));
+                    } else {
+                        BoundFunction explicit = (BoundFunction) registry.findFunctionBuilder(explicitName, state)
+                                .build(explicitName, state).first;
+                        Assertions.assertEquals(canonicalName + suffix, explicit.getName());
+                    }
+                }
+            }
+        }
     }
 
     @Test

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -52,6 +53,27 @@ public class DataTypeTest {
         Assertions.assertNotEquals(current, legacy);
         Assertions.assertEquals(legacy, new AggStateType("bitmap_intersect_v1",
                 ImmutableList.of(BitmapType.INSTANCE), ImmutableList.of(true), false));
+    }
+
+    @Test
+    public void testBitmapIntersectAggStateSqlRoundTrip() {
+        NereidsParser parser = new NereidsParser();
+        for (boolean nullable : ImmutableList.of(false, true)) {
+            for (String functionName : ImmutableList.of("bitmap_intersect", "bitmap_intersect_v1",
+                    "bitmap_intersect_v2")) {
+                AggStateType original = new AggStateType(functionName, ImmutableList.of(BitmapType.INSTANCE),
+                        ImmutableList.of(nullable), false);
+                org.apache.doris.catalog.AggStateType catalogType
+                        = (org.apache.doris.catalog.AggStateType) original.toCatalogDataType();
+                String sqlName = original.getFunctionName().equals("bitmap_intersect")
+                        ? "bitmap_intersect_v1" : "bitmap_intersect_v2";
+                Assertions.assertEquals("agg_state<" + sqlName + "(bitmap "
+                        + (nullable ? "null" : "not null") + ")>", catalogType.toSql());
+                AggStateType reparsed = (AggStateType) parser.parseDataType(catalogType.toSql());
+                Assertions.assertEquals(original, reparsed);
+                Assertions.assertEquals(catalogType.getFunctionName(), reparsed.getFunctionName());
+            }
+        }
     }
 
     @Test
