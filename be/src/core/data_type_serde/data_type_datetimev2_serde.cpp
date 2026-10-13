@@ -32,6 +32,7 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "core/types.h"
@@ -1046,15 +1047,12 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
     DORIS_CHECK(view.batch != nullptr);
     const auto kind = view.file_type->getKind();
     DORIS_CHECK(kind == ::orc::TypeKind::TIMESTAMP || kind == ::orc::TypeKind::TIMESTAMP_INSTANT);
-    DORIS_CHECK(view.timezone != nullptr);
+    DORIS_CHECK(view.timestamp_context != nullptr);
     if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
         return Status::OK();
     }
-    const auto* timezone = view.file_type->getKind() == ::orc::TIMESTAMP &&
-                                           view.plain_timestamp_timezone != nullptr
-                                   ? view.plain_timestamp_timezone
-                                   : view.timezone;
-    return decode_timestamp_orc_values(column, view, *timezone);
+    return decode_timestamp_orc_values(column, view,
+                                       view.timestamp_context->timezone_for(*view.file_type));
 }
 
 } // namespace doris

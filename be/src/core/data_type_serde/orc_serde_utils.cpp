@@ -20,6 +20,7 @@
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "core/column/column_array.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 
 namespace doris::orc_serde_utils {
 
@@ -106,7 +107,9 @@ DecodedColumnView make_orc_decoded_view(const OrcDecodedColumnView& orc_view,
     DecodedColumnView view;
     view.value_kind = value_kind;
     view.row_count = cast_set<int64_t>(orc_decode_row_count(orc_view.rows, orc_view.selected_rows));
-    view.timezone = orc_view.timezone;
+    if (orc_view.timestamp_context != nullptr) {
+        view.timezone = &orc_view.timestamp_context->session_timezone;
+    }
     return view;
 }
 

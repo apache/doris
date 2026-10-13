@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_timestamp_ns_serde.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/string_buffer.hpp"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_parameters.h"
@@ -709,7 +710,8 @@ TEST(DataTypeTimeStampNsTest, OrcRoundTripPreservesNanoseconds) {
     view.file_type = orc_type.get();
     view.batch = &batch;
     view.rows = 4;
-    view.timezone = &timezone;
+    const OrcTimestampDecodeContext timestamp_context(timezone);
+    view.timestamp_context = &timestamp_context;
     ASSERT_TRUE(serde->read_column_from_orc(*output, view).ok());
     const auto& result = assert_cast<const ColumnTimeStampNs&>(*output).get_data();
     ASSERT_EQ(result.size(), values.size());

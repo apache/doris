@@ -62,6 +62,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
@@ -10721,11 +10722,12 @@ Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool 
     batch.numElements = 1;
     batch.data[0] = seconds;
     batch.nanoseconds[0] = nanoseconds;
+    const OrcTimestampDecodeContext timestamp_context(timezone);
     OrcDecodedColumnView view {.file_type = type.get(),
                                .selected_type = type.get(),
                                .batch = &batch,
                                .rows = 1,
-                               .timezone = &timezone,
+                               .timestamp_context = &timestamp_context,
                                .enable_mapping_timestamp_tz = use_timestamp_tz};
     if (use_timestamp_tz) {
         DataTypeTimeStampTz data_type(6);

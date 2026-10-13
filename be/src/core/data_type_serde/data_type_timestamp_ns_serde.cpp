@@ -30,6 +30,7 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_timestamp_ns.h"
@@ -477,10 +478,9 @@ Status DataTypeTimeStampNsSerDe::read_column_from_orc(IColumn& column,
     auto& data = assert_cast<ColumnTimeStampNs&>(column).get_data();
     const auto old_size = data.size();
     const auto rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
-    const auto* source_timezone = view.plain_timestamp_timezone == nullptr
-                                          ? view.timezone
-                                          : view.plain_timestamp_timezone;
-    const auto timezone = source_timezone == nullptr ? cctz::utc_time_zone() : *source_timezone;
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.timestamp_context != nullptr);
+    const auto& timezone = view.timestamp_context->timezone_for(*view.file_type);
     for (size_t row = 0; row < rows; ++row) {
         const auto source = orc_serde_utils::orc_source_row_at(row, view.selected_rows);
         if (orc_serde_utils::orc_row_is_null(batch, source)) {

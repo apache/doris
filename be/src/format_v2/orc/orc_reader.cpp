@@ -68,6 +68,7 @@
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
@@ -193,19 +194,6 @@ Status set_orc_reader_timezone(const std::string& timezone,
 
     row_reader_options->setTimezoneName(timezone.empty() ? "UTC" : timezone);
     return Status::OK();
-}
-
-bool has_timestamp(const ::orc::Type& type, bool include_instant) {
-    if (type.getKind() == ::orc::TIMESTAMP ||
-        (include_instant && type.getKind() == ::orc::TIMESTAMP_INSTANT)) {
-        return true;
-    }
-    for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
-        if (has_timestamp(*type.getSubtype(child), include_instant)) {
-            return true;
-        }
-    }
-    return false;
 }
 
 // selected_rows is a source-row remap produced by ORC lazy callback:
@@ -344,6 +332,72 @@ bool is_global_rowid_column(format::LocalColumnId file_column_id) {
 bool is_virtual_column(format::LocalColumnId file_column_id) {
     return is_row_position_column(file_column_id) || is_global_rowid_column(file_column_id);
 }
+
+// Keep SDK workarounds and their scan requirements in one plan. SerDes receive only the
+// resulting decode context and never need to infer which reader strategy produced a batch.
+class OrcTimestampReadPlan {
+public:
+    void configure(const ::orc::Type& file_schema,
+                   const std::vector<format::LocalColumnId>& read_columns,
+                   const cctz::time_zone& session_timezone) {
+        _context = OrcTimestampDecodeContext(session_timezone);
+        // An unprojected NANOS sibling can affect the SDK's ordinary timestamp decoding.
+        const bool needs_writer_timezone =
+                orc_serde_utils::has_nanosecond_timestamp(file_schema) &&
+                std::ranges::any_of(read_columns, [&](const auto column_id) {
+                    return !is_virtual_column(column_id) &&
+                           has_timestamp(*file_schema.getSubtype(column_id.value()), false);
+                });
+        _timezone_source =
+                needs_writer_timezone ? TimezoneSource::STRIPE_WRITER : TimezoneSource::SESSION;
+    }
+
+    bool requires_stripe_reader() const {
+        return _timezone_source == TimezoneSource::STRIPE_WRITER;
+    }
+
+    bool requires_dense_decoding(const ::orc::Type& column_type) const {
+        // The pinned SDK's selected timestamp decoder checks a fraction at the wrong row index.
+        // Decode timestamp leaders densely while retaining lazy reads for other followers.
+        return requires_stripe_reader() && has_timestamp(column_type, true);
+    }
+
+    Status configure_stripe(const ::orc::StripeInformation& stripe,
+                            ::orc::RowReaderOptions* options) {
+        DORIS_CHECK(requires_stripe_reader());
+        const auto& name = stripe.getWriterTimezone();
+        const auto writer_timezone = name.empty() ? "GMT" : name;
+        if (!TimezoneUtils::find_cctz_time_zone(writer_timezone, _context.reader_timezone)) {
+            return Status::InvalidArgument("Unknown ORC stripe writer timezone: {}",
+                                           writer_timezone);
+        }
+        // Matching zones preserves the SDK's UTC carrier until its negative-fraction correction
+        // is complete. SerDes then apply historical offsets to that original second with cctz.
+        options->setTimezoneName(writer_timezone);
+        return Status::OK();
+    }
+
+    const OrcTimestampDecodeContext& decode_context() const { return _context; }
+
+private:
+    enum class TimezoneSource { SESSION, STRIPE_WRITER };
+
+    static bool has_timestamp(const ::orc::Type& type, bool include_instant) {
+        if (type.getKind() == ::orc::TIMESTAMP ||
+            (include_instant && type.getKind() == ::orc::TIMESTAMP_INSTANT)) {
+            return true;
+        }
+        for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
+            if (has_timestamp(*type.getSubtype(child), include_instant)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    TimezoneSource _timezone_source = TimezoneSource::SESSION;
+    OrcTimestampDecodeContext _context {cctz::utc_time_zone()};
+};
 
 format::ColumnDefinition nullable_global_rowid_column_definition() {
     auto field = format::global_rowid_column_definition();
@@ -778,8 +832,7 @@ struct OrcReaderScanState {
     ::orc::RowReaderOptions row_reader_options; // projection + filter + SARG + stripe range
     std::string timezone = TimezoneUtils::default_time_zone;
     cctz::time_zone timezone_obj;
-    bool match_writer_timezone = false;
-    cctz::time_zone writer_timezone_obj;
+    OrcTimestampReadPlan timestamp_plan;
     std::unique_ptr<::orc::RowReader> row_reader;
     const ::orc::Type* selected_type = nullptr;
     std::unique_ptr<::orc::ColumnVectorBatch> batch;
@@ -1024,7 +1077,7 @@ int64_t OrcReader::get_total_rows() const {
     if (_state->stripe_ranges_applied && _state->selected_stripe_ranges.empty()) {
         return 0;
     }
-    if (_state->match_writer_timezone && _state->stripe_ranges_applied) {
+    if (_state->timestamp_plan.requires_stripe_reader() && _state->stripe_ranges_applied) {
         uint64_t rows = 0;
         for (const auto& range : _state->selected_stripe_ranges) {
             rows += range.end_row - range.first_row;
@@ -1356,7 +1409,7 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
         for (const int64_t row_id : *_request->row_ids) {
             uint64_t first_row = _state->row_reader_range_first_row;
             uint64_t end_row = _state->row_reader_range_end_row;
-            if (_state->match_writer_timezone) {
+            if (_state->timestamp_plan.requires_stripe_reader()) {
                 const auto& ranges = _state->selected_stripe_ranges;
                 while (range_index + 1 < ranges.size() &&
                        std::cmp_greater_equal(row_id, ranges[range_index].end_row)) {
@@ -1426,21 +1479,14 @@ Status OrcReader::_configure_row_reader_projection() {
         DORIS_CHECK(projection != nullptr);
         has_complex_projection = has_complex_projection || has_pruned_projection(*projection);
     }
-    // A hidden NANOS sibling can affect ordinary timestamps, but scans without civil
-    // timestamp columns do not need stripe-specific reader timezones.
-    _state->match_writer_timezone =
-            orc_serde_utils::has_nanosecond_timestamp(*_state->root_type) &&
-            std::ranges::any_of(_state->read_columns, [&](const auto column_id) {
-                return !is_virtual_column(column_id) &&
-                       has_timestamp(*_state->root_type->getSubtype(column_id.value()), false);
-            });
+    _state->timestamp_plan.configure(*_state->root_type, _state->read_columns,
+                                     _state->timezone_obj);
     auto filter_projections = _request->predicate_columns;
-    if (_state->match_writer_timezone && _state->orc_lazy_read_enabled) {
-        // The pinned SDK's selected timestamp decoder tests a fraction at the wrong row index.
-        // Decode timestamp leaders densely; keep lazy reads for all other follower columns.
+    if (_state->orc_lazy_read_enabled) {
         for (const auto column_id : _state->read_columns) {
             if (!is_virtual_column(column_id) &&
-                has_timestamp(*_state->root_type->getSubtype(column_id.value()), true) &&
+                _state->timestamp_plan.requires_dense_decoding(
+                        *_state->root_type->getSubtype(column_id.value())) &&
                 std::ranges::none_of(filter_projections, [column_id](const auto& projection) {
                     return projection.column_id() == column_id;
                 })) {
@@ -1716,7 +1762,7 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
 }
 
 Status OrcReader::_prepare_timestamp_stripe_ranges() {
-    if (!_state->match_writer_timezone) {
+    if (!_state->timestamp_plan.requires_stripe_reader()) {
         return Status::OK();
     }
     std::vector<uint64_t> stripes;
@@ -1769,18 +1815,11 @@ Status OrcReader::_apply_current_stripe_range() {
     DORIS_CHECK(_state->current_stripe_range < _state->selected_stripe_ranges.size());
     const auto& stripe_range = _state->selected_stripe_ranges[_state->current_stripe_range];
     _state->row_reader_options.range(stripe_range.offset, stripe_range.length);
-    if (_state->match_writer_timezone) {
+    if (_state->timestamp_plan.requires_stripe_reader()) {
         try {
             const auto stripe = _state->reader->getStripe(stripe_range.first_stripe);
-            const auto& name = stripe->getWriterTimezone();
-            const auto writer_timezone = name.empty() ? "GMT" : name;
-            if (!TimezoneUtils::find_cctz_time_zone(writer_timezone, _state->writer_timezone_obj)) {
-                return Status::InvalidArgument("Unknown ORC stripe writer timezone: {}",
-                                               writer_timezone);
-            }
-            // Matching zones preserves the SDK's UTC carrier until its negative-fraction
-            // correction is complete. cctz then applies historical offsets to that original second.
-            _state->row_reader_options.setTimezoneName(writer_timezone);
+            RETURN_IF_ERROR(
+                    _state->timestamp_plan.configure_stripe(*stripe, &_state->row_reader_options));
         } catch (const std::exception& e) {
             if (is_orc_stop(_io_ctx.get(), e)) {
                 return Status::EndOfFile("stop");
@@ -2088,11 +2127,8 @@ Status OrcReader::_decode_column(const ::orc::Type& file_type, const ::orc::Type
     view.batch = &batch;
     view.rows = rows;
     view.selected_rows = selected_rows;
-    view.timezone = &_state->timezone_obj;
+    view.timestamp_context = &_state->timestamp_plan.decode_context();
     view.enable_mapping_timestamp_tz = _enable_mapping_timestamp_tz;
-    if (_state->match_writer_timezone) {
-        view.plain_timestamp_timezone = &_state->writer_timezone_obj;
-    }
     return column_type->get_serde()->read_column_from_orc(*column, view);
 }
 
@@ -2131,7 +2167,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                 }
                 fetched_row_id = static_cast<uint64_t>((*_request->row_ids)[_state->next_row_id]);
                 // Row ids are sorted globally and can cross the per-writer-timezone ranges.
-                while (_state->match_writer_timezone &&
+                while (_state->timestamp_plan.requires_stripe_reader() &&
                        *fetched_row_id >= _state->row_reader_range_end_row) {
                     bool advanced = false;
                     RETURN_IF_ERROR(_advance_to_next_stripe_range(&advanced));
