@@ -48,11 +48,24 @@ public final class EndpointHosts {
         if (schemeIndex >= 0) {
             host = host.substring(schemeIndex + 3);
         }
+        // End the authority at the first path, query or fragment delimiter before looking for
+        // userinfo: an '@' inside a fragment (e.g. host#contact@other) must not be taken for userinfo,
+        // or the real host would be discarded.
+        int authorityEnd = host.length();
         int pathIndex = host.indexOf('/');
         if (pathIndex >= 0) {
-            host = host.substring(0, pathIndex);
+            authorityEnd = Math.min(authorityEnd, pathIndex);
         }
-        int userInfoIndex = host.indexOf('@');
+        int queryIndex = host.indexOf('?');
+        if (queryIndex >= 0) {
+            authorityEnd = Math.min(authorityEnd, queryIndex);
+        }
+        int fragmentIndex = host.indexOf('#');
+        if (fragmentIndex >= 0) {
+            authorityEnd = Math.min(authorityEnd, fragmentIndex);
+        }
+        host = host.substring(0, authorityEnd);
+        int userInfoIndex = host.lastIndexOf('@');
         if (userInfoIndex >= 0) {
             host = host.substring(userInfoIndex + 1);
         }

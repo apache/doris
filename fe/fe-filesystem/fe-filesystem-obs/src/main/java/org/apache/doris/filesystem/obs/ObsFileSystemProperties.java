@@ -392,6 +392,11 @@ public final class ObsFileSystemProperties
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
             region = extractRegion(endpoint).orElse("");
         }
+        // The endpoint is a DNS host, so normalise the letter case: an upper/mixed case spelling must
+        // yield exactly the same effective endpoint as the lowercase one. The pinned 3.21.11 esdk SDK
+        // strips only a lowercase http:// / https:// prefix and then parses everything after the last
+        // colon as a port, so an upper case scheme throws NumberFormatException before the first call.
+        endpoint = endpoint.toLowerCase(Locale.ROOT);
     }
 
     private static Optional<String> extractRegion(String endpoint) {

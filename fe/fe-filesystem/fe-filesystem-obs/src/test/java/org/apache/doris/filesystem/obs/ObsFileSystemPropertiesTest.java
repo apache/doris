@@ -299,6 +299,22 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertEquals("cn-east-3", properties.getRegion());
     }
 
+    /**
+     * The pinned 3.21.11 esdk SDK strips only a lowercase http:// or https:// prefix and then parses
+     * everything after the last colon as a port, so an upper case scheme must be normalised before the
+     * endpoint reaches it.
+     */
+    @Test
+    void bind_normalisesEndpointSchemeAndHostCase() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "HTTPS://OBS.CN-NORTH-4.MYHUAWEICLOUD.COM",
+                "obs.access_key", "ak",
+                "obs.secret_key", "sk"));
+
+        Assertions.assertEquals("https://obs.cn-north-4.myhuaweicloud.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-north-4", properties.getRegion());
+    }
+
     @Test
     void unparsableUri_isSwallowed_thenEndpointRequiredFires() {
         Map<String, String> raw = new HashMap<>();

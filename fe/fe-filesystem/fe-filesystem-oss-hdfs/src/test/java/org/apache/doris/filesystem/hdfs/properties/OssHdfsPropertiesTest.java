@@ -199,6 +199,19 @@ class OssHdfsPropertiesTest {
      * but differently cased endpoint has to select the same storage implementation (DORIS-29438).
      */
     @Test
+    void guessIsMeIgnoresMarkerInsideTheEndpointBasePath() {
+        // The marker is a host name: a proxy/base path that merely ends with it is not an OSS-HDFS
+        // endpoint, otherwise OSS-HDFS would preempt the valid S3 map it is added to.
+        Map<String, String> proxy = new HashMap<>();
+        proxy.put("dlf.catalog.endpoint", "https://gateway.internal/proxy/CN-BEIJING.OSS-DLS.ALIYUNCS.COM");
+        Assertions.assertFalse(OssHdfsProperties.guessIsMe(proxy), proxy.toString());
+
+        Map<String, String> realHost = new HashMap<>();
+        realHost.put("oss.hdfs.endpoint", "https://cn-beijing.oss-dls.aliyuncs.com");
+        Assertions.assertTrue(OssHdfsProperties.guessIsMe(realHost), realHost.toString());
+    }
+
+    @Test
     void guessIsMeIsCaseInsensitiveForOssDlsEndpoint() {
         Map<String, String> upper = new HashMap<>();
         upper.put("oss.endpoint", "CN-BEIJING.OSS-DLS.ALIYUNCS.COM");

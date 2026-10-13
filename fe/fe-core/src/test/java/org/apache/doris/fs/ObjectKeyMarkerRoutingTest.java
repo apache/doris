@@ -81,6 +81,22 @@ public class ObjectKeyMarkerRoutingTest {
         Assertions.assertTrue(claimants.contains("S3"), claimants.toString());
     }
 
+    @Test
+    public void testDlfProxyPathDoesNotPreemptAValidS3Map() {
+        // OSS-HDFS precedes S3 in bindPrimary/bindAll, so a DLF endpoint whose base path merely ends
+        // with the OSS-DLS marker must not select OSS-HDFS for an otherwise valid S3 map.
+        Map<String, String> props = new HashMap<>();
+        props.put("dlf.catalog.endpoint", "https://gateway.internal/proxy/CN-BEIJING.OSS-DLS.ALIYUNCS.COM");
+        props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        props.put("s3.region", "us-east-1");
+        props.put("s3.access_key", "ak");
+        props.put("s3.secret_key", "sk");
+
+        FileSystemProperties bound = manager.bindPrimary(props);
+
+        Assertions.assertEquals("S3", bound.providerName().toUpperCase());
+    }
+
     private static Map<String, String> minioMap(String uri) {
         Map<String, String> props = new HashMap<>();
         props.put("minio.endpoint", "http://minio.internal:9000");

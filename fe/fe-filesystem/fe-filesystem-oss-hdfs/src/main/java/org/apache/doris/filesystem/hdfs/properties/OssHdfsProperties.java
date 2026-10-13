@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.hdfs.properties;
 
 import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.spi.EndpointHosts;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.NoPathTraversalValidator;
 
@@ -180,9 +181,10 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
      * Cheap, deterministic detection of an OSS-HDFS configuration: an explicit {@code oss.hdfs.}
      * enable flag, or any endpoint key pointing at an {@code *.oss-dls.aliyuncs.com} host.
      *
-     * <p>The endpoint is a DNS hostname, so the suffix check is case-insensitive: a mixed-case
-     * spelling such as {@code CN-BEIJING.OSS-DLS.ALIYUNCS.COM} must route to OSS-HDFS exactly
-     * like its lowercase form. (The sibling region extraction and DLF patterns already match
+     * <p>The endpoint is a DNS hostname, so the suffix check is case-insensitive and applies to the
+     * endpoint host only: a mixed-case spelling such as {@code CN-BEIJING.OSS-DLS.ALIYUNCS.COM} must
+     * route to OSS-HDFS exactly like its lowercase form, while the same text inside a proxy/base path
+     * must not select it. (The sibling region extraction and DLF patterns already match
      * case-insensitively.)
      */
     public static boolean guessIsMe(Map<String, String> props) {
@@ -195,7 +197,8 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
         return OSS_ENDPOINT_KEY_NAME.stream()
                 .map(props::get)
                 .anyMatch(ep -> StringUtils.isNotBlank(ep)
-                        && ep.toLowerCase(Locale.ROOT).endsWith(OSS_HDFS_ENDPOINT_SUFFIX));
+                        && EndpointHosts.hostOf(ep).toLowerCase(Locale.ROOT)
+                                .endsWith(OSS_HDFS_ENDPOINT_SUFFIX));
     }
 
     static Optional<String> extractRegion(String endpoint) {

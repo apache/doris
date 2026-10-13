@@ -40,6 +40,15 @@ class EndpointHostsTest {
     }
 
     @Test
+    void hostOf_endsTheAuthorityBeforeUserInfo() {
+        // An '@' inside a fragment must not be taken for userinfo: the real host would be discarded.
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com",
+                EndpointHosts.hostOf("https://s3.us-west-2.amazonaws.com#contact@minio.internal"));
+        Assertions.assertEquals("host", EndpointHosts.hostOf("https://host?x=/y"));
+        Assertions.assertEquals("bucket", EndpointHosts.hostOf("oss://user:pw@bucket/key"));
+    }
+
+    @Test
     void hostOf_survivesValuesThatDoNotParseAsAUri() {
         // A space in the key makes java.net.URI throw; the host must still be extracted.
         Assertions.assertEquals("bucket",
