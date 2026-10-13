@@ -111,10 +111,9 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     DCHECK(target_rs_column.is_row_store_column());
     // An empty row_columns_uids() means the row-store column contains the full row. Keep
     // missing_cids empty so full-row point queries can be served entirely from the row store,
-    // including row-cache hits. Read-time-synthesized hidden columns are intentionally not
-    // supported on this fast path: for example, JSONB stores 0 for __DORIS_VERSION_COL__, while
-    // its published value must be obtained from the rowset. Resolving it would require bypassing
-    // the row cache and reading the column store with rowset context, defeating this optimization.
+    // including row-cache hits. Reusable::init then takes a projected VERSION/COMMIT_TSO out of
+    // the JSONB decode and the row cache: for example, JSONB stores 0 for __DORIS_VERSION_COL__,
+    // while its published value must be obtained from the rowset.
     if (schema.row_columns_uids().empty()) {
         missing_cids.clear();
         return;
@@ -625,7 +624,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                 for (int cid : _reusable->column_store_col_uids()) {
                     if (auto hidden_value = get_read_time_hidden_column_value(
                                 get_read_time_hidden_column_type(*tablet_schema, cid),
-                                rowset->version(), rowset->commit_tso(), false);
+                                rowset->version(), rowset->commit_tso());
                         hidden_value.has_value()) {
                         result_columns[_reusable->get_col_uid_to_idx().at(cid)]->insert(
                                 *hidden_value);

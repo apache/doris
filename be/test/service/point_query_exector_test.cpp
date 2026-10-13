@@ -374,24 +374,24 @@ TEST_F(PointQueryHiddenColumnTest, BinlogTsoStaysInJsonbAndKeepsRowCache) {
 TEST_F(PointQueryHiddenColumnTest, RowsetDerivedValueOnlyForSingletonRowsets) {
     // A compacted rowset keeps its materialized per-row values.
     EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(2, 3),
-                                                   TsoRange(2, 3), false)
+                                                   TsoRange(2, 3))
                          .has_value());
     EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
-                                                   Version(2, 3), TsoRange(2, 3), false)
+                                                   Version(2, 3), TsoRange(2, 3))
                          .has_value());
     // A singleton rowset answers with its own version and assigned commit TSO.
     EXPECT_EQ(7, get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(7, 7),
-                                                   TsoRange(8, 8), false)
+                                                   TsoRange(8, 8))
                          ->get<TYPE_BIGINT>());
     EXPECT_EQ(8, get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
-                                                   Version(7, 7), TsoRange(8, 8), false)
+                                                   Version(7, 7), TsoRange(8, 8))
                          ->get<TYPE_BIGINT>());
-    // An unassigned commit TSO and BINLOG_TSO outside a row-binlog read keep the stored value.
+    // An unassigned commit TSO keeps the stored value; BINLOG_TSO is always left to the segment.
     EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
-                                                   Version(7, 7), TsoRange(), false)
+                                                   Version(7, 7), TsoRange())
                          .has_value());
     EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::BINLOG_TSO,
-                                                   Version(7, 7), TsoRange(8, 8), false)
+                                                   Version(7, 7), TsoRange(8, 8))
                          .has_value());
 }
 

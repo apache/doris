@@ -177,7 +177,7 @@ static Status read_slot_column_by_rowid(
         MutableColumnPtr& column) {
     if (auto value =
                 get_read_time_hidden_column_value(get_read_time_hidden_column_type(read_column),
-                                                  rowset.version(), rowset.commit_tso(), false);
+                                                  rowset.version(), rowset.commit_tso());
         value.has_value()) {
         for (size_t i = 0; i < row_ids.size(); ++i) {
             column->insert(*value);

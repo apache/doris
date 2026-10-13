@@ -54,11 +54,11 @@ bool has_load_placeholder_hidden_column(const TabletSchema& schema);
 
 // The logical value every row of a single-version rowset carries for `column_type`, or nullopt
 // when the stored value is the one to read: a multi-version rowset, an unassigned commit TSO, or
-// BINLOG_TSO outside a row-binlog read. Point-query and row-ID direct reads are not row-binlog
-// reads; SegmentIterator materializes BINLOG_TSO when StorageReadOptions::read_row_binlog is set.
+// BINLOG_TSO. Point-query and row-ID direct reads use this to answer VERSION/COMMIT_TSO without
+// opening the segment; every other column, BINLOG_TSO included, goes through Segment, which serves
+// a single-version read-time value with a ConstantColumnReader built from the same read options.
 std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
                                                        const Version& version,
-                                                       const TsoRange& commit_tso,
-                                                       bool read_row_binlog);
+                                                       const TsoRange& commit_tso);
 
 } // namespace doris

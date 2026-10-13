@@ -52,8 +52,7 @@ bool has_load_placeholder_hidden_column(const TabletSchema& schema) {
 
 std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
                                                        const Version& version,
-                                                       const TsoRange& commit_tso,
-                                                       bool read_row_binlog) {
+                                                       const TsoRange& commit_tso) {
     if (version.first != version.second) {
         return std::nullopt;
     }
@@ -66,11 +65,8 @@ std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType 
         }
         return std::nullopt;
     case ReadTimeHiddenColumnType::BINLOG_TSO:
-        if (read_row_binlog) {
-            const int64_t value = commit_tso.end_tso() == -1 ? 0 : commit_tso.end_tso();
-            return Field::create_field<TYPE_BIGINT>(value);
-        }
-        return std::nullopt;
+        // Direct reads leave BINLOG_TSO to the segment reader, which synthesizes it together with
+        // the other read-time hidden columns.
     case ReadTimeHiddenColumnType::NONE:
         return std::nullopt;
     }
