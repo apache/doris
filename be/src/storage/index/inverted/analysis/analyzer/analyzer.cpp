@@ -342,11 +342,14 @@ std::string InvertedIndexAnalyzer::normalize(const std::string& value,
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Index policy manager is not initialized");
     }
+    // The writers read a custom analyzer's text through the index's character filter as well,
+    // before the analyzer's own character filters.
+    const CharFilterMap char_filter_map = get_parser_char_filter_map_from_properties(properties);
     const auto normalizer = index_policy_mgr->get_normalizer_by_name(analyzer_name);
     if (normalizer == nullptr) {
-        return value;
+        return filter_characters(char_filter_map, value);
     }
-    auto reader = create_reader({});
+    auto reader = create_reader(char_filter_map);
     reader->init(value.data(), static_cast<int32_t>(value.size()), true);
     const auto terms = get_analyse_result(reader, normalizer.get());
     return terms.empty() ? std::string() : terms.front().get_single_term();

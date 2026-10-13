@@ -462,4 +462,37 @@ TEST_F(AnalyzerTest, TestNormalizeMatchesTheTermsOfBuiltinParsers) {
     }
 }
 
+// A custom analyzer reads the text through the index's character filter too, before its own
+// per-character part, and so does one without a per-character part: normalize returns the term the
+// analyzer writes.
+TEST_F(AnalyzerTest, TestNormalizeAppliesTheIndexCharacterFilterToCustomAnalyzers) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = _index_policy_mgr.get();
+    Defer restore_policy_mgr {[&] { exec_env->_index_policy_mgr = previous_policy_mgr; }};
+    TIndexPolicy lowercased;
+    lowercased.id = 4101;
+    lowercased.name = "char_filter_lowercase_analyzer";
+    lowercased.type = TIndexPolicyType::ANALYZER;
+    lowercased.properties = {{"tokenizer", "standard"}, {"token_filter", "lowercase"}};
+    TIndexPolicy plain;
+    plain.id = 4102;
+    plain.name = "char_filter_plain_analyzer";
+    plain.type = TIndexPolicyType::ANALYZER;
+    plain.properties = {{"tokenizer", "standard"}};
+    _index_policy_mgr->apply_policy_changes({lowercased, plain}, {});
+
+    for (const auto& name : {lowercased.name, plain.name}) {
+        const std::map<std::string, std::string> properties = {
+                {INVERTED_INDEX_ANALYZER_NAME_KEY, name},
+                {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+                {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "-"},
+                {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "x"}};
+        const auto terms = InvertedIndexAnalyzer::get_analyse_result("A-B", properties);
+        ASSERT_EQ(terms.size(), 1) << name;
+        EXPECT_EQ(InvertedIndexAnalyzer::normalize("A-B", properties), terms[0].get_single_term())
+                << name;
+    }
+}
+
 } // namespace doris::segment_v2::inverted_index

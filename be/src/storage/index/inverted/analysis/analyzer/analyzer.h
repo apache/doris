@@ -72,9 +72,8 @@ public:
                           std::vector<TermInfo>* out);
 
     // Normalizes the literal text of a prefix or a wildcard the way the index normalizes its
-    // terms, without splitting it: for a builtin analyzer the index's character filter and the
-    // parser's lowercasing unless lower_case is false, for a custom analyzer or normalizer its
-    // per-character part.
+    // terms, without splitting it: through the index's character filter, then a builtin parser's
+    // own term normalization or the per-character part of a custom analyzer or normalizer.
     static std::string normalize(const std::string& value,
                                  const std::map<std::string, std::string>& properties);
 

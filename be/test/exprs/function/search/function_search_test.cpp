@@ -3891,6 +3891,40 @@ TEST_F(FunctionSearchTest, TestSniiNativePrefixAppliesTheIndexCharacterFilter) {
     EXPECT_EQ("axb", reader->fake_source->expanded.back());
 }
 
+// A custom analyzer reads the text through the index's character filter as well, before its own
+// per-character filters: with '-' replaced by 'x', "A-B*" finds the terms written from "a-b...".
+TEST_F(FunctionSearchTest, TestSniiNativePrefixAppliesTheIndexCharacterFilterToACustomAnalyzer) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->index_policy_mgr();
+    IndexPolicyMgr scoped_policy_mgr;
+    exec_env->_index_policy_mgr = &scoped_policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    TIndexPolicy analyzer;
+    analyzer.id = 910060;
+    analyzer.name = "function_search_lowercase_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "standard";
+    analyzer.properties["token_filter"] = "lowercase";
+    scoped_policy_mgr.apply_policy_changes({analyzer}, {});
+
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    const std::map<std::string, std::string> properties {
+            {INVERTED_INDEX_ANALYZER_NAME_KEY, analyzer.name},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "-"},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "x"}};
+    auto index_meta = make_test_inverted_index(34, properties);
+    auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &index_meta, std::make_shared<RejectingCluceneIndexFileReader>());
+    search_snii_prefix(properties, context, "A-B*", reader);
+    EXPECT_EQ("axb", reader->fake_source->expanded.back());
+
+    scoped_policy_mgr.apply_policy_changes({}, {analyzer.id});
+}
+
 // A prefix is lowercased the way the parser lowercases the text it indexes: the ICU parser folds
 // every letter and the standard parser only ASCII letters.
 TEST_F(FunctionSearchTest, TestSniiNativePrefixLowercasesLikeTheParser) {
