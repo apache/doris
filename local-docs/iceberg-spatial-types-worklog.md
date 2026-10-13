@@ -385,3 +385,10 @@ Iceberg V3 schema
 前述 9 项个人环境失败来自受限沙箱网络和 Docker socket 访问，并非服务故障。使用 require_escalated 重新运行相同 health-check 后全部通过，Doris SELECT 1 成功；未重启或更改服务。只读确认个人 `doris-yuze-spark-iceberg`、REST、MinIO 服务健康，Spark fixture 包含 Iceberg 1.10.1。当前分支二进制仍未部署，故不能把现有服务健康或旧二进制查询作为本 PR 端到端证据。
 
 完整 diff clang-tidy 已开始发现新 ColumnSpatial qualified-auto 告警，两处已修复；检查继续进行。后续需再验证完整检查终态，不能用此前窄范围格式和 86/86 单测替代全部阶段验收。
+
+## 执行记录：2026-10-13 NULL 与端到端覆盖准备
+
+- 新增有效底层 WKB + NULL 标记的 accessor 测试，确认 ST_AsBinary 的 Geometry 原样返回分支丢失 NULL。修复明确的 NULL 输入分支后，标准 BE 定向 UT 87/87，通过证据为 `be-spatial-ut-current-6.log`。
+- 完整 diff clang-tidy 已通过 spatial type/factory、geo functions 等当前检查项；Arrow FixedSizeBinary 的 size_t/int 比较告警已改为 std::cmp_equal，仍需最终重跑确认。整个检查仍在运行。
+- Iceberg V3 回归从单行 Geometry 扩展为 Geometry/Geography、mixed NULL、INSERT SELECT、kind/CRS/algorithm 不匹配、fresh catalog reread，并改用 qt/order_qt 生成快照。代码仍待实际执行和自动输出，不能宣称回归通过。
+- 遵循本任务 worktree 隔离要求，拟在当前 worktree output 运行独立 FE/BE，统一端口偏移 17300，端口占用检查无冲突，priority_networks 使用实际主机 10.26.20.3/32。配置修改不纳入提交；不替换个人共享 Doris 服务。独立回归配置显式限定 personal doris-yuze-spark-iceberg fixture。

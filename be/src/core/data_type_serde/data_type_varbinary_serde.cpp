@@ -19,6 +19,7 @@
 
 #include <cstring>
 #include <limits>
+#include <utility>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -186,7 +187,7 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                 continue;
             }
             const auto string_view = column.get_data_at(i);
-            if (string_view.size != byte_width) {
+            if (!std::cmp_equal(string_view.size, byte_width)) {
                 return Status::InvalidArgument("Fixed size binary column expects {} bytes, got {}",
                                                byte_width, string_view.size);
             }

@@ -429,6 +429,37 @@ TEST(VGeoFunctionsTest, function_geo_projected_geometry_accessors) {
     }
 }
 
+TEST(VGeoFunctionsTest, function_geo_spatial_null_map_overrides_valid_payload) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto input_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
+    for (const auto& name : {"st_astext", "st_asbinary", "st_geometrytype", "st_x", "st_y"}) {
+        auto payloads = ColumnSpatial::create(TYPE_GEOMETRY);
+        payloads->insert_data(wkb.data(), wkb.size());
+        payloads->insert_data(wkb.data(), wkb.size());
+        auto nulls = ColumnUInt8::create();
+        nulls->insert_value(0);
+        nulls->insert_value(1);
+        auto input = ColumnNullable::create(std::move(payloads), std::move(nulls));
+        DataTypePtr result_type =
+                (std::string_view(name) == "st_x" || std::string_view(name) == "st_y")
+                        ? make_nullable(std::make_shared<DataTypeFloat64>())
+                        : make_nullable(std::make_shared<DataTypeString>());
+        ColumnsWithTypeAndName arguments {{std::move(input), input_type, "geometry"}};
+        auto function =
+                SimpleFunctionFactory::instance().get_function(name, arguments, result_type);
+        ASSERT_NE(nullptr, function);
+        Block block;
+        block.insert(arguments.front());
+        block.insert({nullptr, result_type, "result"});
+        ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 2).ok());
+        const auto& result = block.get_by_position(1).column;
+        ASSERT_EQ(2, result->size());
+        EXPECT_FALSE(result->is_null_at(0)) << name;
+        EXPECT_TRUE(result->is_null_at(1)) << name;
+    }
+}
+
 TEST(VGeoFunctionsTest, function_geo_legacy_wkb_accepts_embedded_srid) {
     const std::string ewkb = "01010000208A11000068270210774C5D40B8DECA334C3B4240";
     auto input_column = ColumnString::create();

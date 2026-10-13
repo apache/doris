@@ -946,6 +946,11 @@ struct StAsBinary {
         std::unique_ptr<GeoShape> shape;
 
         for (size_t row = 0; row < size; ++row) {
+            if (col->is_null_at(row)) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
             auto shape_value = col->get_data_at(row);
             if (is_geometry_type(input_type)) {
                 res->insert_data(shape_value.data, shape_value.size);
