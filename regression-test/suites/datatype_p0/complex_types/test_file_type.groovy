@@ -322,8 +322,9 @@ suite("test_file_type") {
             exception "cast"
         }
         test {
+            // branch-4.1 rejects ARRAY<VARIANT> construction before the FILE cast.
             sql "SELECT CAST(ARRAY(PARSE_TO_VARIANT('[]')) AS ARRAY<ARRAY<FILE>>)"
-            exception "cast"
+            exception "array does not support jsonb/variant type"
         }
     }
     sql "SET enable_strict_cast = true"
