@@ -312,7 +312,7 @@ public final class ConnectorType {
      */
     public ConnectorType withChildrenFieldIds(List<Integer> fieldIds) {
         return new ConnectorType(typeName, precision, scale, children, fieldNames,
-                childrenNullable, childrenComments, fieldIds, childrenCommentSpecified);
+                childrenNullable, childrenComments, fieldIds, childrenCommentSpecified, spatialCrs, spatialAlgorithm);
     }
 
     public String getTypeName() {
