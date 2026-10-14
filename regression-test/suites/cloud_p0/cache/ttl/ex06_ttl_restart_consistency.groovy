@@ -68,7 +68,12 @@ suite("ex06_ttl_restart_consistency", "docker") {
                             allMatch = false
                             break
                         }
-                        def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
+                        // Without TTL a block shows its class: NORMAL, or INDEX when a query cached
+                        // it first (a segment footer), which a later fill does not change.
+                        def mismatch = rows.find { row ->
+                            def type = row[0]?.toString() ?: ""
+                            expectedType == "normal" ? type.equalsIgnoreCase("ttl") : !type.equalsIgnoreCase(expectedType)
+                        }
                         if (mismatch) {
                             allMatch = false
                             break

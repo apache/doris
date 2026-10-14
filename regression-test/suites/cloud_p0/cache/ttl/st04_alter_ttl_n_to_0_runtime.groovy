@@ -150,7 +150,8 @@ suite("st04_alter_ttl_n_to_0_runtime", "nonConcurrent") {
                 def difference = [missing: baseline.keySet() - blocks.keySet(),
                                   unexpected: blocks.keySet() - baseline.keySet(),
                                   changed: blocks.findAll { key, value ->
-                                      value.type != "normal" || value.size != baseline[key]?.size
+                                      // NORMAL, or INDEX when a query cached the block first.
+                                      value.type == "ttl" || value.size != baseline[key]?.size
                                   }]
                 if (difference != lastDifference) {
                     logger.info("TTL conversion differences: ${difference}")

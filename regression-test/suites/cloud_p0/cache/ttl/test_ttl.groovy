@@ -248,19 +248,20 @@ suite("test_ttl", "nonConcurrent") {
                                    changed_sizes: converted.findAll { key, value -> value.size != baseline[key]?.size }.take(10)]
                 converted.each { key, value ->
                     // FE sets creation_time; BE checks its own clock. Allow two seconds of clock skew.
-                    assertTrue(value.type != "normal" || now + 2L >= metadata[key[2]].expires_at,
+                    // Without TTL a block shows its class: NORMAL, or INDEX when a query cached it first.
+                    assertTrue(value.type == "ttl" || now + 2L >= metadata[key[2]].expires_at,
                             "Cache converted before expiry: block=${key}, now=${now}, metadata=${metadata[key[2]]}")
                 }
                 tabletIds.each { id ->
                     def expected = baseline.findAll { key, value -> key[2] == id }
                     def actual = converted.findAll { key, value -> key[2] == id }
                     if (!firstNormalAt.containsKey(id) && blockSizes(expected) == blockSizes(actual) &&
-                            actual.values().every { it.type == "normal" }) {
+                            actual.values().every { it.type != "ttl" }) {
                         firstNormalAt[id] = now
                     }
                 }
                 boolean complete = blockSizes(baseline) == blockSizes(converted) &&
-                        converted.values().every { it.type == "normal" } && now > latestExpiry
+                        converted.values().every { it.type != "ttl" } && now > latestExpiry
                 lastState = [server_now: now, seconds_to_last_expiry: latestExpiry - now,
                              cache_by_be_tablet: summarizeCache(converted), differences: differences,
                              tablets_not_yet_normal: tabletIds - firstNormalAt.keySet()]
