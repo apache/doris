@@ -91,3 +91,16 @@ The Iceberg suite now also compares a broad `payload LIKE '%other%'` predicate, 
 The broad-text result shows why scan delivery is valuable even without Iceberg file pruning: it keeps millions of rejected rows out of the default compressed bitmap join. The advantage narrows as the bitmap admits more rows. With selective text, the unfiltered scan already sends only about 206,000 rows to that join, so the filter has much less downstream work to save. The 1-million-ID selective case was effectively even in this run, after being slower with the filter in the previous run.
 
 At 250,000, 1 million, and 10 million IDs, both variants read all 20 million target-org rows and all 18 Parquet row groups; `FileReadBytes` stayed at 44.87 MB for each profile. The default selective-text plan reported 19,793,814 `FilteredRowsByLazyRead`, while the compressed-filter plan reported zero and `ReaderReadRows = 40,000,000`: both the ID and text-payload predicate columns were read for all rows. The same zero lazy-read filtering appeared with broad text. Thus the current scan filter avoids downstream join work, but this run does **not** show earlier payload-column I/O or decode pruning. The Parquet scheduler's per-column lazy path requires selected-row-safe predicates; `LIKE` is not currently in that safe set, so evaluating this ordering is the next BE investigation. Filter-build, transfer, and memory costs across hosts remain unmeasured. A Base64 bitmap supplied from an external authorization service was not part of this local subquery benchmark.
+
+## Iceberg selectivity rerun
+
+The same suite passed again on 2026-10-14 without code changes. The first launch attempt could not connect to FE because its detached process had exited; after starting FE and BE in live sessions, the complete suite passed. Each query shape again had one warm-up and five timed executions. Mean times in milliseconds:
+
+| Allowlist IDs | Selective text: default | Selective text: scan filter | Broad text: default | Broad text: scan filter |
+| ---: | ---: | ---: | ---: | ---: |
+| 250,000 | 182.2 | 156.0 | 11,121.4 | 220.2 |
+| 1,000,000 | 179.8 | 191.4 | 11,225.0 | 674.4 |
+| 5,000,000 | 203.2 | 186.6 | 11,242.6 | 2,967.0 |
+| 10,000,000 | 196.2 | 189.8 | 11,276.6 | 5,855.4 |
+
+The broad-text advantage persists across all four sizes. At 1 million IDs, the selective-text scan filter was 11.6 ms slower than the default join in this run (6.5%), while the broad-text scan filter was 16.6 times faster. This reinforces the need for a plan choice that accounts for other predicate selectivity instead of enabling the filter universally. The 1-million-ID profiles again read 20 million target-org rows and all 18 row groups with either plan; `FileReadBytes` was 44.82 MB in both. The filter plan reported zero `FilteredRowsByLazyRead` and 40 million `ReaderReadRows`, so the rerun does not change the earlier Parquet I/O conclusion.
