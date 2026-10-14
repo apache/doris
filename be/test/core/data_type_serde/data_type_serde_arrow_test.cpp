@@ -1475,7 +1475,8 @@ TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
             make_nullable(std::make_shared<DataTypeTimeStampNs>()), timestamp_ns_array_type});
 
     std::shared_ptr<arrow::DataType> arrow_type;
-    auto status = convert_to_arrow_type(timestamp_ns_type, &arrow_type, "Asia/Shanghai");
+    auto status = DorisArrowSchemaConvertor("Asia/Shanghai")
+                          .convert_to_arrow_type(timestamp_ns_type, &arrow_type);
     ASSERT_TRUE(status.ok()) << status;
     auto arrow_timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
     EXPECT_EQ(arrow::TimeUnit::NANO, arrow_timestamp_type->unit());
@@ -1546,7 +1547,8 @@ TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
                                                timestamp_ns_struct_type, "3"));
 
     std::shared_ptr<arrow::Schema> schema;
-    status = get_arrow_schema_from_block(*source_block, &schema, TimezoneUtils::default_time_zone);
+    status = DorisArrowSchemaConvertor(TimezoneUtils::default_time_zone)
+                     .get_arrow_schema_from_block(*source_block, &schema);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(schema, nullptr);
     auto list_type = std::static_pointer_cast<arrow::ListType>(schema->field(1)->type());

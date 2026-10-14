@@ -126,8 +126,8 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
         } else if ((childDataType.isDateLikeType() || childDataType.isTimeType())
-                && targetType instanceof TimeStampNsType) {
-            // Temporal inputs can fail because TIMESTAMP_NS has a narrower signed epoch-nanos range.
+                && targetType instanceof TimeStampNsType && !childDataType.isTimeStampNsType()) {
+            // Other temporal inputs can fail because TIMESTAMP_NS has a narrower signed epoch-nanos range.
             return true;
         } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
                 || childDataType.isTimeStampTzType())

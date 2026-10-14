@@ -679,6 +679,7 @@ public class CastTest {
         Assertions.assertTrue(Cast.castNullable(false, TimeStampTzType.MAX, TimeStampNsType.INSTANCE));
         Assertions.assertTrue(Cast.castNullable(false, TimeV2Type.MAX, TimeStampNsType.INSTANCE));
         Assertions.assertFalse(Cast.castNullable(false, TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(true, TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE));
         Assertions.assertFalse(Cast.castNullable(false, TimeStampNsType.INSTANCE, DateTimeV2Type.MAX));
         Assertions.assertTrue(Cast.castNullable(false, TimeStampNsType.INSTANCE, TimeStampTzType.MAX));
     }

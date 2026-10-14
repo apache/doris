@@ -21,6 +21,7 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -46,6 +48,27 @@ import java.util.Optional;
 import java.util.Set;
 
 public class ExpressionAnalyzerTest {
+
+    @Test
+    void testTimestampNsIntervalArithmeticPreservesType() {
+        NereidsParser parser = new NereidsParser();
+        for (boolean nullable : new boolean[] {false, true}) {
+            SlotReference slot = new SlotReference(new ExprId(1), "ts", TimeStampNsType.INSTANCE,
+                    nullable, ImmutableList.of());
+            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null,
+                    new Scope(ImmutableList.of(slot)), null, true, true);
+            for (String unit : ImmutableList.of("YEAR", "MONTH", "WEEK", "DAY", "HOUR", "MINUTE", "SECOND")) {
+                for (String format : ImmutableList.of("ts + INTERVAL 1 %s", "INTERVAL 1 %s + ts",
+                        "ts - INTERVAL 1 %s")) {
+                    String sql = String.format(format, unit);
+                    Expression analyzed = analyzer.analyze(parser.parseExpression(sql));
+                    Assertions.assertEquals(TimeStampNsType.INSTANCE, analyzed.getDataType(), sql);
+                    Assertions.assertEquals(slot, analyzed.child(0), sql);
+                    Assertions.assertEquals(nullable, analyzed.nullable(), sql);
+                }
+            }
+        }
+    }
 
     @Test
     void testSkipQualifierOccupancyForLocalBindingHit() {
