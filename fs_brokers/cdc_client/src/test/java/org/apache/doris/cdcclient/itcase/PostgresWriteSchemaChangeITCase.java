@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -129,7 +130,7 @@ class PostgresWriteSchemaChangeITCase {
     }
 
     @Test
-    void modifyColumnTypeCommitsBaselineWithoutDdlAndReloadsBeforeNextAdd() throws Exception {
+    void modifyColumnTypeRequiresAcceptanceBeforeCommittingBaseline() throws Exception {
         try (Connection conn = connect();
                 Statement st = conn.createStatement()) {
             st.execute("ALTER TABLE t_user ADD COLUMN value_col INT");
@@ -155,7 +156,9 @@ class PostgresWriteSchemaChangeITCase {
             harness.writeSnapshot(splits);
             harness.enterBinlog(splits);
             String tableSchemasBeforeModify = harness.committedTableSchemas();
+            String offsetBeforeModify = harness.committedOffset();
             assertThat(tableSchemasBeforeModify).contains("value_col").contains("int4");
+            mock.setSchemaColumns("id", "name", "value_col");
 
             try (Connection conn = connect();
                     Statement st = conn.createStatement()) {
@@ -165,6 +168,25 @@ class PostgresWriteSchemaChangeITCase {
                                 + " VALUES (3, 'carol', 3000000000)");
             }
 
+            // Matching target names do not bypass the first unsupported-change failure.
+            assertThatThrownBy(() -> harness.continueBinlog(1, Duration.ofSeconds(90)))
+                    .hasMessageContaining(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED);
+            assertThat(mock.schemaRequestCount()).isZero();
+            assertThat(mock.executedDdls()).isEmpty();
+            assertThat(harness.committedOffset()).isEqualTo(offsetBeforeModify);
+            assertThat(harness.committedTableSchemas()).isEqualTo(tableSchemasBeforeModify);
+
+            // Acceptance still cannot bypass a missing target column.
+            mock.setSchemaColumns("id", "name");
+            harness.acceptUnsupportedSchemaChanges();
+            assertThatThrownBy(() -> harness.continueBinlog(1, Duration.ofSeconds(90)))
+                    .hasMessageContaining(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED)
+                    .hasMessageContaining("missing columns [value_col]");
+            assertThat(harness.committedOffset()).isEqualTo(offsetBeforeModify);
+            assertThat(harness.committedTableSchemas()).isEqualTo(tableSchemasBeforeModify);
+
+            mock.setSchemaColumns("id", "name", "value_col");
+            harness.rebuildReaderOnNextWrite();
             List<String> modifiedRecords = harness.continueBinlog(1, Duration.ofSeconds(90));
 
             assertThat(modifiedRecords).isNotEmpty();
@@ -285,8 +307,11 @@ class PostgresWriteSchemaChangeITCase {
             }
 
             assertThatThrownBy(() -> harness.continueBinlog(1, Duration.ofSeconds(90)))
-                    .isInstanceOf(Exception.class);
+                    .hasMessageContaining("injected second DDL failure")
+                    .satisfies(error -> assertThat(error.getMessage())
+                            .doesNotContain(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED));
             assertThat(harness.committedOffset()).isEqualTo(committedOffsetBeforeSchemaChange);
+            assertThat(mock.executedDdls()).hasSize(2);
 
             harness.rebuildReaderOnNextWrite();
             List<String> retriedRecords =
