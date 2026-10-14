@@ -169,12 +169,15 @@ public class MTMVRewriteUtil {
                 continue;
             }
             if (partitionSnapshots == null) {
+                // Every partition that reaches the sync check needs its snapshots prepared, and what keeps a
+                // partition from reaching it is grace -- read from the same set the check above is made of,
+                // rather than from a second reading of the grace period. A partition inside its window that no
+                // refresh has written falls through to be compared (that is what the version read above is for),
+                // so leaving it out here would send that comparison to snapshots nobody prepared.
                 Set<String> partitionsToPreload = Sets.newHashSet();
                 for (Partition candidate : allPartitions) {
-                    boolean withinGracePeriod = gracePeriodMills > 0
-                            && currentTimeMills <= candidate.getVisibleVersionTime() + gracePeriodMills
-                            && !forceConsistent;
-                    if (!withinGracePeriod && mtmvNeedComparePartitions.contains(candidate.getName())) {
+                    if (!writtenPartitionsInGrace.contains(candidate.getName())
+                            && mtmvNeedComparePartitions.contains(candidate.getName())) {
                         partitionsToPreload.add(candidate.getName());
                     }
                 }

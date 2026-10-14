@@ -213,6 +213,34 @@ public class MTMVRewriteUtilTest {
     }
 
     @Test
+    public void testGetMTMVCanRewritePartitionsInGracePeriodStillPreloadsWhatItCompares() throws AnalysisException {
+        // The partition above falls through to the sync check, so its snapshots have to be preloaded: the
+        // preload set and the set grace answers for have to come from one reading of the grace period, or a
+        // partition inside the window that no refresh has written is compared against snapshots nobody
+        // prepared -- which the sync check reports as "not synchronized", dropping the partition and, with
+        // every partition in that state, the MV itself.
+        try (MockedStatic<MTMVRefreshContext> refreshContextStatic =
+                Mockito.mockStatic(MTMVRefreshContext.class)) {
+            MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+            refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(
+                    Mockito.any(MTMV.class), Mockito.anyMap())).thenReturn(context);
+            Mockito.when(context.prepareComparablePartitionSnapshots(Mockito.anySet()))
+                    .thenReturn(Mockito.mock(MTMVRefreshContext.PreparedPartitionSnapshots.class));
+
+            Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+            // Inside its window (creation 1 + grace 2 >= now 3) and written by no refresh, so grace does not
+            // answer for it -- the version read is what tells the two apart.
+            Mockito.when(p1.getVisibleVersion()).thenReturn(0L);
+
+            Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
+                    .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false, null);
+
+            Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
+            Mockito.verify(context).prepareComparablePartitionSnapshots(Sets.newHashSet("p1"));
+        }
+    }
+
+    @Test
     public void testGetMTMVCanRewritePartitionsInGracePeriodStillNeedsTheQueryCovered() throws AnalysisException {
         // A partition inside its grace period is answered usable without being compared, but that says nothing
         // about the base partitions the query reads. One that no MV partition is mapped from is one whose rows
