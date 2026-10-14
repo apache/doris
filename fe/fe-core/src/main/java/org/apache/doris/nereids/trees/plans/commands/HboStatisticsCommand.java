@@ -263,8 +263,8 @@ public class HboStatisticsCommand extends Command {
      *                   by the sha256 of what the user pasted, so the struct info has to be a form
      *                   the read side can produce; the struct info of a learned entry is a label
      *                   only (its key is generated internally), so it is accepted as it is - which
-     *                   is also why a learned join / aggregation entry may carry its J-shape or
-     *                   A-shape struct even though no literal carrying form of those exists.
+     *                   is also why a learned join / aggregation entry may carry either of the two
+     *                   forms the annotation prints for them.
      */
     private String validateStructCanonical(String targetFingerprint, String structCanonical, PinnedType type,
             LiteralMode literalMode, boolean required, boolean keyedEntry) throws AnalysisException {

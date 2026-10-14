@@ -240,14 +240,22 @@ public class HboStatsCalculator extends StatsCalculator {
         // e.g, logical one likes "count(*) AS `count(*)`#4"
         //      local physical one likes "partial_count(*) AS `partial_count(*)`#5"
         //      global physical one likes "count(partial_count(*)#5) AS `count(*)`#4"
+        // the pinned part already tries every mode itself; the learned part has to try them one by one,
+        // because the publish path keys an entry with the constant agnostic fingerprint and an injected
+        // one may carry the literal carrying fingerprint (getStatsFromHboPlanStats returns the delegate
+        // when nothing applied, so it cannot be used to advance the loop - see computeJoin)
+        Statistics pinnedStats = applyPinnedStats((AbstractPlan) aggregate, legacyStats, null,
+                JOIN_AGG_LOOKUP_MODES);
+        if (pinnedStats != null) {
+            return pinnedStats;
+        }
         for (GroupStructInfo.LiteralMode mode : JOIN_AGG_LOOKUP_MODES) {
-            Statistics learnedStats = getStatsFromHboPlanStats((AbstractPlan) aggregate, legacyStats,
-                    mode, null);
+            Statistics learnedStats = applyLearnedStats((AbstractPlan) aggregate, mode, legacyStats);
             if (learnedStats != null) {
                 return learnedStats;
             }
         }
-        return null;
+        return legacyStats;
     }
 
     /**

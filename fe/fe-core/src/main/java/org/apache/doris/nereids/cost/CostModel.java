@@ -476,8 +476,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     && hboPlanStatisticsProvider.hasAnyHboPlanStats()) {
                 Optional<PlanNodeAndHash> planNodeAndHashOpt;
                 try {
-                    // join keys are always constant agnostic: the read side and the publish path
-                    // use this mode, and a literal carrying join entry can not exist
+                    // the publish path keys a join with the constant agnostic form, and that is the
+                    // form which the read side publishes for skew ratios as well
                     planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(physicalHashJoin,
                             GroupStructInfo.LiteralMode.NO_LITERAL);
                 } catch (IllegalStateException e) {

@@ -724,8 +724,9 @@ public class NereidsPlanner extends Planner {
         if (!isFilter && !isJoinOrAgg) {
             return;
         }
-        // filter roots have two fingerprints (exact with literals + constant agnostic shape);
-        // join / aggregation roots only have the constant agnostic one (their read side key)
+        // filter, join and aggregation roots have two fingerprints (literal carrying + constant
+        // agnostic shape); the literal carrying one is the primary state of a filter, while for a join
+        // or an aggregation the constant agnostic one stays the primary (published) key
         GroupStructInfo.LiteralMode primaryMode = isFilter
                 ? GroupStructInfo.LiteralMode.WITH_LITERAL
                 : GroupStructInfo.LiteralMode.NO_LITERAL;

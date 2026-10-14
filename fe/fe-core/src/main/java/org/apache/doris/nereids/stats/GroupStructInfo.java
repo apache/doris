@@ -175,8 +175,9 @@ public class GroupStructInfo {
      *       bound to the exact constants, used for filter roots where the constant changes the
      *       output row count;</li>
      *   <li>{@link #NO_LITERAL} replaces every literal value with {@code *} ({@code lit(*)}): the
-     *       fingerprint is constant agnostic, used for join / aggregate roots and for the
-     *       constant-free filter shape.</li>
+     *       fingerprint is constant agnostic. It is the primary key of a scan, of a constant-free
+     *       filter shape and of the key the publish path generates for a join / aggregate root; every
+     *       root which is annotated also carries a literal carrying form.</li>
      * </ul>
      * The literal data type is intentionally not kept: nereids inserts an explicit {@code Cast}
      * for mismatching operand types, so two semantically different literal forms already differ by
@@ -920,10 +921,6 @@ public class GroupStructInfo {
         out.same(")");
     }
 
-    private static void invalid(Ctx ctx) {
-        invalid(ctx, "");
-    }
-
     /** Mark the description invalid, remembering why (the first reason is the one reported). */
     private static void invalid(Ctx ctx, String reason) {
         ctx.valid = false;
@@ -1426,7 +1423,14 @@ public class GroupStructInfo {
             scanCount = 1;
             relations.add(((OlapScan) plan).getTable().getNameWithFullQualifiers());
         }
+        // the summary counts what the description renders: an anchor describes its consumer side, which
+        // is its second child (the first one is the producer, and counting it would report scans and
+        // relations the canonical form of that group does not contain)
+        boolean anchor = plan instanceof LogicalCTEAnchor || plan instanceof PhysicalCTEAnchor;
         for (int i = 0; i < ge.arity(); i++) {
+            if (anchor && i != 1) {
+                continue;
+            }
             Group child = ge.child(i);
             if (child == null) {
                 continue;

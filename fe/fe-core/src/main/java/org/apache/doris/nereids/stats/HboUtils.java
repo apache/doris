@@ -292,9 +292,10 @@ public class HboUtils {
 
     /**
      * Get the hbo lookup key of a plan node in the given literal mode (see
-     * {@link GroupStructInfo.LiteralMode}): {@code WITH_LITERAL} for the exact filter form,
-     * {@code NO_LITERAL} for the constant agnostic form used by join / aggregation keys and by
-     * the filter shape key.
+     * {@link GroupStructInfo.LiteralMode}): {@code WITH_LITERAL} for the form which keeps the
+     * constants (the exact filter form, and the literal carrying key of a join / aggregation root
+     * since it is printed and looked up as well), {@code NO_LITERAL} for the constant agnostic form
+     * of every root.
      */
     public static Optional<PlanNodeAndHash> getHboPlanNodeAndHash(AbstractPlan planNode,
             GroupStructInfo.LiteralMode mode) {

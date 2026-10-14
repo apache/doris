@@ -32,8 +32,8 @@ public interface MutableState {
     /** hbo fingerprint attached at planning time for explain printing */
     String KEY_HBO_FP = "hbo-fingerprint";
     /**
-     * hbo constant agnostic fingerprint attached at planning time for explain printing; only filter
-     * nodes carry both forms (exact + shape), join / aggregation carry the constant agnostic one
+     * hbo constant agnostic fingerprint attached at planning time for explain printing; filter, join
+     * and aggregation nodes all carry both forms (literal carrying + shape), scans only the shape
      */
     String KEY_HBO_FP_NO_LITERAL = "hbo-fingerprint-no-literal";
 
