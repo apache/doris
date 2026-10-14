@@ -31,6 +31,9 @@
 #include "storage/delete/delete_handler.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/schema.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -69,6 +72,25 @@ protected:
         std::vector<TabletColumn> dropped_columns;
         ASSERT_TRUE(handler.init({rs_meta}, /*version=*/100, *read_schema, &dropped_columns).ok());
         (*read_schema)->append_dropped_columns(std::move(dropped_columns));
+    }
+
+    // Give `reader` a tablet with the given keys type. Its only key column is k1.
+    static void init_tablet(StorageEngine& engine, TabletReader& reader, KeysType keys_type,
+                            bool enable_mow) {
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->set_enable_unique_key_merge_on_write(enable_mow);
+        reader._tablet = std::make_shared<Tablet>(engine, std::move(tablet_meta), nullptr);
+        reader._tablet_schema = create_schema({{"k1", 10}, {"v1", 12}}, keys_type);
+        reader._read_schema = std::make_shared<ReadSchema>(reader._tablet_schema->columns());
+    }
+
+    // Set up the order-by key columns for a storage TopN that sorts by the first
+    // `num_prefix_columns` key columns.
+    static Status init_storage_topn(TabletReader& reader, size_t num_prefix_columns) {
+        TabletReader::ReaderParams params;
+        params.read_orderby_key_num_prefix_columns = num_prefix_columns;
+        params.read_orderby_key_limit = 10;
+        return reader._init_orderby_keys_param(params);
     }
 };
 
@@ -210,5 +232,44 @@ TEST_F(TabletReaderTest, delete_predicate_keeps_dropped_same_name_column_identit
         EXPECT_EQ(0, delete_zone_maps.count(1));
         EXPECT_EQ(1, delete_zone_maps.count(2));
     }
+}
+
+// DUP and merge-on-write tablets give storage TopN the leading key columns to sort by.
+TEST_F(TabletReaderTest, storage_topn_sorts_by_leading_key_columns) {
+    StorageEngine engine({});
+    TabletReader dup_reader;
+    init_tablet(engine, dup_reader, KeysType::DUP_KEYS, /*enable_mow=*/false);
+    auto st = init_storage_topn(dup_reader, 1);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(std::vector<uint32_t>({0}), dup_reader._orderby_key_columns);
+
+    TabletReader mow_reader;
+    init_tablet(engine, mow_reader, KeysType::UNIQUE_KEYS, /*enable_mow=*/true);
+    st = init_storage_topn(mow_reader, 1);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(std::vector<uint32_t>({0}), mow_reader._orderby_key_columns);
+}
+
+// Storage TopN without order-by key columns fails at init, instead of aborting the BE
+// later in VCollectIterator.
+TEST_F(TabletReaderTest, storage_topn_without_orderby_key_columns_fails) {
+    StorageEngine engine({});
+    // A merge-on-read tablet, such as one read as DUP, sets up no order-by key columns.
+    TabletReader mor_reader;
+    init_tablet(engine, mor_reader, KeysType::UNIQUE_KEYS, /*enable_mow=*/false);
+    auto st = init_storage_topn(mor_reader, 1);
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+
+    // An empty key prefix leaves nothing to sort by.
+    TabletReader dup_reader;
+    init_tablet(engine, dup_reader, KeysType::DUP_KEYS, /*enable_mow=*/false);
+    st = init_storage_topn(dup_reader, 0);
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+
+    // Without TopN, a merge-on-read tablet needs no order-by key columns.
+    TabletReader plain_reader;
+    init_tablet(engine, plain_reader, KeysType::UNIQUE_KEYS, /*enable_mow=*/false);
+    st = plain_reader._init_orderby_keys_param(TabletReader::ReaderParams {});
+    EXPECT_TRUE(st.ok()) << st;
 }
 } // namespace doris
