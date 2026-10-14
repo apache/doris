@@ -126,12 +126,12 @@ public class PaimonWriteBindingTest {
         FileStoreTable intTable = partitionedTable(warehouse, Collections.emptyMap(),
                 new DataField(1, "part", DataTypes.INT()));
         Assertions.assertEquals("1", PaimonWriteBinding.resolveStaticPartition(intTable,
-                write(true, "part", "true", "1")).get("part"));
+                write(true, "part", "true", "1"), true).get("part"));
 
         FileStoreTable dateTable = partitionedTable(warehouse, Collections.emptyMap(),
                 new DataField(1, "dt", DataTypes.DATE()));
         Assertions.assertEquals("2024-01-01", PaimonWriteBinding.resolveStaticPartition(dateTable,
-                write(true, "dt", "20240101", "2024-01-01")).get("dt"));
+                write(true, "dt", "20240101", "2024-01-01"), true).get("dt"));
     }
 
     @Test
@@ -144,7 +144,7 @@ public class PaimonWriteBindingTest {
 
         DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
                 () -> PaimonWriteBinding.resolveStaticPartition(table,
-                        write(true, "part", DEFAULT_NAME, DEFAULT_NAME)));
+                        write(true, "part", DEFAULT_NAME, DEFAULT_NAME), true));
         Assertions.assertTrue(error.getMessage().contains("cannot be represented"), error.getMessage());
     }
 
@@ -157,7 +157,8 @@ public class PaimonWriteBindingTest {
                 new DataField(1, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
 
         String value = PaimonWriteBinding.resolveStaticPartition(table,
-                write(true, "part", "2024-01-15 08:30:45.123456", "2024-01-15 00:30:45.123456+00:00")).get("part");
+                write(true, "part", "2024-01-15 08:30:45.123456", "2024-01-15 00:30:45.123456+00:00"), true)
+                .get("part");
 
         Assertions.assertEquals("2024-01-14 16:30:45.123456", value);
         Assertions.assertEquals(Instant.parse("2024-01-15T00:30:45.123456Z"), parsedByPaimon(table, value));
@@ -172,7 +173,8 @@ public class PaimonWriteBindingTest {
         for (String instant : Arrays.asList("2023-11-05 08:30:00.123456+00:00",
                 "2023-11-05 09:30:00.123456+00:00")) {
             DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant)));
+                    () -> PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant),
+                            true));
             Assertions.assertTrue(error.getMessage().contains("ambiguous"), error.getMessage());
             Assertions.assertTrue(error.getMessage().contains("America/Los_Angeles"), error.getMessage());
         }
@@ -209,7 +211,7 @@ public class PaimonWriteBindingTest {
             }, Collections.emptySet());
 
             DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> PaimonWriteBinding.resolveStaticPartition(table, overwrite));
+                    () -> PaimonWriteBinding.resolveStaticPartition(table, overwrite, true));
             Assertions.assertTrue(error.getMessage().contains("binary partition column 'part'"),
                     error.getMessage());
         }
@@ -226,8 +228,29 @@ public class PaimonWriteBindingTest {
                     Collections::emptyMap, Collections.singleton("part"));
 
             Assertions.assertEquals(DEFAULT_NAME,
-                    PaimonWriteBinding.resolveStaticPartition(table, write).get("part"), type.toString());
+                    PaimonWriteBinding.resolveStaticPartition(table, write, true).get("part"), type.toString());
         }
+    }
+
+    @Test
+    public void staticCharPartitionIsPaddedAsTheRowsAre(@TempDir Path warehouse) {
+        // With padding on, the BE writer pads the rows' CHAR values to the column length, while Paimon parses a
+        // static partition value as it is: an unpadded 'a' would name another partition than the rows reach, and
+        // the commit would fail. Padding counts code points, and a longer value is kept, as it is in the rows.
+        // MUTATION: not padding, or counting UTF-16 units -> red.
+        FileStoreTable table = partitionedTable(warehouse, Collections.emptyMap(),
+                new DataField(1, "part", DataTypes.CHAR(3)));
+        Assertions.assertEquals("a", TypeUtils.castFromString("a", DataTypes.CHAR(3)).toString());
+
+        Assertions.assertEquals("a  ", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", "a", "a"), true).get("part"));
+        String supplementary = new String(Character.toChars(0x20000));
+        Assertions.assertEquals(supplementary + "  ", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", supplementary, supplementary), true).get("part"));
+        Assertions.assertEquals("abcd", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", "abcd", "abcd"), true).get("part"));
+        Assertions.assertEquals("a", PaimonWriteBinding.resolveStaticPartition(table,
+                write(true, "part", "a", "a"), false).get("part"));
     }
 
     @Test
@@ -245,14 +268,14 @@ public class PaimonWriteBindingTest {
 
         PaimonWriteBinding binding = PaimonWriteBinding.create(
                 new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList()),
-                table, Collections.emptyMap(), insert);
+                table, Collections.emptyMap(), insert, true);
 
         Assertions.assertFalse(binding.isOverwrite());
         Assertions.assertTrue(binding.getStaticPartition().isEmpty(), binding.getStaticPartition().toString());
     }
 
     private static void assertStaticLtzRoundTrip(FileStoreTable table, String instant) {
-        String value = PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant))
+        String value = PaimonWriteBinding.resolveStaticPartition(table, write(true, "part", instant, instant), true)
                 .get("part");
         Assertions.assertEquals(OffsetDateTime.parse(instant.replace(' ', 'T')).toInstant(),
                 parsedByPaimon(table, value), instant);

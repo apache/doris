@@ -19,10 +19,13 @@ package org.apache.doris.paimon;
 
 import org.apache.paimon.casting.DefaultValueRow;
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.GenericArray;
+import org.apache.paimon.data.GenericMap;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.DoubleType;
@@ -34,7 +37,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class PaimonWriteSchemaTest {
@@ -244,6 +249,107 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
+    public void testCharPaddingPadsCharValuesToTheColumnLengthInCodePoints() {
+        // Spark and Flink pad a CHAR(n) value with spaces to n characters when they write it, and Paimon compares
+        // primary keys and hashes buckets by bytes, so an unpadded 'a' would be another key than their 'a  '. A
+        // longer value is kept: Doris has already decided whether to cut it, and VARCHAR is never padded.
+        // MUTATION: not padding, or padding to the length in bytes -> red.
+        PaimonWriteSchema schema = PaimonWriteSchema.create(charTableType(),
+                new String[] {"id", "code", "note"}, false, true);
+
+        Assertions.assertEquals("a  ", tableRow(schema, 1, string("a"), string("a")).getString(1).toString());
+        Assertions.assertEquals("中  ", tableRow(schema, 1, string("中"), null).getString(1).toString());
+        Assertions.assertEquals("abc", tableRow(schema, 1, string("abc"), null).getString(1).toString());
+        Assertions.assertEquals("abcd", tableRow(schema, 1, string("abcd"), null).getString(1).toString());
+        Assertions.assertTrue(tableRow(schema, 1, null, null).isNullAt(1));
+        Assertions.assertEquals("a", tableRow(schema, 1, string("a"), string("a")).getString(2).toString());
+    }
+
+    @Test
+    public void testCharPaddingPadsCharValuesNestedInArraysMapsAndRows() {
+        // Spark and Flink pad nested CHAR values too. A map keeps every entry, in order, as it did before.
+        // MUTATION: padding only top-level values -> red.
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "codes", DataTypes.ARRAY(DataTypes.CHAR(3))),
+                new DataField(1, "labels", DataTypes.MAP(DataTypes.CHAR(2), DataTypes.CHAR(3))),
+                new DataField(2, "item", DataTypes.ROW(DataTypes.FIELD(3, "code", DataTypes.CHAR(3)),
+                        DataTypes.FIELD(4, "count", DataTypes.INT()))),
+                new DataField(5, "rows", DataTypes.ARRAY(DataTypes.ROW(
+                        DataTypes.FIELD(6, "code", DataTypes.CHAR(2))))),
+                new DataField(7, "numbers", DataTypes.ARRAY(DataTypes.INT()))));
+        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
+                new String[] {"codes", "labels", "item", "rows", "numbers"}, false, true);
+        GenericArray numbers = new GenericArray(new Object[] {1, 2});
+
+        InternalRow tableRow = tableRow(schema,
+                new GenericArray(new Object[] {string("a"), null, string("abc")}),
+                new GenericMap(Collections.singletonMap(string("k"), string("v"))),
+                GenericRow.of(string("a"), 7),
+                new GenericArray(new Object[] {GenericRow.of(string("x"))}),
+                numbers);
+
+        InternalArray codes = tableRow.getArray(0);
+        Assertions.assertEquals("a  ", codes.getString(0).toString());
+        Assertions.assertTrue(codes.isNullAt(1));
+        Assertions.assertEquals("abc", codes.getString(2).toString());
+        InternalMap labels = tableRow.getMap(1);
+        Assertions.assertEquals(1, labels.size());
+        Assertions.assertEquals("k ", labels.keyArray().getString(0).toString());
+        Assertions.assertEquals("v  ", labels.valueArray().getString(0).toString());
+        InternalRow item = tableRow.getRow(2, 2);
+        Assertions.assertEquals("a  ", item.getString(0).toString());
+        Assertions.assertEquals(7, item.getInt(1));
+        Assertions.assertEquals("x ", tableRow.getArray(3).getRow(0, 1).getString(0).toString());
+        Assertions.assertSame(numbers, tableRow.getArray(4));
+
+        // Two keys that only padding makes equal both stay; the writer does not deduplicate map keys.
+        Map<BinaryString, BinaryString> keys = new LinkedHashMap<>();
+        keys.put(string("k"), string("1"));
+        keys.put(string("k "), string("2"));
+        InternalMap padded = tableRow(schema, null, new GenericMap(keys), null, null, null).getMap(1);
+        Assertions.assertEquals(2, padded.size());
+        Assertions.assertEquals("k ", padded.keyArray().getString(0).toString());
+        Assertions.assertEquals("k ", padded.keyArray().getString(1).toString());
+        Assertions.assertEquals("1  ", padded.valueArray().getString(0).toString());
+        Assertions.assertEquals("2  ", padded.valueArray().getString(1).toString());
+    }
+
+    @Test
+    public void testCharValuesAreWrittenAsTheyAreWhenPaddingIsOff() {
+        PaimonWriteSchema schema = PaimonWriteSchema.create(charTableType(),
+                new String[] {"id", "code", "note"}, false, false);
+
+        Assertions.assertEquals("a", tableRow(schema, 1, string("a"), null).getString(1).toString());
+    }
+
+    @Test
+    public void testCharPaddingLeavesUpdateAndDeleteRowsAlone() {
+        // An UPDATE or DELETE row carries the key that Doris read back from the table, which must stay byte-equal
+        // to the stored key for Paimon to match it: a key an earlier Doris wrote without padding would otherwise
+        // never be updated or deleted. MUTATION: padding every row kind -> red.
+        PaimonWriteSchema schema = PaimonWriteSchema.create(charTableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "id", "code"}, true, true);
+
+        Assertions.assertEquals("a  ", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, 1, string("a"))
+                .getString(1).toString());
+        Assertions.assertEquals("a", tableRow(schema, PaimonWriteSchema.UPDATE_OPERATION, 1, string("a"))
+                .getString(1).toString());
+        Assertions.assertEquals("a", tableRow(schema, PaimonWriteSchema.DELETE_OPERATION, 1, string("a"))
+                .getString(1).toString());
+    }
+
+    @Test
+    public void testCharPaddingIsReadFromTheTableOptionsTheFeSets() {
+        // FE puts doris.write.char-padding on the table it serializes for the writer (PaimonWriteBinding). An FE
+        // that predates the option leaves it out and does not pad its static partition values, so neither do we.
+        Assertions.assertTrue(PaimonWriteSchema.charPadding(
+                Collections.singletonMap("doris.write.char-padding", "true")));
+        Assertions.assertFalse(PaimonWriteSchema.charPadding(
+                Collections.singletonMap("doris.write.char-padding", "false")));
+        Assertions.assertFalse(PaimonWriteSchema.charPadding(Collections.emptyMap()));
+    }
+
+    @Test
     public void testDuplicateColumnRejectedDuringInitialization() {
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class,
@@ -258,6 +364,17 @@ public class PaimonWriteSchemaTest {
                 new DataField(1, "name", new VarCharType()),
                 new DataField(2, "score", new DoubleType()),
                 new DataField(3, "region", new VarCharType())));
+    }
+
+    private static RowType charTableType() {
+        return new RowType(Arrays.asList(
+                new DataField(0, "id", new IntType()),
+                new DataField(1, "code", new CharType(3)),
+                new DataField(2, "note", new VarCharType(3))));
+    }
+
+    private static BinaryString string(String value) {
+        return BinaryString.fromString(value);
     }
 
     private static InternalRow changelogRow(PaimonWriteSchema schema, byte operation) {

@@ -1,0 +1,118 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Doris pads a CHAR(n) value written into a Paimon table with spaces to n characters, as Spark and Flink do, so
+// that a key written by Doris and by Spark is one row of a primary-key table. Doris reads a value back as it is
+// stored, trailing spaces included, which the queries below show between brackets.
+suite("test_paimon_write_char_padding", "p0,external,paimon") {
+    String enabled = context.config.otherConfigs.get("enablePaimonTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable paimon test.")
+        return
+    }
+
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
+    String catalogName = "test_pw_char_padding_catalog"
+    String dbName = "test_pw_char_padding_db"
+
+    spark_paimon_multi """
+        CREATE DATABASE IF NOT EXISTS paimon.${dbName};
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_pk;
+        CREATE TABLE paimon.${dbName}.t_char_pk (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '1'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_nested;
+        CREATE TABLE paimon.${dbName}.t_char_nested (
+            id INT, arr ARRAY<CHAR(3)>, m MAP<CHAR(2), CHAR(3)>, s STRUCT<code: CHAR(3), n: INT>
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_part;
+        CREATE TABLE paimon.${dbName}.t_char_part (
+            id INT, p CHAR(3)
+        ) USING paimon
+        PARTITIONED BY (p);
+    """
+
+    sql """drop catalog if exists ${catalogName}"""
+    sql """
+        CREATE CATALOG ${catalogName} PROPERTIES (
+            'type' = 'paimon',
+            'paimon.catalog.type' = 'filesystem',
+            'warehouse' = 's3://warehouse/wh',
+            's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
+            's3.access_key' = 'admin',
+            's3.secret_key' = 'password',
+            's3.path.style.access' = 'true'
+        );
+    """
+    sql """switch ${catalogName}"""
+    sql """use ${dbName}"""
+
+    try {
+        // A primary key Doris writes is padded, and Spark's write of the same key replaces it.
+        sql """INSERT INTO t_char_pk VALUES ('k', 1)"""
+        order_qt_pk_padded """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_pk"""
+        spark_paimon """INSERT INTO paimon.${dbName}.t_char_pk VALUES ('k', 2)"""
+        sql """refresh table t_char_pk"""
+        order_qt_pk_one_row_with_spark """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_pk"""
+
+        // CHAR values nested in ARRAY, MAP and STRUCT are padded too; a NULL element stays NULL.
+        sql """INSERT INTO t_char_nested VALUES
+            (1, ['a', NULL, 'abc'], map('k', 'v'), named_struct('code', 'a', 'n', 7))"""
+        order_qt_nested_padded """
+            SELECT id, concat('[', arr[1], ']'), arr[2] IS NULL, concat('[', arr[3], ']'),
+                concat('[', map_keys(m)[1], ']'), concat('[', map_values(m)[1], ']'),
+                concat('[', struct_element(s, 'code'), ']'), struct_element(s, 'n')
+            FROM t_char_nested
+        """
+
+        // A partition value is padded whether it comes from the rows or from a static PARTITION clause, so a
+        // second static overwrite of 'x' replaces the partition the first one wrote.
+        sql """INSERT OVERWRITE TABLE t_char_part PARTITION (p = 'x') SELECT 1"""
+        sql """INSERT INTO t_char_part VALUES (2, 'y')"""
+        order_qt_partition_padded """SELECT id, concat('[', p, ']') FROM t_char_part"""
+        sql """INSERT OVERWRITE TABLE t_char_part PARTITION (p = 'x') SELECT 3"""
+        order_qt_static_overwrite_replaces_padded """SELECT id, concat('[', p, ']') FROM t_char_part"""
+
+        // With padding off, values are written as they are.
+        sql """set enable_paimon_write_char_padding = false"""
+        sql """INSERT INTO t_char_pk VALUES ('u', 3), ('w', 4)"""
+        sql """INSERT OVERWRITE TABLE t_char_part PARTITION (p = 'z') SELECT 5"""
+        sql """set enable_paimon_write_char_padding = true"""
+        order_qt_pk_padding_off """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_pk"""
+        order_qt_partition_padding_off """SELECT id, concat('[', p, ']') FROM t_char_part"""
+
+        // UPDATE and DELETE carry the key read back from the table, so with padding on they still match the
+        // keys written unpadded: 'u' is deleted and 'w' is updated in place, without a padded duplicate.
+        sql """DELETE FROM t_char_pk WHERE v = 3"""
+        sql """UPDATE t_char_pk SET v = 40 WHERE v = 4"""
+        order_qt_dml_matches_unpadded_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_pk"""
+    } finally {
+        sql """set enable_paimon_write_char_padding = true"""
+    }
+}

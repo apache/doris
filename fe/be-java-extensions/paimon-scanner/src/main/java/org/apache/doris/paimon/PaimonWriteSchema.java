@@ -17,17 +17,27 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.data.InternalArray;
+import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowKind;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TinyIntType;
+import org.apache.paimon.utils.BinaryStringUtils;
 import org.apache.paimon.utils.DefaultValueUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Immutable mapping from Doris input columns to a Paimon table row.
@@ -41,8 +51,16 @@ final class PaimonWriteSchema {
     static final byte INSERT_OPERATION = 0;
     static final byte UPDATE_OPERATION = 1;
     static final byte DELETE_OPERATION = 2;
+    /**
+     * Table option through which FE asks the writer to pad CHAR values, set from the session variable
+     * enable_paimon_write_char_padding. Keep in sync with PaimonWriteBinding.DORIS_WRITE_CHAR_PADDING in
+     * fe-connector-paimon.
+     */
+    static final String DORIS_WRITE_CHAR_PADDING = "doris.write.char-padding";
 
     private final InternalRow.FieldGetter[] fieldGetters;
+    /** Per input column, pads the CHAR values it holds; null when it holds none or padding is off. */
+    private final CharPadder[] charPadders;
     private final RowType inputType;
     /** Maps Doris input-column position → Paimon table-schema position. */
     private final int[] tableFieldIndexes;
@@ -52,13 +70,15 @@ final class PaimonWriteSchema {
     private final int tableFieldCount;
 
     private PaimonWriteSchema(int[] tableFieldIndexes, int[] omittedDefaultFieldIndexes,
-            Object[] omittedDefaultValues, int tableFieldCount, RowType inputType) {
+            Object[] omittedDefaultValues, int tableFieldCount, RowType inputType, boolean charPadding) {
         this.fieldGetters = new InternalRow.FieldGetter[inputType.getFieldCount()];
+        this.charPadders = new CharPadder[inputType.getFieldCount()];
         for (int i = 0; i < fieldGetters.length; i++) {
             // Getters describe the transport row, not the target table. Transport fields are
             // nullable so an invalid Doris NULL survives projection and reaches Paimon's
             // authoritative table-schema validation.
             this.fieldGetters[i] = InternalRow.createFieldGetter(inputType.getTypeAt(i), i);
+            this.charPadders[i] = charPadding ? charPadder(inputType.getTypeAt(i)) : null;
         }
         this.inputType = inputType;
         this.tableFieldIndexes = tableFieldIndexes;
@@ -82,6 +102,15 @@ final class PaimonWriteSchema {
 
     static PaimonWriteSchema create(
             RowType tableType, String[] columnNames, boolean changelogWrite) {
+        return create(tableType, columnNames, changelogWrite, false);
+    }
+
+    /**
+     * @param charPadding whether to pad the CHAR values of inserted rows as Paimon's cast to CHAR does; see
+     *                    {@link #charPadder}
+     */
+    static PaimonWriteSchema create(
+            RowType tableType, String[] columnNames, boolean changelogWrite, boolean charPadding) {
         if (columnNames == null || columnNames.length == 0) {
             throw new IllegalArgumentException(
                     "PaimonJniWriter requires explicit column names");
@@ -139,7 +168,16 @@ final class PaimonWriteSchema {
                 Arrays.copyOf(omittedDefaultFieldIndexes, omittedDefaultCount),
                 Arrays.copyOf(omittedDefaultValues, omittedDefaultCount),
                 tableType.getFieldCount(),
-                new RowType(inputFields));
+                new RowType(inputFields),
+                charPadding);
+    }
+
+    /**
+     * Whether FE asked for CHAR padding through {@link #DORIS_WRITE_CHAR_PADDING}. An FE that predates the option
+     * does not set it, and does not pad its static partition values either.
+     */
+    static boolean charPadding(Map<String, String> tableOptions) {
+        return Boolean.parseBoolean(tableOptions.get(DORIS_WRITE_CHAR_PADDING));
     }
 
     /** Paimon input fields in the exact order transported by Arrow C Data. */
@@ -163,11 +201,133 @@ final class PaimonWriteSchema {
                 row.setRowKind(toRowKind(value));
                 continue;
             }
+            // Only an inserted row is padded; its row kind, if any, is the first input column. An UPDATE or
+            // DELETE row carries the key Doris read back from the table, which has to stay byte-equal to the
+            // stored key for Paimon to match it, padded or not.
+            if (charPadders[i] != null && value != null && row.getRowKind() == RowKind.INSERT) {
+                value = charPadders[i].pad(value);
+            }
             // Actual Doris input is applied last so an explicit NULL remains distinct
             // from an omitted field and retains Paimon's writer-side semantics.
             row.setField(tableFieldIndexes[i], value);
         }
         return row;
+    }
+
+    /**
+     * Returns the padder of a value of {@code type}, or null when the type holds no CHAR. A CHAR value is padded
+     * with spaces to the type length in code points, as Paimon's cast to CHAR pads it
+     * ({@code BinaryStringUtils.toCharacterString}), and so are the CHAR values nested in an ARRAY, a MAP or a
+     * ROW. Unlike that cast, a longer value is kept: Doris has already cut it to the length or kept it, as the
+     * session asks.
+     */
+    private static CharPadder charPadder(DataType type) {
+        switch (type.getTypeRoot()) {
+            case CHAR: {
+                int length = ((CharType) type).getLength();
+                return value -> padChar((BinaryString) value, length);
+            }
+            case ARRAY: {
+                DataType elementType = ((ArrayType) type).getElementType();
+                CharPadder elementPadder = charPadder(elementType);
+                if (elementPadder == null) {
+                    return null;
+                }
+                InternalArray.ElementGetter elementGetter = InternalArray.createElementGetter(elementType.nullable());
+                return value -> padArray((InternalArray) value, elementGetter, elementPadder);
+            }
+            case MAP: {
+                MapType mapType = (MapType) type;
+                CharPadder keyPadder = charPadder(mapType.getKeyType());
+                CharPadder valuePadder = charPadder(mapType.getValueType());
+                if (keyPadder == null && valuePadder == null) {
+                    return null;
+                }
+                InternalArray.ElementGetter keyGetter =
+                        InternalArray.createElementGetter(mapType.getKeyType().nullable());
+                InternalArray.ElementGetter valueGetter =
+                        InternalArray.createElementGetter(mapType.getValueType().nullable());
+                return value -> {
+                    InternalMap map = (InternalMap) value;
+                    return new PaddedMap(
+                            keyPadder == null ? map.keyArray() : padArray(map.keyArray(), keyGetter, keyPadder),
+                            valuePadder == null
+                                    ? map.valueArray() : padArray(map.valueArray(), valueGetter, valuePadder));
+                };
+            }
+            case ROW: {
+                List<DataField> fields = ((RowType) type).getFields();
+                CharPadder[] fieldPadders = new CharPadder[fields.size()];
+                InternalRow.FieldGetter[] fieldGetters = new InternalRow.FieldGetter[fields.size()];
+                boolean holdsChar = false;
+                for (int i = 0; i < fields.size(); i++) {
+                    fieldPadders[i] = charPadder(fields.get(i).type());
+                    fieldGetters[i] = InternalRow.createFieldGetter(fields.get(i).type().nullable(), i);
+                    holdsChar |= fieldPadders[i] != null;
+                }
+                if (!holdsChar) {
+                    return null;
+                }
+                return value -> {
+                    InternalRow nested = (InternalRow) value;
+                    GenericRow padded = new GenericRow(fieldGetters.length);
+                    for (int i = 0; i < fieldGetters.length; i++) {
+                        Object field = fieldGetters[i].getFieldOrNull(nested);
+                        padded.setField(i, field == null || fieldPadders[i] == null
+                                ? field : fieldPadders[i].pad(field));
+                    }
+                    return padded;
+                };
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static BinaryString padChar(BinaryString value, int length) {
+        int padLength = length - value.numChars();
+        return padLength > 0 ? BinaryStringUtils.concat(value, BinaryString.blankString(padLength)) : value;
+    }
+
+    private static InternalArray padArray(InternalArray array, InternalArray.ElementGetter elementGetter,
+            CharPadder elementPadder) {
+        Object[] elements = new Object[array.size()];
+        for (int i = 0; i < elements.length; i++) {
+            Object element = elementGetter.getElementOrNull(array, i);
+            elements[i] = element == null ? null : elementPadder.pad(element);
+        }
+        return new GenericArray(elements);
+    }
+
+    /** Pads the CHAR values held by one non-null value of an input column. */
+    private interface CharPadder {
+        Object pad(Object value);
+    }
+
+    /** A map over padded key and value arrays. Unlike GenericMap it keeps every entry of the input map. */
+    private static final class PaddedMap implements InternalMap {
+        private final InternalArray keys;
+        private final InternalArray values;
+
+        private PaddedMap(InternalArray keys, InternalArray values) {
+            this.keys = keys;
+            this.values = values;
+        }
+
+        @Override
+        public int size() {
+            return keys.size();
+        }
+
+        @Override
+        public InternalArray keyArray() {
+            return keys;
+        }
+
+        @Override
+        public InternalArray valueArray() {
+            return values;
+        }
     }
 
     private static RowKind toRowKind(Object operation) {

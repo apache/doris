@@ -22,6 +22,8 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.CharType;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.utils.InstantiationUtil;
 
@@ -32,6 +34,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -39,6 +42,13 @@ import java.util.TreeMap;
 
 /** Statement-scoped Paimon write target shared by sink planning and transaction commit. */
 final class PaimonWriteBinding {
+
+    /**
+     * Option on the table that the BE writer deserializes: whether it pads the CHAR values of the rows it inserts
+     * (session variable enable_paimon_write_char_padding). Keep in sync with PaimonWriteSchema
+     * .DORIS_WRITE_CHAR_PADDING in be-java-extensions/paimon-scanner.
+     */
+    static final String DORIS_WRITE_CHAR_PADDING = "doris.write.char-padding";
 
     private final String tableName;
     private final FileStoreTable table;
@@ -49,27 +59,42 @@ final class PaimonWriteBinding {
 
     private PaimonWriteBinding(String tableName, FileStoreTable table,
             Map<String, String> hadoopConfig, boolean overwrite,
-            Map<String, String> staticPartition) {
+            Map<String, String> staticPartition, boolean charPadding) {
         this.tableName = tableName;
         this.table = table;
         // The FE committer keeps the catalog-aware table, but the BE writer must not deserialize
         // an HMS/DLF catalog loader whose metastore classes are absent from the BE plugin.
-        this.serializedTable = serialize(PaimonScanPlanProvider.dropCatalogLoader(table));
+        this.serializedTable = serialize(withCharPadding(PaimonScanPlanProvider.dropCatalogLoader(table),
+                charPadding));
         this.hadoopConfig = Collections.unmodifiableMap(new LinkedHashMap<>(hadoopConfig));
         this.overwrite = overwrite;
         this.staticPartition = Collections.unmodifiableMap(new LinkedHashMap<>(staticPartition));
     }
 
+    /**
+     * @param charPadding whether the BE writer pads the CHAR values of the rows it inserts, and the static
+     *                    partition values are padded to match them
+     */
     static PaimonWriteBinding create(PaimonTableHandle handle, FileStoreTable table,
-            Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle) {
+            Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle, boolean charPadding) {
         boolean overwrite = writeHandle.isOverwrite();
         // Only a static overwrite reads the partition values. An INSERT writes each row to the partition its own
         // values name, so it leaves them alone: casting them could only fail a write the rows would accept.
         Map<String, String> staticPartition = overwrite
-                ? resolveStaticPartition(table, writeHandle) : Collections.emptyMap();
+                ? resolveStaticPartition(table, writeHandle, charPadding) : Collections.emptyMap();
         FileStoreTable writeTable = configureTableForWrite(table, overwrite, staticPartition);
         return new PaimonWriteBinding(handle.getDatabaseName() + "." + handle.getTableName(),
-                writeTable, hadoopConfig, overwrite, staticPartition);
+                writeTable, hadoopConfig, overwrite, staticPartition, charPadding);
+    }
+
+    /**
+     * The table the BE writer gets: the FE table with {@link #DORIS_WRITE_CHAR_PADDING} among its options. Only
+     * the schema is replaced, so nothing else of the table changes, and the FE committer's table goes without it.
+     */
+    private static FileStoreTable withCharPadding(FileStoreTable table, boolean charPadding) {
+        Map<String, String> options = new HashMap<>(table.schema().options());
+        options.put(DORIS_WRITE_CHAR_PADDING, String.valueOf(charPadding));
+        return table.copy(table.schema().copy(options));
     }
 
     static FileStoreTable configureTableForWrite(FileStoreTable table, boolean overwrite,
@@ -89,9 +114,11 @@ final class PaimonWriteBinding {
     /**
      * The static partition of an overwrite, as Paimon's static overwrite parses it: SQL NULL becomes the table's
      * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
-     * column type. A binary column can only be statically overwritten with NULL.
+     * column type, and padded as the BE writer pads the rows' CHAR values when {@code charPadding} is on: Paimon
+     * parses a partition value without padding it. A binary column can only be statically overwritten with NULL.
      */
-    static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle) {
+    static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle,
+            boolean charPadding) {
         Map<String, String> canonicalNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String partitionKey : table.partitionKeys()) {
             canonicalNames.put(partitionKey, partitionKey);
@@ -126,9 +153,12 @@ final class PaimonWriteBinding {
             }
             String value = Objects.requireNonNull(castValues.get(key),
                     () -> "missing the cast value of static partition column " + key);
-            if (table.rowType().getField(canonicalName).type().getTypeRoot()
-                    == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            DataType type = table.rowType().getField(canonicalName).type();
+            if (type.getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
                 value = toSdkLocalTime(canonicalName, value);
+            }
+            if (charPadding && type.getTypeRoot() == DataTypeRoot.CHAR) {
+                value = padChar(value, ((CharType) type).getLength());
             }
             if (defaultPartitionName.equals(value)) {
                 // Paimon's static overwrite reads this string as the NULL partition of any partition type, so
@@ -159,6 +189,15 @@ final class PaimonWriteBinding {
                     + " and cannot be represented in a static overwrite");
         }
         return sdkLocal.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
+    }
+
+    /**
+     * Pads a CHAR value with spaces to the column length in code points, as PaimonWriteSchema pads the rows' CHAR
+     * values; a longer value is kept, as it is there.
+     */
+    private static String padChar(String value, int length) {
+        int padLength = length - value.codePointCount(0, value.length());
+        return padLength > 0 ? value + " ".repeat(padLength) : value;
     }
 
     private static String serialize(FileStoreTable table) {

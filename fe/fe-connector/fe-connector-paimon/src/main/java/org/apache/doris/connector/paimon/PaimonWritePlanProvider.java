@@ -72,6 +72,8 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     static final byte INSERT_OPERATION = 0;
     static final byte UPDATE_OPERATION = 1;
     static final byte DELETE_OPERATION = 2;
+    // The session variable, read by its name: a connector cannot import the fe-core SessionVariable constant.
+    static final String ENABLE_CHAR_PADDING = "enable_paimon_write_char_padding";
 
     private final PaimonCatalogProperties catalogProperties;
     private final PaimonCatalogOps catalogOps;
@@ -152,7 +154,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         }
         PaimonConnectorTransaction transaction = currentTransaction(session);
         PaimonWriteBinding binding = PaimonWriteBinding.create(
-                tableHandle, table, buildHadoopConfig(), handle);
+                tableHandle, table, buildHadoopConfig(), handle, charPaddingEnabled(session));
         transaction.bind(binding);
 
         TPaimonTableSink sink = new TPaimonTableSink();
@@ -167,6 +169,16 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         TDataSink dataSink = new TDataSink(TDataSinkType.PAIMON_TABLE_SINK);
         dataSink.setPaimonTableSink(sink);
         return new ConnectorSinkPlan(dataSink);
+    }
+
+    /**
+     * Reads the enable_paimon_write_char_padding session variable (default true), which ConnectorSessionBuilder
+     * passes on with every other session variable: whether a write pads CHAR values with spaces to the column
+     * length, as Spark and Flink do when they write a Paimon table.
+     */
+    static boolean charPaddingEnabled(ConnectorSession session) {
+        Boolean enabled = session.getProperty(ENABLE_CHAR_PADDING, Boolean.class);
+        return enabled == null || enabled;
     }
 
     static void requireBeExecVersion(int version) {

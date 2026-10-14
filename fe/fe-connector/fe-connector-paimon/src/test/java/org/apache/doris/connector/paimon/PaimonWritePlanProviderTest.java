@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -46,6 +47,18 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PaimonWritePlanProviderTest {
+
+    @Test
+    public void charPaddingFollowsTheSessionVariableAndDefaultsToOn() {
+        // ConnectorSessionBuilder passes every session variable on, so a planned write always has this one; a
+        // session without it pads, as the variable does by default. MUTATION: ignoring the variable -> red.
+        Assertions.assertTrue(PaimonWritePlanProvider.charPaddingEnabled(
+                new PropertySession(Collections.singletonMap("enable_paimon_write_char_padding", "true"))));
+        Assertions.assertFalse(PaimonWritePlanProvider.charPaddingEnabled(
+                new PropertySession(Collections.singletonMap("enable_paimon_write_char_padding", "false"))));
+        Assertions.assertTrue(PaimonWritePlanProvider.charPaddingEnabled(
+                new PropertySession(Collections.emptyMap())));
+    }
 
     @Test
     public void changelogModeMatchesJniWriterEncoding() {
@@ -334,5 +347,55 @@ public class PaimonWritePlanProviderTest {
                 return operation;
             }
         };
+    }
+
+    /** A session holding boolean session variables, read as ConnectorSessionImpl reads them. */
+    private static final class PropertySession implements ConnectorSession {
+        private final Map<String, String> properties;
+
+        PropertySession(Map<String, String> properties) {
+            this.properties = properties;
+        }
+
+        @Override
+        public String getQueryId() {
+            return "q";
+        }
+
+        @Override
+        public String getUser() {
+            return "u";
+        }
+
+        @Override
+        public String getTimeZone() {
+            return "UTC";
+        }
+
+        @Override
+        public String getLocale() {
+            return "en_US";
+        }
+
+        @Override
+        public long getCatalogId() {
+            return 0;
+        }
+
+        @Override
+        public String getCatalogName() {
+            return "c";
+        }
+
+        @Override
+        public <T> T getProperty(String name, Class<T> type) {
+            String value = properties.get(name);
+            return value == null ? null : type.cast(Boolean.valueOf(value));
+        }
+
+        @Override
+        public Map<String, String> getCatalogProperties() {
+            return Collections.emptyMap();
+        }
     }
 }
