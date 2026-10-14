@@ -339,4 +339,33 @@ suite("test_mtmv_base_partition_read_scope") {
         check { result -> result.contains("UNION") && result.contains("sync_window_narrowed_mv") }
     }
     order_qt_sync_window_narrowed "SELECT d, region, SUM(v) AS s FROM sync_window_narrowed_base GROUP BY d, region ORDER BY d, region"
+
+    // A partition of a range partitioned base table can end past the MV partition it is rolled up into: the
+    // roll-up reads the partition's upper bound with the last second taken off it, so a partition ending at
+    // 2025-01-01 00:00:00.123 is the year 2024's. The row at 2025-01-01 00:00:00.100 is inside that
+    // partition and belongs to the year 2025, for which the MV has no partition at all -- so a read that
+    // takes it has nowhere to write it, the sink filters it, and the refresh fails on the filtered row
+    // instead of rebuilding the partition. Read inside the MV partition's own bound, it is left where it
+    // belongs and the partition is rebuilt.
+    sql """drop materialized view if exists range_ms_boundary_mv"""
+    sql """drop table if exists range_ms_boundary_base"""
+    sql """
+        CREATE TABLE range_ms_boundary_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts)
+        PARTITION BY RANGE(ts) (
+            PARTITION p_2024 VALUES [("2024-01-01 00:00:00.123"), ("2025-01-01 00:00:00.123"))
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO range_ms_boundary_base VALUES
+        ("2024-12-31 23:59:59.999", 1), ("2025-01-01 00:00:00.100", 2)"""
+    sql """
+        CREATE MATERIALIZED VIEW range_ms_boundary_mv
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL PARTITION BY (date_trunc(ts, 'year'))
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT ts, SUM(amount) AS total FROM range_ms_boundary_base GROUP BY ts
+    """
+    sql """REFRESH MATERIALIZED VIEW range_ms_boundary_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("range_ms_boundary_mv")
+    order_qt_range_ms_boundary "SELECT ts, total FROM range_ms_boundary_mv"
 }
