@@ -24,23 +24,33 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
@@ -67,6 +77,41 @@ import java.util.Objects;
  */
 public class RewriteRuleSuiteTest extends SqlTestBase {
 
+    @Test
+    void testNonMovableFunctionBlocksSchemaScanPushdown() {
+        LogicalSchemaScan streamScan = new LogicalSchemaScan(PlanConstructor.getNextRelationId(),
+                SchemaTable.TABLE_MAP.get("table_stream_consumption"), ImmutableList.of("information_schema"));
+        Slot dbName = streamScan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("DB_NAME"))
+                .findFirst()
+                .orElseThrow(IllegalStateException::new);
+        LogicalFilter<LogicalSchemaScan> streamFilter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(dbName, new VarcharLiteral("__missing__")),
+                new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must fail"))), streamScan);
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(connectContext, streamFilter)
+                .applyTopDown(new PushDownFilterIntoSchemaScan())
+                .getPlan();
+        LogicalSchemaScan rewrittenScan = (LogicalSchemaScan) rewritten.child(0);
+        Assertions.assertTrue(rewrittenScan.getFrontendConjuncts().isEmpty());
+
+        LogicalSchemaScan tablesScan = new LogicalSchemaScan(PlanConstructor.getNextRelationId(),
+                SchemaTable.TABLE_MAP.get("tables"), ImmutableList.of("information_schema"));
+        Slot tableSchema = tablesScan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("TABLE_SCHEMA"))
+                .findFirst()
+                .orElseThrow(IllegalStateException::new);
+        LogicalFilter<LogicalSchemaScan> tablesFilter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(tableSchema, new VarcharLiteral("__missing__")),
+                new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must fail"))), tablesScan);
+
+        rewritten = (LogicalPlan) PlanChecker.from(connectContext, tablesFilter)
+                .applyTopDown(new PushDownFilterIntoSchemaScan())
+                .getPlan();
+        rewrittenScan = (LogicalSchemaScan) rewritten.child(0);
+        Assertions.assertFalse(rewrittenScan.getSchemaDatabase().isPresent());
+    }
+
     // -------------------------------------------------------------------------
     // from PruneOlapScanTabletTest
     // -------------------------------------------------------------------------
@@ -75,13 +120,14 @@ public class RewriteRuleSuiteTest extends SqlTestBase {
     void testPruneOlapScanTablet() {
         OlapTable olapTable = Mockito.mock(OlapTable.class);
         Partition partition = Mockito.mock(Partition.class);
-        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        MaterializedIndex index = new MaterializedIndex();
         HashDistributionInfo distributionInfo = Mockito.mock(HashDistributionInfo.class);
 
-        List<Long> tabletIds = Lists.newArrayListWithExpectedSize(300);
+        List<Tablet> tablets = Lists.newArrayListWithExpectedSize(300);
         for (long i = 0; i < 300; i++) {
-            tabletIds.add(i);
+            tablets.add(new LocalTablet(i));
         }
+        index.appendTablets(tablets);
 
         List<Column> columns = Lists.newArrayList(
                 new Column("k0", PrimitiveType.DATE, false),
@@ -128,10 +174,9 @@ public class RewriteRuleSuiteTest extends SqlTestBase {
         Mockito.when(partition.getIndex(Mockito.anyLong())).thenReturn(index);
         Mockito.when(olapTable.getPartitionIndex(Mockito.eq(partition), Mockito.anyLong())).thenReturn(index);
         Mockito.when(partition.getDistributionInfo()).thenReturn(distributionInfo);
-        Mockito.when(index.getTabletIdsInOrder()).thenReturn(tabletIds);
         Mockito.when(distributionInfo.getDistributionColumns()).thenReturn(columns);
         Mockito.when(distributionInfo.getType()).thenReturn(DistributionInfo.DistributionInfoType.HASH);
-        Mockito.when(distributionInfo.getBucketNum()).thenReturn(tabletIds.size());
+        Mockito.when(distributionInfo.getBucketNum()).thenReturn(tablets.size());
 
         LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable);
 

@@ -64,7 +64,7 @@ import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -185,8 +185,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             // Connector does not support parallel write (e.g., JDBC, ES).
             // Always gather to a single writer for transactional safety.
             addRequestPropertyToChildren(PhysicalProperties.GATHER);
-        } else if (connectContext != null
+        } else if (PhysicalProperties.SINK_RANDOM_PARTITIONED.equals(requiredProps)
+                && connectContext != null
                 && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
+            // Strict-consistency mode may relax only the generic random parallel-write preference.
+            // Connector routing, partition hashing, and local ordering are writer correctness contracts.
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(requiredProps);

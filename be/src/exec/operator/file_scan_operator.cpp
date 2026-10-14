@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <memory>
 
+#include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -33,6 +34,7 @@
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
@@ -57,6 +59,12 @@ bool contains_variant_type(const DataTypePtr& input) {
     default:
         return false;
     }
+}
+
+// The most file scanners one instance of a file scan node runs: the max_file_scanners_concurrency
+// session variable, 16 when it is not set.
+int file_scanners_per_instance(RuntimeState* state) {
+    return state->max_file_scanners_concurrency() > 0 ? state->max_file_scanners_concurrency() : 16;
 }
 
 } // namespace
@@ -106,8 +114,7 @@ int FileScanLocalState::max_scanners_concurrency(RuntimeState* state) const {
      *
      * If this is a serial operator, the max concurrency should multiply by the number of parallel instances of the operator.
      */
-    return (state->max_file_scanners_concurrency() > 0 ? state->max_file_scanners_concurrency()
-                                                       : 16) *
+    return file_scanners_per_instance(state) *
            (state->query_parallel_instance_num() / _parent->parallelism(state));
 }
 
@@ -135,13 +142,13 @@ ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const 
 bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                          bool is_load,
                                                          const TFileScanRangeParams& scan_params) {
-    return _should_use_file_scanner_v2(query_options, is_load, scan_params);
+    return should_use_file_scanner_v2(query_options, is_load, scan_params);
 }
 #endif
 
-bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                     bool is_load,
-                                                     const TFileScanRangeParams& scan_params) {
+bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                    bool is_load,
+                                                    const TFileScanRangeParams& scan_params) {
     // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
     // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
     // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
@@ -149,15 +156,39 @@ bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_
     // mechanism as is_transactional_hive below, pointed the other way. Loads are left alone: there
     // is no ADBC load path, so widening the rule to cover them would only route them somewhere they
     // still cannot run.
+    // Fluss is in the same position, and reaches this the same way: FlussScanPlanProvider stamps the
+    // scan-level format so the choice can be made here, before any range is fetched. Every range of a
+    // fluss scan carries that same format -- log ranges and wrapped lake splits alike -- and is
+    // dispatched inside FlussHybridReader, which only FileScannerV2 builds. Loads are left alone for
+    // the same reason as adbc: there is no fluss load path.
     if (!is_load && scan_params.__isset.table_format_params &&
-        scan_params.table_format_params.table_format_type == "adbc") {
+        (scan_params.table_format_params.table_format_type == "adbc" ||
+         scan_params.table_format_params.table_format_type == "fluss")) {
         return true;
     }
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
-    return query_options.__isset.enable_file_scanner_v2 && query_options.enable_file_scanner_v2 &&
-           !is_load && scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
+    // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
+    // scanner is selected; FORMAT_JNI alone does not imply that every range uses JNI.
+    const bool is_hybrid_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
+                                          scan_params.__isset.contains_native_parquet &&
+                                          scan_params.contains_native_parquet;
+    // Version 1 introduces the explicit wall-clock/instant contract that scanner V1 cannot honor.
+    const bool requires_parquet_timestamp_contract =
+            (scan_params.format_type == TFileFormatType::FORMAT_PARQUET ||
+             is_hybrid_native_parquet || supports_iceberg_scan_semantics_v1(&scan_params)) &&
+            (scan_params.__isset.hive_parquet_time_zone ||
+             (scan_params.__isset.parquet_timestamp_semantics_version &&
+              scan_params.parquet_timestamp_semantics_version >= 1));
+    const bool scanner_v2_requested = (query_options.__isset.enable_file_scanner_v2 &&
+                                       query_options.enable_file_scanner_v2) ||
+                                      requires_parquet_timestamp_contract;
+    // Iceberg's default write format does not describe retained files, and remote splits arrive
+    // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
+    // every file.
+    return scanner_v2_requested && !is_load &&
+           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
            scan_params.format_type != TFileFormatType::FORMAT_LANCE && !is_transactional_hive;
 }
 
@@ -173,12 +204,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     }
 
     auto& p = _parent->cast<FileScanOperatorX>();
-    // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
-    uint32_t shard_num =
-            std::min(ScannerScheduler::default_remote_scan_thread_num() / p.parallelism(state()),
-                     _max_scanners);
-    shard_num = std::max(shard_num, 1U);
-    _kv_cache = std::make_unique<ShardedKVCache>(shard_num);
+    DORIS_CHECK(p._kv_cache != nullptr);
     const TFileScanRangeParams* scan_params = nullptr;
     if (state()->get_query_ctx() != nullptr &&
         state()->get_query_ctx()->file_scan_range_params_map.count(parent_id()) > 0) {
@@ -190,7 +216,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
     // TODO: Use scanner v2 for all queries.
     const bool use_file_scanner_v2 =
-            _should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
+            should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DORIS_CHECK(output_tuple_desc != nullptr);
@@ -210,11 +236,11 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         ScannerSPtr scanner;
         if (use_file_scanner_v2) {
             scanner = FileScannerV2::create_shared(state(), this, p._limit, _split_source,
-                                                   _scanner_profile.get(), _kv_cache.get(),
+                                                   _scanner_profile.get(), p._kv_cache.get(),
                                                    &p._colname_to_slot_id);
         } else {
             scanner = FileScanner::create_shared(state(), this, p._limit, _split_source,
-                                                 _scanner_profile.get(), _kv_cache.get(),
+                                                 _scanner_profile.get(), p._kv_cache.get(),
                                                  &p._colname_to_slot_id);
         }
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
@@ -302,6 +328,18 @@ Status FileScanLocalState::_process_conjuncts(RuntimeState* state) {
 
 Status FileScanOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::prepare(state));
+    // Sharded for the scanners that can reach the cache at once, which are now every instance's:
+    // as many as the per-instance caches it replaces had between them. That is the fragment's
+    // instances, not this operator's parallelism: a serial operator has one instance, and it runs
+    // the scanners of all of them (max_scanners_concurrency). Counted in 64 bits: the scanners per
+    // instance are a session variable with no upper bound, and in an int the product overflows
+    // before std::min can cap it, leaving the whole node one shard to load under.
+    const int64_t shard_num =
+            std::min<int64_t>(ScannerScheduler::default_remote_scan_thread_num(),
+                              static_cast<int64_t>(state->query_parallel_instance_num()) *
+                                      file_scanners_per_instance(state));
+    _kv_cache =
+            std::make_unique<ShardedKVCache>(cast_set<uint32_t>(std::max<int64_t>(shard_num, 1)));
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.contains(node_id())) {
         TFileScanRangeParams& params =

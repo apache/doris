@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
@@ -24,11 +27,16 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -57,6 +65,73 @@ public class HudiConnectorHmsCacheTest {
 
     private static final List<String> YEAR_MONTH = Arrays.asList("year", "month");
     private static final List<String> ONE_PARTITION = Collections.singletonList("year=2024/month=01");
+    private final List<HudiConnector> connectors = new ArrayList<>();
+
+    @AfterEach
+    void closeConnectors() throws Exception {
+        for (HudiConnector connector : connectors) {
+            connector.close();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"meta.cache.max-weight", "meta.cache.hive.partition_names.max-weight"})
+    void weightLimitAccountsHmsCacheAndRejectsOversizedValues(String property) throws Exception {
+        long catalogId = Long.MIN_VALUE + 71L;
+        long previousGlobalWeight = MetaCacheGovernance.globalEstimatedWeight();
+        Map<String, String> properties = new HashMap<>(HudiTestProperties.minimalMap());
+        properties.put(property, "4KB");
+        HudiConnector connector = connector(properties, catalogId);
+        List<CatalogMetaCache> owners = MetaCacheGovernance.catalogCaches(catalogId);
+        Assertions.assertEquals(1, owners.size());
+        CatalogMetaCache owner = owners.get(0);
+        Assertions.assertEquals("hudi", owner.engine());
+
+        FakeHmsClient delegate = new FakeHmsClient(ONE_PARTITION);
+        HmsClient cache = connector.wrapWithCache(delegate);
+        Assertions.assertEquals(4, owner.entries().size());
+        MetaCache<?, ?> entry = owner.entries().get("hive-partition-names");
+        Assertions.assertTrue(entry.isWeightBounded());
+        Assertions.assertEquals(4096L, entry.metrics().getMaxWeight());
+        Assertions.assertEquals("meta.cache.max-weight".equals(property),
+                owner.entries().get("hive-table").isWeightBounded());
+
+        Assertions.assertEquals(ONE_PARTITION, cache.listPartitionNames("db", "t", -1));
+        Assertions.assertEquals(ONE_PARTITION, cache.listPartitionNames("db", "t", -1));
+        Assertions.assertEquals(1, delegate.cachedCalls);
+        long retainedWeight = entry.metrics().getEstimatedWeight();
+        Assertions.assertTrue(retainedWeight > 0L && retainedWeight <= 4096L);
+        Assertions.assertEquals(previousGlobalWeight + retainedWeight,
+                MetaCacheGovernance.globalEstimatedWeight());
+
+        delegate.names = Collections.singletonList("partition=" + "x".repeat(8192));
+        Assertions.assertEquals(delegate.names, cache.listPartitionNames("db", "large", -1));
+        Assertions.assertEquals(delegate.names, cache.listPartitionNames("db", "large", -1));
+        Assertions.assertEquals(3, delegate.cachedCalls, "oversized values must be returned but not cached");
+        Assertions.assertEquals(2L, entry.metrics().getWeightRejectCount());
+        Assertions.assertEquals("entry_too_large", entry.metrics().getLastWeightRejectReason());
+        Assertions.assertEquals(retainedWeight, entry.metrics().getEstimatedWeight());
+
+        connector.close();
+        Assertions.assertTrue(MetaCacheGovernance.catalogCaches(catalogId).isEmpty());
+        Assertions.assertEquals(0L, entry.metrics().getEstimatedWeight());
+        Assertions.assertEquals(previousGlobalWeight, MetaCacheGovernance.globalEstimatedWeight());
+    }
+
+    @Test
+    void noWeightLimitPreservesCountBasedCaching() {
+        long catalogId = Long.MIN_VALUE + 72L;
+        HudiConnector connector = connector(HudiTestProperties.minimalMap(), catalogId);
+        FakeHmsClient delegate = new FakeHmsClient(ONE_PARTITION);
+        HmsClient cache = connector.wrapWithCache(delegate);
+        CatalogMetaCache owner = MetaCacheGovernance.catalogCaches(catalogId).get(0);
+        MetaCache<?, ?> entry = owner.entries().get("hive-partition-names");
+        Assertions.assertFalse(entry.isWeightBounded());
+        cache.listPartitionNames("db", "t", -1);
+        cache.listPartitionNames("db", "t", -1);
+        Assertions.assertEquals(1, delegate.cachedCalls);
+        Assertions.assertEquals(0L, entry.metrics().getEstimatedWeight());
+    }
 
     // ── wrap ─────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -98,7 +173,8 @@ public class HudiConnectorHmsCacheTest {
     @Test
     public void invalidateTableFlushesCache() {
         FakeHmsClient delegate = new FakeHmsClient(ONE_PARTITION);
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        HudiConnector connector = connector();
+        CachingHmsClient cache = (CachingHmsClient) connector.wrapWithCache(delegate);
         // Populate the (db,t) partition-name cache: two reads = ONE delegate hit (cached).
         cache.listPartitionNames("db", "t", -1);
         cache.listPartitionNames("db", "t", -1);
@@ -106,7 +182,7 @@ public class HudiConnectorHmsCacheTest {
 
         // REFRESH TABLE -> the connector must flush this table from the cache (MUTATION: an empty override -> the
         // next read stays cached -> cachedCalls==1 -> red).
-        connector().invalidateTable(cache, "db", "t");
+        connector.invalidateTable("db", "t");
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(2, delegate.cachedCalls, "after REFRESH TABLE the next read must miss the cache");
     }
@@ -114,12 +190,13 @@ public class HudiConnectorHmsCacheTest {
     @Test
     public void invalidateDbFlushesCache() {
         FakeHmsClient delegate = new FakeHmsClient(ONE_PARTITION);
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        HudiConnector connector = connector();
+        CachingHmsClient cache = (CachingHmsClient) connector.wrapWithCache(delegate);
         cache.listPartitionNames("db", "t", -1);
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(1, delegate.cachedCalls);
 
-        connector().invalidateDb(cache, "db");
+        connector.invalidateDb("db");
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(2, delegate.cachedCalls, "after REFRESH DATABASE the next read must miss the cache");
     }
@@ -127,12 +204,13 @@ public class HudiConnectorHmsCacheTest {
     @Test
     public void invalidateAllFlushesCache() {
         FakeHmsClient delegate = new FakeHmsClient(ONE_PARTITION);
-        CachingHmsClient cache = new CachingHmsClient(delegate, Collections.emptyMap());
+        HudiConnector connector = connector();
+        CachingHmsClient cache = (CachingHmsClient) connector.wrapWithCache(delegate);
         cache.listPartitionNames("db", "t", -1);
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(1, delegate.cachedCalls);
 
-        connector().invalidateAll(cache);
+        connector.invalidateAll();
         cache.listPartitionNames("db", "t", -1);
         Assertions.assertEquals(2, delegate.cachedCalls, "after REFRESH CATALOG the next read must miss the cache");
     }
@@ -150,8 +228,12 @@ public class HudiConnectorHmsCacheTest {
 
     // ── helpers ────────────────────────────────────────────────────────────────────────────────────────────
 
-    private static HudiConnector connector() {
-        return new HudiConnector(HudiTestProperties.minimalMap(), new ConnectorContext() {
+    private HudiConnector connector() {
+        return connector(HudiTestProperties.minimalMap(), 1L);
+    }
+
+    private HudiConnector connector(Map<String, String> properties, long catalogId) {
+        HudiConnector connector = new HudiConnector(properties, new ConnectorContext() {
             @Override
             public String getCatalogName() {
                 return "test_catalog";
@@ -159,9 +241,11 @@ public class HudiConnectorHmsCacheTest {
 
             @Override
             public long getCatalogId() {
-                return 1L;
+                return catalogId;
             }
         });
+        connectors.add(connector);
+        return connector;
     }
 
     private static HudiTableHandle partitioned() {
@@ -195,7 +279,7 @@ public class HudiConnectorHmsCacheTest {
     private static final class FakeHmsClient implements HmsClient {
         int cachedCalls;
         int freshCalls;
-        private final List<String> names;
+        private List<String> names;
 
         FakeHmsClient(List<String> names) {
             this.names = names;

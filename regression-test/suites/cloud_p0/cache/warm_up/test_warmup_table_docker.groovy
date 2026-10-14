@@ -27,7 +27,7 @@ suite('test_warmup_table_docker', 'docker') {
     options.beConfigs += [
         'file_cache_enter_disk_resource_limit_mode_percent=99',
         'enable_evict_file_cache_in_advance=false',
-        'enable_only_warm_up_idx=true',
+        'file_cache_enable_only_warm_up_idx=true',
         'file_cache_background_gc_interval_ms=10',
         'file_cache_background_monitor_interval_ms=100',
         'file_cache_background_block_lru_update_interval_ms=100',
@@ -189,8 +189,8 @@ suite('test_warmup_table_docker', 'docker') {
         def cache_size_after_clear = getClusterFileCacheSize(clusterName)
         assertEquals(0, cache_size_after_clear)
 
-        // Set enable_only_warm_up_idx = true
-        updateBeConf(clusterName, "enable_only_warm_up_idx", "true")
+        // Set file_cache_enable_only_warm_up_idx = true
+        updateBeConf(clusterName, "file_cache_enable_only_warm_up_idx", "true")
 
         // Trigger warm up
         def jobId = sql "WARM UP CLUSTER ${clusterName} WITH TABLE ${testTable}"

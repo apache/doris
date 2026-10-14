@@ -78,6 +78,10 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    if (_context.persist_inverted_index_storage_format &&
+        _context.inverted_index_storage_format.has_value()) {
+        _rowset_meta->set_inverted_index_storage_format(*_context.inverted_index_storage_format);
+    }
     _rowset_meta->set_job_id(_context.job_id);
     if (_context.write_binlog_opt().enable) {
         _rowset_meta->mark_row_binlog();
@@ -219,10 +223,11 @@ Status CloudRowsetWriter::_collect_packed_slice_location(io::FileWriter* file_wr
         return Status::OK();
     }
 
-    // Get packed slice location directly from PackedFileManager
+    // Ask the writer, which holds a reference to its own slice location. Looking it up by
+    // path in PackedFileManager would race with the retention based cleanup of the index.
     io::PackedSliceLocation index;
     RETURN_IF_ERROR(
-            io::PackedFileManager::instance()->get_packed_slice_location(file_path, &index));
+            static_cast<io::PackedFileWriter*>(file_writer)->get_packed_slice_location(&index));
     if (index.packed_file_path.empty()) {
         return Status::OK(); // File not in packed file, skip
     }

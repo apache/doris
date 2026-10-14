@@ -25,8 +25,8 @@ import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TStatusCode;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -68,9 +68,8 @@ public class FrontendServiceImplCloudTest {
                         + "warm-up job has been removed from CacheHotspotManager", e);
             }
 
-            Assert.assertNotNull("result.status must be set", result.getStatus());
-            Assert.assertEquals("BE must be told to cancel its stale warm-up job entry",
-                    TStatusCode.CANCELLED, result.getStatus().getStatusCode());
+            Assertions.assertNotNull(result.getStatus(), "result.status must be set");
+            Assertions.assertEquals(TStatusCode.CANCELLED, result.getStatus().getStatusCode(), "BE must be told to cancel its stale warm-up job entry");
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
         }

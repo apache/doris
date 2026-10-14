@@ -18,6 +18,7 @@
 #include "exprs/function/geo/functions_geo.h"
 
 #include <glog/logging.h>
+#include <s2/s2point.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -558,6 +559,11 @@ struct StTouchesFunc {
     static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->touches(shape2); }
 };
 
+struct StWithinFunc {
+    static constexpr auto NAME = "st_within";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->within(shape2); }
+};
+
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
@@ -772,6 +778,45 @@ struct StGeometryType {
 
             auto geo_type = shape->GeometryType();
             res->insert_data(geo_type.data(), geo_type.size());
+        }
+
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StIsClosed {
+    static constexpr auto NAME = "st_isclosed";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeUInt8;
+
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+
+        auto col = ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[0]).column);
+        const auto size = col.size();
+
+        auto res = ColumnUInt8::create(size, 0);
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& result_data = res->get_data();
+        auto& null_map_data = null_map->get_data();
+
+        GeoLine line;
+        for (int row = 0; row < size; ++row) {
+            auto value = col.value_at(row);
+            if (!line.decode_from(value.data, value.size)) {
+                null_map_data[row] = 1;
+                continue;
+            }
+
+            const auto num_points = line.numPoint();
+            if (num_points < 2) {
+                null_map_data[row] = 1;
+                continue;
+            }
+
+            result_data[row] = *line.getPoint(0) == *line.getPoint(num_points - 1);
         }
 
         block.replace_by_position(result,
@@ -1092,6 +1137,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StRelationFunction<StIntersectsFunc>>>();
     factory.register_function<GeoFunction<StRelationFunction<StDisjointFunc>>>();
     factory.register_function<GeoFunction<StRelationFunction<StTouchesFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StWithinFunc>>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeomFromText>>>();
@@ -1107,6 +1153,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAsBinary>>();
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();
+    factory.register_function<GeoFunction<StIsClosed>>();
     factory.register_function<GeoFunction<StDistance>>();
     factory.register_function<GeoFunction<StNumGeometries>>();
     factory.register_function<GeoFunction<StNumPoints>>();

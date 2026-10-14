@@ -319,6 +319,17 @@ public class ExprToStringValueVisitorTest {
                 V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()).asComplexType()));
     }
 
+    @Test
+    public void testTimeStampNsLiteral() {
+        TimeStampNsLiteral timestampNs = new TimeStampNsLiteral(
+                2024, 1, 15, 10, 30, 0, 123456789);
+        Assertions.assertEquals("2024-01-15 10:30:00.123456789",
+                timestampNs.accept(V, StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("\"2024-01-15 10:30:00.123456789\"",
+                timestampNs.accept(V,
+                        StringValueContext.forQuery(FormatOptions.getDefault()).asComplexType()));
+    }
+
     // ======================== TimeStampTz ========================
 
     @Test

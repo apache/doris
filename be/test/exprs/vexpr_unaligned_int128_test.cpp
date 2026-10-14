@@ -34,6 +34,7 @@
 
 #include "core/value/decimalv2_value.h"
 #include "core/value/large_int_value.h"
+#include "core/value/timestamp_ns_value.h"
 #include "exprs/vexpr.h"
 
 namespace doris {
@@ -102,6 +103,16 @@ TEST(UnalignedInt128Test, DecimalV2LiteralFromUnalignedBuffer) {
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_TRUE(node.__isset.decimal_literal);
     EXPECT_EQ(node.decimal_literal.value, src.to_string());
+}
+
+TEST(UnalignedInt128Test, TimeStampNsLiteralKeepsItsPhysicalType) {
+    const TimeStampNsValue value(1);
+    TExprNode node;
+    Status st = create_texpr_literal_node<TYPE_TIMESTAMP_NS>(&value, &node);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(node.__isset.date_literal);
+    ASSERT_EQ(node.type.types.size(), 1);
+    EXPECT_EQ(node.type.types.front().scalar_type.type, TPrimitiveType::TIMESTAMP_NS);
 }
 
 } // namespace doris

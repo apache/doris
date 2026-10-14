@@ -20,10 +20,10 @@ package org.apache.doris.cloud.snapshot;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -40,7 +40,7 @@ public class CloudSnapshotHandlerTest {
     private String originalHandlerClass;
     private ClassLoader originalContextClassLoader;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originalHandlerClass = Config.cloud_snapshot_handler_class;
         originalContextClassLoader = Thread.currentThread().getContextClassLoader();
@@ -48,7 +48,7 @@ public class CloudSnapshotHandlerTest {
         CloudSnapshotHandler.setSnapshotEnv(null);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.cloud_snapshot_handler_class = originalHandlerClass;
         Thread.currentThread().setContextClassLoader(originalContextClassLoader);
@@ -60,7 +60,7 @@ public class CloudSnapshotHandlerTest {
         Thread.currentThread().setContextClassLoader(new SnapshotHandlerClassLoader(null));
         CloudSnapshotHandler handler = CloudSnapshotHandler.getInstance();
 
-        Assert.assertEquals(CloudSnapshotHandler.class, handler.getClass());
+        Assertions.assertEquals(CloudSnapshotHandler.class, handler.getClass());
     }
 
     @Test
@@ -69,7 +69,7 @@ public class CloudSnapshotHandlerTest {
                 new SnapshotHandlerClassLoader(ServiceLoadedSnapshotHandler.class));
         CloudSnapshotHandler handler = CloudSnapshotHandler.getInstance();
 
-        Assert.assertTrue(handler instanceof ServiceLoadedSnapshotHandler);
+        Assertions.assertTrue(handler instanceof ServiceLoadedSnapshotHandler);
     }
 
     @Test
@@ -80,7 +80,7 @@ public class CloudSnapshotHandlerTest {
 
         CloudSnapshotHandler handler = CloudSnapshotHandler.getInstance();
 
-        Assert.assertTrue(handler instanceof ConfiguredSnapshotHandler);
+        Assertions.assertTrue(handler instanceof ConfiguredSnapshotHandler);
     }
 
     @Test
@@ -89,8 +89,8 @@ public class CloudSnapshotHandlerTest {
 
         CloudSnapshotHandler.setSnapshotEnv(snapshotEnv);
 
-        Assert.assertSame(snapshotEnv, CloudSnapshotHandler.getSnapshotEnv());
-        Assert.assertSame(snapshotEnv, Env.getCurrentEnv());
+        Assertions.assertSame(snapshotEnv, CloudSnapshotHandler.getSnapshotEnv());
+        Assertions.assertSame(snapshotEnv, Env.getCurrentEnv());
     }
 
     public static class ServiceLoadedSnapshotHandler extends CloudSnapshotHandler {

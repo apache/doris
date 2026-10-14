@@ -44,11 +44,18 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
     // Concrete BoundFunction's constructor
     private final Constructor<BoundFunction> builderMethod;
     private final Class<? extends BoundFunction> functionClass;
+    private final Optional<LambdaBindingSpec> lambdaBindingSpec;
 
     public BuiltinFunctionBuilder(
             Class<? extends BoundFunction> functionClass, Constructor<BoundFunction> builderMethod) {
+        this(functionClass, builderMethod, Optional.empty());
+    }
+
+    public BuiltinFunctionBuilder(Class<? extends BoundFunction> functionClass,
+            Constructor<BoundFunction> builderMethod, Optional<LambdaBindingSpec> lambdaBindingSpec) {
         this.functionClass = Objects.requireNonNull(functionClass, "functionClass can not be null");
         this.builderMethod = Objects.requireNonNull(builderMethod, "builderMethod can not be null");
+        this.lambdaBindingSpec = Objects.requireNonNull(lambdaBindingSpec, "lambdaBindingSpec can not be null");
         this.arity = builderMethod.getParameterCount();
         this.isVariableLength = arity > 0 && builderMethod.getParameterTypes()[arity - 1].isArray();
     }
@@ -60,6 +67,11 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
     @Override
     public Class<? extends BoundFunction> functionClass() {
         return functionClass;
+    }
+
+    @Override
+    public Optional<LambdaBindingSpec> getLambdaBindingSpec() {
+        return lambdaBindingSpec;
     }
 
     @Override
@@ -141,12 +153,19 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
      * @return list of FunctionBuilder which contains the constructor
      */
     public static List<FunctionBuilder> resolve(Class<? extends BoundFunction> functionClass) {
+        return resolve(functionClass, Optional.empty());
+    }
+
+    /** Resolve a builtin function together with its SQL-level lambda binding contract. */
+    public static List<FunctionBuilder> resolve(
+            Class<? extends BoundFunction> functionClass, Optional<LambdaBindingSpec> lambdaBindingSpec) {
         Preconditions.checkArgument(!Modifier.isAbstract(functionClass.getModifiers()),
                 "Can not resolve bind function which is abstract class: "
                         + functionClass.getSimpleName());
         return Arrays.stream(functionClass.getConstructors())
                 .filter(constructor -> Modifier.isPublic(constructor.getModifiers()))
-                .map(constructor -> new BuiltinFunctionBuilder(functionClass, (Constructor<BoundFunction>) constructor))
+                .map(constructor -> new BuiltinFunctionBuilder(
+                        functionClass, (Constructor<BoundFunction>) constructor, lambdaBindingSpec))
                 .collect(ImmutableList.toImmutableList());
     }
 

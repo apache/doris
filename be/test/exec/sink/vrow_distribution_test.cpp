@@ -20,6 +20,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>

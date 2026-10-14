@@ -20,8 +20,8 @@ package org.apache.doris.persist;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.common.AnalysisException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -47,9 +47,9 @@ public class DatabaseInfoTest {
 
         DatabaseInfo databaseInfo2 = DatabaseInfo.read(in);
 
-        Assert.assertEquals(databaseInfo1.getDbName(), databaseInfo2.getDbName());
-        Assert.assertEquals(databaseInfo1.getNewDbName(), databaseInfo2.getNewDbName());
-        Assert.assertEquals(databaseInfo1.getQuota(), databaseInfo2.getQuota());
+        Assertions.assertEquals(databaseInfo1.getDbName(), databaseInfo2.getDbName());
+        Assertions.assertEquals(databaseInfo1.getNewDbName(), databaseInfo2.getNewDbName());
+        Assertions.assertEquals(databaseInfo1.getQuota(), databaseInfo2.getQuota());
 
         // 3. delete files
         in.close();

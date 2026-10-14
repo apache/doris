@@ -238,7 +238,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
-    if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
+    if (p._enable_condition_cache && state->query_options().condition_cache_digest &&
+        p._topn_filter_source_node_ids.empty()) {
         _condition_cache_digest = state->query_options().condition_cache_digest;
         for (auto& conjunct : _conjuncts) {
             _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
@@ -267,9 +268,9 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     return status;
 }
 
-static void init_slot_value_range(
+void ScanLocalStateBase::_init_slot_value_range(
         phmap::flat_hash_map<int, ColumnValueRangeType>& slot_id_to_value_range,
-        SlotDescriptor* slot, const DataTypePtr type_desc) {
+        SlotDescriptor* slot, const DataTypePtr& type_desc) {
     switch (type_desc->get_primitive_type()) {
 #define M(NAME)                                                                        \
     case TYPE_##NAME: {                                                                \
@@ -292,6 +293,7 @@ static void init_slot_value_range(
     M(DATETIME)                  \
     M(DATEV2)                    \
     M(DATETIMEV2)                \
+    M(TIMESTAMP_NS)              \
     M(TIMESTAMPTZ)               \
     M(VARCHAR)                   \
     M(STRING)                    \
@@ -302,7 +304,8 @@ static void init_slot_value_range(
     M(DECIMALV2)                 \
     M(BOOLEAN)                   \
     M(IPV4)                      \
-    M(IPV6)
+    M(IPV6)                      \
+    M(UUID)
         APPLY_FOR_SCALAR_TYPE(M)
 #undef M
     default: {
@@ -333,7 +336,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
 
     for (auto& slot : slots) {
-        init_slot_value_range(_slot_id_to_value_range, slot, slot->type());
+        _init_slot_value_range(_slot_id_to_value_range, slot, slot->type());
         _slot_id_to_predicates.insert(
                 {slot->id(), std::vector<std::shared_ptr<ColumnPredicate>>()});
     }
@@ -341,7 +344,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     get_cast_types_for_variants();
     for (const auto& [colname, type] : _cast_types_for_variants) {
         auto* slot = p._slot_id_to_slot_desc[p._colname_to_slot_id[colname]];
-        init_slot_value_range(_slot_id_to_value_range, slot, type);
+        _init_slot_value_range(_slot_id_to_value_range, slot, type);
         _slot_id_to_predicates.insert(
                 {slot->id(), std::vector<std::shared_ptr<ColumnPredicate>>()});
     }
@@ -945,15 +948,17 @@ Status ScanLocalStateBase::_change_value_range(bool is_equal_op,
             func(temp_range, to_olap_filter_type(fn_name), tmp_value);
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_DATETIMEV2) ||
-                         (PrimitiveType == TYPE_TINYINT) || (PrimitiveType == TYPE_SMALLINT) ||
-                         (PrimitiveType == TYPE_INT) || (PrimitiveType == TYPE_BIGINT) ||
-                         (PrimitiveType == TYPE_LARGEINT) || (PrimitiveType == TYPE_FLOAT) ||
-                         (PrimitiveType == TYPE_DOUBLE) || (PrimitiveType == TYPE_IPV4) ||
-                         (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
-                         (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
+                         (PrimitiveType == TYPE_TIMESTAMP_NS) || (PrimitiveType == TYPE_TINYINT) ||
+                         (PrimitiveType == TYPE_SMALLINT) || (PrimitiveType == TYPE_INT) ||
+                         (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
+                         (PrimitiveType == TYPE_FLOAT) || (PrimitiveType == TYPE_DOUBLE) ||
+                         (PrimitiveType == TYPE_IPV4) || (PrimitiveType == TYPE_IPV6) ||
+                         (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
+                         (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_BOOLEAN) ||
                          (PrimitiveType == TYPE_DATEV2) || (PrimitiveType == TYPE_TIMESTAMPTZ) ||
-                         (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType)) {
+                         (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType) ||
+                         (PrimitiveType == TYPE_UUID)) {
         func(temp_range, to_olap_filter_type(fn_name), value.template get<PrimitiveType>());
     } else {
         static_assert(always_false_v<PrimitiveType>);
@@ -1205,6 +1210,7 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
                                              int operator_id, const DescriptorTbl& descs,
                                              int parallel_tasks)
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
+          _enable_condition_cache(tnode.enable_condition_cache),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
     if (tnode.__isset.push_down_count) {

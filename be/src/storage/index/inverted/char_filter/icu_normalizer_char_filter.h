@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <unicode/edits.h>
 #include <unicode/normalizer2.h>
 
 #include <string>
+#include <vector>
 
 #include "storage/index/inverted/char_filter/char_filter.h"
 
@@ -37,12 +39,19 @@ public:
     int32_t readCopy(void* start, int32_t off, int32_t len) override;
 
     size_t size() override { return _buf.size(); }
+    int32_t correct_offset(int32_t current_offset) const override;
+    int32_t correct_start_offset(int32_t current_offset) const override;
 
 private:
     void fill();
     void normalize_text(const std::string& input, std::string& output);
 
     std::shared_ptr<const icu::Normalizer2> _normalizer;
+    // ICU's own edit encoding is the only per-change state; the cursor caches the last
+    // search position so mostly increasing offset queries stay cheap.
+    icu::Edits _edits;
+    mutable icu::Edits::Iterator _offset_cursor;
+    int32_t _source_length = 0;
     std::string _buf;
     lucene::util::SStringReader<char> _transformed_input;
 };

@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -67,6 +69,12 @@ public class DropResourceCommand extends DropCommand {
         }
 
         FeNameFormat.checkResourceName(resourceName, ResourceTypeEnum.GENERAL);
+
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+        if (resource instanceof AIResource && ((AIResource) resource).isCreatedByRoot()
+                && (ctx.getCurrentUserIdentity() == null || !ctx.getCurrentUserIdentity().isRootUser())) {
+            throw new AnalysisException("Only root user can modify root-created AI resource: " + resourceName);
+        }
     }
 
     @Override

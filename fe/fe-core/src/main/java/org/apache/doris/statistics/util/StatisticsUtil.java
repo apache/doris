@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.AggregateUtils;
@@ -72,15 +73,15 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.ColStatsMeta;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Histogram;
-import org.apache.doris.statistics.PartitionColumnStatistic;
-import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
-import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.ColStatsMeta;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Histogram;
+import org.apache.doris.statistics.model.PartitionColumnStatistic;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -202,7 +203,7 @@ public class StatisticsUtil {
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
         sessionVariable.enablePushDownMinMaxOnUnique = true;
-        sessionVariable.enablePushDownStringMinMax = true;
+        sessionVariable.forcePushDownZonemapMinMax = true;
         sessionVariable.enableUniqueKeyPartialUpdate = false;
         sessionVariable.enableMaterializedViewRewrite = false;
         sessionVariable.enableQueryCache = false;
@@ -261,8 +262,9 @@ public class StatisticsUtil {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
-                return DateLiteralUtils.createDateLiteral(columnValue, type);
+                return DateLiteralUtils.createLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -271,6 +273,8 @@ public class StatisticsUtil {
                 return new org.apache.doris.analysis.IPv4Literal(columnValue);
             case IPV6:
                 return new org.apache.doris.analysis.IPv6Literal(columnValue);
+            case UUID:
+                return new org.apache.doris.analysis.UuidLiteral(columnValue);
             case HLL:
             case BITMAP:
             case ARRAY:
@@ -313,6 +317,7 @@ public class StatisticsUtil {
                     return literal.getDouble();
 
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case DATETIME:
                     DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
                     return dateTimeLiteral.getDouble();
@@ -330,6 +335,9 @@ public class StatisticsUtil {
                 case IPV6:
                     IPv6Literal ipv6 = new IPv6Literal(columnValue);
                     return ipv6.getDouble();
+                case UUID:
+                    UuidLiteral uuid = new UuidLiteral(columnValue);
+                    return uuid.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:

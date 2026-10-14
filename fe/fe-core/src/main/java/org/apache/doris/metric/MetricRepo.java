@@ -101,6 +101,7 @@ public final class MetricRepo {
     public static final String STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT = "streaming_job_per_job_succeed_task_count";
     public static final String STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT = "streaming_job_per_job_failed_task_count";
     public static final String STREAMING_JOB_PER_JOB_LAG_BYTES = "streaming_job_per_job_lag_bytes";
+    public static final String STREAMING_JOB_PER_JOB_LAG_MESSAGES = "streaming_job_per_job_lag_messages";
     public static final String STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS =
             "streaming_job_per_job_last_source_event_timestamp_seconds";
     public static final String STREAMING_JOB_PER_JOB_LAST_TASK_SUCCESS_TIME_SECONDS =
@@ -314,6 +315,9 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_TSO_CLOCK_UPDATED;
     public static LongCounterMetric COUNTER_TSO_CLOCK_UPDATE_FAILED;
     public static LongCounterMetric COUNTER_TSO_CLOCK_GET_SUCCESS;
+    public static LongCounterMetric COUNTER_TSO_STATE_PERSISTED;
+    public static LongCounterMetric COUNTER_TSO_STATE_PERSIST_FAILED;
+    public static Histogram HISTO_TSO_STATE_PERSIST_LATENCY;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -454,11 +458,13 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(connections);
+        // Arrow Flight SQL sessions are connections of the one pool: they are counted in
+        // connection_total and held to connection_max, and these two report their share of it.
         GAUGE_ARROW_FLIGHT_CONNECTIONS = new GaugeMetric<Integer>("arrow_flight_connection_total",
                 MetricUnit.CONNECTIONS, "total arrow flight connections") {
             @Override
             public Integer getValue() {
-                return ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr().getConnectionNum();
+                return ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr().getFlightConnectionNum();
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTIONS);
@@ -466,7 +472,7 @@ public final class MetricRepo {
                 MetricUnit.CONNECTIONS, "max connections") {
             @Override
             public Integer getValue() {
-                return Config.qe_max_connection + Config.arrow_flight_max_connections;
+                return ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr().getMaxConnections();
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_CONNECTION_MAX);
@@ -474,7 +480,7 @@ public final class MetricRepo {
                 MetricUnit.CONNECTIONS, "max arrow flight connections") {
             @Override
             public Integer getValue() {
-                return Config.arrow_flight_max_connections;
+                return ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr().getFlightMaxConnections();
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTION_MAX);
@@ -1173,6 +1179,14 @@ public final class MetricRepo {
         COUNTER_TSO_CLOCK_GET_SUCCESS = new LongCounterMetric("tso_clock_get_success", MetricUnit.NOUNIT,
                 "counter of tso clock get success");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_GET_SUCCESS);
+        COUNTER_TSO_STATE_PERSISTED = new LongCounterMetric("tso_state_persisted", MetricUnit.NOUNIT,
+                "successful combined committed TSO and window journal writes");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_STATE_PERSISTED);
+        COUNTER_TSO_STATE_PERSIST_FAILED = new LongCounterMetric("tso_state_persist_failed", MetricUnit.NOUNIT,
+                "failed TSO state journal writes");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_STATE_PERSIST_FAILED);
+        HISTO_TSO_STATE_PERSIST_LATENCY = METRIC_REGISTER.histogram("tso_state_persist_latency_ms");
+        Env.getCurrentEnv().getTSOService().registerMetrics();
 
         // init system metrics
         initSystemMetrics();
@@ -1383,6 +1397,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAG_BYTES);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAG_MESSAGES);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAST_TASK_SUCCESS_TIME_SECONDS);
 
@@ -1480,10 +1495,25 @@ public final class MetricRepo {
                         .addLabel(new MetricLabel("job_name", jobName));
                 DORIS_METRIC_REGISTER.addMetrics(lag);
 
+                long lagMessages = sJob.getLagMessages();
+                if (lagMessages >= 0) {
+                    GaugeMetric<Long> messageLag = new GaugeMetric<Long>(
+                            STREAMING_JOB_PER_JOB_LAG_MESSAGES, MetricUnit.NOUNIT,
+                            "last observed approximate visible message backlog, excluding in-flight messages") {
+                        @Override
+                        public Long getValue() {
+                            return lagMessages;
+                        }
+                    };
+                    messageLag.addLabel(new MetricLabel("job_id", jobId))
+                            .addLabel(new MetricLabel("job_name", jobName));
+                    DORIS_METRIC_REGISTER.addMetrics(messageLag);
+                }
+
                 long lastSourceEventTimestampSeconds = sJob.getLastSourceEventTimestampSeconds();
                 GaugeMetric<Long> lastSourceEventTimestamp = new GaugeMetric<Long>(
                         STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS, MetricUnit.SECONDS,
-                        "timestamp of the latest source binlog or WAL event recorded in the job's committed offset"
+                        "source event timestamp of the latest committed batch"
                                 + " as Unix seconds, 0 means unavailable") {
                     @Override
                     public Long getValue() {

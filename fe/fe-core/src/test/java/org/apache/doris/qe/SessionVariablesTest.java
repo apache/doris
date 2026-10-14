@@ -189,6 +189,22 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testFlussUnionReadModeRejectsInvalidValuesAtSetTime() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Field field = SessionVariable.class.getDeclaredField("flussUnionReadMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertEquals("checkFlussUnionReadMode", varAttr.checker());
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                SessionVariable.FLUSS_UNION_READ_MODE, new StringLiteral("ReQuIrEd")));
+        Assertions.assertEquals("ReQuIrEd", sessionVar.flussUnionReadMode);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "fluss_union_read_mode value is invalid",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        SessionVariable.FLUSS_UNION_READ_MODE, new StringLiteral("nonsense"))));
+    }
+
+    @Test
     public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
         Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());
@@ -210,6 +226,19 @@ public class SessionVariablesTest extends TestWithFeService {
         Field field = SessionVariable.class.getDeclaredField("enableExternalTableBatchMode");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
         Assertions.assertTrue(varAttr.fuzzy());
+    }
+
+    @Test
+    public void testFileScannerV2RemainsEnabledInFuzzyMode() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+        sessionVar.enableFileScannerV2 = false;
+        sessionVar.initFuzzyModeVariables();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+
+        Field field = SessionVariable.class.getDeclaredField("enableFileScannerV2");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertFalse(varAttr.fuzzy());
     }
 
     @Test
@@ -239,6 +268,33 @@ public class SessionVariablesTest extends TestWithFeService {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
         Assertions.assertEquals(false, connectContext.getSessionVariable().enableNereidsDmlWithPipeline);
+    }
+
+    @Test
+    public void testHistoricalConcurrencyHintCleanup() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        try {
+            for (String variable : new String[] {SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
+                    SessionVariable.COLOCATE_MAX_PARALLEL_NUM, SessionVariable.MAX_SCANNERS_CONCURRENCY,
+                    SessionVariable.MAX_FILE_SCANNERS_CONCURRENCY, SessionVariable.MIN_SCANNERS_CONCURRENCY,
+                    SessionVariable.MIN_FILE_SCANNERS_CONCURRENCY, SessionVariable.PARALLEL_SCAN_MAX_SCANNERS_COUNT,
+                    SessionVariable.SEND_BATCH_PARALLELISM, SessionVariable.LOAD_STREAM_PER_NODE}) {
+                SessionVariable restored = new SessionVariable();
+                restored.readFromJson("{\"" + variable + "\":2000}");
+                connectContext.setSessionVariable(restored);
+
+                executeNereidsSql("SELECT /*+ SET_VAR(" + variable + "=8) */ 1");
+                Assertions.assertEquals(256, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+                Assertions.assertFalse(restored.getIsSingleSetVar());
+                Assertions.assertTrue(restored.getSessionOriginValue().isEmpty());
+
+                executeNereidsSql("SELECT 1");
+                Assertions.assertEquals(256, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+                Assertions.assertTrue(restored.getSessionOriginValue().isEmpty());
+            }
+        } finally {
+            connectContext.setSessionVariable(original);
+        }
     }
 
     @Test

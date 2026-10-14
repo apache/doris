@@ -17,14 +17,21 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
+import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * A lightweight wrapper base for read binlog<Row> of table
@@ -77,6 +84,22 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
     @Override
     public KeysType getKeysType() {
         return KeysType.DUP_KEYS;
+    }
+
+    @Override
+    public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds,
+            Optional<StreamReadMode> streamReadMode) {
+        if (Config.isCloudMode() && !hasFixedVisibleVersions()) {
+            // A row-binlog scan can start immediately after its target transaction becomes visible. Refresh
+            // cached-empty or unknown partitions so an older cache entry cannot prune newly visible binlog data.
+            List<CloudPartition> partitions = partitionIds.stream()
+                    .map(this::getPartition)
+                    .filter(Objects::nonNull)
+                    .map(partition -> (CloudPartition) partition)
+                    .collect(Collectors.toList());
+            return CloudPartition.selectNonEmptyPartitionIdsFromMs(partitions);
+        }
+        return super.selectNonEmptyPartitionIds(partitionIds, streamReadMode);
     }
 
     @Override

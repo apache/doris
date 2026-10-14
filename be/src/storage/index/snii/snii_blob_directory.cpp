@@ -84,8 +84,12 @@ protected:
                                         static_cast<size_t>(len));
         }
         if (!status.ok()) {
+            // Lazy open can surface a missing file as a read error; keep NotFound distinguishable
+            if (status.is<ErrorCode::NOT_FOUND>()) {
+                _CLTHROWA(CL_ERR_FileNotFound, status.to_string_no_stack().c_str());
+            }
             // CLuceneError STRDUPs the message; the temporary is safe.
-            _CLTHROWA(CL_ERR_IO, status.to_string().c_str());
+            _CLTHROWA(CL_ERR_IO, status.to_string_no_stack().c_str());
         }
     }
     void seekInternal(const int64_t /*pos*/) override {}

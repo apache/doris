@@ -45,6 +45,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
+#include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "format_v2/parquet/selection_vector.h" // count_range_rows
 #include "format_v2/timestamp_statistics.h"
@@ -135,7 +136,7 @@ namespace {
 bool build_native_page_statistics(const tparquet::ColumnIndex& column_index,
                                   const ParquetColumnSchema& column_schema, size_t page_idx,
                                   int64_t page_rows, ParquetColumnStatistics* page_statistics,
-                                  const cctz::time_zone* timezone);
+                                  const cctz::time_zone* timezone, bool null_count_trusted);
 
 enum class ParquetRowGroupPruneReason {
     NONE,         // cannot prune; must read
@@ -456,9 +457,9 @@ const ParquetColumnSchema* resolve_local_leaf_schema(
     return column_schema;
 }
 
-const ParquetColumnSchema* resolve_bloom_filter_leaf_schema(
+const ParquetColumnSchema* resolve_metadata_leaf_schema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-        const format::LocalColumnId file_column_id, const expr_zonemap::BloomFilterProbe& probe) {
+        const format::LocalColumnId file_column_id, const expr_zonemap::MetadataProbe& probe) {
     if (probe.path.empty()) {
         return resolve_local_leaf_schema(schema, file_column_id);
     }
@@ -472,7 +473,7 @@ const ParquetColumnSchema* resolve_bloom_filter_leaf_schema(
         if (column_schema == nullptr) {
             return nullptr;
         }
-        if (path_element.kind == expr_zonemap::BloomFilterPathKind::STRUCT_FIELD) {
+        if (path_element.kind == expr_zonemap::MetadataPathKind::STRUCT_FIELD) {
             if (column_schema->kind != ParquetColumnSchemaKind::STRUCT) {
                 return nullptr;
             }
@@ -863,6 +864,36 @@ bool has_expr_zonemap_filter(const format::FileScanRequest& request, const Runti
     return has_variant_shredded_filter(request);
 }
 
+bool can_evaluate_native_page_index(const VExprSPtr& expr) {
+    if (expr == nullptr || !expr->can_evaluate_zonemap_filter()) {
+        return false;
+    }
+    if (const auto impl = expr->get_impl(); impl != nullptr) {
+        // RuntimeFilterExpr keeps its predicate outside the inherited child list. Unwrap only for
+        // shape classification; pruning still evaluates the original wrapper and its semantics.
+        return can_evaluate_native_page_index(impl);
+    }
+    if (expr->op() == TExprOpcode::COMPOUND_AND) {
+        return std::ranges::any_of(expr->children(), can_evaluate_native_page_index);
+    }
+    if (expr->op() == TExprOpcode::COMPOUND_OR) {
+        return !expr->children().empty() &&
+               std::ranges::all_of(expr->children(), can_evaluate_native_page_index);
+    }
+    const auto probe = expr_zonemap::extract_zonemap_filter_predicate_probe(expr);
+    return probe.has_value() && probe->path.empty();
+}
+
+bool has_native_page_index_filter(const format::FileScanRequest& request) {
+    const auto conjuncts = metadata_pruning_conjuncts(request);
+    return std::ranges::any_of(conjuncts,
+                               [](const auto& conjunct) {
+                                   return conjunct != nullptr &&
+                                          can_evaluate_native_page_index(conjunct->root());
+                               }) ||
+           has_variant_shredded_filter(request);
+}
+
 std::set<int> collect_expr_zonemap_slot_indexes(const VExprContextSPtrs& conjuncts) {
     std::set<int> slot_indexes;
     for (const auto& conjunct : conjuncts) {
@@ -933,9 +964,10 @@ void accumulate_zonemap_stats(const ZoneMapEvalContext& ctx, ParquetPruningStats
 
 } // namespace
 
-bool can_use_parquet_page_index(const format::FileScanRequest& request,
-                                const RuntimeState* runtime_state) {
-    return config::enable_parquet_page_index && has_expr_zonemap_filter(request, runtime_state);
+bool can_use_parquet_page_index(const format::FileScanRequest& request, const RuntimeState*) {
+    // Footer-only repeated paths cannot map physical value pages back to parent rows, so they must
+    // not trigger Page Index I/O unless another predicate can actually use the loaded indexes.
+    return config::enable_parquet_page_index && has_native_page_index_filter(request);
 }
 
 std::shared_ptr<segment_v2::ZoneMap> ParquetStatisticsUtils::MakeZoneMap(
@@ -945,13 +977,14 @@ std::shared_ptr<segment_v2::ZoneMap> ParquetStatisticsUtils::MakeZoneMap(
 
 ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         const ParquetColumnSchema& column_schema, const tparquet::Statistics* statistics,
-        int64_t column_value_count, const cctz::time_zone* timezone) {
+        int64_t column_value_count, const cctz::time_zone* timezone, bool null_count_trusted) {
     ParquetColumnStatistics result;
     if (statistics == nullptr || column_value_count < 0) {
         return result;
     }
 
-    if (statistics->__isset.null_count && statistics->null_count > column_value_count) {
+    if (null_count_trusted && statistics->__isset.null_count &&
+        statistics->null_count > column_value_count) {
         // An impossible null count makes all derived min/max and all-null flags untrustworthy;
         // disable pruning instead of turning corrupt footer metadata into false negatives.
         return result;
@@ -959,7 +992,8 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
 
     const bool has_null_count = statistics->__isset.null_count && statistics->null_count >= 0;
     const int64_t null_count = has_null_count ? statistics->null_count : 0;
-    const bool has_not_null = has_null_count ? column_value_count > null_count : true;
+    const bool has_not_null =
+            has_null_count && null_count_trusted ? column_value_count > null_count : true;
     const std::string* min_value = statistics->__isset.min_value
                                            ? &statistics->min_value
                                            : (statistics->__isset.min ? &statistics->min : nullptr);
@@ -977,10 +1011,10 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
     // Footer statistics and page indexes share the same little-endian physical encoding. Reusing
     // one decoder keeps native row-group and page pruning identical for logical types and NaNs.
     if (!build_native_page_statistics(index, column_schema, 0, column_value_count, &result,
-                                      timezone)) {
+                                      timezone, null_count_trusted)) {
         return {};
     }
-    if (!has_null_count) {
+    if (!has_null_count || !null_count_trusted) {
         result.has_null_count = false;
         result.has_null = true;
     }
@@ -1050,23 +1084,16 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
                              const tparquet::RowGroup& row_group,
                              const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
                              const format::FileScanRequest& request,
-                             ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone) {
+                             ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
+                             bool null_count_trusted) {
     const auto conjuncts = metadata_pruning_conjuncts(request);
-    const auto slot_indexes = collect_expr_zonemap_slot_indexes(conjuncts);
-    if (slot_indexes.empty()) {
-        return false;
-    }
-    ZoneMapEvalContext ctx;
-    for (const int slot_index : slot_indexes) {
-        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
-        if (!file_column_id.has_value()) {
-            continue;
-        }
-        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
+    const auto add_column_zonemap = [&](ZoneMapEvalContext* ctx, int slot_index,
+                                        const ParquetColumnSchema* column_schema) {
+        DORIS_CHECK(ctx != nullptr);
         if (column_schema == nullptr || column_schema->type == nullptr ||
             !native_metadata_predicate_is_type_safe(*column_schema) ||
             column_schema->leaf_column_id >= static_cast<int>(row_group.columns.size())) {
-            continue;
+            return;
         }
         const auto& chunk = row_group.columns[column_schema->leaf_column_id];
         std::shared_ptr<segment_v2::ZoneMap> zone_map;
@@ -1083,11 +1110,56 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
                     ParquetStatisticsUtils::TransformColumnStatistics(
                             *column_schema,
                             safe_statistics.has_value() ? &*safe_statistics : nullptr,
-                            column_metadata.num_values, timezone));
+                            column_metadata.num_values, timezone, null_count_trusted));
         }
-        add_slot_zonemap(&ctx, slot_index, column_schema->type, std::move(zone_map));
+        add_slot_zonemap(ctx, slot_index, column_schema->type, std::move(zone_map));
+    };
+
+    VExprContextSPtrs direct_conjuncts;
+    for (const auto& conjunct : conjuncts) {
+        if (conjunct == nullptr || conjunct->root() == nullptr ||
+            !conjunct->root()->can_evaluate_zonemap_filter()) {
+            direct_conjuncts.push_back(conjunct);
+            continue;
+        }
+        const auto probe = expr_zonemap::extract_zonemap_filter_predicate_probe(conjunct->root());
+        if (!probe.has_value() || probe->path.empty()) {
+            direct_conjuncts.push_back(conjunct);
+            continue;
+        }
+        const auto file_column_id = file_column_id_by_block_position(request, probe->slot_index);
+        // Row-group statistics safely summarize every repeated LIST value. Page-index pruning keeps
+        // using top-level leaves because repeated values do not preserve page-to-parent-row bounds.
+        const auto* column_schema =
+                file_column_id.has_value()
+                        ? resolve_metadata_leaf_schema(file_schema, *file_column_id, *probe)
+                        : nullptr;
+        ZoneMapEvalContext nested_ctx;
+        if (column_schema != nullptr &&
+            expr_zonemap::data_types_compatible(column_schema->type, probe->value_type)) {
+            add_column_zonemap(&nested_ctx, probe->slot_index, column_schema);
+        }
+        const auto result = VExprContext::evaluate_zonemap_filter({conjunct}, nested_ctx);
+        accumulate_zonemap_stats(nested_ctx, pruning_stats);
+        if (result == ZoneMapFilterResult::kNoMatch) {
+            return true;
+        }
     }
-    const auto result = VExprContext::evaluate_zonemap_filter(conjuncts, ctx);
+
+    const auto slot_indexes = collect_expr_zonemap_slot_indexes(direct_conjuncts);
+    if (slot_indexes.empty()) {
+        return false;
+    }
+    ZoneMapEvalContext ctx;
+    for (const int slot_index : slot_indexes) {
+        const auto file_column_id = file_column_id_by_block_position(request, slot_index);
+        if (!file_column_id.has_value()) {
+            continue;
+        }
+        const auto* column_schema = resolve_local_leaf_schema(file_schema, *file_column_id);
+        add_column_zonemap(&ctx, slot_index, column_schema);
+    }
+    const auto result = VExprContext::evaluate_zonemap_filter(direct_conjuncts, ctx);
     accumulate_zonemap_stats(ctx, pruning_stats);
     return result == ZoneMapFilterResult::kNoMatch;
 }
@@ -1095,7 +1167,8 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
 bool check_shredded_variant_statistics(
         const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, const cctz::time_zone* timezone) {
+        const format::FileScanRequest& request, const cctz::time_zone* timezone,
+        bool null_count_trusted) {
     for (const auto& conjunct : metadata_pruning_conjuncts(request)) {
         const auto predicate = extract_variant_shredded_predicate(conjunct);
         if (!predicate.has_value()) {
@@ -1125,7 +1198,7 @@ bool check_shredded_variant_statistics(
         }
         const auto statistics = ParquetStatisticsUtils::TransformColumnStatistics(
                 *shredding->typed_value, safe_statistics.has_value() ? &*safe_statistics : nullptr,
-                column_metadata.num_values, timezone);
+                column_metadata.num_values, timezone, null_count_trusted);
         const auto normalized =
                 normalize_variant_statistics(*predicate, *shredding->typed_value, statistics);
         if (normalized.has_value() && variant_statistics_exclude(*predicate, *normalized)) {
@@ -1316,9 +1389,7 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
             continue;
         }
         const auto* column_schema =
-                probe->path.empty()
-                        ? resolve_local_leaf_schema(file_schema, *file_column_id)
-                        : resolve_bloom_filter_leaf_schema(file_schema, *file_column_id, *probe);
+                resolve_metadata_leaf_schema(file_schema, *file_column_id, *probe);
         if (column_schema == nullptr ||
             !expr_zonemap::data_types_compatible(column_schema->type, probe->value_type)) {
             continue;
@@ -1435,6 +1506,9 @@ Status select_row_groups_by_metadata(
                                           DORIS_CHECK(column != nullptr);
                                           return column->contains_variant;
                                       });
+    const bool null_count_trusted =
+            native::parquet_reader_compat(metadata.__isset.created_by ? metadata.created_by : "")
+                    .null_count_trusted;
     selected_row_groups->reserve(candidate_size);
     for (size_t candidate_idx = 0; candidate_idx < candidate_size; ++candidate_idx) {
         const int row_group_idx = candidate_row_groups == nullptr
@@ -1460,9 +1534,10 @@ Status select_row_groups_by_metadata(
         if (probe_mode != ParquetMetadataProbeMode::EXPENSIVE_ONLY &&
             has_expr_zonemap_filter(request, runtime_state) &&
             (check_native_statistics(metadata, row_group, file_schema, request, pruning_stats,
-                                     timezone) ||
-             (contains_variant && check_shredded_variant_statistics(
-                                          metadata, row_group, file_schema, request, timezone)))) {
+                                     timezone, null_count_trusted) ||
+             (contains_variant &&
+              check_shredded_variant_statistics(metadata, row_group, file_schema, request, timezone,
+                                                null_count_trusted)))) {
             prune_reason = ParquetRowGroupPruneReason::STATISTICS;
         }
         if (probe_mode != ParquetMetadataProbeMode::FOOTER_ONLY &&
@@ -1717,7 +1792,7 @@ bool set_native_page_boolean_min_max(const tparquet::ColumnIndex& column_index,
 bool build_native_page_statistics(const tparquet::ColumnIndex& column_index,
                                   const ParquetColumnSchema& column_schema, size_t page_idx,
                                   int64_t page_rows, ParquetColumnStatistics* page_statistics,
-                                  const cctz::time_zone* timezone) {
+                                  const cctz::time_zone* timezone, bool null_count_trusted) {
     DORIS_CHECK(page_statistics != nullptr);
     *page_statistics = {};
     if (!column_index.__isset.null_counts || page_idx >= column_index.null_pages.size() ||
@@ -1726,14 +1801,14 @@ bool build_native_page_statistics(const tparquet::ColumnIndex& column_index,
     }
     const int64_t null_count = column_index.null_counts[page_idx];
     const bool all_null = column_index.null_pages[page_idx];
-    if (page_rows < 0 || null_count < 0 || null_count > page_rows ||
-        all_null != (null_count == page_rows)) {
+    if (page_rows < 0 || (null_count_trusted && (null_count < 0 || null_count > page_rows ||
+                                                 all_null != (null_count == page_rows)))) {
         // The caller supplies the exact flat page or row-group span. Contradictory optional null
         // metadata must disable pruning instead of turning a partial span into an all-null proof.
         return false;
     }
-    page_statistics->has_null_count = true;
-    page_statistics->has_null = null_count > 0;
+    page_statistics->has_null_count = null_count_trusted;
+    page_statistics->has_null = !null_count_trusted || null_count > 0;
     page_statistics->has_not_null = !all_null;
     if (!page_statistics->has_not_null) {
         return true;
@@ -1809,14 +1884,16 @@ public:
             const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
             const format::FileScanRequest& request, int64_t row_group_rows,
-            ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone)
+            ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
+            bool null_count_trusted)
             : _metadata(metadata),
               _page_indexes(page_indexes),
               _file_schema(file_schema),
               _request(request),
               _row_group_rows(row_group_rows),
               _pruning_stats(pruning_stats),
-              _timezone(timezone) {}
+              _timezone(timezone),
+              _null_count_trusted(null_count_trusted) {}
 
     std::optional<std::vector<RowRange>> evaluate(const VExprSPtr& expr) const {
         if (expr == nullptr || !expr->can_evaluate_zonemap_filter()) {
@@ -1929,7 +2006,8 @@ private:
                     native_page_row_range(indexes.offset_index, page_idx, _row_group_rows);
             ParquetColumnStatistics statistics;
             if (!build_native_page_statistics(indexes.column_index, *column_schema, page_idx,
-                                              page_range.length, &statistics, _timezone)) {
+                                              page_range.length, &statistics, _timezone,
+                                              _null_count_trusted)) {
                 _slot_page_zone_maps.emplace(slot_index, std::nullopt);
                 return nullptr;
             }
@@ -1947,6 +2025,7 @@ private:
     int64_t _row_group_rows;
     ParquetPruningStats* _pruning_stats;
     const cctz::time_zone* _timezone;
+    bool _null_count_trusted;
     mutable std::unordered_map<int, std::optional<SlotPageZoneMaps>> _slot_page_zone_maps;
 };
 
@@ -1976,6 +2055,9 @@ Status select_row_group_ranges_by_native_page_index(
     if (pruning_stats != nullptr) {
         ++pruning_stats->page_index_read_calls;
     }
+    const bool null_count_trusted =
+            native::parquet_reader_compat(metadata.__isset.created_by ? metadata.created_by : "")
+                    .null_count_trusted;
 
     std::map<int, VExprContextSPtrs> conjuncts_by_slot;
     VExprContextSPtrs multi_slot_conjuncts;
@@ -2013,7 +2095,8 @@ Status select_row_group_ranges_by_native_page_index(
                     native_page_row_range(indexes.offset_index, page_idx, row_group_rows);
             ParquetColumnStatistics statistics;
             if (!build_native_page_statistics(indexes.column_index, *column_schema, page_idx,
-                                              page_range.length, &statistics, timezone)) {
+                                              page_range.length, &statistics, timezone,
+                                              null_count_trusted)) {
                 usable = false;
                 break;
             }
@@ -2040,7 +2123,8 @@ Status select_row_group_ranges_by_native_page_index(
     }
 
     NativePageIndexPredicateEvaluator evaluator(metadata, page_indexes, file_schema, request,
-                                                row_group_rows, pruning_stats, timezone);
+                                                row_group_rows, pruning_stats, timezone,
+                                                null_count_trusted);
     for (const auto& conjunct : multi_slot_conjuncts) {
         auto conjunct_ranges = evaluator.evaluate(conjunct->root());
         if (!conjunct_ranges.has_value()) {
@@ -2082,7 +2166,8 @@ Status select_row_group_ranges_by_native_page_index(
                     native_page_row_range(indexes.offset_index, page_idx, row_group_rows);
             ParquetColumnStatistics statistics;
             if (!build_native_page_statistics(indexes.column_index, *shredding->typed_value,
-                                              page_idx, page_range.length, &statistics, timezone)) {
+                                              page_idx, page_range.length, &statistics, timezone,
+                                              null_count_trusted)) {
                 usable = false;
                 break;
             }

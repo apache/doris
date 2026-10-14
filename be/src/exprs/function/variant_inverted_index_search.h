@@ -54,6 +54,7 @@ class VariantColumnReader;
 } // namespace doris::segment_v2
 
 namespace doris {
+class TabletColumn;
 
 using namespace doris::segment_v2;
 
@@ -101,6 +102,11 @@ struct FieldReaderBinding {
         return is_bound() && execution_mode == SearchFieldExecutionMode::SNII_NATIVE;
     }
 };
+
+// Build the analyzer context a SEARCH binding executes with, converting a failure to build the
+// analyzer provider into a Status instead of letting the exception escape a Status-returning caller.
+Result<InvertedIndexAnalyzerCtxSPtr> build_search_analyzer_context(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key);
 
 class FieldReaderResolver {
 public:
@@ -223,8 +229,7 @@ public:
     Status evaluate(const TSearchParam& search_param, const TSearchClause& nested_clause,
                     const std::shared_ptr<segment_v2::IndexQueryContext>& context,
                     FieldReaderResolver& resolver, uint32_t num_rows,
-                    const IndexExecContext* index_exec_ctx,
-                    const std::unordered_map<std::string, int>& field_name_to_column_id,
+                    const IndexExecContext* index_exec_ctx, const TabletColumn* nested_column,
                     std::shared_ptr<roaring::Roaring>& result_bitmap) const;
 
 private:

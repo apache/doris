@@ -45,9 +45,7 @@ import java.util.List;
  * </ul>
  *
  * <p>Only what {@code StageUtil} calls is ported: hadoop's glob <em>matching</em> is not, since
- * the compiled pattern is used here purely to validate. Note this is a different glob dialect
- * from {@code org.apache.doris.common.GlobRegexUtil}, which treats {@code {} } as literal
- * characters and has no notion of brace groups.
+ * the compiled pattern is used here purely to validate.
  */
 final class GlobPatterns {
 

@@ -23,16 +23,16 @@ import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class DataSizeDisplayUtilTest {
     private String originDeployMode;
     private String originCloudUniqueId;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originDeployMode = Config.deploy_mode;
         originCloudUniqueId = Config.cloud_unique_id;
@@ -40,7 +40,7 @@ public class DataSizeDisplayUtilTest {
         Config.cloud_unique_id = "";
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.deploy_mode = originDeployMode;
         Config.cloud_unique_id = originCloudUniqueId;
@@ -61,8 +61,8 @@ public class DataSizeDisplayUtilTest {
         Partition partition = new Partition(300L, "p1", baseIndex, new RandomDistributionInfo(1));
 
         Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(partition);
-        Assert.assertEquals(0L, displayDataSize.first.longValue());
-        Assert.assertEquals(333L, displayDataSize.second.longValue());
+        Assertions.assertEquals(0L, displayDataSize.first.longValue());
+        Assertions.assertEquals(333L, displayDataSize.second.longValue());
     }
 
     @Test
@@ -78,8 +78,8 @@ public class DataSizeDisplayUtilTest {
         Partition partition = new Partition(300L, "p1", baseIndex, new RandomDistributionInfo(1));
 
         Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(partition);
-        Assert.assertEquals(0L, displayDataSize.first.longValue());
-        Assert.assertEquals(123L, displayDataSize.second.longValue());
+        Assertions.assertEquals(0L, displayDataSize.first.longValue());
+        Assertions.assertEquals(123L, displayDataSize.second.longValue());
     }
 
     @Test
@@ -105,8 +105,8 @@ public class DataSizeDisplayUtilTest {
         Partition partition = new Partition(300L, "p1", baseIndex, new RandomDistributionInfo(2));
 
         Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(partition);
-        Assert.assertEquals(0L, displayDataSize.first.longValue());
-        Assert.assertEquals(456L, displayDataSize.second.longValue());
+        Assertions.assertEquals(0L, displayDataSize.first.longValue());
+        Assertions.assertEquals(456L, displayDataSize.second.longValue());
     }
 
     @Test
@@ -118,7 +118,7 @@ public class DataSizeDisplayUtilTest {
         replica.setLocalSegmentSize(222L);
 
         Pair<Long, Long> displayDataSize = DataSizeDisplayUtil.getDisplayDataSize(replica);
-        Assert.assertEquals(0L, displayDataSize.first.longValue());
-        Assert.assertEquals(333L, displayDataSize.second.longValue());
+        Assertions.assertEquals(0L, displayDataSize.first.longValue());
+        Assertions.assertEquals(333L, displayDataSize.second.longValue());
     }
 }

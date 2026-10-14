@@ -314,10 +314,8 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     while (file_block->rows() < batch_size && !_reader_eof &&
            file_block->bytes() < max_block_bytes) {
         if (_read_json_by_line && _skip_first_line) {
-            size_t skipped_size = 0;
-            const uint8_t* skipped_line = nullptr;
-            RETURN_IF_ERROR(_line_reader->read_line(&skipped_line, &skipped_size, &_reader_eof,
-                                                    _io_ctx.get()));
+            RETURN_IF_ERROR(_line_reader->skip_split_prefix(
+                    _reader_range.start_offset, _line_delimiter, &_reader_eof, _io_ctx.get()));
             _skip_first_line = false;
             continue;
         }
@@ -445,7 +443,9 @@ TFileRangeDesc JsonReader::_json_range() const {
 Status JsonReader::_open_file_reader() {
     _current_offset = _reader_range.start_offset;
     if (_current_offset != 0) {
-        --_current_offset;
+        // Include the whole delimiter when the split starts inside it, so skipping the first
+        // partial line cannot discard the next complete JSON record.
+        _current_offset -= std::min<int64_t>(_current_offset, _line_delimiter_length);
     }
     if (_scan_params->file_type == TFileType::FILE_STREAM) {
         if (!_stream_load_id.has_value()) {
@@ -478,9 +478,8 @@ Status JsonReader::_create_decompressor() {
 Status JsonReader::_create_line_reader() {
     int64_t size = _reader_range.size;
     if (_reader_range.start_offset != 0) {
-        // Start one byte earlier and discard the first partial line, matching split semantics used
-        // by text readers.
-        ++size;
+        // Preserve the original range end after moving the start backwards.
+        size += _reader_range.start_offset - _current_offset;
         _skip_first_line = true;
     } else {
         _skip_first_line = false;
@@ -905,7 +904,7 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
 
     if (is_column_nullable(*column_ptr)) {
         nullable_column = assert_cast<ColumnNullable*>(column_ptr);
-        data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
+        data_column_ptr = &nullable_column->get_nested_column();
         if (type_desc->is_nullable()) {
             data_serde = serde->get_nested_serdes()[0];
         }
@@ -1008,12 +1007,13 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
         size_t field_count = 0;
         simdjson::ondemand::object object_value = value.get_object();
         for (auto member_value : object_value) {
-            auto* key_column = map_column_ptr->get_keys_ptr()->assert_mutable()->get_ptr().get();
+            auto mutable_keys = map_column_ptr->get_keys_ptr()->assert_mutable();
+            auto* key_column = mutable_keys.get();
             auto key_serde = sub_serdes[0];
             if (is_column_nullable(*key_column)) {
                 auto* nullable_key = assert_cast<ColumnNullable*>(key_column);
                 nullable_key->get_null_map_data().push_back(0);
-                key_column = nullable_key->get_nested_column().get_ptr().get();
+                key_column = &nullable_key->get_nested_column();
                 if (map_type->get_key_type()->is_nullable()) {
                     key_serde = key_serde->get_nested_serdes()[0];
                 }
@@ -1023,9 +1023,9 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
             RETURN_IF_ERROR(key_serde->deserialize_one_cell_from_json(*key_column, key_slice,
                                                                       _serde_options));
             simdjson::ondemand::value field_value = member_value.value().value();
+            auto mutable_values = map_column_ptr->get_values_ptr()->assert_mutable();
             RETURN_IF_ERROR(_write_data_to_column<use_string_cache>(
-                    field_value, map_type->get_value_type(),
-                    map_column_ptr->get_values_ptr()->assert_mutable()->get_ptr().get(),
+                    field_value, map_type->get_value_type(), mutable_values.get(),
                     column_name + ".value", sub_serdes[1], valid));
             ++field_count;
         }
@@ -1044,9 +1044,8 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
         simdjson::ondemand::array array_value = value.get_array();
         for (simdjson::ondemand::value sub_value : array_value) {
             RETURN_IF_ERROR(_write_data_to_column<use_string_cache>(
-                    sub_value, array_type->get_nested_type(),
-                    array_column_ptr->get_data().get_ptr().get(), column_name + ".element",
-                    sub_serdes[0], valid));
+                    sub_value, array_type->get_nested_type(), &array_column_ptr->get_data(),
+                    column_name + ".element", sub_serdes[0], valid));
             ++field_count;
         }
         auto& offsets = array_column_ptr->get_offsets();

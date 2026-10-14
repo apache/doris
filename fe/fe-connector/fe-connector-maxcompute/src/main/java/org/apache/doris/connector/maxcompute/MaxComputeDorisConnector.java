@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.maxcompute;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -53,6 +54,7 @@ public class MaxComputeDorisConnector implements Connector {
 
     private final MCCatalogProperties props;
     private final ConnectorContext context;
+    private final CatalogMetaCache metaCache;
 
     // Connector-owned partition-listing cache, shared by the (per-call) metadata's three partition-listing
     // methods. One per connector — the metadata is rebuilt per query, so the cache must live on the long-lived
@@ -76,9 +78,14 @@ public class MaxComputeDorisConnector implements Connector {
             ConnectorContext context) {
         this.props = MCCatalogProperties.of(properties);
         this.context = context;
-        // The cache reads the framework's own meta.cache.* keys off the raw map, so it keeps taking one.
-        this.partitionCache = new MaxComputePartitionCache(props.getRaw(),
-                (db, t) -> structureHelper.getPartitions(odps, db, t));
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "max_compute", props.getRaw());
+        try {
+            this.partitionCache = new MaxComputePartitionCache(metaCache, props.getRaw(),
+                    (db, t) -> structureHelper.getPartitions(odps, db, t));
+        } catch (RuntimeException | Error e) {
+            metaCache.close();
+            throw e;
+        }
     }
 
     private void ensureInitialized() {
@@ -167,7 +174,7 @@ public class MaxComputeDorisConnector implements Connector {
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
-        partitionCache.invalidateTable(dbName, tableName);
+        metaCache.invalidateTable(dbName, tableName);
     }
 
     /**
@@ -176,13 +183,13 @@ public class MaxComputeDorisConnector implements Connector {
      */
     @Override
     public void invalidateDb(String dbName) {
-        partitionCache.invalidateDb(dbName);
+        metaCache.invalidateDatabase(dbName);
     }
 
     /** REFRESH CATALOG hook: drops the whole connector-owned partition cache. Mirrors {@code HiveConnector}. */
     @Override
     public void invalidateAll() {
-        partitionCache.invalidateAll();
+        metaCache.invalidateCatalog();
     }
 
     /**
@@ -192,7 +199,7 @@ public class MaxComputeDorisConnector implements Connector {
      */
     @Override
     public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
-        partitionCache.invalidateTable(dbName, tableName);
+        metaCache.invalidateTable(dbName, tableName);
     }
 
     @Override
@@ -309,6 +316,7 @@ public class MaxComputeDorisConnector implements Connector {
 
     @Override
     public void close() throws IOException {
+        metaCache.close();
         LOG.info("Closing MaxCompute connector for project: {}",
                 defaultProject);
     }

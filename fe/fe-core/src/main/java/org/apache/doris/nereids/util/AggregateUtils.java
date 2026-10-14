@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -33,8 +34,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -148,13 +149,13 @@ public class AggregateUtils {
     }
 
     public static boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
-        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr ->
+        return ExpressionUtils.deepAnyMatch(aggregate.getOutputExpressions(), expr ->
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 
     /** e.g. Aggregation with avg(distinct a)(not support multiDistinct) or count(distinct a,b) will return true*/
     public static boolean containsNotSupportMultiDistinctFunction(LogicalAggregate<? extends Plan> aggregate) {
-        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr -> {
+        return ExpressionUtils.deepAnyMatch(aggregate.getOutputExpressions(), expr -> {
             if (expr instanceof AggregateFunction && ((AggregateFunction) expr).isDistinct()) {
                 return !(expr instanceof SupportMultiDistinct)
                         || expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1;
@@ -232,9 +233,10 @@ public class AggregateUtils {
      * discount), and PhysicalPlanTranslator (for fusion into BucketedAggregationNode).
      *
      * @return true if the session variable is enabled, there is exactly one alive BE,
-     *         no smooth upgrade is in progress, and the aggregate has GROUP BY keys.
+     *         no smooth upgrade is in progress, the aggregate has GROUP BY keys and
+     *         contains no user-defined aggregate function.
      */
-    public static boolean isBucketedHashAggEnabled(int groupByExprCount) {
+    public static boolean isBucketedHashAggEnabled(Aggregate<? extends Plan> aggregate) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
             return false;
@@ -243,7 +245,7 @@ public class AggregateUtils {
             return false;
         }
         // Must have GROUP BY keys (without-key aggregation not supported)
-        if (groupByExprCount == 0) {
+        if (aggregate.getGroupByExpressions().isEmpty()) {
             return false;
         }
         // Correctness gate: single-BE only (cross-BE in-memory merge is impossible).
@@ -264,6 +266,14 @@ public class AggregateUtils {
             if (be != null && be.isSmoothUpgradeSrc()) {
                 return false;
             }
+        }
+        // Bucketed agg merges the live states built by different sink instances
+        // directly, without serializing them. Java / Python UDAFs can only merge a
+        // state that was deserialized by the merging evaluator (the Java UDAF
+        // executor place and the Python UDAF serialized buffer are only set up on
+        // that path), so they must stay on the regular aggregation path.
+        if (aggregate.getAggregateFunctions().stream().anyMatch(Udf.class::isInstance)) {
+            return false;
         }
         return true;
     }

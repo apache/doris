@@ -81,7 +81,6 @@ TEST(PostingWindowEmitterTest, EmitsPositionedRecutAndDocsOnlyMetadata) {
     MemoryFile positioned_file;
     WindowEmitterOptions positioned_options;
     positioned_options.posting_out = &positioned_file;
-    positioned_options.has_freq = true;
     positioned_options.has_prx = true;
     positioned_options.prx_window_limits = {
             .max_docs = 1024,
@@ -103,7 +102,6 @@ TEST(PostingWindowEmitterTest, EmitsPositionedRecutAndDocsOnlyMetadata) {
     EXPECT_EQ(positioned_entry.enc, DictEntryEnc::kWindowed);
     EXPECT_EQ(positioned_stats.df, kDocs);
     EXPECT_EQ(positioned_stats.total_freq, kDocs * 2);
-    EXPECT_EQ(positioned_stats.max_freq, 2);
     const std::vector<WindowMeta> positioned_windows =
             read_windows(positioned_file, positioned_entry);
     ASSERT_GT(positioned_windows.size(), 1U);
@@ -130,7 +128,6 @@ TEST(PostingWindowEmitterTest, EmitsPositionedRecutAndDocsOnlyMetadata) {
 
     EXPECT_EQ(docs_only_stats.df, kDocs);
     EXPECT_EQ(docs_only_stats.total_freq, kDocs);
-    EXPECT_EQ(docs_only_stats.max_freq, 0);
     const std::vector<WindowMeta> docs_only_windows = read_windows(docs_only_file, docs_only_entry);
     ASSERT_EQ(docs_only_windows.size(), 2U);
     EXPECT_EQ(docs_only_windows[0].doc_count, 256U);
@@ -148,7 +145,6 @@ TEST(PostingWindowEmitterTest, FailurePoisonsTheEmitter) {
     MemoryFile file;
     WindowEmitterOptions options;
     options.posting_out = &file;
-    options.has_freq = true;
     options.has_prx = true;
     WindowEmitter emitter(options);
 
@@ -165,26 +161,6 @@ TEST(PostingWindowEmitterTest, FailurePoisonsTheEmitter) {
     EXPECT_TRUE(file.data().empty());
 }
 
-TEST(PostingWindowEmitterTest, RejectsPositionStatsWithoutPrxOffsets) {
-    std::vector<uint32_t> docids {1, 2};
-    MemoryFile file;
-    WindowEmitterOptions options;
-    options.posting_out = &file;
-    options.term_frequency_source = TermFrequencySource::kPositions;
-    WindowEmitter emitter(options);
-
-    PostingRunView run;
-    run.docids = docids;
-    const Status status = emitter.emit_window(run);
-    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status.to_string();
-    EXPECT_NE(status.to_string().find("position-derived statistics require PRX offsets"),
-              std::string::npos);
-    DictEntry entry;
-    TermAggregateStats stats;
-    EXPECT_FALSE(emitter.finish_term(&entry, &stats).ok());
-    EXPECT_TRUE(file.data().empty());
-}
-
 TEST(PostingWindowEmitterTest, AcceptsBaseRelativePositionRunWithNonzeroOffsets) {
     std::vector<uint32_t> docids {1, 4};
     std::vector<uint32_t> freqs {2, 1};
@@ -193,7 +169,6 @@ TEST(PostingWindowEmitterTest, AcceptsBaseRelativePositionRunWithNonzeroOffsets)
     MemoryFile file;
     WindowEmitterOptions options;
     options.posting_out = &file;
-    options.has_freq = true;
     options.has_prx = true;
     WindowEmitter emitter(options);
 
@@ -208,7 +183,6 @@ TEST(PostingWindowEmitterTest, AcceptsBaseRelativePositionRunWithNonzeroOffsets)
     assert_ok(emitter.finish_term(&entry, &stats));
     EXPECT_EQ(stats.df, 2U);
     EXPECT_EQ(stats.total_freq, 3U);
-    EXPECT_EQ(stats.max_freq, 2U);
 }
 
 } // namespace

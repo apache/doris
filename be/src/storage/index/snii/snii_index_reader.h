@@ -24,9 +24,12 @@
 #include <string_view>
 #include <vector>
 
-#include "storage/index/inverted/common_grams/common_grams_query_cost.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+
+namespace doris::segment_v2::gram {
+struct GramScheme;
+} // namespace doris::segment_v2::gram
 
 namespace doris::snii::reader {
 class LogicalIndexReader;
@@ -38,25 +41,15 @@ struct PhraseMatch;
 
 namespace doris::segment_v2 {
 
-// One query plus the plan the caller chose for it. This is a parameter object rather than a
-// parameter list because _compute_query_bitmap() took fourteen positional arguments, two of them
-// adjacent bools (common_grams_query_shape, force_plain) that no call site could tell apart
-// without counting commas.
+// All query inputs passed to _compute_query_bitmap after opening the logical reader.
 struct SniiQueryBitmapRequest {
     InvertedIndexQueryType query_type;
     const InvertedIndexQueryInfo& query_info;
     std::string_view search_str;
     int32_t max_expansions = 0;
-
-    // Plan decisions the caller has already made. Both bools are false on the plain path.
-    bool common_grams_query_shape = false;
-    bool force_plain = false;
-    inverted_index::CommonGramsPlanCostModel common_grams_cost_model {};
-    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
-    // Identifies the physical query for the single-flight key; empty when unused.
-    std::string_view physical_raw_query_key {};
-
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
+    // Scan candidates a multi-term phrase is restricted to; null for a full-segment query.
+    const roaring::Roaring* candidates = nullptr;
 };
 
 class SniiIndexReader final : public InvertedIndexReader {
@@ -103,6 +96,12 @@ public:
                             InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr) override;
     InvertedIndexReaderType type() override { return _reader_type; }
+    // A policy that cannot be resolved names no index a gram query could use; an analyzed query
+    // reports that failure where it matters.
+    bool is_gram_family() const override {
+        std::optional<segment_v2::gram::GramScheme> scheme;
+        return _current_gram_scheme(nullptr, &scheme).ok() && scheme.has_value();
+    }
 
 #ifdef BE_TEST
     void set_single_flight_follower_joined_observer_for_test(
@@ -127,11 +126,12 @@ private:
                   std::shared_ptr<roaring::Roaring>& bit_map,
                   InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                   const InvertedIndexAnalyzerCtx* analyzer_ctx);
-    Status _parse_query_terms(
-            const IndexQueryContextPtr& context, std::string search_str,
-            InvertedIndexQueryType query_type, const InvertedIndexAnalyzerCtx* analyzer_ctx,
-            InvertedIndexQueryInfo* query_info,
-            std::optional<inverted_index::AnalysisPurpose> purpose_override = std::nullopt);
+    Status _current_gram_scheme(const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                std::optional<segment_v2::gram::GramScheme>* out) const;
+    Status _parse_query_terms(const IndexQueryContextPtr& context, std::string search_str,
+                              InvertedIndexQueryType query_type,
+                              const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                              InvertedIndexQueryInfo* query_info);
     Status _get_logical_reader(
             const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
             std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,

@@ -176,14 +176,22 @@ public:
 
     const format::SectionRefs& section_refs() const { return core_.section_refs; }
     const format::StatsBlock& stats() const { return core_.stats; }
+    // Bounds on the df of this index's most common terms, resident since the segment was
+    // opened. Lets a caller decide a term is too common to be worth reading without issuing
+    // the dictionary read that would tell it exactly how common. Empty on indexes written
+    // before the digest existed, in which case there is no bound and df must be read.
+    const format::HighDfTerms& high_df_terms() const { return core_.high_df_terms; }
     format::IndexTier tier() const { return tier_; }
     bool has_positions() const { return has_positions_; }
+    // Whether BM25 norms exist: current writers emit them for analyzed indexes with positions.
+    bool has_norms() const { return core_.section_refs.norms.length != 0; }
     LogicalIndexOpenMode open_mode() const { return open_mode_; }
-    const segment_v2::inverted_index::CommonGramsSegmentMetadata* common_grams_metadata() const {
-        return core_.common_grams_metadata ? &*core_.common_grams_metadata : nullptr;
-    }
-    format::CommonGramsPostingPolicy common_grams_posting_policy() const {
-        return core_.common_grams_posting_policy;
+    // The chunking scheme of a gram-family index, read back from the core metadata this segment
+    // carries. It is what the query side compiles a LIKE / REGEXP pattern against, so a pattern
+    // is always derived with the very scheme the writer used, whatever the index policy says
+    // today. nullopt means the index is not gram family and no pattern may be pushed down to it.
+    const std::optional<segment_v2::gram::GramScheme>& gram_scheme() const {
+        return core_.gram_scheme;
     }
     io::FileReader* reader() const { return reader_; }
 

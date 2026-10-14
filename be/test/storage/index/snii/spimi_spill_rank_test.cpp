@@ -21,7 +21,6 @@
 #include <string>
 #include <vector>
 
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 
 namespace doris::snii::writer {
@@ -102,7 +101,7 @@ TEST(SpimiSpillRankTest, ReusesRankAcrossFixedVocabularySpillsAndFinalMerge) {
     EXPECT_EQ(terms[2].docids, std::vector<uint32_t>({0, 3}));
 }
 
-TEST(SpimiSpillRankTest, RefreshesStaleRankBeforeRunCompaction) {
+TEST(SpimiSpillRankTest, RefreshesStaleRankBeforeMergingSpooledRuns) {
     testing::reset_run_compactions();
     testing::reset_string_rank_rebuilds();
     SpimiTermBuffer buffer(/*has_positions=*/false, /*spill_threshold_bytes=*/0);
@@ -124,8 +123,8 @@ TEST(SpimiSpillRankTest, RefreshesStaleRankBeforeRunCompaction) {
     buffer.request_global_spill_for_test();
     buffer.add_token("b", /*docid=*/6, /*pos=*/0);
     ASSERT_TRUE(buffer.status().ok()) << buffer.status();
-    EXPECT_EQ(testing::run_compactions(), 1);
-    EXPECT_EQ(testing::string_rank_rebuilds(), 2);
+    EXPECT_EQ(testing::run_compactions(), 0);
+    EXPECT_EQ(buffer.spill_file_count_for_test(), 1U);
 
     const std::vector<TermPostings> terms = buffer.finalize_sorted();
 
@@ -144,46 +143,6 @@ TEST(SpimiSpillRankTest, RefreshesStaleRankBeforeRunCompaction) {
     EXPECT_EQ(terms[4].docids, std::vector<uint32_t>({5}));
     EXPECT_EQ(terms[5].term, "z");
     EXPECT_EQ(terms[5].docids, std::vector<uint32_t>({2}));
-}
-
-TEST(SpimiSpillRankTest, PhysicalCommonGramsSurviveSpillAndRunCompaction) {
-    namespace inverted_index = doris::segment_v2::inverted_index;
-    const std::string first = inverted_index::encode_common_gram("of", "the").value();
-    const std::string second = inverted_index::encode_common_gram("the", "world").value();
-
-    auto feed = [&](SpimiTermBuffer* buffer) {
-        buffer->add_token(second, 0, 1);
-        buffer->add_token("plain", 0, 0);
-        buffer->request_global_spill_for_test();
-        buffer->add_token(first, 0, 0);
-        buffer->add_token(first, 1, 2);
-        buffer->request_global_spill_for_test();
-        buffer->add_token(second, 2, 3);
-        buffer->request_global_spill_for_test();
-        buffer->add_token("plain", 3, 4);
-    };
-
-    SpimiTermBuffer unspilled(/*has_positions=*/true);
-    feed(&unspilled);
-
-    SpimiTermBuffer spilled(/*has_positions=*/true);
-    spilled.set_max_run_files(/*cap=*/1);
-    spilled.set_forced_spill_min_arena_bytes(0);
-    feed(&spilled);
-
-    ASSERT_TRUE(unspilled.status().ok()) << unspilled.status();
-    ASSERT_TRUE(spilled.status().ok()) << spilled.status();
-    EXPECT_GE(spilled.run_count_for_test(), 1U);
-
-    const std::vector<TermPostings> expected = unspilled.finalize_sorted();
-    const std::vector<TermPostings> actual = spilled.finalize_sorted();
-    ASSERT_EQ(actual.size(), expected.size());
-    for (size_t i = 0; i < expected.size(); ++i) {
-        EXPECT_EQ(actual[i].term, expected[i].term);
-        EXPECT_EQ(actual[i].docids, expected[i].docids);
-        EXPECT_EQ(actual[i].freqs, expected[i].freqs);
-        EXPECT_EQ(actual[i].positions_flat, expected[i].positions_flat);
-    }
 }
 
 TEST(SpimiSpillRankTest, PerTermDocsOnlyDeduplicatesAcrossSpillAndCompaction) {

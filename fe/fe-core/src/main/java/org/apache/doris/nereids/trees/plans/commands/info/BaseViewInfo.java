@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -73,6 +75,7 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tso.MasterTsoProvider;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -86,6 +89,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /** BaseViewInfo */
 public class BaseViewInfo {
@@ -142,12 +146,24 @@ public class BaseViewInfo {
     }
 
     protected String rewriteProjectsToUserDefineAlias(String resSql) {
-        IndexFinder finder = new IndexFinder();
-        ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
-        finder.visit(tree);
         if (simpleColumnDefinitions.isEmpty()) {
             return resSql;
         }
+        return rewriteProjectsToUserDefineAlias(resSql, finalCols.stream()
+                .map(Column::getName)
+                .collect(Collectors.toList()));
+    }
+
+    /**
+     * rewrite projects to user define alias by column names list
+     */
+    public static String rewriteProjectsToUserDefineAlias(String resSql, List<String> finalColNames) {
+        if (finalColNames.isEmpty()) {
+            return resSql;
+        }
+        IndexFinder finder = new IndexFinder();
+        ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
+        finder.visit(tree);
         List<NamedExpressionContext> namedExpressionContexts = finder.getNamedExpressionContexts();
         StringBuilder replaceWithColsBuilder = new StringBuilder();
         for (int i = 0; i < namedExpressionContexts.size(); ++i) {
@@ -156,7 +172,7 @@ public class BaseViewInfo {
             int stop = namedExpressionContext.expression().stop.getStopIndex();
             replaceWithColsBuilder.append(resSql, start, stop + 1);
             replaceWithColsBuilder.append(" AS `");
-            String escapeBacktick = finalCols.get(i).getName().replace("`", "``");
+            String escapeBacktick = finalColNames.get(i).replace("`", "``");
             replaceWithColsBuilder.append(escapeBacktick);
             replaceWithColsBuilder.append('`');
             if (i != namedExpressionContexts.size() - 1) {
@@ -207,10 +223,6 @@ public class BaseViewInfo {
         for (Column col : finalCols) {
             if (!colSets.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
-            }
-            if (col.getType().isVarbinaryType()) {
-                throw new org.apache.doris.common.AnalysisException(
-                        "View does not support VARBINARY type: " + col.getName());
             }
             try {
                 FeNameFormat.checkColumnName(col.getName());
@@ -278,6 +290,15 @@ public class BaseViewInfo {
         }
 
         public void analyze() {
+            // View SQL is bound before the normal planner runs. Collect nested scans and
+            // obtain the statement's TTL reference before BindRelation needs it.
+            cascadesContext.newTableCollector(true).collect();
+            StatementContext statementContext = cascadesContext.getStatementContext();
+            if (statementContext.isRowBinlogReferenceTsoRequired()) {
+                statementContext.getOrRegisterRowBinlogReferenceTso(
+                        () -> MasterTsoProvider.getCurrentTso(statementContext.getConnectContext()));
+            }
+            cascadesContext.setCteContext(new CTEContext());
             execute();
         }
 
@@ -370,6 +391,14 @@ public class BaseViewInfo {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
             return project.child().accept(this, context);
+        }
+
+        @Override
+        public Void visitLogicalQualify(LogicalQualify<? extends Plan> qualify, StatementContext context) {
+            for (Expression expr : qualify.getConjuncts()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            return qualify.child().accept(this, context);
         }
 
         @Override

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
@@ -62,6 +63,15 @@ public class JsonInsert extends ScalarFunction implements CustomSignature, Alway
             }
         }
         return FunctionSignature.of(JsonType.INSTANCE, arguments);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // arguments are a JSON document followed by (path, value) pairs, so arity must be odd
+        if ((arity() & 1) == 0) {
+            throw new AnalysisException(getName() + " requires a JSON document followed by path/value pairs,"
+                    + " so the number of arguments must be odd, but got " + arity() + ": " + this.toSql());
+        }
     }
 
     /**

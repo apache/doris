@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.ConnectorRewriteExec
 import org.apache.doris.nereids.trees.plans.commands.insert.RewriteTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.scheduler.exception.JobException;
@@ -50,6 +51,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -74,9 +77,14 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
     private final Long taskId;
     private final AtomicBoolean isCanceled;
     private final AtomicBoolean isFinished;
+    // Set once the scheduler has actually invoked execute(); a cancel that wins before this is conclusively
+    // terminal (execute() will throw at its entry check without touching the shared transaction).
+    private final AtomicBoolean started = new AtomicBoolean(false);
+    // Counted down when execute() reaches a terminal state, so a failure owner can drain live groups.
+    private final CountDownLatch terminalLatch = new CountDownLatch(1);
 
-    // for canceling the task
-    private StmtExecutor stmtExecutor;
+    // for canceling the task; volatile so the cancel/publication handoff in executeGroup() is safe
+    private volatile StmtExecutor stmtExecutor;
 
     /**
      * Builds a task for one bin-packed rewrite group, sharing {@code transactionId} /
@@ -106,14 +114,18 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
 
     @Override
     public void execute() throws JobException {
-        if (isCanceled.get()) {
-            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
-        }
         if (isFinished.get()) {
             return;
         }
+        started.set(true);
 
         try {
+            // A queued task may have been canceled before the scheduler ran it. Report that through the
+            // same failure path as a running task, otherwise the collector would wait for the full insert
+            // timeout because terminating early used to skip the callback entirely.
+            if (isCanceled.get()) {
+                throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+            }
             // Step 1: Build a fresh ConnectContext for this group and stash the per-group scan scope + the
             // shared connector transaction (read back during planning by pinRewriteFileScope / finalizeSink).
             ConnectContext taskConnectContext = buildConnectContext();
@@ -140,7 +152,16 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
             throw new JobException("Rewrite group execution failed: " + e.getMessage(), e);
         } finally {
             isFinished.set(true);
+            terminalLatch.countDown();
         }
+    }
+
+    /**
+     * Waits (bounded) until this task has reached a terminal state, so a caller can drain live groups
+     * before it rolls their shared transaction back.
+     */
+    public boolean awaitTerminal(long timeout, TimeUnit unit) throws InterruptedException {
+        return terminalLatch.await(timeout, unit);
     }
 
     @Override
@@ -152,17 +173,28 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         if (stmtExecutor != null) {
             stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "rewrite task cancelled"));
         }
+        if (!started.get()) {
+            // A queued task fails at execute() entry without writing anything, so it is already conclusively
+            // terminal: make it visible to a drain now instead of burning a full timeout on it.
+            terminalLatch.countDown();
+        }
         LOG.info("[Connector Rewrite Task] taskId: {} cancelled", taskId);
     }
 
     private void executeGroup(ConnectContext taskConnectContext,
             RewriteTableCommand taskLogicalPlan,
             StatementBase taskParsedStmt) throws Exception {
-        stmtExecutor = new StmtExecutor(taskConnectContext, taskParsedStmt);
+        StmtExecutor taskStmtExecutor = new StmtExecutor(taskConnectContext, taskParsedStmt);
+        // Publish under the cancel handoff: cancel() sets isCanceled before reading this field, so assigning
+        // first and re-checking here guarantees at least one side observes the other.
+        stmtExecutor = taskStmtExecutor;
+        if (isCanceled.get()) {
+            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+        }
 
         // initPlan finalizes the sink (ConnectorRewriteExecutor.finalizeSink binds the shared transaction
         // onto the sink session BEFORE planWrite reads it).
-        AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, stmtExecutor);
+        AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, taskStmtExecutor);
         Preconditions.checkState(insertExecutor instanceof ConnectorRewriteExecutor,
                 "Expected ConnectorRewriteExecutor, got: " + insertExecutor.getClass());
 
@@ -170,7 +202,15 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         // accumulate on the one rewrite transaction (mirrors legacy RewriteGroupTask).
         insertExecutor.getCoordinator().setTxnId(transactionId);
 
-        insertExecutor.executeSingleInsert(stmtExecutor);
+        insertExecutor.executeSingleInsert(taskStmtExecutor);
+
+        // executeSingleInsert turns a retained coordinator cancellation into QueryState.ERR and returns
+        // normally. Surface it as a failure so the collector rolls back the shared transaction instead of
+        // reporting the group complete and committing a partial rewrite.
+        if (taskConnectContext.getState().getStateType() == MysqlStateType.ERR) {
+            throw new JobException("Rewrite group failed: "
+                    + taskConnectContext.getState().getErrorMessage());
+        }
     }
 
     private RewriteTableCommand buildRewriteLogicalPlan() {

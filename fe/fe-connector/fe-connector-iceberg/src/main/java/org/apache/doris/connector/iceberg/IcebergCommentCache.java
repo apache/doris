@@ -18,12 +18,14 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CacheSpec;
-import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
+import org.apache.doris.connector.cache.ScopePath;
 
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
@@ -43,29 +45,38 @@ import java.util.function.Supplier;
  *
  * <p><b>No credential gate</b> (unlike {@link IcebergTableCache}, like {@link IcebergPartitionCache} /
  * {@link IcebergFormatCache}): the cached value is a bare comment {@link String} with no {@code FileIO} /
- * credential. A comment changes only via external DDL, picked up through the REFRESH invalidate hooks. TTL is
- * {@code meta.cache.iceberg.table.ttl-second}; {@code <= 0} disables (read live), so a no-cache catalog serves a
- * fresh comment even when this object is built. Backed identically to {@link IcebergTableCache}: a contextual,
- * access-TTL {@link MetaCacheEntry} with manual miss-load, so the remote load runs OUTSIDE Caffeine's compute
- * lock and its exception (e.g. the view-handle {@code NoSuchTableException}) propagates verbatim and a failed
- * load is not cached. Lives on the long-lived per-catalog {@link IcebergConnector}; a REFRESH CATALOG rebuilds it.
+ * credential. A comment changes only via external DDL, picked up through the REFRESH invalidate hooks. The
+ * connector builds it with the table entry's {@code meta.cache.iceberg.table.(enable|ttl-second|capacity)};
+ * {@code enable=false}, {@code ttl-second <= 0} or {@code capacity=0} disables it (read live), so a no-cache
+ * catalog serves a fresh comment even when this object is built. Backed identically to
+ * {@link IcebergTableCache}: a contextual, access-TTL {@link MetaCache} with manual miss-load, so the remote load
+ * runs OUTSIDE Caffeine's compute lock and its exception (e.g. the view-handle {@code NoSuchTableException})
+ * propagates verbatim and a failed load is not cached. Lives on the long-lived per-catalog
+ * {@link IcebergConnector}; a REFRESH CATALOG rebuilds it.
  */
 final class IcebergCommentCache {
 
-    private final MetaCacheEntry<TableIdentifier, String> entry;
+    private final CatalogMetaCache owner;
+    private final MetaCache<TableIdentifier, String> entry;
 
     IcebergCommentCache(long ttlSeconds, int maxSize) {
         // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
-        // Load-bearing here: a vended no-cache catalog builds this object but must NOT cache comments
-        // (operator "no meta cache" intent).
-        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
-        this.entry = new MetaCacheEntry<>("iceberg-comment", null, spec,
-                ForkJoinPool.commonPool(), false, true, 0L, true);
+        this(CatalogMetaCache.unmanaged(), CacheSpec.ofConnectorTtl(ttlSeconds, maxSize));
     }
 
-    /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read the comment live". */
+    IcebergCommentCache(CatalogMetaCache owner, CacheSpec spec) {
+        this.owner = owner;
+        // A disabled spec is load-bearing here: a vended no-cache catalog builds this object but must NOT cache
+        // comments (operator "no meta cache" intent).
+        this.entry = owner.create(MetaCacheDefinition
+                .<TableIdentifier, String>builder("iceberg-comment", spec, IcebergCommentCache::scope)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                .build());
+    }
+
+    /** Caching is on unless the spec disables it; a disabled cache means "always read the comment live". */
     boolean isEnabled() {
-        return entry.stats().isEffectiveEnabled();
+        return entry.isEnabled();
     }
 
     /**
@@ -80,29 +91,35 @@ final class IcebergCommentCache {
 
     /** Drops the cached comment for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(TableIdentifier identifier) {
-        entry.invalidateKey(identifier);
+        owner.invalidateTable(identifier.namespace().toString(), identifier.name());
     }
 
     /** Drops every cached comment for one database (REFRESH DATABASE / DROP DATABASE); match = namespace equality. */
     void invalidateDb(String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        entry.invalidateIf(id -> id.namespace().equals(ns));
+        owner.invalidateDatabase(dbName);
     }
 
     /** Drops all cached comments (REFRESH CATALOG). */
     void invalidateAll() {
-        entry.invalidateAll();
+        owner.invalidateCatalog();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        int[] count = {0};
-        entry.forEach((key, value) -> count[0]++);
-        return count[0];
+        return Math.toIntExact(entry.size());
     }
 
     /** Test-only: how many times the live loader (the remote comment load) actually ran — the metric gate. */
     long loadCountForTest() {
-        return entry.stats().getLoadSuccessCount();
+        return entry.loadSuccessCount();
+    }
+
+    /** Test-only: the enable / TTL / capacity / weight spec this cache was built with. */
+    CacheSpec cacheSpecForTest() {
+        return entry.cacheSpec();
+    }
+
+    private static ScopePath scope(TableIdentifier identifier) {
+        return ScopePath.table(identifier.namespace().toString(), identifier.name());
     }
 }

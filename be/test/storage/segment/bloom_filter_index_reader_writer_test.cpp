@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -476,6 +477,48 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetimev2) {
     delete[] val;
 }
 
+TEST_F(BloomFilterIndexReaderWriterTest, test_timestamp_ns_write_read_filter) {
+    size_t num = 1024 * 3;
+    std::vector<int64_t> values(num);
+    for (size_t i = 0; i < num; ++i) {
+        values[i] = -1'000'000'000 + static_cast<int64_t>(i);
+    }
+
+    const std::string file_name = "bloom_filter_timestamp_ns";
+    int64_t not_exist_value = -1'000'000'001;
+    auto st =
+            test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS>(
+                    file_name, values.data(), num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_timestamp_ns_all_null_page) {
+    const std::string file_name = "bloom_filter_timestamp_ns_all_null";
+    const std::string file_path = dname + "/" + file_name;
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(file_path, &file_writer).ok());
+
+    BloomFilterOptions options;
+    std::unique_ptr<BloomFilterIndexWriter> writer;
+    ASSERT_TRUE(BloomFilterIndexWriter::create(options, FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS,
+                                               &writer)
+                        .ok());
+    writer->add_nulls(1024);
+    ASSERT_TRUE(writer->flush().ok());
+
+    ColumnIndexMetaPB meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    BloomFilterIndexReader* reader = nullptr;
+    std::unique_ptr<BloomFilterIndexIterator> iter;
+    get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
+    std::unique_ptr<BloomFilter> bloom_filter;
+    ASSERT_TRUE(iter->read_bloom_filter(0, &bloom_filter).ok());
+    EXPECT_TRUE(bloom_filter->test_bytes(nullptr, 1));
+    delete reader;
+}
+
 TEST_F(BloomFilterIndexReaderWriterTest, test_timestamptz) {
     size_t num = 1024 * 3;
     auto base_dt = make_timestamptz(2025, 11, 14, 14, 37, 30, 999998);
@@ -608,6 +651,22 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ipv6) {
     uint128_t not_exist_value = (uint128_t(0x20010DB800000000) << 64) | uint128_t(999999);
 
     auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_IPV6>(
+            file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_uuid) {
+    size_t num = 1024 * 3;
+    uint128_t* val = new uint128_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = (uint128_t(0x01890F5C7B747000) << 64) | uint128_t(i);
+    }
+
+    std::string file_name = "bloom_filter_uuid";
+    uint128_t not_exist_value = (uint128_t(0x01890F5C7B747000) << 64) | uint128_t(999999);
+
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_UUID>(
             file_name, val, num, 1, &not_exist_value);
     EXPECT_TRUE(st.ok());
     delete[] val;

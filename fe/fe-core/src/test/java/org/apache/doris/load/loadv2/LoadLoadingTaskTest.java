@@ -19,8 +19,8 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.thrift.TQueryOptions;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class LoadLoadingTaskTest {
 
@@ -40,8 +40,8 @@ public class LoadLoadingTaskTest {
         if (enableMemTableOnSinkNode1) {
             queryOptionsWithMemTable.setBatchSize(brokerLoadBatchSize);
         }
-        Assert.assertTrue(queryOptionsWithMemTable.isEnableMemtableOnSinkNode());
-        Assert.assertEquals(brokerLoadBatchSize, queryOptionsWithMemTable.getBatchSize());
+        Assertions.assertTrue(queryOptionsWithMemTable.isEnableMemtableOnSinkNode());
+        Assertions.assertEquals(brokerLoadBatchSize, queryOptionsWithMemTable.getBatchSize());
 
         // Case 2: enableMemTableOnSinkNode = false, setBatchSize should NOT be called
         TQueryOptions queryOptionsWithoutMemTable = new TQueryOptions();
@@ -50,8 +50,8 @@ public class LoadLoadingTaskTest {
         if (enableMemTableOnSinkNode2) {
             queryOptionsWithoutMemTable.setBatchSize(brokerLoadBatchSize);
         }
-        Assert.assertFalse(queryOptionsWithoutMemTable.isEnableMemtableOnSinkNode());
+        Assertions.assertFalse(queryOptionsWithoutMemTable.isEnableMemtableOnSinkNode());
         // batch_size should remain 0 (unset), BE will use DEFAULT_BATCH_SIZE (4062)
-        Assert.assertEquals(0, queryOptionsWithoutMemTable.getBatchSize());
+        Assertions.assertEquals(0, queryOptionsWithoutMemTable.getBatchSize());
     }
 }

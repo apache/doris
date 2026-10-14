@@ -88,6 +88,43 @@ public class VariableMgrTest extends TestWithFeService {
     }
 
     @Test
+    public void testDynamicPartitionDropProtectionIsGlobalOnly() throws Exception {
+        try {
+            VariableMgr.setGlobalSessionVariableForImage(
+                    SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION, "false");
+            Assertions.assertFalse(VariableMgr.isDynamicPartitionDropProtectionEnabled());
+
+            SetOptionsCommand sessionStmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                    "set enable_dynamic_partition_drop_protection=true", connectContext);
+            Assertions.assertThrows(DdlException.class, () -> sessionStmt.run(connectContext, null));
+
+            VariableMgr.setGlobalSessionVariableForImage(
+                    SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION, "true");
+            Assertions.assertTrue(VariableMgr.isDynamicPartitionDropProtectionEnabled());
+            Assertions.assertTrue(VariableMgr.newSessionVariable().isEnableDynamicPartitionDropProtection());
+
+            SetOptionsCommand globalStmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                    "set global enable_dynamic_partition_drop_protection=false", connectContext);
+            globalStmt.run(connectContext, null);
+            Assertions.assertFalse(VariableMgr.isDynamicPartitionDropProtectionEnabled());
+        } finally {
+            VariableMgr.setGlobalSessionVariableForImage(
+                    SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION, "false");
+        }
+    }
+
+    @Test
+    public void testAuthenticationPolicyIsTheReadOnlyMysqlDefault() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        VariableExpr variableExpr = new VariableExpr(GlobalVariable.AUTHENTICATION_POLICY);
+        VariableMgr.fillValue(sessionVariable, variableExpr);
+        Assertions.assertEquals("*,,", VariableMgr.getValue(sessionVariable, variableExpr));
+
+        SetVar setVar = new SetVar(SetType.GLOBAL, GlobalVariable.AUTHENTICATION_POLICY, new StringLiteral("*,"));
+        Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVar(sessionVariable, setVar));
+    }
+
+    @Test
     public void testVariableCallback() throws Exception {
         SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
                 "set session_context='trace_id:123'", connectContext);
@@ -160,6 +197,26 @@ public class VariableMgrTest extends TestWithFeService {
         SetType setType = SetType.SESSION;
         Literal l = VariableMgr.getLiteral(sv, name, setType);
         Assertions.assertEquals(BigIntType.INSTANCE, l.getDataType());
+    }
+
+    @Test
+    public void testRemovedNereidsTraceVariablesRemainCompatible() throws Exception {
+        for (String name : new String[] {"enable_nereids_trace", "nereids_trace_event_mode"}) {
+            SessionVariable sessionVariable = new SessionVariable();
+            SetVar setVar = new SetVar(SetType.SESSION, name.toUpperCase(), new StringLiteral("ignored"));
+
+            Assertions.assertDoesNotThrow(() -> VariableMgr.setVar(sessionVariable, setVar));
+            Assertions.assertDoesNotThrow(() -> VariableMgr.setVarForNonMasterFE(sessionVariable, setVar));
+
+            VariableExpr variableExpr = new VariableExpr(name.toUpperCase());
+            VariableMgr.fillValue(sessionVariable, variableExpr);
+            Assertions.assertEquals(Type.VARCHAR, variableExpr.getType());
+            Assertions.assertEquals("", VariableMgr.getValue(sessionVariable, variableExpr));
+
+            Literal literal = VariableMgr.getLiteral(sessionVariable, name.toUpperCase(), SetType.SESSION);
+            Assertions.assertNotNull(literal);
+            Assertions.assertEquals("", literal.getStringValue());
+        }
     }
 
     @Test

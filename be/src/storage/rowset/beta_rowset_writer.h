@@ -47,7 +47,7 @@ namespace doris {
 class Block;
 
 namespace segment_v2 {
-class SegmentWriter;
+class VerticalSegmentWriter;
 } // namespace segment_v2
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
@@ -297,10 +297,10 @@ public:
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
+            std::unique_ptr<segment_v2::VerticalSegmentWriter>* writer, uint64_t index_size,
             KeyBoundsPB& key_bounds);
     Status create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
+            std::unique_ptr<segment_v2::VerticalSegmentWriter>* writer, int64_t begin, int64_t end);
 
     bool is_segcompacted() const { return _num_segcompacted > 0; }
 

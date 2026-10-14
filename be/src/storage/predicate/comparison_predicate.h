@@ -29,6 +29,7 @@
 #include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/storage_layout.h"
 
 namespace doris {
 template <PrimitiveType Type, PredicateType PT>
@@ -290,24 +291,10 @@ public:
             } else if constexpr (is_string_type(Type)) {
                 return bf->test_bytes(_value.data(), _value.size());
             } else {
-                // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
-                if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
-                    decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
-                    return bf->test_bytes(reinterpret_cast<const char*>(&decimal12_t_val),
-                                          sizeof(decimal12_t));
-                    // Datev1 using uint24_t in bloom filter
-                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
-                    uint24_t date_value(uint32_t(_value.to_olap_date()));
-                    return bf->test_bytes(reinterpret_cast<const char*>(&date_value),
-                                          sizeof(uint24_t));
-                    // DatetimeV1 using int64_t in bloom filter
-                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
-                    int64_t datetime_value(_value.to_olap_datetime());
-                    return bf->test_bytes(reinterpret_cast<const char*>(&datetime_value),
-                                          sizeof(int64_t));
-                } else {
-                    return bf->test_bytes(reinterpret_cast<const char*>(&_value), sizeof(T));
-                }
+                const auto stored =
+                        StorageLayout<primitive_type_to_storage_field_type(Type)>::to_storage(
+                                _value);
+                return bf->test_bytes(reinterpret_cast<const char*>(&stored), sizeof(stored));
             }
         } else {
             LOG(FATAL) << "Bloom filter is not supported by predicate type.";

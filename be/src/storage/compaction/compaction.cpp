@@ -57,6 +57,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/io_common.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "storage/compaction/cumulative_compaction.h"
@@ -167,13 +169,22 @@ bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
     return true;
 }
 
-TsoRange commit_tso_range(const std::vector<RowsetSharedPtr>& rowsets) {
-    DCHECK(!rowsets.empty());
-    auto range = rowsets.front()->commit_tso();
+std::optional<TsoRange> commit_tso_range(const std::vector<RowsetSharedPtr>& rowsets) {
+    std::optional<TsoRange> range;
     for (const auto& rowset : rowsets) {
+        if (rowset->num_rows() == 0) {
+            continue;
+        }
+        if (!rowset->rowset_meta()->has_commit_tso()) {
+            return std::nullopt;
+        }
         const auto commit_tso = rowset->commit_tso();
-        range.first = std::min(range.first, commit_tso.start_tso());
-        range.second = std::max(range.second, commit_tso.end_tso());
+        if (!range.has_value()) {
+            range = commit_tso;
+            continue;
+        }
+        range->first = std::min(range->first, commit_tso.start_tso());
+        range->second = std::max(range->second, commit_tso.end_tso());
     }
     return range;
 }
@@ -274,26 +285,113 @@ void Compaction::init_profile(const std::string& label) {
 
 int64_t Compaction::merge_way_num() {
     int64_t way_num = 0;
-    for (auto&& rowset : _input_rowsets) {
+    for (const auto& rowset : _data_input_rowsets) {
         way_num += rowset->rowset_meta()->get_merge_way_num();
     }
 
     return way_num;
 }
 
+void Compaction::snapshot_row_binlog_ttl() {
+    if (!_tablet->is_row_binlog_tablet()) {
+        return;
+    }
+    if (!config::is_cloud_mode()) {
+        _row_binlog_ttl_visible_version = std::get<0>(
+                static_cast<Tablet*>(_tablet.get())->get_visible_version_and_time(false));
+    }
+    std::shared_lock lock(_tablet->get_header_lock());
+    const auto& config = _tablet->tablet_meta()->binlog_config();
+    _row_binlog_ttl_cutoff_tso = config.row_ttl_cutoff_tso(
+            ExecEnv::GetInstance()->cluster_info()->row_binlog_ttl_reference_tso());
+    _row_binlog_ttl_seconds = config.ttl_seconds();
+}
+
+bool Compaction::pick_expired_row_binlog_rowset(const std::vector<RowsetSharedPtr>& candidates) {
+    if (_row_binlog_ttl_cutoff_tso < 0) {
+        return false;
+    }
+    auto expired = std::ranges::find_if(candidates, [this](const RowsetSharedPtr& rowset) {
+        return rowset->end_version() <= _row_binlog_ttl_visible_version &&
+               row_binlog_rowset_expired(*rowset->rowset_meta(), _row_binlog_ttl_cutoff_tso);
+    });
+    if (expired == candidates.end()) {
+        return false;
+    }
+    // Coalesce a bounded run into one empty version-covering rowset. Empty neighbours
+    // have no business data or commit TSO to inspect; a task still needs an expired rowset.
+    constexpr int max_inputs = 64;
+    auto first = expired;
+    while (first != candidates.begin() && expired - first + 1 < max_inputs) {
+        auto previous = std::prev(first);
+        if ((*previous)->num_rows() != 0 ||
+            (*previous)->end_version() + 1 != (*first)->start_version()) {
+            break;
+        }
+        first = previous;
+    }
+    auto end = std::next(expired);
+    while (end != candidates.end() && end - first < max_inputs &&
+           (*end)->start_version() == (*std::prev(end))->end_version() + 1 &&
+           (*end)->end_version() <= _row_binlog_ttl_visible_version &&
+           ((*end)->num_rows() == 0 ||
+            row_binlog_rowset_expired(*(*end)->rowset_meta(), _row_binlog_ttl_cutoff_tso))) {
+        ++end;
+    }
+    {
+        std::shared_lock lock(_tablet->get_header_lock());
+        auto versions = _tablet->capture_consistent_versions_unlocked(
+                Version(0, (*std::prev(end))->end_version()), CaptureRowsetOps {});
+        if (!versions.has_value()) {
+            return false;
+        }
+    }
+    _input_rowsets.assign(first, end);
+    return true;
+}
+
+void Compaction::filter_row_binlog_ttl_rowsets() {
+    _data_input_rowsets.clear();
+    _row_binlog_ttl_filtered_rows = 0;
+    if (_row_binlog_ttl_cutoff_tso < 0) {
+        _data_input_rowsets = _input_rowsets;
+        return;
+    }
+    for (const auto& rowset : _input_rowsets) {
+        if (rowset->num_rows() == 0) {
+            continue;
+        }
+        if (rowset->end_version() > _row_binlog_ttl_visible_version ||
+            !row_binlog_rowset_expired(*rowset->rowset_meta(), _row_binlog_ttl_cutoff_tso)) {
+            _data_input_rowsets.push_back(rowset);
+            continue;
+        }
+        _row_binlog_ttl_filtered_rows += rowset->num_rows();
+    }
+}
+
 Status Compaction::merge_input_rowsets() {
-    std::vector<RowsetReaderSharedPtr> input_rs_readers;
-    input_rs_readers.reserve(_input_rowsets.size());
-    for (auto& rowset : _input_rowsets) {
+    MergeInputRowsetsContext context;
+    RETURN_IF_ERROR(prepare_merge_input_rowsets_execution(&context));
+    RETURN_IF_ERROR(execute_merge_input_rowsets(&context));
+    return finish_merge_input_rowsets_execution(&context);
+}
+
+Status Compaction::prepare_merge_input_rowsets_execution(MergeInputRowsetsContext* context) {
+    filter_row_binlog_ttl_rowsets();
+    RETURN_IF_ERROR(prepare_merge_input_rowsets(&context->result));
+
+    context->input_rs_readers.reserve(_data_input_rowsets.size());
+    for (auto& rowset : _data_input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
-        input_rs_readers.push_back(std::move(rs_reader));
+        context->input_rs_readers.push_back(std::move(rs_reader));
     }
 
     RowsetWriterContext ctx;
     // Propagate input rowset readers into the rowset writer context before the writer is created.
     // Variant nested-group compaction uses this metadata to enable the streaming writer path.
-    ctx.input_rs_readers = input_rs_readers;
+    ctx.input_rs_readers = context->input_rs_readers;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     // write merged rows to output rowset
@@ -306,43 +404,25 @@ Status Compaction::merge_input_rowsets() {
          _tablet->enable_unique_key_merge_on_write())) {
         _stats.rowid_conversion = _rowid_conversion.get();
     }
+    return Status::OK();
+}
 
-    int64_t way_num = merge_way_num();
-
-    Status res;
+Status Compaction::execute_merge_input_rowsets(MergeInputRowsetsContext* context) {
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
-        // TODO implement vertical compaction for seq map
-        if (_is_vertical && !_tablet->tablet_schema()->has_seq_map()) {
-            if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
-                RETURN_IF_ERROR(update_delete_bitmap());
-            }
-            auto progress_cb = [compaction_id = this->_compaction_id](int64_t total,
-                                                                      int64_t completed) {
-                CompactionTaskTracker::instance()->update_progress(compaction_id, total, completed);
-            };
-            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
-                                                 input_rs_readers, _output_rs_writer.get(),
-                                                 cast_set<uint32_t>(get_avg_segment_rows()),
-                                                 way_num, &_stats, progress_cb);
-        } else {
-            if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
-                return Status::InternalError(
-                        "mow table with cluster keys does not support non vertical compaction");
-            }
-            res = Merger::vmerge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
-                                         input_rs_readers, _output_rs_writer.get(), &_stats);
+        if (!context->input_rs_readers.empty()) {
+            RETURN_IF_ERROR(do_merge_input_rowsets(context->input_rs_readers, &context->result));
+            // 2. Merge the remaining inverted index files of the string type
+            RETURN_IF_ERROR(do_inverted_index_compaction());
         }
-
-        _tablet->last_compaction_status = res;
-        if (!res.ok()) {
-            return res;
-        }
-        // 2. Merge the remaining inverted index files of the string type
-        RETURN_IF_ERROR(do_inverted_index_compaction());
     }
+    return Status::OK();
+}
 
+Status Compaction::finish_merge_input_rowsets_execution(MergeInputRowsetsContext* context) {
+    auto& result = context->result;
+    _stats.filtered_rows += _row_binlog_ttl_filtered_rows;
     COUNTER_UPDATE(_merged_rows_counter, _stats.merged_rows);
     COUNTER_UPDATE(_filtered_rows_counter, _stats.filtered_rows);
 
@@ -350,7 +430,9 @@ Status Compaction::merge_input_rowsets() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_output_rs_writer->build(_output_rowset),
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
-    _output_rowset->rowset_meta()->set_commit_tso(commit_tso_range(_input_rowsets));
+    if (auto commit_tso = commit_tso_range(_data_input_rowsets); commit_tso.has_value()) {
+        _output_rowset->rowset_meta()->set_commit_tso(*commit_tso);
+    }
 
     // When true, writers should remove variant extracted subcolumns from the
     // schema stored in RowsetMeta. This is used when compaction temporarily
@@ -364,6 +446,7 @@ Status Compaction::merge_input_rowsets() {
 
     //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
     set_delete_predicate_for_output_rowset();
+    update_output_rowset_after_build(result);
 
     _local_read_bytes_total = _stats.bytes_read_from_local;
     _remote_read_bytes_total = _stats.bytes_read_from_remote;
@@ -378,6 +461,46 @@ Status Compaction::merge_input_rowsets() {
     COUNTER_UPDATE(_output_segments_num_counter, _output_rowset->num_segments());
 
     return check_correctness();
+}
+
+Status Compaction::do_merge_input_rowsets(
+        const std::vector<RowsetReaderSharedPtr>& input_rs_readers,
+        MergeInputRowsetsResult* /*result*/) {
+    return execute_merge(input_rs_readers, merge_way_num(), &_stats);
+}
+
+Status Compaction::execute_merge(const std::vector<RowsetReaderSharedPtr>& input_rs_readers,
+                                 int64_t merge_way_num, Merger::Statistics* stats,
+                                 std::optional<std::pair<int64_t, int64_t>> segment_range,
+                                 VerticalMergeProgressContext progress) {
+    Status status;
+    // TODO implement vertical compaction for seq map
+    if (_is_vertical && !_tablet->tablet_schema()->has_seq_map()) {
+        if (!_tablet->tablet_schema()->cluster_key_uids().empty() && !segment_range.has_value()) {
+            RETURN_IF_ERROR(update_delete_bitmap());
+        }
+        auto progress_cb = [compaction_id = this->_compaction_id, progress](int64_t total,
+                                                                            int64_t completed) {
+            CompactionTaskTracker::instance()->update_progress(
+                    compaction_id, total * progress.total_ranges,
+                    total * progress.range_index + completed);
+        };
+        status = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
+                                                input_rs_readers, _output_rs_writer.get(),
+                                                cast_set<uint32_t>(get_avg_segment_rows()),
+                                                merge_way_num, stats, progress_cb, segment_range);
+    } else {
+        if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
+            return Status::InternalError(
+                    "mow table with cluster keys does not support non vertical compaction");
+        }
+        status = Merger::vmerge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
+                                        input_rs_readers, _output_rs_writer.get(), stats,
+                                        segment_range);
+    }
+
+    _tablet->last_compaction_status = status;
+    return status;
 }
 
 void Compaction::set_delete_predicate_for_output_rowset() {
@@ -491,7 +614,9 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
              !_tablet->enable_unique_key_merge_on_write() && !tablet()->is_row_binlog_tablet());
     rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
-    rowset_meta->set_commit_tso(commit_tso_range(_input_rowsets));
+    if (auto commit_tso = commit_tso_range(_input_rowsets); commit_tso.has_value()) {
+        rowset_meta->set_commit_tso(*commit_tso);
+    }
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
 
@@ -546,8 +671,10 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // so get_extended_compaction_schema will extended the schema for variant columns
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
+        auto paths = std::make_shared<VariantCompactionPathsMap>();
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, _cur_tablet_schema));
+                _input_rowsets, _cur_tablet_schema, *paths));
+        _cur_variant_compaction_paths = std::move(paths);
     }
     return Status::OK();
 }
@@ -557,6 +684,12 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         return false;
     }
     if (!config::enable_ordered_data_compaction) {
+        return false;
+    }
+    if (_row_binlog_ttl_cutoff_tso >= 0 &&
+        std::ranges::any_of(_input_rowsets, [this](const RowsetSharedPtr& rowset) {
+            return row_binlog_rowset_expired(*rowset->rowset_meta(), _row_binlog_ttl_cutoff_tso);
+        })) {
         return false;
     }
 
@@ -675,7 +808,8 @@ Status CompactionMixin::execute_compact() {
     int64_t profile_start_time_ms = UnixMillis();
     uint32_t checksum_before;
     uint32_t checksum_after;
-    bool enable_compaction_checksum = config::enable_compaction_checksum;
+    bool enable_compaction_checksum =
+            config::enable_compaction_checksum && _row_binlog_ttl_cutoff_tso < 0;
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
@@ -1012,7 +1146,11 @@ Status Compaction::do_inverted_index_compaction() {
 
         auto* rowset = find_it->second;
         auto seg_pos = rowset->rowset_meta()->position_of(seg_id);
-        auto seg = rowset->segment(seg_pos);
+        if (!seg_pos.has_value()) {
+            mark_skip_index_compaction(ctx, error_handler);
+            return seg_pos.error();
+        }
+        auto seg = rowset->segment(seg_pos.value());
         auto fs = rowset->rowset_meta()->fs();
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_get_fs_error", { fs = nullptr; })
         if (!fs) {
@@ -1089,7 +1227,8 @@ Status Compaction::do_inverted_index_compaction() {
         snii_merge_memory_reporter = std::make_shared<snii::writer::MemoryReporter>(
                 snii::writer::snii_build_consume_release(
                         snii::writer::BuildMemoryPopulation::kUnregistered),
-                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit);
+                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit,
+                static_cast<uint64_t>(config::snii_postings_workspace_bytes));
     }
     for (auto&& [column_uniq_id, index_metas] :
          collect_index_compaction_domain(*_cur_tablet_schema, ctx)) {
@@ -1198,26 +1337,12 @@ Status Compaction::do_inverted_index_compaction() {
                         auto* destination_writer =
                                 inverted_index_file_writers[cast_set<int>(destination_ordinal)]
                                         .get();
-                        if (merge_eligibility.kind ==
-                            snii::compaction::SniiStreamedMergeKind::kCommonGramsT3) {
-                            merge_status = destination_writer->add_snii_index_streamed(
-                                    index_meta, dest_segment_num_rows[destination_ordinal],
-                                    merge_plan->take_destination_null_docids(destination_ordinal),
-                                    merge_plan->take_destination_encoded_norms(destination_ordinal),
-                                    merge_plan->destination_common_grams_metadata(
-                                            destination_ordinal),
-                                    merge_plan->destination_common_grams_posting_policy(),
-                                    merge_plan->destination_index_config(),
-                                    snii_merge_memory_reporter,
-                                    &destination_sessions[destination_ordinal]);
-                        } else {
-                            merge_status = destination_writer->add_snii_index_streamed(
-                                    index_meta, dest_segment_num_rows[destination_ordinal],
-                                    merge_plan->take_destination_null_docids(destination_ordinal),
-                                    merge_plan->destination_index_config(),
-                                    snii_merge_memory_reporter,
-                                    &destination_sessions[destination_ordinal]);
-                        }
+                        merge_status = destination_writer->add_snii_index_streamed(
+                                index_meta, dest_segment_num_rows[destination_ordinal],
+                                merge_plan->take_destination_null_docids(destination_ordinal),
+                                merge_plan->destination_writes_norms(),
+                                merge_plan->destination_index_config(), snii_merge_memory_reporter,
+                                &destination_sessions[destination_ordinal]);
                         if (!merge_status.ok()) {
                             break;
                         }
@@ -1761,9 +1886,10 @@ void CompactionMixin::find_longest_consecutive_version(std::vector<RowsetSharedP
 
 Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                                _tablet->enable_unique_key_merge_on_write()) ||
-                                               _tablet->keys_type() == KeysType::DUP_KEYS))) {
+    if (_row_binlog_ttl_filtered_rows == 0 && _enable_inverted_index_compaction &&
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
+          _tablet->keys_type() == KeysType::DUP_KEYS))) {
         construct_index_compaction_columns(ctx);
     }
     if (_tablet->is_row_binlog_tablet()) {
@@ -1773,6 +1899,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = _trigger_quick_merge_by_binlog ? OVERLAPPING : NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
+    ctx.variant_compaction_paths = _cur_variant_compaction_paths;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
@@ -1947,6 +2074,14 @@ Status CompactionMixin::modify_rowsets() {
     } else {
         std::lock_guard wrlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+        if (_row_binlog_ttl_filtered_rows > 0) {
+            const auto& current = _tablet->tablet_meta()->binlog_config();
+            if (!current.has_row_ttl() || current.ttl_seconds() != _row_binlog_ttl_seconds) {
+                return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                        "ROW binlog TTL changed during compaction, tablet={}",
+                        _tablet->tablet_id());
+            }
+        }
         RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
 
@@ -2078,8 +2213,10 @@ Status CloudCompactionMixin::build_basic_info() {
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
+        auto paths = std::make_shared<VariantCompactionPathsMap>();
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, _cur_tablet_schema));
+                _input_rowsets, _cur_tablet_schema, *paths));
+        _cur_variant_compaction_paths = std::move(paths);
     }
     return Status::OK();
 }
@@ -2110,7 +2247,7 @@ bool CloudCompactionMixin::should_apply_cumulative_compaction_result(
     }
     if (response_cumulative_compaction_cnt != local_cumulative_compaction_cnt + 1) {
         // Only the current task's output is available locally. Sync all missing outputs instead.
-        cloud_tablet()->last_sync_time_s = 0;
+        cloud_tablet()->last_sync_rowsets_time_s = 0;
         LOG_INFO("defer applying cumulative compaction result until tablet sync")
                 .tag("tablet_id", _tablet->tablet_id())
                 .tag("job_id", _uuid)
@@ -2121,16 +2258,15 @@ bool CloudCompactionMixin::should_apply_cumulative_compaction_result(
     return true;
 }
 
-Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
-    OlapStopWatch watch;
-
+Status CloudCompactionMixin::prepare_execute_compact(int64_t permits) {
     RETURN_IF_ERROR(build_basic_info());
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version << ", permits: " << permits;
+    return Status::OK();
+}
 
-    RETURN_IF_ERROR(merge_input_rowsets());
-
+Status CloudCompactionMixin::finish_execute_compact(int64_t execution_start_time_us) {
     DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.wrong_rowset_id", {
         DCHECK(compaction_type() == ReaderType::READER_FULL_COMPACTION);
         RowsetId id;
@@ -2156,9 +2292,16 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     auto tablet = std::static_pointer_cast<CloudTablet>(_tablet);
     tablet->local_read_time_us.fetch_add(_stats.cloud_local_read_time);
     tablet->remote_read_time_us.fetch_add(_stats.cloud_remote_read_time);
-    tablet->exec_compaction_time_us.fetch_add(watch.get_elapse_time_us());
+    tablet->exec_compaction_time_us.fetch_add(MonotonicMicros() - execution_start_time_us);
 
     return Status::OK();
+}
+
+Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
+    const int64_t execution_start_time_us = MonotonicMicros();
+    RETURN_IF_ERROR(prepare_execute_compact(permits));
+    RETURN_IF_ERROR(merge_input_rowsets());
+    return finish_execute_compact(execution_start_time_us);
 }
 
 int64_t CloudCompactionMixin::initiator() const {
@@ -2333,9 +2476,10 @@ Status CloudCompactionMixin::set_storage_resource_from_input_rowsets(RowsetWrite
 
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                                _tablet->enable_unique_key_merge_on_write()) ||
-                                               _tablet->keys_type() == KeysType::DUP_KEYS))) {
+    if (_row_binlog_ttl_filtered_rows == 0 && _enable_inverted_index_compaction &&
+        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+           _tablet->enable_unique_key_merge_on_write()) ||
+          _tablet->keys_type() == KeysType::DUP_KEYS))) {
         construct_index_compaction_columns(ctx);
     }
 
@@ -2350,6 +2494,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
+    ctx.variant_compaction_paths = _cur_variant_compaction_paths;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
@@ -2363,7 +2508,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
 
     ctx.write_file_cache = should_cache_compaction_output();
-    ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
+    ctx.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
 
     // Set fine-grained control: only write index files to cache if configured

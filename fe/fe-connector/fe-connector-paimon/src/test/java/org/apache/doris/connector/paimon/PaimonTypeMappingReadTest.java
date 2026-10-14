@@ -19,8 +19,10 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorType;
 
+import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
@@ -90,5 +92,28 @@ public class PaimonTypeMappingReadTest {
 
         Assertions.assertEquals("VARIANT_COMPUTE_V2", variant.getTypeName(),
                 "Paimon Variant must stay queryable in Nereids and the native reader");
+    }
+
+    @Test
+    public void nestedVariantUsesExecutionCarrierOnRead() {
+        // WHY: the native reader produces V2 Variant values at every nesting level. Only the execution
+        // carrier marks its thrift type node variant_is_v2, and the BE compatibility gate searches the
+        // whole column type for it, so a nested Variant mapped to plain VARIANT would be described to
+        // the BE with the storage-configured encoding. The write columns reuse this mapping, so a
+        // nested Variant write target also keeps the V2 cast contract.
+        ConnectorType array = PaimonTypeMapping.toConnectorType(
+                new ArrayType(new VariantType()), PaimonTypeMapping.Options.DEFAULT);
+        ConnectorType row = PaimonTypeMapping.toConnectorType(
+                new RowType(Arrays.asList(new DataField(0, "payload", new VariantType()))),
+                PaimonTypeMapping.Options.DEFAULT);
+        ConnectorType map = PaimonTypeMapping.toConnectorType(
+                new MapType(new VarCharType(false, 10), new VariantType()), PaimonTypeMapping.Options.DEFAULT);
+
+        Assertions.assertEquals("VARIANT_COMPUTE_V2", array.getChildren().get(0).getTypeName(),
+                "an ARRAY element Variant must keep the execution carrier");
+        Assertions.assertEquals("VARIANT_COMPUTE_V2", row.getChildren().get(0).getTypeName(),
+                "a ROW field Variant must keep the execution carrier");
+        Assertions.assertEquals("VARIANT_COMPUTE_V2", map.getChildren().get(1).getTypeName(),
+                "a MAP value Variant must keep the execution carrier");
     }
 }

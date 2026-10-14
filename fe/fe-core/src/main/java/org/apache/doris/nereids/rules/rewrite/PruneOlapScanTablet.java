@@ -106,7 +106,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             return index.getTabletIdsInOrder();
         }
         HashDistributionInfo hashInfo = (HashDistributionInfo) info;
-        return new HashDistributionPruner(schema, index.getTabletIdsInOrder(),
+        return new HashDistributionPruner(schema, index,
                 hashInfo.getDistributionColumns(),
                 filterMap,
                 hashInfo.getBucketNum(),

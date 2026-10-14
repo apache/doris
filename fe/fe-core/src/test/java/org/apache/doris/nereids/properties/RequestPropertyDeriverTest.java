@@ -203,7 +203,7 @@ class RequestPropertyDeriverTest {
                     new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, leftPlan, rightPlan);
             Group leftGroup = Mockito.mock(Group.class);
             Group rightGroup = Mockito.mock(Group.class);
-            org.apache.doris.statistics.Statistics stats = Mockito.mock(org.apache.doris.statistics.Statistics.class);
+            org.apache.doris.statistics.model.Statistics stats = Mockito.mock(org.apache.doris.statistics.model.Statistics.class);
             Mockito.when(stats.computeSize(Mockito.anyList())).thenReturn(1D);
             Mockito.when(stats.getRowCount()).thenReturn(1D);
             Mockito.when(leftGroup.getStatistics()).thenReturn(stats);
@@ -467,7 +467,7 @@ class RequestPropertyDeriverTest {
         );
         GroupExpression groupExpression = new GroupExpression(aggregate) {
             @Override
-            public org.apache.doris.statistics.Statistics childStatistics(int idx) {
+            public org.apache.doris.statistics.model.Statistics childStatistics(int idx) {
                 return null;
             }
         };

@@ -18,11 +18,12 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.scan.FilePartitionUtils;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
@@ -34,16 +35,16 @@ public class BrokerUtilTest {
         String path = "/path/to/dir/k1=v1/xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            Assert.assertEquals(1, columns.size());
-            Assert.assertEquals(Collections.singletonList("v1"), columns);
+            Assertions.assertEquals(1, columns.size());
+            Assertions.assertEquals(Collections.singletonList("v1"), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k1/xxx.csv";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -51,7 +52,7 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k1=v1/xxx.csv";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k2"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -59,25 +60,25 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k1=v2/k1=v1/xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            Assert.assertEquals(1, columns.size());
-            Assert.assertEquals(Collections.singletonList("v1"), columns);
+            Assertions.assertEquals(1, columns.size());
+            Assertions.assertEquals(Collections.singletonList("v1"), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k2=v2/k1=v1/xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.assertEquals(2, columns.size());
-            Assert.assertEquals(Lists.newArrayList("v1", "v2"), columns);
+            Assertions.assertEquals(2, columns.size());
+            Assertions.assertEquals(Lists.newArrayList("v1", "v2"), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k2=v2/a/k1=v1/xxx.csv";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -85,7 +86,7 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k2=v2/k1=v1/xxx.csv";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2", "k3"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -93,25 +94,25 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k2=v2//k1=v1//xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.assertEquals(2, columns.size());
-            Assert.assertEquals(Lists.newArrayList("v1", "v2"), columns);
+            Assertions.assertEquals(2, columns.size());
+            Assertions.assertEquals(Lists.newArrayList("v1", "v2"), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k2==v2=//k1=v1//xxx.csv";
         try {
             List<String> columns = FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.assertEquals(2, columns.size());
-            Assert.assertEquals(Lists.newArrayList("v1", "=v2="), columns);
+            Assertions.assertEquals(2, columns.size());
+            Assertions.assertEquals(Lists.newArrayList("v1", "=v2="), columns);
         } catch (UserException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         path = "/path/to/dir/k2==v2=//k1=v1/";
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException ignored) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -120,9 +121,34 @@ public class BrokerUtilTest {
         try {
             FilePartitionUtils.parseColumnsFromPath(path, Collections.singletonList("k1"));
         } catch (UserException ignored) {
-            Assert.fail();
+            Assertions.fail();
         }
 
+    }
+
+    @Test
+    public void parseColumnsFromPathPreservesNullMetadataAndInputKeys() throws Exception {
+        // A case-insensitive parse lowercases its own copy of the keys, not the caller's list, and turns the Hive
+        // default partition into SQL NULL.
+        List<String> partitionKeys = Lists.newArrayList("Region", "Dt");
+        FilePartitionUtils.ParsedColumnsFromPath parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/REGION=cn/dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME + "/data.parquet",
+                partitionKeys, false, false);
+        Assertions.assertEquals(Lists.newArrayList("cn", ""), parsed.getValues());
+        Assertions.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
+        Assertions.assertEquals(Lists.newArrayList("Region", "Dt"), partitionKeys);
+
+        // A literal \N is data on the query path.
+        parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+        Assertions.assertEquals(Collections.singletonList("\\N"), parsed.getValues());
+        Assertions.assertEquals(Collections.singletonList(false), parsed.getIsNull());
+
+        // An ACID layout has one more directory level between the partition and the file.
+        parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/p=value/delta_1_1/bucket_00000", Collections.singletonList("p"), true, true);
+        Assertions.assertEquals(Collections.singletonList("value"), parsed.getValues());
+        Assertions.assertEquals(Collections.singletonList(false), parsed.getIsNull());
     }
 
 }

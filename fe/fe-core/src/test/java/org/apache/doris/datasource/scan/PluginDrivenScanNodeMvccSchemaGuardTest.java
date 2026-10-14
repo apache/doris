@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
@@ -60,6 +61,46 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         return t;
     }
 
+    private static PluginDrivenScanNode node() {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(ConnectorColumnCategory.DEFAULT).when(node).classifyColumnByConnector(Mockito.anyString());
+        return node;
+    }
+
+    @Test
+    public void connectorSyntheticColumnIsNotPartOfPinnedPhysicalSchema() throws UserException {
+        PluginDrivenScanNode node = node();
+        Mockito.doReturn(ConnectorColumnCategory.SYNTHESIZED).when(node)
+                .classifyColumnByConnector("synthetic_position");
+        List<Column> bound = Arrays.asList(col("id", 1), col("synthetic_position", -1));
+        SchemaCacheValue pinned = schema(col("id", 1));
+
+        Assertions.assertDoesNotThrow(() -> node.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+        Mockito.verify(node, Mockito.never()).classifyColumnByConnector("id");
+    }
+
+    @Test
+    public void connectorSyntheticColumnDoesNotHideRealSchemaSkew() throws UserException {
+        PluginDrivenScanNode node = node();
+        Mockito.doReturn(ConnectorColumnCategory.SYNTHESIZED).when(node)
+                .classifyColumnByConnector("synthetic_position");
+        List<Column> bound = Arrays.asList(col("synthetic_position", -1), col("added", 9));
+        UserException error = Assertions.assertThrows(UserException.class, () ->
+                node.assertBoundColumnsResolveInPinnedSchema(bound, schema(col("id", 1)), table()));
+        Assertions.assertTrue(error.getMessage().contains("'added'"), error.getMessage());
+    }
+
+    @Test
+    public void connectorGeneratedColumnStillRequiresPinnedSchemaMatch() throws UserException {
+        PluginDrivenScanNode node = node();
+        Mockito.doReturn(ConnectorColumnCategory.GENERATED).when(node).classifyColumnByConnector("generated_value");
+        Column generated = col("generated_value", 9);
+        generated.setIsVisible(false);
+        generated.setReservedPassthrough(true);
+        Assertions.assertThrows(UserException.class, () -> node.assertBoundColumnsResolveInPinnedSchema(
+                Collections.singletonList(generated), schema(col("id", 1)), table()));
+    }
+
     @Test
     public void fieldIdRenumberBetweenBoundAndScannedVersionThrows() throws UserException {
         // The tuple was bound at LATEST where column `c` has field-id 7, but THIS reference scans a pinned
@@ -69,7 +110,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         List<Column> bound = Collections.singletonList(col("c", 7));
         SchemaCacheValue pinned = schema(col("c", 5));
         UserException e = Assertions.assertThrows(UserException.class,
-                () -> PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                () -> node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
         Assertions.assertTrue(e.getMessage().contains("multiple versions"), e.getMessage());
         Assertions.assertTrue(e.getMessage().contains("'c'"), e.getMessage());
     }
@@ -81,7 +122,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         List<Column> bound = Arrays.asList(col("id", 1), col("added", 9));
         SchemaCacheValue pinned = schema(col("id", 1));   // pinned version predates `added`
         UserException e = Assertions.assertThrows(UserException.class,
-                () -> PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                () -> node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
         Assertions.assertTrue(e.getMessage().contains("'added'"), e.getMessage());
     }
 
@@ -93,7 +134,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         List<Column> bound = Collections.singletonList(col("newname", -1));
         SchemaCacheValue pinned = schema(col("oldname", -1));
         Assertions.assertThrows(UserException.class,
-                () -> PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                () -> node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
     }
 
     @Test
@@ -104,7 +145,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         List<Column> bound = Collections.singletonList(col("newname", 5));
         SchemaCacheValue pinned = schema(col("oldname", 5), col("other", 6));
         Assertions.assertDoesNotThrow(() ->
-                PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
     }
 
     @Test
@@ -113,7 +154,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         List<Column> bound = Arrays.asList(col("a", 1), col("c", 3));
         SchemaCacheValue pinned = schema(col("a", 1), col("b", 2), col("c", 3));
         Assertions.assertDoesNotThrow(() ->
-                PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
     }
 
     @Test
@@ -122,7 +163,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         List<Column> bound = Arrays.asList(col("a", -1), col("b", -1));
         SchemaCacheValue pinned = schema(col("a", -1), col("b", -1), col("c", -1));
         Assertions.assertDoesNotThrow(() ->
-                PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
     }
 
     @Test
@@ -132,7 +173,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         // reference is excluded by TYPE, not by a null schema -- see sysTableIsExcludedNoThrow.)
         List<Column> bound = Collections.singletonList(col("anything", 42));
         Assertions.assertDoesNotThrow(() ->
-                PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, null, table()));
+                node().assertBoundColumnsResolveInPinnedSchema(bound, null, table()));
     }
 
     @Test
@@ -146,7 +187,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
                 col(Column.GLOBAL_ROWID_COL + "tag_branch_table", Integer.MAX_VALUE));
         SchemaCacheValue pinned = schema(col("id", 1));
         Assertions.assertDoesNotThrow(() ->
-                PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
     }
 
     @Test
@@ -159,7 +200,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
                 col("added", 9));
         SchemaCacheValue pinned = schema(col("id", 1));
         Assertions.assertThrows(UserException.class,
-                () -> PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                () -> node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
     }
 
     @Test
@@ -185,7 +226,7 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         Mockito.when(sysTable.getName()).thenReturn("db.t$position_deletes");
 
         Assertions.assertDoesNotThrow(() ->
-                PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, sysTable));
+                node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, sysTable));
     }
 
     @Test
@@ -198,6 +239,6 @@ public class PluginDrivenScanNodeMvccSchemaGuardTest {
         SchemaCacheValue pinned = schema(col("id", -1), col("name", -1));
 
         Assertions.assertThrows(UserException.class,
-                () -> PluginDrivenScanNode.assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
+                () -> node().assertBoundColumnsResolveInPinnedSchema(bound, pinned, table()));
     }
 }

@@ -120,8 +120,8 @@ SharedMemtable::~SharedMemtable() {
         return;
     }
     if (has_allocated_lsns) {
-        DCHECK(rowset_ctx != nullptr);
-        rowset_ctx->remove_segment_allocated_lsns(segment_id);
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->remove_segment(segment_id);
     }
     DCHECK(memtable != nullptr);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
@@ -187,8 +187,7 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
 
         shared_memtable = std::make_shared<SharedMemtable>();
         shared_memtable->memtable = mem_table;
-        shared_memtable->rowset_ctx =
-                const_cast<RowsetWriterContext*>(&group_rowset_writer->context());
+        shared_memtable->allocated_lsn_map = group_rowset_writer->context().allocated_lsn_map;
         // Keep data/binlog segment_id allocators in sync.
         auto segment_id = DORIS_TRY(data_writer->allocate_segment_id());
         auto binlog_segment_id = DORIS_TRY(binlog_writer->allocate_segment_id());
@@ -314,13 +313,13 @@ Status FlushToken::_memtable2block(MemTable* memtable, SharedMemtable* shared_me
         shared_memtable->block_status = memtable->to_block(&block);
         if (shared_memtable->block_status.ok()) {
             shared_memtable->block.reset(block.release());
-            auto* rowset_ctx = shared_memtable->rowset_ctx;
-            DCHECK(rowset_ctx != nullptr);
-            if (rowset_ctx->need_allocated_lsn() && shared_memtable->block->rows() > 0) {
+            // A non-null map is equivalent to RowsetWriterContext::need_allocated_lsn():
+            // GroupRowsetWriter::init() creates the map exactly when LSN allocation is needed.
+            const auto& lsn_map = shared_memtable->allocated_lsn_map;
+            if (lsn_map != nullptr && shared_memtable->block->rows() > 0) {
                 auto memtable_lsns = memtable->allocated_lsns();
                 DCHECK_EQ(memtable_lsns->size(), shared_memtable->block->rows());
-                rowset_ctx->insert_segment_allocated_lsns(shared_memtable->segment_id,
-                                                          memtable_lsns);
+                lsn_map->insert_segment_allocated_lsns(shared_memtable->segment_id, memtable_lsns);
                 shared_memtable->has_allocated_lsns = true;
             }
         }

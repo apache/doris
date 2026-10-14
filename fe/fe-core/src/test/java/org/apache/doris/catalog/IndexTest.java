@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.info.IndexType;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -55,9 +55,9 @@ public class IndexTest {
         Index index1 = new Index(1, "test_index1", indexColumns1, IndexType.BITMAP, null, null);
 
         List<Integer> uniqueIds1 = index1.getColumnUniqueIds(schema);
-        Assert.assertEquals(2, uniqueIds1.size());
-        Assert.assertEquals(Integer.valueOf(101), uniqueIds1.get(0));
-        Assert.assertEquals(Integer.valueOf(103), uniqueIds1.get(1));
+        Assertions.assertEquals(2, uniqueIds1.size());
+        Assertions.assertEquals(Integer.valueOf(101), uniqueIds1.get(0));
+        Assertions.assertEquals(Integer.valueOf(103), uniqueIds1.get(1));
 
         // Test case 2: Case-insensitive matching
         List<String> indexColumns2 = new ArrayList<>();
@@ -66,9 +66,9 @@ public class IndexTest {
         Index index2 = new Index(2, "test_index2", indexColumns2, IndexType.BITMAP, null, null);
 
         List<Integer> uniqueIds2 = index2.getColumnUniqueIds(schema);
-        Assert.assertEquals(2, uniqueIds2.size());
-        Assert.assertEquals(Integer.valueOf(101), uniqueIds2.get(0));
-        Assert.assertEquals(Integer.valueOf(103), uniqueIds2.get(1));
+        Assertions.assertEquals(2, uniqueIds2.size());
+        Assertions.assertEquals(Integer.valueOf(101), uniqueIds2.get(0));
+        Assertions.assertEquals(Integer.valueOf(103), uniqueIds2.get(1));
 
         // Test case 3: Non-existent column name
         List<String> indexColumns3 = new ArrayList<>();
@@ -77,22 +77,22 @@ public class IndexTest {
         Index index3 = new Index(3, "test_index3", indexColumns3, IndexType.BITMAP, null, null);
 
         List<Integer> uniqueIds3 = index3.getColumnUniqueIds(schema);
-        Assert.assertEquals(1, uniqueIds3.size());
-        Assert.assertEquals(Integer.valueOf(101), uniqueIds3.get(0));
+        Assertions.assertEquals(1, uniqueIds3.size());
+        Assertions.assertEquals(Integer.valueOf(101), uniqueIds3.get(0));
 
         // Test case 4: Null schema
         List<Integer> uniqueIds4 = index1.getColumnUniqueIds(null);
-        Assert.assertEquals(0, uniqueIds4.size());
+        Assertions.assertEquals(0, uniqueIds4.size());
 
         // Test case 5: Empty column list
         Index emptyColIndex = new Index(5, "empty_col_index", new ArrayList<>(),
                 IndexType.BITMAP, null, null);
         List<Integer> emptyColUniqueIds = emptyColIndex.getColumnUniqueIds(schema);
-        Assert.assertEquals(0, emptyColUniqueIds.size());
+        Assertions.assertEquals(0, emptyColUniqueIds.size());
 
         // Test case 6: Empty schema (non-null)
         List<Integer> emptySchemaUniqueIds = index1.getColumnUniqueIds(new ArrayList<>());
-        Assert.assertEquals(0, emptySchemaUniqueIds.size());
+        Assertions.assertEquals(0, emptySchemaUniqueIds.size());
 
         // Test case 7: Duplicate column names
         List<String> dupColumns = new ArrayList<>();
@@ -102,10 +102,10 @@ public class IndexTest {
         Index dupIndex = new Index(7, "dup_index", dupColumns, IndexType.BITMAP, null, null);
 
         List<Integer> dupUniqueIds = dupIndex.getColumnUniqueIds(schema);
-        Assert.assertEquals(3, dupUniqueIds.size());
-        Assert.assertEquals(Integer.valueOf(101), dupUniqueIds.get(0));
-        Assert.assertEquals(Integer.valueOf(101), dupUniqueIds.get(1));
-        Assert.assertEquals(Integer.valueOf(102), dupUniqueIds.get(2));
+        Assertions.assertEquals(3, dupUniqueIds.size());
+        Assertions.assertEquals(Integer.valueOf(101), dupUniqueIds.get(0));
+        Assertions.assertEquals(Integer.valueOf(101), dupUniqueIds.get(1));
+        Assertions.assertEquals(Integer.valueOf(102), dupUniqueIds.get(2));
 
         // Test case 8: Special characters in column names
         List<String> specialColList = new ArrayList<>();
@@ -113,8 +113,8 @@ public class IndexTest {
         Index specialIndex = new Index(8, "special_index", specialColList, IndexType.BITMAP, null, null);
 
         List<Integer> specialUniqueIds = specialIndex.getColumnUniqueIds(schema);
-        Assert.assertEquals(1, specialUniqueIds.size());
-        Assert.assertEquals(Integer.valueOf(104), specialUniqueIds.get(0));
+        Assertions.assertEquals(1, specialUniqueIds.size());
+        Assertions.assertEquals(Integer.valueOf(104), specialUniqueIds.get(0));
 
         // Test case 9: Mixed case column name
         List<String> mixedCaseList = new ArrayList<>();
@@ -122,8 +122,8 @@ public class IndexTest {
         Index mixedCaseIndex = new Index(9, "mixed_case_index", mixedCaseList, IndexType.BITMAP, null, null);
 
         List<Integer> mixedCaseUniqueIds = mixedCaseIndex.getColumnUniqueIds(schema);
-        Assert.assertEquals(1, mixedCaseUniqueIds.size());
-        Assert.assertEquals(Integer.valueOf(105), mixedCaseUniqueIds.get(0));
+        Assertions.assertEquals(1, mixedCaseUniqueIds.size());
+        Assertions.assertEquals(Integer.valueOf(105), mixedCaseUniqueIds.get(0));
 
         // Test case 10: Large number of columns
         List<String> largeColumnList = new ArrayList<>();
@@ -142,10 +142,10 @@ public class IndexTest {
         Index largeIndex = new Index(10, "large_index", largeColumnList, IndexType.BITMAP, null, null);
         List<Integer> largeUniqueIds = largeIndex.getColumnUniqueIds(largeSchema);
 
-        Assert.assertEquals(500, largeUniqueIds.size());
+        Assertions.assertEquals(500, largeUniqueIds.size());
         // Check first and last elements
-        Assert.assertEquals(Integer.valueOf(1000), largeUniqueIds.get(0));
-        Assert.assertEquals(Integer.valueOf(1000 + 998), largeUniqueIds.get(499));
+        Assertions.assertEquals(Integer.valueOf(1000), largeUniqueIds.get(0));
+        Assertions.assertEquals(Integer.valueOf(1000 + 998), largeUniqueIds.get(499));
 
         // Test case 11: Order preservation - ensure column order in index is preserved in IDs
         List<String> reverseOrderColumns = new ArrayList<>();
@@ -156,9 +156,9 @@ public class IndexTest {
         Index reverseIndex = new Index(11, "reverse_index", reverseOrderColumns, IndexType.BITMAP, null, null);
         List<Integer> reverseUniqueIds = reverseIndex.getColumnUniqueIds(schema);
 
-        Assert.assertEquals(3, reverseUniqueIds.size());
-        Assert.assertEquals(Integer.valueOf(103), reverseUniqueIds.get(0));
-        Assert.assertEquals(Integer.valueOf(102), reverseUniqueIds.get(1));
-        Assert.assertEquals(Integer.valueOf(101), reverseUniqueIds.get(2));
+        Assertions.assertEquals(3, reverseUniqueIds.size());
+        Assertions.assertEquals(Integer.valueOf(103), reverseUniqueIds.get(0));
+        Assertions.assertEquals(Integer.valueOf(102), reverseUniqueIds.get(1));
+        Assertions.assertEquals(Integer.valueOf(101), reverseUniqueIds.get(2));
     }
 }

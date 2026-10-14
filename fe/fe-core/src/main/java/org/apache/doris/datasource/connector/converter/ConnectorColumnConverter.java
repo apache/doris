@@ -68,6 +68,9 @@ public final class ConnectorColumnConverter {
                 cc.isNullable(), cc.getDefaultValue(),
                 cc.getComment() != null ? cc.getComment() : "");
         column.setConnectorDefaultValueSql(cc.getDefaultValueSql());
+        if (cc.getStringWriteType() != null) {
+            column.setConnectorStringWriteType(convertType(cc.getStringWriteType()));
+        }
         // Re-apply the WITH_TIMEZONE "Extra" marker the connector carried across the SPI boundary
         // (ConnectorColumn.withTimeZone()), matching legacy PaimonExternalTable/IcebergUtils which set it
         // via setWithTZExtraInfo() from the source TZ type. Independent of the mapped Doris type, so it is
@@ -238,7 +241,7 @@ public final class ConnectorColumnConverter {
             // isCommentSpecified() so the diff can tell an omitted COMMENT (preserve the current doc) from
             // COMMENT '' (clear it) — the comment string is "" for both (#65329 omit-preserves-metadata).
             for (StructField f : struct.getFields()) {
-                names.add(f.getName());
+                names.add(f.getOriginalName());
                 types.add(toConnectorType(f.getType()));
                 nullables.add(f.getContainsNull());
                 comments.add(f.getComment());

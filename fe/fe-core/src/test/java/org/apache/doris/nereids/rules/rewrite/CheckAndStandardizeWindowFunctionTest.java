@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.rules.analysis.WindowFunctionChecker;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
@@ -35,9 +37,11 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -54,7 +58,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import java.math.BigInteger;
 import java.util.List;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -264,6 +271,53 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
                                     return newWindowFirstValue.getFunction().arity() == 1 && newWindowLastValue.getFunction().arity() == 1;
                                 })
                 );
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"2147483648", "9223372036854775805", "9223372036854775806",
+            "9223372036854775807", "9223372036854775808"})
+    public void testRowsOffsetOverMaxIntIsRejected(String offset) {
+        for (WindowFrame frame : rowsFrames(new LargeIntLiteral(new BigInteger(offset)))) {
+            WindowExpression window = new WindowExpression(new Sum(age), partitionKeyList, orderKeyList, frame);
+            forCheckWindowFrameBeforeFunc(window,
+                    "BoundOffset of ROWS WindowFrame must not exceed 2147483647");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1L, 2147483646L, Integer.MAX_VALUE})
+    public void testValidRowsOffsetIsAccepted(long offset) {
+        for (WindowFrame frame : rowsFrames(new BigIntLiteral(offset))) {
+            WindowExpression window = new WindowExpression(new Sum(age), partitionKeyList, orderKeyList, frame);
+            WindowFunctionChecker checker = new WindowFunctionChecker(window);
+            Assertions.assertDoesNotThrow(checker::checkWindowBeforeFunc);
+            WindowFrame expected = frame.getRightBoundary().isNull()
+                    ? frame.withRightBoundary(FrameBoundary.newCurrentRowBoundary()) : frame;
+            Assertions.assertEquals(expected, checker.getWindow().getWindowFrame().get());
+            Assertions.assertDoesNotThrow(checker::checkWindowFunction);
+            Assertions.assertDoesNotThrow(checker::checkWindowAfterFunc);
+        }
+    }
+
+    private List<WindowFrame> rowsFrames(Expression offset) {
+        return ImmutableList.of(
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newPrecedingBoundary(),
+                        FrameBoundary.newFollowingBoundary(offset)),
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newCurrentRowBoundary(),
+                        FrameBoundary.newFollowingBoundary(offset)),
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newFollowingBoundary(offset),
+                        FrameBoundary.newFollowingBoundary(offset)),
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newFollowingBoundary(offset),
+                        FrameBoundary.newFollowingBoundary()),
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newPrecedingBoundary(offset),
+                        FrameBoundary.newCurrentRowBoundary()),
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newPrecedingBoundary(),
+                        FrameBoundary.newPrecedingBoundary(offset)),
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newPrecedingBoundary(offset),
+                        FrameBoundary.newFollowingBoundary(offset)),
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newPrecedingBoundary(offset),
+                        FrameBoundary.newFollowingBoundary()),
+                new WindowFrame(FrameUnitsType.ROWS, FrameBoundary.newPrecedingBoundary(offset)));
     }
 
     private void forCheckWindowFrameBeforeFunc(WindowFrame windowFrame, String errorMsg) {

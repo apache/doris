@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.iceberg.IcebergPartitionUtils.IcebergRawPartition;
 
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -30,14 +32,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests for {@link IcebergPartitionCache} (PERF-02). Mirrors {@link IcebergTableCacheTest} but keys by
- * {@code (TableIdentifier, snapshotId)} and stores the raw partition list. Covers within-TTL stability, the
- * {@code ttl <= 0} disable, invalidation, and the exception-propagation guarantee that {@code listPartitions}'
- * dropped-partition-source-column degradation depends on.
+ * {@code (TableIdentifier, snapshotId, schemaId, specId)} and stores the raw partition list. Covers within-TTL
+ * stability, the {@code ttl <= 0} disable, invalidation, and exception propagation.
  */
 public class IcebergPartitionCacheTest {
 
     private static IcebergPartitionCache.Key key(String db, String tbl, long snapshotId) {
-        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId, 0, 0);
     }
 
     /** A raw partition list of the given size, distinguishable by size. */
@@ -48,6 +49,26 @@ public class IcebergPartitionCacheTest {
                     Collections.singletonList("v" + i), Collections.singletonList("identity"), 0L, 0L));
         }
         return list;
+    }
+
+    @Test
+    public void disabledBoundedPartitionsDoNotPrepareCachePayload() {
+        for (CacheSpec spec : new CacheSpec[] {CacheSpec.ofWeight(false, 100L, 1000L, 1024L * 1024L),
+                CacheSpec.ofWeight(true, 0L, 1000L, 1024L * 1024L)}) {
+            List<IcebergRawPartition> partitions = raws(3);
+            AtomicInteger loads = new AtomicInteger();
+            try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+                IcebergPartitionCache cache = new IcebergPartitionCache(owner, spec);
+                for (int i = 0; i < 2; i++) {
+                    Assertions.assertSame(partitions, cache.getOrLoad(key("db", "t", 5L), () -> {
+                        loads.incrementAndGet();
+                        return partitions;
+                    }));
+                }
+                Assertions.assertEquals(2, loads.get());
+                Assertions.assertEquals(0, cache.size());
+            }
+        }
     }
 
     @Test
@@ -71,6 +92,29 @@ public class IcebergPartitionCacheTest {
         Assertions.assertEquals(1, loads.get(), "the live scan must run exactly once within TTL");
         Assertions.assertEquals(1, c.loadCountForTest(), "the metric-gate load count must be 1");
         Assertions.assertTrue(c.isEnabled());
+    }
+
+    @Test
+    public void weightBoundedPartitionsAreEstimatedAndCached() {
+        AtomicInteger loads = new AtomicInteger();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergPartitionCache cache = new IcebergPartitionCache(
+                    owner, CacheSpec.ofWeight(true, 100L, 1000L, 1024L * 1024L));
+
+            List<IcebergRawPartition> first = cache.getOrLoad(key("db", "t", 5L), () -> {
+                loads.incrementAndGet();
+                return raws(3);
+            });
+            List<IcebergRawPartition> second = cache.getOrLoad(key("db", "t", 5L), () -> {
+                loads.incrementAndGet();
+                return raws(7);
+            });
+
+            Assertions.assertSame(first, second);
+            Assertions.assertEquals(1, loads.get());
+            Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> first.add(raws(1).get(0)));
+        }
     }
 
     @Test
@@ -175,7 +219,7 @@ public class IcebergPartitionCacheTest {
     public void loaderExceptionPropagatesUnwrapped() {
         // listPartitions catches ValidationException (dropped partition source column) to degrade to an empty
         // list. Routing the scan through this cache must NOT wrap it, or the degradation would break. The
-        // MetaCacheEntry manual-miss-load path re-throws the loader's RuntimeException verbatim, and a failed
+        // MetaCache manual-miss-load path re-throws the loader's RuntimeException verbatim, and a failed
         // scan is not cached. MUTATION: wrapping the loader exception -> assertThrows(ValidationException) fails.
         IcebergPartitionCache c = new IcebergPartitionCache(100, 1000);
         Assertions.assertThrows(ValidationException.class, () -> c.getOrLoad(key("db", "t", 5L), () -> {

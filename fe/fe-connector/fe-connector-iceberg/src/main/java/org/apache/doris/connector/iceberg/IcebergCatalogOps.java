@@ -40,6 +40,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
@@ -323,9 +324,17 @@ public interface IcebergCatalogOps {
             SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
             if (restFlavor && nestedNamespaceEnabled) {
                 return nsCatalog.listNamespaces(parentNs).stream()
-                        .flatMap(childNs -> Stream.concat(
-                                Stream.of(childNs.toString()),
-                                listNestedNamespaces(childNs).stream()))
+                        .flatMap(childNs -> {
+                            try {
+                                List<String> descendants = listNestedNamespaces(childNs);
+                                return Stream.concat(Stream.of(childNs.toString()), descendants.stream());
+                            } catch (NoSuchNamespaceException e) {
+                                // A child can be dropped after its parent was listed. Skip that branch,
+                                // including the stale child name, without hiding failures to list the root.
+                                LOG.debug("Namespace {} was dropped during listing", childNs, e);
+                                return Stream.empty();
+                            }
+                        })
                         .collect(Collectors.toList());
             }
             return nsCatalog.listNamespaces(parentNs).stream()
@@ -531,10 +540,14 @@ public interface IcebergCatalogOps {
         public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
                 boolean commentSpecified, ConnectorColumnPosition position) {
             withTable(dbName, tableName, table -> {
-                Types.NestedField current = table.schema().findField(column.getName());
+                Schema schema = table.schema();
+                Types.NestedField current = IcebergNestedColumnEvolution.findTopLevelField(
+                        schema, column.getName());
                 if (current == null) {
                     throw new DorisConnectorException("Column " + column.getName() + " does not exist");
                 }
+                // Iceberg update paths are case-sensitive, so stage every change with the persisted spelling.
+                String currentName = current.name();
                 // Iceberg can widen required -> optional but never optional -> required (existing data may hold
                 // nulls), so a NOT NULL request on an already-nullable column fails loud — legacy parity
                 // (IcebergMetadataOps.validateForModifyColumn / validateForModifyComplexColumn).
@@ -555,7 +568,7 @@ public interface IcebergCatalogOps {
                         throw new DorisConnectorException("Modify column type from complex to primitive is not"
                                 + " supported: " + column.getName());
                     }
-                    updateSchema.updateColumn(column.getName(), newType.asPrimitiveType(), targetComment);
+                    updateSchema.updateColumn(currentName, newType.asPrimitiveType(), targetComment);
                 } else {
                     // A complex (STRUCT/ARRAY/MAP) modify diffs the new type against the current one field-by-field
                     // (IcebergComplexTypeDiff); the top-level column doc is updated separately, as in legacy.
@@ -563,16 +576,17 @@ public interface IcebergCatalogOps {
                         throw new DorisConnectorException("Modify column type from non-complex to complex is not"
                                 + " supported: " + column.getName());
                     }
-                    IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType,
+                    IcebergComplexTypeDiff.apply(updateSchema, currentName, current.type(), newType,
                             column.getSourceType());
                     if (!Objects.equals(current.doc(), targetComment)) {
-                        updateSchema.updateColumnDoc(column.getName(), targetComment);
+                        updateSchema.updateColumnDoc(currentName, targetComment);
                     }
                 }
                 if (column.isNullable()) {
-                    updateSchema.makeColumnOptional(column.getName());
+                    updateSchema.makeColumnOptional(currentName);
                 }
-                applyPosition(updateSchema, position, column.getName());
+                IcebergNestedColumnEvolution.applyTopLevelPosition(
+                        updateSchema, position, currentName, schema, "modify");
                 updateSchema.commit();
                 return null;
             });

@@ -17,20 +17,107 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
+import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 public class JdbcSourceOffsetProviderOffsetTest {
+
+    @Test
+    public void testValidateAlterOffsetAcceptsSourceSpecificPositions() throws Exception {
+        JdbcSourceOffsetProvider postgres = provider(DataSourceType.POSTGRES);
+        postgres.validateAlterOffset("{\"lsn\":12345678,\"txId\":\"7\"}");
+        postgres.validateAlterOffset("{\"lsn\":\"12345678\"}");
+
+        JdbcSourceOffsetProvider mysql = provider(DataSourceType.MYSQL);
+        mysql.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"SPECIFIC\"}");
+        mysql.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}");
+        mysql.validateAlterOffset("{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\"}");
+        mysql.validateAlterOffset(
+                "{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\",\"kind\":\"SPECIFIC\"}");
+
+        JdbcSourceOffsetProvider oceanBase = provider(DataSourceType.OCEANBASE);
+        oceanBase.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}");
+        oceanBase.validateAlterOffset("{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\"}");
+    }
+
+    @Test
+    public void testValidateAlterOffsetRejectsInvalidSourceSpecificPositions() {
+        assertInvalidAlterOffsets(provider(DataSourceType.POSTGRES),
+                "{}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}",
+                "{\"lsn\":null}",
+                "{\"lsn\":\"abc\"}",
+                "{\"lsn\":\"-1\"}",
+                "{\"lsn\":\"9223372036854775808\"}");
+
+        assertInvalidAlterOffsets(provider(DataSourceType.MYSQL),
+                "{}",
+                "{\"lsn\":\"12345678\"}",
+                "{\"file\":\"mysql-bin.000001\"}",
+                "{\"file\":\"\",\"pos\":\"154\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":null}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"abc\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"-1\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"9223372036854775808\"}",
+                "{\"gtids\":\"\"}",
+                "{\"gtids\":123}",
+                "{\"gtids\":\"uuid:1-10\",\"file\":\"mysql-bin.000001\",\"pos\":\"abc\"}");
+    }
+
+    @Test
+    public void testValidateAlterOffsetRejectsNonSpecificKind() {
+        for (DataSourceType type : new DataSourceType[] {DataSourceType.MYSQL, DataSourceType.OCEANBASE}) {
+            assertInvalidAlterOffsets(provider(type),
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"LATEST\"}",
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"EARLIEST\"}",
+                    "{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"TIMESTAMP\"}",
+                    "{\"gtids\":\"uuid:1-10\",\"kind\":\"BOGUS\"}",
+                    "{\"gtids\":\"uuid:1-10\",\"kind\":null}");
+        }
+    }
+
+    @Test
+    public void testTaskParallelismKeepsUncommittedSplitsForNextTask() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.snapshotParallelism = 10000;
+        provider.remainingSplits.addAll(Arrays.asList(
+                snapshotSplit("source_table:0"), snapshotSplit("source_table:1"), snapshotSplit("source_table:2")));
+        Map<String, String> taskProperties = Collections.singletonMap(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+
+        JdbcOffset first = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(2, first.getSplits().size());
+        Assertions.assertEquals(3, provider.pendingSplitCount());
+        Assertions.assertEquals(10000, provider.snapshotParallelism);
+        // The next task must receive the same uncommitted splits.
+        JdbcOffset nextTask = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(first.getSplits(), nextTask.getSplits());
+
+        provider.updateOffset(first);
+        JdbcOffset second = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertEquals(1, second.getSplits().size());
+        Assertions.assertEquals("source_table:2", second.getSplits().get(0).getSplitId());
+        Assertions.assertEquals(1, provider.pendingSplitCount());
+
+        provider.updateOffset(second);
+        Assertions.assertEquals(0, provider.pendingSplitCount());
+        JdbcOffset binlog = (JdbcOffset) provider.getNextOffset(null, taskProperties);
+        Assertions.assertFalse(binlog.snapshotSplit());
+        Assertions.assertEquals(3, ((BinlogSplit) binlog.getSplits().get(0)).getFinishedSplits().size());
+    }
 
     @Test
     public void testSnapshotOffsetUsesConfiguredPersistInterval() {
@@ -41,9 +128,9 @@ public class JdbcSourceOffsetProviderOffsetTest {
             provider.currentOffset = new JdbcOffset(
                     Collections.singletonList(snapshotSplit("source_table:0")));
 
-            Assert.assertTrue(provider.shouldPersistOffset(0L, 1_000L));
-            Assert.assertFalse(provider.shouldPersistOffset(1_000L, 123_999L));
-            Assert.assertTrue(provider.shouldPersistOffset(1_000L, 124_000L));
+            Assertions.assertTrue(provider.shouldPersistOffset(0L, 1_000L));
+            Assertions.assertFalse(provider.shouldPersistOffset(1_000L, 123_999L));
+            Assertions.assertTrue(provider.shouldPersistOffset(1_000L, 124_000L));
         } finally {
             Config.streaming_job_snapshot_offset_persist_interval_sec = oldInterval;
         }
@@ -55,7 +142,7 @@ public class JdbcSourceOffsetProviderOffsetTest {
         provider.currentOffset = new JdbcOffset(Collections.singletonList(
                 new BinlogSplit(Collections.singletonMap("lsn", "100"))));
 
-        Assert.assertTrue(provider.shouldPersistOffset(1_000L, 1_001L));
+        Assertions.assertTrue(provider.shouldPersistOffset(1_000L, 1_001L));
     }
 
     @Test
@@ -78,8 +165,8 @@ public class JdbcSourceOffsetProviderOffsetTest {
         provider.updateOffset(new JdbcOffset(
                 Collections.singletonList(new BinlogSplit(currentOffset))));
 
-        Assert.assertTrue(provider.hasMoreDataToConsume());
-        Assert.assertEquals(endOffset, provider.getEndBinlogOffset());
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+        Assertions.assertEquals(endOffset, provider.getEndBinlogOffset());
     }
 
     @Test
@@ -89,9 +176,9 @@ public class JdbcSourceOffsetProviderOffsetTest {
         provider.updateOffset(new JdbcOffset(
                 Collections.singletonList(new BinlogSplit(Collections.singletonMap("lsn", "200")))));
 
-        Assert.assertTrue(provider.hasMoreDataToConsume());
-        Assert.assertTrue(provider.hasMoreData);
-        Assert.assertEquals(Collections.singletonMap("lsn", "300"), provider.getEndBinlogOffset());
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+        Assertions.assertTrue(provider.hasMoreData);
+        Assertions.assertEquals(Collections.singletonMap("lsn", "300"), provider.getEndBinlogOffset());
     }
 
     @Test
@@ -101,9 +188,9 @@ public class JdbcSourceOffsetProviderOffsetTest {
         provider.updateOffset(new JdbcOffset(
                 Collections.singletonList(new BinlogSplit(Collections.singletonMap("lsn", "200")))));
 
-        Assert.assertTrue(provider.hasMoreDataToConsume());
-        Assert.assertTrue(provider.hasMoreData);
-        Assert.assertEquals(Collections.singletonMap("lsn", "100"),
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+        Assertions.assertTrue(provider.hasMoreData);
+        Assertions.assertEquals(Collections.singletonMap("lsn", "100"),
                 ((BinlogSplit) provider.currentOffset.getSplits().get(0)).getStartingOffset());
     }
 
@@ -147,11 +234,11 @@ public class JdbcSourceOffsetProviderOffsetTest {
 
         restored.replayIfNeed(job);
 
-        Assert.assertNotNull(restored.currentOffset);
-        Assert.assertFalse(restored.currentOffset.snapshotSplit());
-        Assert.assertEquals("200", ((BinlogSplit) restored.currentOffset.getSplits().get(0))
+        Assertions.assertNotNull(restored.currentOffset);
+        Assertions.assertFalse(restored.currentOffset.snapshotSplit());
+        Assertions.assertEquals("200", ((BinlogSplit) restored.currentOffset.getSplits().get(0))
                 .getStartingOffset().get("lsn"));
-        Assert.assertTrue(restored.chunkHighWatermarkMap.isEmpty());
+        Assertions.assertTrue(restored.chunkHighWatermarkMap.isEmpty());
     }
 
     @Test
@@ -161,15 +248,17 @@ public class JdbcSourceOffsetProviderOffsetTest {
                 new BinlogSplit(Collections.singletonMap("lsn", "200")))));
         StreamingInsertJob job = mockJobWithPersistInfo(source.getPersistInfo());
         JdbcTvfSourceOffsetProvider restored = new JdbcTvfSourceOffsetProvider();
+        restored.updateOffset(new JdbcOffset(Collections.singletonList(
+                new BinlogSplit(Collections.singletonMap("lsn", "100")))));
 
         restored.restoreFromPersistInfo(source.getPersistInfo());
         restored.replayIfNeed(job);
 
-        Assert.assertNotNull(restored.currentOffset);
-        Assert.assertFalse(restored.currentOffset.snapshotSplit());
-        Assert.assertEquals("200", ((BinlogSplit) restored.currentOffset.getSplits().get(0))
+        Assertions.assertNotNull(restored.currentOffset);
+        Assertions.assertFalse(restored.currentOffset.snapshotSplit());
+        Assertions.assertEquals("200", ((BinlogSplit) restored.currentOffset.getSplits().get(0))
                 .getStartingOffset().get("lsn"));
-        Assert.assertTrue(restored.chunkHighWatermarkMap.isEmpty());
+        Assertions.assertTrue(restored.chunkHighWatermarkMap.isEmpty());
     }
 
     private static void assertEndOffsetAdvancesWhenCurrentOffsetIsAhead(JdbcSourceOffsetProvider provider) {
@@ -181,10 +270,10 @@ public class JdbcSourceOffsetProviderOffsetTest {
         provider.updateOffset(new JdbcOffset(
                 Collections.singletonList(new BinlogSplit(committedOffset))));
 
-        Assert.assertEquals(staleEndOffset, provider.getEndBinlogOffset());
-        Assert.assertFalse(provider.hasMoreDataToConsume());
-        Assert.assertEquals(committedOffset, provider.getEndBinlogOffset());
-        Assert.assertEquals("{\"lsn\":\"200\"}", provider.getShowMaxOffset());
+        Assertions.assertEquals(staleEndOffset, provider.getEndBinlogOffset());
+        Assertions.assertFalse(provider.hasMoreDataToConsume());
+        Assertions.assertEquals(committedOffset, provider.getEndBinlogOffset());
+        Assertions.assertEquals("{\"lsn\":\"200\"}", provider.getShowMaxOffset());
     }
 
     private static void assertValidBinlogOffsetClearsSnapshotState(JdbcSourceOffsetProvider provider) {
@@ -194,19 +283,19 @@ public class JdbcSourceOffsetProviderOffsetTest {
         provider.updateOffset(new JdbcOffset(
                 Collections.singletonList(new BinlogSplit(binlogOffset))));
 
-        Assert.assertTrue(provider.chunkHighWatermarkMap.isEmpty());
-        Assert.assertTrue(provider.remainingSplits.isEmpty());
-        Assert.assertTrue(provider.finishedSplits.isEmpty());
+        Assertions.assertTrue(provider.chunkHighWatermarkMap.isEmpty());
+        Assertions.assertTrue(provider.remainingSplits.isEmpty());
+        Assertions.assertTrue(provider.finishedSplits.isEmpty());
         assertProgressCleared(provider.committedSplitProgress);
         assertProgressCleared(provider.cdcSplitProgress);
-        Assert.assertEquals("table-schemas", provider.tableSchemas);
+        Assertions.assertEquals("table-schemas", provider.tableSchemas);
         Map<String, String> expectedPersist = new HashMap<>(binlogOffset);
         expectedPersist.put(JdbcSourceOffsetProvider.SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-        Assert.assertEquals(expectedPersist, provider.binlogOffsetPersist);
+        Assertions.assertEquals(expectedPersist, provider.binlogOffsetPersist);
         String persistInfo = provider.getPersistInfo();
-        Assert.assertFalse(persistInfo.contains("source_table:0"));
-        Assert.assertFalse(persistInfo.contains("source_table:1"));
-        Assert.assertTrue(persistInfo.contains("table-schemas"));
+        Assertions.assertFalse(persistInfo.contains("source_table:0"));
+        Assertions.assertFalse(persistInfo.contains("source_table:1"));
+        Assertions.assertTrue(persistInfo.contains("table-schemas"));
     }
 
     private static void assertEmptyBinlogOffsetKeepsPreviousState(JdbcSourceOffsetProvider provider) {
@@ -219,14 +308,14 @@ public class JdbcSourceOffsetProviderOffsetTest {
         provider.updateOffset(new JdbcOffset(
                 Collections.singletonList(new BinlogSplit(Collections.emptyMap()))));
 
-        Assert.assertSame(previousOffset, provider.currentOffset);
-        Assert.assertFalse(provider.hasMoreData);
-        Assert.assertFalse(provider.chunkHighWatermarkMap.isEmpty());
-        Assert.assertFalse(provider.remainingSplits.isEmpty());
-        Assert.assertFalse(provider.finishedSplits.isEmpty());
-        Assert.assertEquals("source_table", provider.committedSplitProgress.getCurrentSplittingTable());
-        Assert.assertEquals("source_table", provider.cdcSplitProgress.getCurrentSplittingTable());
-        Assert.assertNull(provider.binlogOffsetPersist);
+        Assertions.assertSame(previousOffset, provider.currentOffset);
+        Assertions.assertFalse(provider.hasMoreData);
+        Assertions.assertFalse(provider.chunkHighWatermarkMap.isEmpty());
+        Assertions.assertFalse(provider.remainingSplits.isEmpty());
+        Assertions.assertFalse(provider.finishedSplits.isEmpty());
+        Assertions.assertEquals("source_table", provider.committedSplitProgress.getCurrentSplittingTable());
+        Assertions.assertEquals("source_table", provider.cdcSplitProgress.getCurrentSplittingTable());
+        Assertions.assertNull(provider.binlogOffsetPersist);
     }
 
     private static void assertRepeatedValidBinlogOffsetCleanupIsIdempotent(
@@ -241,11 +330,11 @@ public class JdbcSourceOffsetProviderOffsetTest {
                 provider.chunkHighWatermarkMap;
         provider.updateOffset(binlogOffset);
 
-        Assert.assertEquals(firstPersistInfo, provider.getPersistInfo());
-        Assert.assertSame(clearedHighWatermarkMap, provider.chunkHighWatermarkMap);
-        Assert.assertTrue(provider.chunkHighWatermarkMap.isEmpty());
-        Assert.assertTrue(provider.remainingSplits.isEmpty());
-        Assert.assertTrue(provider.finishedSplits.isEmpty());
+        Assertions.assertEquals(firstPersistInfo, provider.getPersistInfo());
+        Assertions.assertSame(clearedHighWatermarkMap, provider.chunkHighWatermarkMap);
+        Assertions.assertTrue(provider.chunkHighWatermarkMap.isEmpty());
+        Assertions.assertTrue(provider.remainingSplits.isEmpty());
+        Assertions.assertTrue(provider.finishedSplits.isEmpty());
         assertProgressCleared(provider.committedSplitProgress);
         assertProgressCleared(provider.cdcSplitProgress);
     }
@@ -290,10 +379,23 @@ public class JdbcSourceOffsetProviderOffsetTest {
     }
 
     private static void assertProgressCleared(JdbcSourceOffsetProvider.SplitProgress progress) {
-        Assert.assertNotNull(progress);
-        Assert.assertNull(progress.getCurrentSplittingTable());
-        Assert.assertNull(progress.getNextSplitStart());
-        Assert.assertNull(progress.getNextSplitId());
+        Assertions.assertNotNull(progress);
+        Assertions.assertNull(progress.getCurrentSplittingTable());
+        Assertions.assertNull(progress.getNextSplitStart());
+        Assertions.assertNull(progress.getNextSplitId());
+    }
+
+    private static JdbcSourceOffsetProvider provider(DataSourceType sourceType) {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.setSourceType(sourceType);
+        return provider;
+    }
+
+    private static void assertInvalidAlterOffsets(JdbcSourceOffsetProvider provider, String... offsets) {
+        for (String offset : offsets) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> provider.validateAlterOffset(offset), offset);
+        }
     }
 
     private static class TestJdbcSourceOffsetProvider extends JdbcSourceOffsetProvider {

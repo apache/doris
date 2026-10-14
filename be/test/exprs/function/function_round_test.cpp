@@ -59,20 +59,33 @@ using Decimal32FloorFunction = FunctionRounding<DecimalRoundTwoImpl<FloorName, T
                                                 RoundingMode::Floor, TieBreakingMode::Auto>;
 using Decimal64FloorFunction = FunctionRounding<DecimalRoundTwoImpl<FloorName, TYPE_DECIMAL64>,
                                                 RoundingMode::Floor, TieBreakingMode::Auto>;
+using Decimal128FloorFunction = FunctionRounding<DecimalRoundTwoImpl<FloorName, TYPE_DECIMAL128I>,
+                                                 RoundingMode::Floor, TieBreakingMode::Auto>;
+using Decimal256FloorFunction = FunctionRounding<DecimalRoundTwoImpl<FloorName, TYPE_DECIMAL256>,
+                                                 RoundingMode::Floor, TieBreakingMode::Auto>;
 using Decimal32CeilFunction = FunctionRounding<DecimalRoundTwoImpl<CeilName, TYPE_DECIMAL32>,
                                                RoundingMode::Ceil, TieBreakingMode::Auto>;
 using Decimal64CeilFunction = FunctionRounding<DecimalRoundTwoImpl<CeilName, TYPE_DECIMAL64>,
                                                RoundingMode::Ceil, TieBreakingMode::Auto>;
+using Decimal128CeilFunction = FunctionRounding<DecimalRoundTwoImpl<CeilName, TYPE_DECIMAL128I>,
+                                                RoundingMode::Ceil, TieBreakingMode::Auto>;
+using Decimal256CeilFunction = FunctionRounding<DecimalRoundTwoImpl<CeilName, TYPE_DECIMAL256>,
+                                                RoundingMode::Ceil, TieBreakingMode::Auto>;
 using Decimal32RoundFunction = FunctionRounding<DecimalRoundTwoImpl<RoundName, TYPE_DECIMAL32>,
                                                 RoundingMode::Round, TieBreakingMode::Auto>;
 using Decimal64RoundFunction = FunctionRounding<DecimalRoundTwoImpl<RoundName, TYPE_DECIMAL64>,
                                                 RoundingMode::Round, TieBreakingMode::Auto>;
+using Decimal128RoundFunction = FunctionRounding<DecimalRoundTwoImpl<RoundName, TYPE_DECIMAL128I>,
+                                                 RoundingMode::Round, TieBreakingMode::Auto>;
 using Decimal32RoundBankersFunction =
         FunctionRounding<DecimalRoundTwoImpl<RoundBankersName, TYPE_DECIMAL32>, RoundingMode::Round,
                          TieBreakingMode::Bankers>;
 using Decimal64RoundBankersFunction =
         FunctionRounding<DecimalRoundTwoImpl<RoundBankersName, TYPE_DECIMAL64>, RoundingMode::Round,
                          TieBreakingMode::Bankers>;
+using Decimal128RoundBankersFunction =
+        FunctionRounding<DecimalRoundTwoImpl<RoundBankersName, TYPE_DECIMAL128I>,
+                         RoundingMode::Round, TieBreakingMode::Bankers>;
 
 using FloatTruncateFunction = FunctionRounding<DoubleRoundTwoImpl<TruncateName>,
                                                RoundingMode::Trunc, TieBreakingMode::Auto>;
@@ -1022,6 +1035,44 @@ static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool dec
     }
 }
 
+template <typename FuncType, typename DecimalType>
+static void check_decimal_rounding(typename DecimalType::NativeType input, int input_precision,
+                                   int input_scale, int scale_arg, int result_precision,
+                                   int result_scale, typename DecimalType::NativeType expected,
+                                   bool decimal_col_is_const, bool scale_col_is_const) {
+    auto func = std::dynamic_pointer_cast<FuncType>(FuncType::create());
+    auto col_general = ColumnDecimal<DecimalType::PType>::create(1, input_scale);
+    col_general->get_element(0) = DecimalType(input);
+    auto col_scale = ColumnInt32::create();
+    col_scale->insert(Field::create_field<TYPE_INT>(scale_arg));
+
+    Block block;
+    auto input_type =
+            std::make_shared<DataTypeDecimal<DecimalType::PType>>(input_precision, input_scale);
+    if (decimal_col_is_const) {
+        block.insert({ColumnConst::create(std::move(col_general), 1), std::move(input_type),
+                      "col_general"});
+    } else {
+        block.insert({std::move(col_general), std::move(input_type), "col_general"});
+    }
+    if (scale_col_is_const) {
+        block.insert({ColumnConst::create(std::move(col_scale), 1),
+                      std::make_shared<DataTypeInt32>(), "col_scale"});
+    } else {
+        block.insert({std::move(col_scale), std::make_shared<DataTypeInt32>(), "col_scale"});
+    }
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeDecimal<DecimalType::PType>>(result_precision, result_scale),
+             "col_res"});
+
+    const ColumnNumbers arguments = {0, 1};
+    ASSERT_TRUE(func->execute_impl(nullptr, block, arguments, 2, 1).ok());
+    const auto& result =
+            assert_cast<const ColumnDecimal<DecimalType::PType>&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_element(0).value, expected);
+}
+
 template <typename FuncType, PrimitiveType FloatPType>
 static void float_checker(const FloatTestDataSet& round_test_cases, bool float_col_is_const) {
     using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
@@ -1107,6 +1158,43 @@ TEST(RoundFunctionTest, normal_decimal_const) {
 
     decimal_checker<Decimal32RoundBankersFunction, Decimal32>(round_decimal32_cases, true);
     decimal_checker<Decimal64RoundBankersFunction, Decimal64>(round_decimal64_cases, true);
+}
+
+TEST(RoundFunctionTest, decimal_scale_boundaries) {
+    check_decimal_rounding<Decimal32CeilFunction, Decimal32>(1, 9, 9, -1, 9, 0, 10, false, true);
+    check_decimal_rounding<Decimal32FloorFunction, Decimal32>(-1, 9, 9, -1, 9, 0, -10, false, true);
+
+    const Int128 scale20 = common::exp10_i128(20);
+    check_decimal_rounding<Decimal128CeilFunction, Decimal128V3>(scale20 + scale20 / 2, 38, 20, 0,
+                                                                 38, 20, scale20 * 2, false, false);
+    check_decimal_rounding<Decimal128FloorFunction, Decimal128V3>(scale20 + scale20 / 2, 38, 20, 0,
+                                                                  38, 20, scale20, false, false);
+    check_decimal_rounding<Decimal128CeilFunction, Decimal128V3>(scale20 + scale20 / 2, 38, 20, 0,
+                                                                 38, 20, scale20 * 2, true, false);
+    check_decimal_rounding<Decimal128FloorFunction, Decimal128V3>(scale20 + scale20 / 2, 38, 20, 0,
+                                                                  38, 20, scale20, true, false);
+
+    const Int128 decimal128_fraction = common::exp10_i128(37) * 9;
+    check_decimal_rounding<Decimal128CeilFunction, Decimal128V3>(decimal128_fraction, 38, 38, 0, 38,
+                                                                 0, 1, false, true);
+    check_decimal_rounding<Decimal128FloorFunction, Decimal128V3>(-decimal128_fraction, 38, 38, 0,
+                                                                  38, 0, -1, false, true);
+
+    const Int128 decimal128_half = common::exp10_i128(37) * 5;
+    check_decimal_rounding<Decimal128RoundFunction, Decimal128V3>(decimal128_half, 38, 38, 0, 38, 0,
+                                                                  1, false, true);
+    check_decimal_rounding<Decimal128RoundFunction, Decimal128V3>(-decimal128_half, 38, 38, 0, 38,
+                                                                  0, -1, false, true);
+    check_decimal_rounding<Decimal128RoundBankersFunction, Decimal128V3>(decimal128_half, 38, 38, 0,
+                                                                         38, 0, 0, false, true);
+    check_decimal_rounding<Decimal128RoundBankersFunction, Decimal128V3>(-decimal128_half, 38, 38,
+                                                                         0, 38, 0, 0, false, true);
+
+    const wide::Int256 decimal256_fraction = common::exp10_i256(75) * 9;
+    check_decimal_rounding<Decimal256CeilFunction, Decimal256>(decimal256_fraction, 76, 76, 0, 76,
+                                                               0, 1, false, true);
+    check_decimal_rounding<Decimal256FloorFunction, Decimal256>(-decimal256_fraction, 76, 76, 0, 76,
+                                                                0, -1, false, true);
 }
 
 /// tests for func(Column, Column) with float input

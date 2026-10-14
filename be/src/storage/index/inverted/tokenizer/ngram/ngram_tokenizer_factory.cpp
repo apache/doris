@@ -17,21 +17,74 @@
 
 #include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer_factory.h"
 
+#include <map>
+
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
 
 std::unordered_map<std::string, CharMatcherPtr> NGramTokenizerFactory::MATCHERS;
 
+Status NGramTokenizerFactory::parse_gram_scheme(const Settings& settings,
+                                                std::optional<gram::GramScheme>* out) {
+    out->reset();
+    // A "mode" property (sparse, dense or auto) selects the gram family instead of the legacy
+    // sliding window. GramScheme::from_properties parses, validates and defaults its properties.
+    if (settings.get_string("mode").empty()) {
+        return Status::OK();
+    }
+    std::map<std::string, std::string> props;
+    for (const auto& [k, v] : settings.sorted_entries()) {
+        props.emplace(k, v);
+    }
+    gram::GramScheme scheme;
+    RETURN_IF_ERROR(gram::GramScheme::from_properties(props, &scheme));
+    *out = scheme;
+    return Status::OK();
+}
+
 void NGramTokenizerFactory::initialize(const Settings& settings) {
+    std::optional<gram::GramScheme> scheme;
+    Status st = parse_gram_scheme(settings, &scheme);
+    if (!st.ok()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "ngram tokenizer: {}", st.to_string());
+    }
+    if (scheme.has_value()) {
+        _gram_scheme = scheme;
+        return; // the legacy size checks and token_chars parsing below do not apply
+    }
+
     _min_gram = settings.get_int("min_gram", NGramTokenizer::DEFAULT_MIN_NGRAM_SIZE);
     _max_gram = settings.get_int("max_gram", NGramTokenizer::DEFAULT_MAX_NGRAM_SIZE);
+    if (_min_gram <= 0 || _max_gram <= 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "min_gram and max_gram must be positive");
+    }
+    if (_min_gram > _max_gram) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "min_gram must not be greater than max_gram");
+    }
+    const bool has_max_ngram_diff = !settings.get_string("max_ngram_diff").empty();
+    if (has_max_ngram_diff && (_min_gram > MAX_NGRAM_SIZE || _max_gram > MAX_NGRAM_SIZE)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "min_gram and max_gram must be less than or equal to " +
+                                std::to_string(MAX_NGRAM_SIZE));
+    }
+    int32_t max_ngram_diff = settings.get_int("max_ngram_diff", 1);
+    if (max_ngram_diff < 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "max_ngram_diff must be greater than or equal to 0");
+    }
+    if (max_ngram_diff > MAX_NGRAM_DIFF) {
+        throw Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "max_ngram_diff must be less than or equal to " + std::to_string(MAX_NGRAM_DIFF));
+    }
     int32_t ngram_diff = _max_gram - _min_gram;
-    if (ngram_diff > 1) {
+    if (ngram_diff > max_ngram_diff) {
         throw Exception(
                 ErrorCode::INVALID_ARGUMENT,
                 "The difference between max_gram and min_gram in NGram Tokenizer must be less "
-                "than or equal to: [ 1 ] but was [" +
+                "than or equal to: [ " +
+                        std::to_string(max_ngram_diff) + " ] but was [" +
                         std::to_string(ngram_diff) + "]");
     }
     _matcher = parse_token_chars(settings);

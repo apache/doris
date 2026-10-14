@@ -106,7 +106,7 @@ enum TCredProviderType {
     ENV = 3,  // EnvironmentAWSCredentialsProvider
     SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
     WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
-    CONTAINER = 6,  // TaskRoleCredentialsProvider
+    CONTAINER = 6,  // GeneralHTTPCredentialsProvider, for ECS task roles and EKS Pod Identity
     ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
 }
 
@@ -213,6 +213,8 @@ struct TBinlogConfig {
     4: optional i64 max_history_nums;
     5: optional TBinlogFormat binlog_format;
     6: optional bool need_historical_value;
+    // Monotonic FE-journaled generation; reject delayed ROW retention updates.
+    7: optional i64 config_version;
 }
 
 struct TCreateTabletReq {
