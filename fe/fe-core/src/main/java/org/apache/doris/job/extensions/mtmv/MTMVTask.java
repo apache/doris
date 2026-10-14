@@ -1514,15 +1514,6 @@ public class MTMVTask extends AbstractTask {
      */
     private void requireDescribedPartitions(MTMVRefreshContext context, Set<String> execPartitionNames)
             throws AnalysisException {
-        // Only when every table the MV is partitioned on is an olap one: those are the tables a refresh is
-        // scoped to, and the ones whose descriptors are read from the tables themselves. An external table's
-        // are read from a snapshot, and a refresh that cannot resolve one would look like a partition nothing
-        // describes -- which is a state this guard has nothing to say about.
-        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
-            if (!(pctTable instanceof OlapTable)) {
-                return;
-            }
-        }
         for (String mvPartitionName : execPartitionNames) {
             if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
                 throw new AnalysisException("MV partition " + mvPartitionName + " of " + mtmv.getName()
