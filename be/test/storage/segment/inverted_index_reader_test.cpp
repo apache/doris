@@ -34,8 +34,11 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/field.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/match.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "storage/index/index_file_reader.h"
@@ -5127,6 +5130,32 @@ roaring::Roaring rows(std::initializer_list<uint32_t> ids) {
     return bitmap;
 }
 
+// The rows MATCH_PHRASE selects when it reads the values of a keyword column instead of its index.
+roaring::Roaring match_phrase_rows(const std::vector<std::string>& values,
+                                   const std::string& query) {
+    TQueryOptions options;
+    options.__set_enable_match_without_inverted_index(true);
+    RuntimeState state(options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&state, {}, {});
+    auto column = ColumnString::create();
+    for (const auto& value : values) {
+        column->insert_data(value.data(), value.size());
+    }
+    InvertedIndexAnalyzerCtx keyword;
+    keyword.parser_type = InvertedIndexParserType::PARSER_NONE;
+    ColumnUInt8::Container selected(values.size(), 0);
+    const Status status = FunctionMatchPhrase().execute_match(
+            context.get(), "1", query, values.size(), column.get(), &keyword, nullptr, selected);
+    EXPECT_TRUE(status.ok()) << status;
+    roaring::Roaring bitmap;
+    for (uint32_t row = 0; row < selected.size(); ++row) {
+        if (selected[row] != 0) {
+            bitmap.add(row);
+        }
+    }
+    return bitmap;
+}
+
 } // namespace
 
 // MATCH keys its result cache by the raw value, so a hit needs no analysis.
@@ -5205,14 +5234,22 @@ TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixPublishesNoScore) {
     EXPECT_TRUE(run.context->collection_similarity->_bm25_scores.empty());
 }
 
-// A keyword MATCH_PHRASE takes a trailing " ~N" as its slop, as SNII does.
+// A keyword MATCH_PHRASE takes a trailing " ~N" or " ~N+" as its slop, as SNII does, and reading
+// the column instead of the index selects the same rows.
 TEST_F(InvertedIndexReaderTest, KeywordMatchPhraseTakesTheSlop) {
+    const std::vector<std::string> values {"apple", "apple ~1", "banana", "apple ~x"};
     TabletIndex meta;
     auto reader = keyword_reader("keyword_phrase_slop",
-                                 {Slice("apple"), Slice("apple ~1"), Slice("banana")}, &meta);
+                                 std::vector<Slice>(values.begin(), values.end()), &meta);
     MatchContext run;
-    EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "apple ~1"),
-              rows({0}));
+    const std::vector<std::pair<std::string, roaring::Roaring>> cases {
+            {"apple ~1", rows({0})}, {"apple ~1+", rows({0})}, {"apple ~x", rows({3})}};
+    for (const auto& [query, expected] : cases) {
+        SCOPED_TRACE(query);
+        EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, query),
+                  expected);
+        EXPECT_EQ(match_phrase_rows(values, query), expected);
+    }
 }
 
 } // namespace doris::segment_v2

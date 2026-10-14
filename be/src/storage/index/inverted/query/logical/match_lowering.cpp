@@ -33,9 +33,6 @@ using detail::lower_phrase;
 using detail::lower_phrase_prefix;
 using detail::lower_phrase_edge;
 
-namespace {
-
-// Removes a trailing " ~N" or " ~N+" and returns its slop and ordering rule.
 std::pair<int32_t, bool> take_slop(std::string_view* value) {
     const size_t space = value->find_last_of(' ');
     if (space == std::string_view::npos || value->substr(space + 1, 1) != "~") {
@@ -55,8 +52,6 @@ std::pair<int32_t, bool> take_slop(std::string_view* value) {
     *value = value->substr(0, space);
     return {slop, ordered};
 }
-
-} // namespace
 
 Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
                    const AnalyzeValue& analyze, Node* out) {

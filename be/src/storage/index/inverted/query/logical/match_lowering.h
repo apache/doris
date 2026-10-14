@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -29,6 +31,10 @@ namespace doris::index_query::logical {
 
 // Tokenizes a value with the analyzer of the index a predicate runs on.
 using AnalyzeValue = std::function<Status(std::string_view value, std::vector<Token>* out)>;
+
+// Removes a trailing " ~N" or " ~N+" from a phrase and returns its slop and ordering rule.
+// Without such a suffix the value is unchanged and the slop is 0.
+std::pair<int32_t, bool> take_slop(std::string_view* value);
 
 // Lowers a MATCH or EQUAL predicate; no analyzer means the value is one keyword term.
 // REGEXP/WILDCARD patterns stay raw, while phrase tokens follow analysis order and a trailing
