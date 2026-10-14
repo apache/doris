@@ -54,6 +54,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -301,6 +302,90 @@ public class MTMVPartitionUtil {
             }
         }
         return Optional.of(res);
+    }
+
+    /**
+     * The desc of the MV partition each of these descs belongs to: the keys of a list partitioned base table
+     * can meet at the MV's partition column -- a partition holding several keys of it, one of them shared with
+     * another partition -- and an MV's own partitions cannot overlap, so descs whose keys meet are one
+     * partition whose keys are the union of theirs. A desc whose keys meet nothing is answered with itself,
+     * and so is every desc that is not a list of keys.
+     *
+     * <p>The keys of a merged desc are written out the way
+     * {@link ListPartitionItem#toPartitionKeyDesc(int)} writes the same key set -- as a list of a hash set --
+     * because {@link PartitionKeyDesc#equals} compares that list: the same keys in another order are another
+     * desc, which would leave the MV partition an alignment computes unmatchable to the one it holds.
+     */
+    public static Map<PartitionKeyDesc, PartitionKeyDesc> mergedListDescs(Collection<PartitionKeyDesc> descs) {
+        // A union-find over the keys: two descs whose keys meet end up in one group, transitively, and each
+        // key is looked up once -- walking the groups per desc would be quadratic in the number of partitions.
+        Map<List<PartitionValue>, List<PartitionValue>> groupOfKey = Maps.newHashMap();
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                continue;
+            }
+            List<PartitionValue> first = desc.getInValues().iterator().next();
+            groupOfKey.putIfAbsent(first, first);
+            for (List<PartitionValue> key : desc.getInValues()) {
+                groupOfKey.putIfAbsent(key, key);
+                unionKey(groupOfKey, first, key);
+            }
+        }
+        Map<List<PartitionValue>, Set<List<PartitionValue>>> keysOfGroup = Maps.newHashMap();
+        for (List<PartitionValue> key : groupOfKey.keySet()) {
+            keysOfGroup.computeIfAbsent(findKey(groupOfKey, key), k -> Sets.newHashSet()).add(key);
+        }
+        Map<List<PartitionValue>, Integer> descCountOfGroup = Maps.newHashMap();
+        Map<List<PartitionValue>, PartitionKeyDesc> onlyDescOfGroup = Maps.newHashMap();
+        Map<PartitionKeyDesc, List<PartitionValue>> groupOfDesc = Maps.newHashMap();
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                continue;
+            }
+            List<PartitionValue> group = findKey(groupOfKey, desc.getInValues().iterator().next());
+            groupOfDesc.put(desc, group);
+            descCountOfGroup.merge(group, 1, Integer::sum);
+            onlyDescOfGroup.putIfAbsent(group, desc);
+        }
+        Map<PartitionKeyDesc, PartitionKeyDesc> res = Maps.newHashMap();
+        for (PartitionKeyDesc desc : descs) {
+            if (!desc.hasInValues()) {
+                res.put(desc, desc);
+                continue;
+            }
+            List<PartitionValue> group = groupOfDesc.get(desc);
+            res.put(desc, descCountOfGroup.get(group) == 1
+                    ? onlyDescOfGroup.get(group)
+                    : PartitionKeyDesc.createIn(Lists.newArrayList(keysOfGroup.get(group))));
+        }
+        return res;
+    }
+
+    private static void unionKey(Map<List<PartitionValue>, List<PartitionValue>> groupOfKey,
+            List<PartitionValue> left, List<PartitionValue> right) {
+        List<PartitionValue> leftGroup = findKey(groupOfKey, left);
+        List<PartitionValue> rightGroup = findKey(groupOfKey, right);
+        if (leftGroup != rightGroup) {
+            groupOfKey.put(rightGroup, leftGroup);
+        }
+    }
+
+    private static List<PartitionValue> findKey(Map<List<PartitionValue>, List<PartitionValue>> groupOfKey,
+            List<PartitionValue> key) {
+        List<PartitionValue> group = Preconditions.checkNotNull(groupOfKey.get(key),
+                "a key is registered before it is looked up: %s", key);
+        while (group != groupOfKey.get(group)) {
+            group = groupOfKey.get(group);
+        }
+        List<PartitionValue> root = group;
+        // Path compression, so that the walk is not repeated for the rest of this group's keys.
+        group = groupOfKey.get(key);
+        while (group != root) {
+            List<PartitionValue> next = groupOfKey.get(group);
+            groupOfKey.put(group, root);
+            group = next;
+        }
+        return root;
     }
 
     /**
