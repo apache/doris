@@ -25,6 +25,7 @@ import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.spi.EndpointHosts;
 import org.apache.doris.filesystem.spi.LegacyS3Uri;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
@@ -367,11 +368,11 @@ public final class CosFileSystemProperties
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
             region = extractRegion(endpoint).orElse("");
         }
-        // The endpoint is a DNS host, so normalise the letter case: an upper/mixed case spelling must
-        // yield exactly the same effective endpoint as the lowercase one. The pinned cos_api SDK
-        // rejects an upper case suffix in ClientConfig.setEndPointSuffix ("should not contain
-        // uppercase characters"), so a case-equivalent endpoint has to reach it in lowercase.
-        endpoint = endpoint.toLowerCase(Locale.ROOT);
+        // The pinned cos_api SDK rejects an upper case suffix in ClientConfig.setEndPointSuffix
+        // ("should not contain uppercase characters"), so fold the scheme and host. Only those are
+        // case insensitive: a custom endpoint's base path may not be, and folding it would retarget
+        // the endpoint to a different namespace.
+        endpoint = EndpointHosts.lowercaseSchemeAndHost(endpoint);
     }
 
     private static Optional<String> extractRegion(String endpoint) {

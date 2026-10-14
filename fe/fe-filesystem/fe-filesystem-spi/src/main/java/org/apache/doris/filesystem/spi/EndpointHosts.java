@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.spi;
 
+import java.util.Locale;
+
 /**
  * Host extraction for endpoint / object-storage URI marker matching.
  *
@@ -43,32 +45,53 @@ public final class EndpointHosts {
         if (endpointOrUri == null) {
             return "";
         }
-        String host = endpointOrUri.trim();
-        int schemeIndex = host.indexOf("://");
-        if (schemeIndex >= 0) {
-            host = host.substring(schemeIndex + 3);
-        }
-        // End the authority at the first path, query or fragment delimiter before looking for
-        // userinfo: an '@' inside a fragment (e.g. host#contact@other) must not be taken for userinfo,
-        // or the real host would be discarded.
-        int authorityEnd = host.length();
-        int pathIndex = host.indexOf('/');
-        if (pathIndex >= 0) {
-            authorityEnd = Math.min(authorityEnd, pathIndex);
-        }
-        int queryIndex = host.indexOf('?');
-        if (queryIndex >= 0) {
-            authorityEnd = Math.min(authorityEnd, queryIndex);
-        }
-        int fragmentIndex = host.indexOf('#');
-        if (fragmentIndex >= 0) {
-            authorityEnd = Math.min(authorityEnd, fragmentIndex);
-        }
-        host = host.substring(0, authorityEnd);
+        String value = endpointOrUri.trim();
+        int authorityStart = authorityStart(value);
+        // The authority ends at the first path, query or fragment delimiter: an '@' inside a fragment
+        // (e.g. host#contact@other) must not be taken for userinfo and discard the real host.
+        String host = value.substring(authorityStart, authorityEnd(value, authorityStart));
         int userInfoIndex = host.lastIndexOf('@');
         if (userInfoIndex >= 0) {
             host = host.substring(userInfoIndex + 1);
         }
         return host;
+    }
+
+    /**
+     * Returns {@code endpointOrUri} with the scheme and the authority (userinfo, host and port) folded
+     * to lower case, leaving the path, the query and the fragment untouched.
+     *
+     * <p>Only the host is case insensitive. A custom endpoint may carry a case sensitive base path
+     * (e.g. {@code https://gateway.internal/Proxy}); folding the whole value would retarget it to a
+     * different namespace. Callers that must hand a canonical host to a case sensitive SDK therefore
+     * fold the host only.
+     */
+    public static String lowercaseSchemeAndHost(String endpointOrUri) {
+        if (endpointOrUri == null) {
+            return "";
+        }
+        String value = endpointOrUri.trim();
+        int authorityStart = authorityStart(value);
+        int authorityEnd = authorityEnd(value, authorityStart);
+        return value.substring(0, authorityStart).toLowerCase(Locale.ROOT)
+                + value.substring(authorityStart, authorityEnd).toLowerCase(Locale.ROOT)
+                + value.substring(authorityEnd);
+    }
+
+    /** Index just after {@code scheme://}, or 0 when the value carries no scheme. */
+    private static int authorityStart(String value) {
+        int schemeIndex = value.indexOf("://");
+        return schemeIndex >= 0 ? schemeIndex + 3 : 0;
+    }
+
+    /** Index at which the authority ends: the first path, query or fragment delimiter, if any. */
+    private static int authorityEnd(String value, int from) {
+        for (int i = from; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '/' || c == '?' || c == '#') {
+                return i;
+            }
+        }
+        return value.length();
     }
 }

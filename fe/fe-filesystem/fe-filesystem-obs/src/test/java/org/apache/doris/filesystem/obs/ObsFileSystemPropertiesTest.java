@@ -300,6 +300,21 @@ class ObsFileSystemPropertiesTest {
     }
 
     /**
+     * A custom endpoint may carry a case sensitive base path, so only the scheme and host may be
+     * folded; the path has to survive for direct BE OUTFILE writes that emit the endpoint verbatim.
+     */
+    @Test
+    void bind_normalisesTheEndpointHostButKeepsTheBasePath() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "HTTPS://GATEWAY.INTERNAL/Proxy",
+                "obs.region", "cn-north-4",
+                "obs.access_key", "ak",
+                "obs.secret_key", "sk"));
+
+        Assertions.assertEquals("https://gateway.internal/Proxy", properties.getEndpoint());
+    }
+
+    /**
      * The pinned 3.21.11 esdk SDK strips only a lowercase http:// or https:// prefix and then parses
      * everything after the last colon as a port, so an upper case scheme must be normalised before the
      * endpoint reaches it.

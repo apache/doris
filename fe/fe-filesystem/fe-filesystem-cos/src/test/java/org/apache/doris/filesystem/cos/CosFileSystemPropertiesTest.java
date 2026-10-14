@@ -282,6 +282,21 @@ class CosFileSystemPropertiesTest {
     }
 
     /**
+     * A custom endpoint may carry a case sensitive base path, so only the scheme and host may be
+     * folded; the path has to survive for direct BE OUTFILE writes that emit the endpoint verbatim.
+     */
+    @Test
+    void bind_normalisesTheEndpointHostButKeepsTheBasePath() {
+        CosFileSystemProperties properties = CosFileSystemProperties.of(Map.of(
+                "cos.endpoint", "HTTPS://GATEWAY.INTERNAL/Proxy",
+                "cos.region", "ap-shanghai",
+                "cos.access_key", "ak",
+                "cos.secret_key", "sk"));
+
+        Assertions.assertEquals("https://gateway.internal/Proxy", properties.getEndpoint());
+    }
+
+    /**
      * The pinned cos_api SDK rejects an upper case endpoint suffix, so the effective endpoint must be
      * normalised: a case-equivalent endpoint has to reach the client in lowercase.
      */

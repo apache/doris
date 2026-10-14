@@ -40,6 +40,17 @@ class EndpointHostsTest {
     }
 
     @Test
+    void lowercaseSchemeAndHost_foldsTheHostButKeepsTheBasePath() {
+        // A custom endpoint's base path may be case sensitive: only the scheme and host may be folded.
+        Assertions.assertEquals("https://gateway.internal/Proxy",
+                EndpointHosts.lowercaseSchemeAndHost("HTTPS://GATEWAY.INTERNAL/Proxy"));
+        Assertions.assertEquals("obs.cn-north-4.myhuaweicloud.com",
+                EndpointHosts.lowercaseSchemeAndHost("OBS.CN-NORTH-4.MYHUAWEICLOUD.COM"));
+        Assertions.assertEquals("host/path?A=B",
+                EndpointHosts.lowercaseSchemeAndHost("HOST/path?A=B"));
+    }
+
+    @Test
     void hostOf_endsTheAuthorityBeforeUserInfo() {
         // An '@' inside a fragment must not be taken for userinfo: the real host would be discarded.
         Assertions.assertEquals("s3.us-west-2.amazonaws.com",
