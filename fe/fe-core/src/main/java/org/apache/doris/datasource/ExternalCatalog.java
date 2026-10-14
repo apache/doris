@@ -1822,4 +1822,11 @@ public abstract class ExternalCatalog
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
         throw new DdlException("Reorder columns operation is not supported for catalog: " + getName());
     }
+
+    @Override
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        throw new DdlException("Update table properties operation is not supported for catalog: " + getName());
+    }
 }
