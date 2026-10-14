@@ -41,7 +41,6 @@ import org.apache.doris.datasource.scan.ExternalScanNode;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
@@ -87,7 +86,6 @@ import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -117,7 +115,6 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
 import org.apache.doris.thrift.TScanRange;
@@ -358,7 +355,10 @@ public class Coordinator implements CoordInterface {
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
 
-        initQueryOptions(context);
+        this.queryOptions = CoordinatorContext.initQueryOptions(
+                context, planner.getQueryOptions().getBeExecVersion());
+        // Old Coordinator never plans local exchange in FE. Force BE to plan its own.
+        this.queryOptions.setEnableLocalShufflePlanner(false);
         useNereids = planner instanceof NereidsPlanner;
         if (!useNereids) {
             // Enable local shuffle on pipelineX engine only if Nereids planner is applied.
@@ -366,8 +366,6 @@ public class Coordinator implements CoordInterface {
         } else {
             distributedPlans = ((NereidsPlanner) planner).getDistributedPlans();
         }
-        setFromUserProperty(context);
-
         CoordinatorContext.refreshQueryGlobals(this.queryGlobals, context);
         this.queryGlobals.setLoadZeroTolerance(false);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
@@ -403,38 +401,6 @@ public class Coordinator implements CoordInterface {
             fragmentIds.add(fragment.getFragmentId().asInt());
         }
         this.executionProfile = new ExecutionProfile(queryId, fragmentIds);
-    }
-
-    private void setFromUserProperty(ConnectContext connectContext) {
-        String qualifiedUser = connectContext.getQualifiedUser();
-        // set cpu resource limitch
-        int cpuLimit = Env.getCurrentEnv().getAuth().getCpuResourceLimit(qualifiedUser);
-        if (cpuLimit > 0) {
-            // overwrite the cpu resource limit from session variable;
-            TResourceLimit resourceLimit = new TResourceLimit();
-            resourceLimit.setCpuLimit(cpuLimit);
-            this.queryOptions.setResourceLimit(resourceLimit);
-        }
-        // set exec mem limit
-        long memLimit = connectContext.getMaxExecMemByte();
-        if (memLimit > 0) {
-            // overwrite the exec_mem_limit from session variable;
-            this.queryOptions.setMemLimit(memLimit);
-        }
-    }
-
-    private void initQueryOptions(ConnectContext context) {
-        this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setQueryTimeout(context.getExecTimeoutS());
-        this.queryOptions.setExecutionTimeout(context.getExecTimeoutS());
-        if (this.queryOptions.getExecutionTimeout() < 1) {
-            LOG.info("try set timeout less than 1", new RuntimeException(""));
-        }
-        this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-        this.queryOptions.setMysqlRowBinaryFormat(
-                    context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
-        // Old Coordinator never plans local exchange in FE. Force BE to plan its own.
-        this.queryOptions.setEnableLocalShufflePlanner(false);
     }
 
     public ConnectContext getConnectContext() {

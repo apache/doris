@@ -154,10 +154,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         // Statement-scoped reuse: within one statement the identical scan (same table, same
         // partition set, same formats) plans once and every duplicated relation shares the result.
         // The scope is NONE for offline planning and tests, in which case the loader runs on every
-        // call. Session variables are constant within a statement and deliberately absent.
+        // call. Session variables are constant within a statement and deliberately absent. Every scan of a
+        // statement is planned within one plan, so the memo is dropped when planning ends.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-        Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
-                memoKey, () -> new ConcurrentHashMap<>());
+        Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle);
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
         List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {

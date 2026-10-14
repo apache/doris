@@ -37,6 +37,8 @@ suite("test_sqlserver_all_types_select", "p2,external") {
 
         sql """use sqlserver_all_type_test.dbo"""
 
+        // SQL Server uniqueidentifier maps to native UUID, including nullable columns;
+        // keep both the schema and value goldens aligned with that mapping.
         qt_desc_all_types_null """desc dbo.extreme_test;"""
 
         qt_select_all_types_null """select * from dbo.extreme_test order by 1;"""

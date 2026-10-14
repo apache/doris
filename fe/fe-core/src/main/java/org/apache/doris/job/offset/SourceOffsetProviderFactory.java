@@ -20,6 +20,7 @@ package org.apache.doris.job.offset;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
 
 import lombok.extern.log4j.Log4j2;
@@ -39,7 +40,10 @@ public class SourceOffsetProviderFactory {
     public static SourceOffsetProvider createSourceOffsetProvider(
             String sourceType, StreamingJobProperties jobProperties) {
         try {
-            if ("s3".equalsIgnoreCase(sourceType) && jobProperties.isS3OnceMode()) {
+            if ("s3".equalsIgnoreCase(sourceType) && jobProperties.isS3NotificationMode()) {
+                return new S3EventSourceOffsetProvider(jobProperties.getS3SqsQueueUrl());
+            }
+            if ("s3".equalsIgnoreCase(sourceType) && jobProperties.isS3OneTimeMode()) {
                 return new S3SourceOffsetProvider(jobProperties);
             }
             Class<? extends SourceOffsetProvider> cla = map.get(sourceType.toLowerCase());

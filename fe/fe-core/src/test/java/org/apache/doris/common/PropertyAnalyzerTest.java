@@ -39,6 +39,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -63,6 +65,31 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "-2");
         Assertions.assertThrows(AnalysisException.class,
                 () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ROW, ROW", "row, ROW", "Row, ROW", "STATEMENT_AND_SNAPSHOT, STATEMENT_AND_SNAPSHOT",
+            "statement_and_snapshot, STATEMENT_AND_SNAPSHOT"})
+    public void testBinlogFormatIgnoresCase(String format, String canonicalName) throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT, format);
+        Assertions.assertEquals(canonicalName, PropertyAnalyzer.analyzeBinlogConfig(properties)
+                .get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT));
+        Assertions.assertTrue(properties.isEmpty());
+
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT, format);
+        PropertyAnalyzer.normalizeBinlogFormat(properties);
+        Assertions.assertEquals(canonicalName, properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT));
+    }
+
+    @Test
+    public void testBinlogFormatRejectsUnknownValue() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT, "rows");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+        Assertions.assertTrue(exception.getMessage().contains("Invalid binlog format value: rows"),
+                exception.getMessage());
     }
 
     @Test

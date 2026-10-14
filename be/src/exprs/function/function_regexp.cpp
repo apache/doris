@@ -490,29 +490,23 @@ public:
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
                 const auto pattern_col = context->get_constant_col(1)->column_ptr;
-                const auto& pattern = pattern_col->get_data_at(0);
-                if (pattern.size == 0) {
-                    return Status::OK();
-                }
-
-                std::string error_str;
-                std::unique_ptr<re2::RE2> scoped_re;
                 StringRef options_value;
                 if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
                     DCHECK_EQ(context->get_num_args(), 4);
-                    DCHECK(context->is_col_constant(3));
+                    // The options are a constant, but a constant expression such as an arithmetic
+                    // one is not evaluated in open. Then the regex is compiled in execute.
+                    if (!context->is_col_constant(3)) {
+                        return Status::OK();
+                    }
                     const auto options_col = context->get_constant_col(3)->column_ptr;
+                    // A NULL options argument makes the result NULL before regexp compilation.
+                    if (options_col->is_null_at(0)) {
+                        return Status::OK();
+                    }
                     options_value = options_col->get_data_at(0);
                 }
-
-                bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
-                                                         options_value, scoped_re);
-                if (!st) {
-                    context->set_error(error_str.c_str());
-                    return Status::InvalidArgument(error_str);
-                }
-                std::shared_ptr<re2::RE2> re(scoped_re.release());
-                context->set_function_state(scope, re);
+                return compile_constant_pattern(context, pattern_col->get_data_at(0),
+                                                options_value);
             }
         }
         return Status::OK();
@@ -531,29 +525,85 @@ public:
                     auto result_null_map = regexp_result_null_map<check_null>(std::move(null_map),
                                                                               input_rows_count);
 
+                    bool col_const[3];
+                    for (int i = 0; i < 3; ++i) {
+                        col_const[i] = is_column_const(*args_block.get_by_position(args[i]).column);
+                    }
                     ColumnPtr argument_columns[3];
-                    const bool parameters_const = prepare_regexp_argument_columns(
-                            args_block, args, {1, 2}, argument_columns);
+                    const auto& [source_column, source_const] =
+                            unpack_if_const(args_block.get_by_position(args[0]).column);
+                    argument_columns[0] = source_column;
+                    default_preprocess_parameter_columns(argument_columns, col_const, {1, 2},
+                                                         args_block, args);
+                    const bool parameters_const = col_const[1] && col_const[2];
 
+                    // FE checks that the options are a constant, so the first row holds their
+                    // value even when BE evaluates the constant to a full column. Each row that
+                    // compiles the pattern, e.g. of an empty constant pattern, needs the options
+                    // in both branches below.
                     StringRef options_value;
+                    if (args.size() == 4) {
+                        options_value = args_block.get_by_position(args[3]).column->get_data_at(0);
+                    }
+
                     if (parameters_const) {
-                        Impl::template execute_impl_const_args<check_null>(
-                                context, argument_columns, options_value, input_rows_count,
-                                result_data, result_offset, result_null_map->get_data());
-                    } else {
-                        // the options have check in FE, so is always const, and get idx of 0
-                        if (args.size() == 4) {
-                            options_value =
-                                    args_block.get_by_position(args[3]).column->get_data_at(0);
+                        if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
+                            // The regex of a constant pattern was not compiled in open because
+                            // the options were not evaluated there. Compile it once with the
+                            // options of the first row.
+                            // Gate this on the query-level constant-ness of the pattern (as
+                            // open() does), not on parameters_const: a lazy join can broadcast a
+                            // non-constant probe pattern as a physical ColumnConst for one block,
+                            // which would otherwise cache that block's pattern and wrongly reuse
+                            // it for later blocks with a different pattern value.
+                            if (context->is_col_constant(1) && !context->is_col_constant(3) &&
+                                input_rows_count > 0 &&
+                                context->get_function_state(FunctionContext::THREAD_LOCAL) ==
+                                        nullptr) {
+                                Status st = compile_constant_pattern(
+                                        context, argument_columns[1]->get_data_at(0),
+                                        options_value);
+                                if (!st.ok()) {
+                                    throw Exception(st);
+                                }
+                            }
                         }
+                        Impl::template execute_impl_const_args<check_null>(
+                                context, argument_columns, source_const, options_value,
+                                input_rows_count, result_data, result_offset,
+                                result_null_map->get_data());
+                    } else {
                         Impl::template execute_impl<check_null>(
-                                context, argument_columns, options_value, input_rows_count,
-                                result_data, result_offset, result_null_map->get_data());
+                                context, argument_columns, source_const, options_value,
+                                input_rows_count, result_data, result_offset,
+                                result_null_map->get_data());
                     }
 
                     return ColumnNullable::create(std::move(result_data_column),
                                                   std::move(result_null_map));
                 });
+    }
+
+private:
+    // Compiles a constant pattern into the THREAD_LOCAL state. An empty pattern is not compiled
+    // here, and each row compiles it instead.
+    static Status compile_constant_pattern(FunctionContext* context, const StringRef& pattern,
+                                           const StringRef& options_value) {
+        if (pattern.size == 0) {
+            return Status::OK();
+        }
+
+        std::string error_str;
+        std::unique_ptr<re2::RE2> scoped_re;
+        bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), options_value,
+                                                 scoped_re);
+        if (!st) {
+            context->set_error(error_str.c_str());
+            return Status::InvalidArgument(error_str);
+        }
+        std::shared_ptr<re2::RE2> re(scoped_re.release());
+        context->set_function_state(FunctionContext::THREAD_LOCAL, re);
+        return Status::OK();
     }
 };
 
@@ -564,9 +614,9 @@ struct RegexpReplaceImpl {
     // `null_map` holds the NULL rows to skip when CheckNull.
     template <bool CheckNull>
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
-                             const StringRef& options_value, size_t input_rows_count,
-                             ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
-                             const NullMap& null_map) {
+                             bool source_const, const StringRef& options_value,
+                             size_t input_rows_count, ColumnString::Chars& result_data,
+                             ColumnString::Offsets& result_offset, const NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
@@ -578,15 +628,15 @@ struct RegexpReplaceImpl {
                     continue;
                 }
             }
-            _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, options_value,
-                                       result_data, result_offset, i);
+            _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, source_const,
+                                       options_value, result_data, result_offset, i);
         }
     }
 
     template <bool CheckNull>
     static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
-                                        const StringRef& options_value, size_t input_rows_count,
-                                        ColumnString::Chars& result_data,
+                                        bool source_const, const StringRef& options_value,
+                                        size_t input_rows_count, ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset,
                                         const NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
@@ -600,15 +650,16 @@ struct RegexpReplaceImpl {
                     continue;
                 }
             }
-            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, options_value,
-                                      result_data, result_offset, i);
+            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, source_const,
+                                      options_value, result_data, result_offset, i);
         }
     }
 
     template <bool Const>
     static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
                                     const ColumnString* pattern_col,
-                                    const ColumnString* replace_col, const StringRef& options_value,
+                                    const ColumnString* replace_col, bool source_const,
+                                    const StringRef& options_value,
                                     ColumnString::Chars& result_data,
                                     ColumnString::Offsets& result_offset, const size_t index_now) {
         auto* re = reinterpret_cast<re2::RE2*>(
@@ -629,7 +680,8 @@ struct RegexpReplaceImpl {
         re2::StringPiece replace_str = re2::StringPiece(
                 replace_col->get_data_at(index_check_const(index_now, Const)).to_string_view());
 
-        std::string result_str(str_col->get_data_at(index_now).to_string());
+        std::string result_str(
+                str_col->get_data_at(index_check_const(index_now, source_const)).to_string());
         if constexpr (ReplaceOne) {
             re2::RE2::Replace(&result_str, *re, replace_str);
         } else {

@@ -283,10 +283,10 @@ public class VectorColumn {
         }
         if (data != 0) {
             if (columnType.isVarbinaryType()) {
+                // data holds a [length, address] record per row; free the row bytes the records point to first.
                 freeVarbinaryData();
-            } else {
-                OffHeap.freeMemory(data);
             }
+            OffHeap.freeMemory(data);
         }
 
         if (offsets != 0) {

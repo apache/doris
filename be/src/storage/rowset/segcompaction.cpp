@@ -84,13 +84,12 @@ void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_wri
 
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
-        ReadSchemaSPtr read_schema, OlapReaderStatistics* stat, RowSourcesBuffer& row_sources_buf,
+        ReadSchemaSPtr read_schema, OlapReaderStatistics& stat, RowSourcesBuffer& row_sources_buf,
         bool is_key, std::vector<uint32_t>& key_group_cluster_key_idxes,
         std::unique_ptr<VerticalBlockReader>* reader) {
     const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
-    StorageReadOptions read_options;
-    read_options.stats = stat;
+    StorageReadOptions read_options(stat);
     read_options.use_page_cache = false;
     read_options.record_rowids = record_rowids;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
@@ -306,7 +305,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
                 project_columns_by_ordinal(ctx.tablet_schema->columns(), column_ids));
         OlapReaderStatistics reader_stats;
         std::unique_ptr<VerticalBlockReader> reader;
-        auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
+        auto s = _get_segcompaction_reader(segments, tablet, schema, reader_stats, row_sources_buf,
                                            is_key, key_group_cluster_key_idxes, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
             return Status::Error<SEGCOMPACTION_INIT_READER>(

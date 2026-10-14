@@ -159,6 +159,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        parseFile(null);
+    }
+
+    protected void parseFile(List<TBrokerFileStatus> files) throws AnalysisException {
         long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
@@ -171,6 +175,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {
                 S3Util.validateAndTestEndpoint(
                         ((S3CompatibleFileSystemProperties) storageAdapter.getSpiProperties()).getEndpoint());
+            }
+            if (files != null) {
+                fileStatuses.addAll(files);
+                return;
             }
             try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
                 List<FileEntry> entries;

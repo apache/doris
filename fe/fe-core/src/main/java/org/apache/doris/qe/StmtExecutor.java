@@ -1366,7 +1366,7 @@ public class StmtExecutor {
                     throw e;
                 }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
-                    LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                    LOG.warn("retry {} times. stmt: {}", (i + 1), originStmt.originStmt);
                     willRetry = true;
                 } else {
                     throw e;

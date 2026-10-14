@@ -29,7 +29,6 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
@@ -43,6 +42,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
@@ -117,7 +117,7 @@ public class PluginDrivenScanNodeCompatibilityTest {
 
         UserException exception = Assertions.assertThrows(UserException.class,
                 () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
-                        true, Collections.singletonList(backend)));
+                        true, Collections.singletonList(backend), VARIANT_EXEC_VERSION));
         Assertions.assertTrue(exception.getMessage().contains("backend 7"));
     }
 
@@ -127,23 +127,17 @@ public class PluginDrivenScanNodeCompatibilityTest {
         backend.setSmoothUpgradeSrc(true);
 
         PluginDrivenScanNode.checkVariantBackendCompatibility(
-                false, Collections.singletonList(backend));
+                false, Collections.singletonList(backend), VARIANT_EXEC_VERSION);
     }
 
     @Test
     public void computeVariantRejectsOldQueryWideExecutionVersion() {
-        int original = Config.be_exec_version;
-        try {
-            Config.be_exec_version = VARIANT_EXEC_VERSION - 1;
-            Backend backend = new Backend(8L, "127.0.0.1", 9050);
+        Backend backend = new Backend(8L, "127.0.0.1", 9050);
 
-            UserException exception = Assertions.assertThrows(UserException.class,
-                    () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
-                            true, Collections.singletonList(backend)));
-            Assertions.assertTrue(exception.getMessage().contains("execution version"));
-        } finally {
-            Config.be_exec_version = original;
-        }
+        UserException exception = Assertions.assertThrows(UserException.class,
+                () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
+                        true, Collections.singletonList(backend), VARIANT_EXEC_VERSION - 1));
+        Assertions.assertTrue(exception.getMessage().contains("execution version"));
     }
 
     @Test
@@ -203,22 +197,16 @@ public class PluginDrivenScanNodeCompatibilityTest {
         };
         List<Backend> backends = Collections.singletonList(
                 new Backend(9L, "127.0.0.1", 9050));
-        int original = Config.be_exec_version;
-        try {
-            Config.be_exec_version = VARIANT_EXEC_VERSION - 1;
-            PluginDrivenScanNode.checkVariantBackendCompatibility(
-                    PluginDrivenScanNode.plannedScanDecodesVariant(
-                            true, true, Collections.singletonList(countRange)),
-                    backends);
+        PluginDrivenScanNode.checkVariantBackendCompatibility(
+                PluginDrivenScanNode.plannedScanDecodesVariant(
+                        true, true, Collections.singletonList(countRange)),
+                backends, VARIANT_EXEC_VERSION - 1);
 
-            Assertions.assertThrows(UserException.class,
-                    () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
-                            PluginDrivenScanNode.plannedScanDecodesVariant(
-                                    true, true, Arrays.asList(countRange, dataRange)),
-                            backends));
-        } finally {
-            Config.be_exec_version = original;
-        }
+        Assertions.assertThrows(UserException.class,
+                () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
+                        PluginDrivenScanNode.plannedScanDecodesVariant(
+                                true, true, Arrays.asList(countRange, dataRange)),
+                        backends, VARIANT_EXEC_VERSION - 1));
     }
 
     @Test
@@ -267,6 +255,8 @@ public class PluginDrivenScanNodeCompatibilityTest {
         Deencapsulation.setField(node, "connector", connector);
         Deencapsulation.setField(node, "connectorSession", Mockito.mock(ConnectorSession.class));
         Deencapsulation.setField(node, "currentHandle", new ConnectorTableHandle() { });
+        Deencapsulation.setField(node, "scanContext",
+                ScanContext.builder().beExecVersion(VARIANT_EXEC_VERSION).build());
         Deencapsulation.setField(node, "conjuncts", new ArrayList<>());
         Deencapsulation.setField(node, "pushDownAggNoGroupingOp", TPushAggOp.COUNT);
         Deencapsulation.setField(node, "pushDownCountSlotIds", Collections.emptyList());
