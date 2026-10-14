@@ -207,8 +207,17 @@ void TypedZoneMapIndexWriter<FT>::_materialize_page_minmax() {
     if (!_page_zone_map.has_not_null) {
         return;
     }
-    _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
-    _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
+    if constexpr (is_string_type(Type)) {
+        _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
+        _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
+    } else {
+        // Bounds are kept as compute-layer values here: for example, a DATE is a
+        // VecDateTimeValue and a DECIMALV2 is a DecimalV2Value. Decode only values
+        // read from storage; interpreting these as packed storage values would turn
+        // 2020-01-01 into an invalid DATE and would read DECIMALV2 through decimal12_t.
+        _page_zone_map.min_value = doris::Field::create_field<Type>(_page_min);
+        _page_zone_map.max_value = doris::Field::create_field<Type>(_page_max);
+    }
 }
 
 template <FieldType FT>
