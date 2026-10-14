@@ -36,6 +36,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -1074,20 +1075,20 @@ public class CloudSystemInfoServiceTest {
         oldTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
         oldTagMap.put(Tag.CLOUD_CLUSTER_ID, oldClusterId);
         oldBackend.setTagMap(oldTagMap);
-        infoService.updateCloudClusterMapNoLock(List.of(oldBackend), new ArrayList<>());
+        infoService.updateCloudClusterMapNoLock(Arrays.asList(oldBackend), new ArrayList<>());
 
         Backend newBackend = new Backend(2L, "127.0.0.2", 9050);
         Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
         newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
         newTagMap.put(Tag.CLOUD_CLUSTER_ID, newClusterId);
         newBackend.setTagMap(newTagMap);
-        infoService.updateCloudClusterMapNoLock(List.of(newBackend), new ArrayList<>());
+        infoService.updateCloudClusterMapNoLock(Arrays.asList(newBackend), new ArrayList<>());
 
-        infoService.updateCloudClusterMapNoLock(new ArrayList<>(), List.of(oldBackend));
+        infoService.updateCloudClusterMapNoLock(new ArrayList<>(), Arrays.asList(oldBackend));
 
-        Assertions.assertEquals(newClusterId, infoService.getCloudClusterIdByName(clusterName));
-        Assertions.assertNull(infoService.getComputeGroupById(oldClusterId));
-        Assertions.assertNotNull(infoService.getComputeGroupById(newClusterId));
+        Assert.assertEquals(newClusterId, infoService.getCloudClusterIdByName(clusterName));
+        Assert.assertNull(infoService.getComputeGroupById(oldClusterId));
+        Assert.assertNotNull(infoService.getComputeGroupById(newClusterId));
     }
 
     @Test
@@ -1101,8 +1102,8 @@ public class CloudSystemInfoServiceTest {
 
         infoService.removeComputeGroup(clusterId, clusterName);
 
-        Assertions.assertNull(infoService.getCloudClusterIdByName(clusterName));
-        Assertions.assertNull(infoService.getComputeGroupById(clusterId));
+        Assert.assertNull(infoService.getCloudClusterIdByName(clusterName));
+        Assert.assertNull(infoService.getComputeGroupById(clusterId));
     }
 
     /**

@@ -32,7 +32,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
-import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -269,7 +269,7 @@ class CloudClusterCheckerTest {
 
     private void syncPhysical(Cloud.ClusterPB... groups) throws Exception {
         Mockito.doReturn(Cloud.GetClusterResponse.newBuilder().setStatus(ok())
-                .addAllCluster(List.of(groups)).build()).when(service).getCloudCluster("", "", "");
+                .addAllCluster(Arrays.asList(groups)).build()).when(service).getCloudCluster("", "", "");
         // The production reconciliation entry, including add, delete, diff and validation.
         Method method = CloudClusterChecker.class.getDeclaredMethod("checkCloudBackends");
         method.setAccessible(true);
@@ -284,7 +284,7 @@ class CloudClusterCheckerTest {
     private Cloud.GetInstanceResponse instance(Cloud.ClusterPB... groups) {
         return Cloud.GetInstanceResponse.newBuilder().setStatus(ok())
                 .setInstance(Cloud.InstanceInfoPB.newBuilder().setStatus(Cloud.InstanceInfoPB.Status.NORMAL)
-                        .addAllClusters(List.of(groups))).build();
+                        .addAllClusters(Arrays.asList(groups))).build();
     }
 
     private Cloud.MetaServiceResponseStatus ok() {
@@ -300,7 +300,7 @@ class CloudClusterCheckerTest {
 
     private Cloud.ClusterPB virtual(String id, String name) {
         return Cloud.ClusterPB.newBuilder().setClusterId(id).setClusterName(name)
-                .setType(Cloud.ClusterPB.Type.VIRTUAL).addAllClusterNames(List.of("active", "standby"))
+                .setType(Cloud.ClusterPB.Type.VIRTUAL).addAllClusterNames(Arrays.asList("active", "standby"))
                 .setClusterPolicy(Cloud.ClusterPolicy.newBuilder().setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
                         .setActiveClusterName("active")
                         .addStandbyClusterNames("standby")).build();
