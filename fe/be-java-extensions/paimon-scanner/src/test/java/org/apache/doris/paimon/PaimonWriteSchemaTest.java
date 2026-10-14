@@ -339,6 +339,23 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
+    public void testCharPaddingLeavesTheRowKindFieldAlone() {
+        // Paimon takes the row kind of a row from the value of its rowkind.field as it is (RowKind.fromShortString),
+        // so a CHAR(3) '+I' padded to '+I ' would fail the write. The other CHAR columns are padded.
+        // MUTATION: padding the rowkind.field column -> red.
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "id", new IntType()),
+                new DataField(1, "kind", new CharType(3)),
+                new DataField(2, "code", new CharType(3))));
+        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
+                new String[] {"id", "kind", "code"}, false, true, "kind");
+
+        InternalRow tableRow = tableRow(schema, 1, string("+I"), string("a"));
+        Assertions.assertEquals("+I", tableRow.getString(1).toString());
+        Assertions.assertEquals("a  ", tableRow.getString(2).toString());
+    }
+
+    @Test
     public void testCharPaddingIsReadFromTheTableOptionsTheFeSets() {
         // FE puts doris.write.char-padding on the table it serializes for the writer (PaimonWriteBinding). An FE
         // that predates the option leaves it out and does not pad its static partition values, so neither do we.

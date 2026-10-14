@@ -56,6 +56,26 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             id INT, p CHAR(3)
         ) USING paimon
         PARTITIONED BY (p);
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_bucketed;
+        CREATE TABLE paimon.${dbName}.t_char_bucketed (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '4',
+            'changelog-producer' = 'full-compaction'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_rowkind;
+        CREATE TABLE paimon.${dbName}.t_char_rowkind (
+            id INT, rk CHAR(3), code CHAR(3)
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'rowkind.field' = 'rk'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -112,7 +132,31 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         sql """DELETE FROM t_char_pk WHERE v = 3"""
         sql """UPDATE t_char_pk SET v = 40 WHERE v = 4"""
         order_qt_dml_matches_unpadded_keys """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_pk"""
+
+        // BE cannot route a CHAR bucket key by Paimon's bucket while padding is on, since it would hash the
+        // unpadded value. Rows of one bucket would then reach several of the four writers, each would compact
+        // the bucket, and Paimon would give up committing the compaction, and with it the changelog, after the
+        // rows were committed. The write goes to one writer instead, and both snapshots are committed.
+        sql """set parallel_pipeline_task_num = 4"""
+        sql """INSERT INTO t_char_bucketed
+            SELECT cast(number AS STRING), cast(number AS INT) FROM numbers("number" = "100")"""
+        sql """set parallel_pipeline_task_num = 0"""
+        order_qt_bucketed_padded """
+            SELECT count(*), count(DISTINCT c), min(char_length(c)), max(char_length(c)) FROM t_char_bucketed
+        """
+        order_qt_bucketed_compaction_committed """
+            SELECT snapshot_id, commit_kind, changelog_record_count FROM t_char_bucketed\$snapshots
+        """
+
+        // Paimon takes the row kind from the value of the rowkind.field as it is, so that value is not padded:
+        // '-D' deletes the row of key 1.
+        sql """INSERT INTO t_char_rowkind VALUES (1, '+I', 'a'), (2, '+I', 'b')"""
+        sql """INSERT INTO t_char_rowkind VALUES (1, '-D', 'a')"""
+        order_qt_rowkind_field_not_padded """
+            SELECT id, concat('[', rk, ']'), concat('[', code, ']') FROM t_char_rowkind
+        """
     } finally {
         sql """set enable_paimon_write_char_padding = true"""
+        sql """set parallel_pipeline_task_num = 0"""
     }
 }

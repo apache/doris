@@ -262,19 +262,45 @@ public class PaimonWritePlanProviderTest {
                 Collections.singletonList("part"), Collections.emptyMap()).getMode());
     }
 
+    @Test
+    public void charRouteFieldsFallBackToSingleWriterWhenCharPaddingIsOn() {
+        // The writer pads a CHAR value before Paimon computes the partition and the bucket of the row, while the
+        // BE exchange would hash the unpadded value. Several writers would then write and compact one bucket, and
+        // Paimon gives up committing the compaction (LSM conflicts) after the rows are committed, so a
+        // full-compaction changelog goes missing. MUTATION: routing CHAR natively with padding on -> red.
+        List<DataField> charKey = Arrays.asList(
+                new DataField(0, "c", DataTypes.CHAR(3).notNull()),
+                new DataField(1, "v", DataTypes.INT()));
+        Map<String, String> options = Collections.singletonMap(CoreOptions.BUCKET.key(), "4");
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, writeDistribution(charKey,
+                Collections.emptyList(), Collections.singletonList("c"), options, BucketMode.HASH_FIXED, true)
+                .getMode());
+        Assertions.assertEquals("paimon_fixed_bucket", writeDistribution(charKey,
+                Collections.emptyList(), Collections.singletonList("c"), options, BucketMode.HASH_FIXED, false)
+                .getPartitionFunction());
+        // The partition fields are routing fields as well.
+        List<DataField> charPartition = Arrays.asList(
+                new DataField(0, "id", DataTypes.INT()),
+                new DataField(1, "part", DataTypes.CHAR(3)));
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.GATHER, fixedBucketDistribution(charPartition,
+                Collections.singletonList("part"), Collections.emptyMap(), true).getMode());
+        Assertions.assertEquals("paimon_fixed_bucket", fixedBucketDistribution(charPartition,
+                Collections.singletonList("part"), Collections.emptyMap(), false).getPartitionFunction());
+    }
+
     private static ConnectorWriteDistribution.Mode writeDistribution(List<String> partitionKeys,
             List<String> primaryKeys, Map<String, String> options, BucketMode expectedBucketMode) {
         List<DataField> fields = Arrays.asList(
                 new DataField(0, "id", DataTypes.INT().notNull()),
                 new DataField(1, "dt", DataTypes.DATE().notNull()),
                 new DataField(2, "region", DataTypes.STRING().notNull()));
-        return writeDistribution(fields, partitionKeys, primaryKeys, options, expectedBucketMode)
+        return writeDistribution(fields, partitionKeys, primaryKeys, options, expectedBucketMode, true)
                 .getMode();
     }
 
     private static ConnectorWriteDistribution writeDistribution(List<DataField> fields,
             List<String> partitionKeys, List<String> primaryKeys, Map<String, String> options,
-            BucketMode expectedBucketMode) {
+            BucketMode expectedBucketMode, boolean charPadding) {
         int highestFieldId = fields.stream().mapToInt(DataField::id).max().getAsInt();
         FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
                 new Path("file:///tmp/paimon-write-distribution/tbl"),
@@ -282,17 +308,24 @@ public class PaimonWritePlanProviderTest {
         Assertions.assertEquals(expectedBucketMode, table.bucketMode(), "fixture bucket mode");
         PaimonTableHandle handle = new PaimonTableHandle("db", "tbl", partitionKeys, primaryKeys);
         handle.setPaimonTable(table);
-        return new PaimonWritePlanProvider(null, null, null).getWriteDistribution(null, handle);
+        return new PaimonWritePlanProvider(null, null, null).getWriteDistribution(new PropertySession(
+                Collections.singletonMap(PaimonWritePlanProvider.ENABLE_CHAR_PADDING, Boolean.toString(charPadding))),
+                handle);
     }
 
     /** A compacting append table with 4 fixed buckets keyed by {@code id}. */
     private static ConnectorWriteDistribution fixedBucketDistribution(List<DataField> fields,
             List<String> partitionKeys, Map<String, String> extraOptions) {
+        return fixedBucketDistribution(fields, partitionKeys, extraOptions, true);
+    }
+
+    private static ConnectorWriteDistribution fixedBucketDistribution(List<DataField> fields,
+            List<String> partitionKeys, Map<String, String> extraOptions, boolean charPadding) {
         Map<String, String> options = new HashMap<>(extraOptions);
         options.put(CoreOptions.BUCKET.key(), "4");
         options.put(CoreOptions.BUCKET_KEY.key(), "id");
         return writeDistribution(fields, partitionKeys, Collections.emptyList(), options,
-                BucketMode.HASH_FIXED);
+                BucketMode.HASH_FIXED, charPadding);
     }
 
     private static Map<String, String> fixedBucketOptions(boolean writeOnly) {

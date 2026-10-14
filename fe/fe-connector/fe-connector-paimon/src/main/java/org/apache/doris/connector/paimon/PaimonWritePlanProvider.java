@@ -347,7 +347,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     public ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
             ConnectorTableHandle connectorHandle) {
         FileStoreTable table = resolveTable((PaimonTableHandle) connectorHandle);
-        ConnectorWriteDistribution fixedBucket = fixedBucketDistribution(table);
+        ConnectorWriteDistribution fixedBucket = fixedBucketDistribution(table, charPaddingEnabled(session));
         if (fixedBucket != null) {
             return fixedBucket;
         }
@@ -365,7 +365,14 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
                 ConnectorWriteDistribution.Mode.EXTERNAL_UNPARTITIONED);
     }
 
-    private ConnectorWriteDistribution fixedBucketDistribution(FileStoreTable table) {
+    /**
+     * Routes each row to the writer that owns its partition and bucket, which BE computes from the row's routing
+     * values. With {@code charPadding} on, the writer pads a CHAR value before Paimon computes the partition and the
+     * bucket of the row, while BE would hash the unpadded value, and several writers would write and compact the
+     * same bucket. A CHAR routing field then cannot be routed natively: this returns null, and the table gets the
+     * distribution of a table whose routing fields BE cannot hash, a single writer for a primary-key table.
+     */
+    private ConnectorWriteDistribution fixedBucketDistribution(FileStoreTable table, boolean charPadding) {
         if (table.bucketMode() != BucketMode.HASH_FIXED) {
             return null;
         }
@@ -382,9 +389,9 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         List<String> routeColumns = new ArrayList<>();
         Map<String, Integer> routeIndexes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         List<Integer> partitionIndexes = appendRouteFields(
-                schema.partitionKeys(), fields, routeColumns, routeIndexes);
+                schema.partitionKeys(), fields, routeColumns, routeIndexes, charPadding);
         List<Integer> bucketIndexes = appendRouteFields(
-                schema.bucketKeys(), fields, routeColumns, routeIndexes);
+                schema.bucketKeys(), fields, routeColumns, routeIndexes, charPadding);
         if (partitionIndexes == null || bucketIndexes == null || bucketIndexes.isEmpty()) {
             return null;
         }
@@ -402,12 +409,12 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
 
     private List<Integer> appendRouteFields(List<String> fieldNames,
             Map<String, DataField> fields, List<String> routeColumns,
-            Map<String, Integer> routeIndexes) {
+            Map<String, Integer> routeIndexes, boolean charPadding) {
         List<Integer> indexes = new ArrayList<>();
         for (String fieldName : fieldNames) {
             DataField field = fields.get(fieldName);
             if (field == null || field.defaultValue() != null
-                    || !supportsNativeRouting(field.type().getTypeRoot())) {
+                    || !supportsNativeRouting(field.type().getTypeRoot(), charPadding)) {
                 return null;
             }
             Integer index = routeIndexes.get(fieldName);
@@ -421,8 +428,10 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         return indexes;
     }
 
-    private boolean supportsNativeRouting(DataTypeRoot type) {
+    private boolean supportsNativeRouting(DataTypeRoot type, boolean charPadding) {
         switch (type) {
+            case CHAR:
+                return !charPadding;
             case BOOLEAN:
             case TINYINT:
             case SMALLINT:
@@ -430,7 +439,6 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
             case BIGINT:
             case FLOAT:
             case DOUBLE:
-            case CHAR:
             case VARCHAR:
             case BINARY:
             case VARBINARY:

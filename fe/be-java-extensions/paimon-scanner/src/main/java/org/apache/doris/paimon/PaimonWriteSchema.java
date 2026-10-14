@@ -59,7 +59,10 @@ final class PaimonWriteSchema {
     static final String DORIS_WRITE_CHAR_PADDING = "doris.write.char-padding";
 
     private final InternalRow.FieldGetter[] fieldGetters;
-    /** Per input column, pads the CHAR values it holds; null when it holds none or padding is off. */
+    /**
+     * Per input column, pads the CHAR values it holds; null when it holds none, when padding is off, or for the
+     * table's rowkind.field.
+     */
     private final CharPadder[] charPadders;
     private final RowType inputType;
     /** Maps Doris input-column position → Paimon table-schema position. */
@@ -70,16 +73,15 @@ final class PaimonWriteSchema {
     private final int tableFieldCount;
 
     private PaimonWriteSchema(int[] tableFieldIndexes, int[] omittedDefaultFieldIndexes,
-            Object[] omittedDefaultValues, int tableFieldCount, RowType inputType, boolean charPadding) {
+            Object[] omittedDefaultValues, int tableFieldCount, RowType inputType, CharPadder[] charPadders) {
         this.fieldGetters = new InternalRow.FieldGetter[inputType.getFieldCount()];
-        this.charPadders = new CharPadder[inputType.getFieldCount()];
         for (int i = 0; i < fieldGetters.length; i++) {
             // Getters describe the transport row, not the target table. Transport fields are
             // nullable so an invalid Doris NULL survives projection and reaches Paimon's
             // authoritative table-schema validation.
             this.fieldGetters[i] = InternalRow.createFieldGetter(inputType.getTypeAt(i), i);
-            this.charPadders[i] = charPadding ? charPadder(inputType.getTypeAt(i)) : null;
         }
+        this.charPadders = charPadders;
         this.inputType = inputType;
         this.tableFieldIndexes = tableFieldIndexes;
         this.omittedDefaultFieldIndexes = omittedDefaultFieldIndexes;
@@ -105,18 +107,26 @@ final class PaimonWriteSchema {
         return create(tableType, columnNames, changelogWrite, false);
     }
 
-    /**
-     * @param charPadding whether to pad the CHAR values of inserted rows as Paimon's cast to CHAR does; see
-     *                    {@link #charPadder}
-     */
     static PaimonWriteSchema create(
             RowType tableType, String[] columnNames, boolean changelogWrite, boolean charPadding) {
+        return create(tableType, columnNames, changelogWrite, charPadding, null);
+    }
+
+    /**
+     * @param charPadding  whether to pad the CHAR values of inserted rows as Paimon's cast to CHAR does; see
+     *                     {@link #charPadder}
+     * @param rowKindField the table's {@code rowkind.field}, or null. Its value is not padded: Paimon takes the row
+     *                     kind from it as it is ({@code RowKind.fromShortString}), and a padded '+I' is no row kind.
+     */
+    static PaimonWriteSchema create(RowType tableType, String[] columnNames, boolean changelogWrite,
+            boolean charPadding, String rowKindField) {
         if (columnNames == null || columnNames.length == 0) {
             throw new IllegalArgumentException(
                     "PaimonJniWriter requires explicit column names");
         }
 
         int[] tableFieldIndexes = new int[columnNames.length];
+        CharPadder[] charPadders = new CharPadder[columnNames.length];
         List<DataField> inputFields = new ArrayList<>(columnNames.length);
         boolean[] specifiedFields = new boolean[tableType.getFieldCount()];
         for (int i = 0; i < columnNames.length; i++) {
@@ -147,6 +157,9 @@ final class PaimonWriteSchema {
             // Paimon writer return its normal constraint diagnostic instead of reading a default
             // primitive value from a non-null getter.
             inputFields.add(field.newType(field.type().nullable()));
+            if (charPadding && !field.name().equals(rowKindField)) {
+                charPadders[i] = charPadder(field.type());
+            }
         }
 
         int[] omittedDefaultFieldIndexes = new int[tableType.getFieldCount()];
@@ -169,7 +182,7 @@ final class PaimonWriteSchema {
                 Arrays.copyOf(omittedDefaultValues, omittedDefaultCount),
                 tableType.getFieldCount(),
                 new RowType(inputFields),
-                charPadding);
+                charPadders);
     }
 
     /**

@@ -30,3 +30,13 @@
 [k  ]	3	2
 [w]	1	40
 
+-- !bucketed_padded --
+100	100	3	3
+
+-- !bucketed_compaction_committed --
+1	APPEND	\N
+2	COMPACT	100
+
+-- !rowkind_field_not_padded --
+2	[+I]	[b  ]
+
