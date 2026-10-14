@@ -75,12 +75,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -183,10 +185,11 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 // partition of the MV takes them by that key rather than by the partition they were placed
                 // in. So a table whose mapped partitions include one is read the way an unscoped one is:
                 // the MV partition's key range, at the partition column's own type. That read can be seen to
-                // be too wide -- it is the one this scope exists to narrow -- rather than one that drops
-                // rows belonging to the MV partition being refreshed. The mapping names the default
-                // partition in every MV partition that reads the table, so this is reached for each of them
-                // and not only for the one the sentinel key maps to.
+                // be too wide -- it is the one this scope exists to narrow, and with partition_sync_limit it
+                // reaches an explicit partition the window left out and the mapping therefore does not name
+                // -- rather than one that drops rows belonging to the MV partition being refreshed. The
+                // mapping names the default partition in every MV partition that reads the table, so this is
+                // reached for each of them and not only for the one the sentinel key maps to.
                 builder.put(table, constructPredicates(mvItems, colName,
                         Optional.of(partitionColumnType(olapTable, colName))));
                 continue;
@@ -263,19 +266,30 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     private static Set<Expression> constructPredicatesOfBasePartitions(Set<PartitionItem> partitions,
             OlapTable baseTable, String colName) {
+        return constructPredicatesOfBasePartitions(partitions, baseTable, colName, UnboundSlot::new);
+    }
+
+    /**
+     * The same, with the partition columns read through the slots the caller names them by. A caller that
+     * writes these predicates into a plan that is already bound and is never bound again -- the union
+     * compensation -- has to pass that plan's own slots: an unbound slot there fails the rewrite instead of
+     * narrowing the read.
+     */
+    private static Set<Expression> constructPredicatesOfBasePartitions(Set<PartitionItem> partitions,
+            OlapTable baseTable, String colName, Function<String, Slot> slotOfColumn) {
         List<Column> partitionColumns = baseTable.getPartitionColumns();
         List<Type> partitionColumnTypes = Lists.transform(partitionColumns, Column::getType);
         if (!(partitions.iterator().next() instanceof ListPartitionItem)) {
             Set<Expression> predicates = new HashSet<>();
             for (PartitionItem item : partitions) {
-                predicates.add(convertRangePartitionToCompare(item, new UnboundSlot(colName),
+                predicates.add(convertRangePartitionToCompare(item, slotOfColumn.apply(colName),
                         Optional.of(partitionColumnTypes.get(0))));
             }
             return predicates;
         }
         List<Slot> partitionSlots = Lists.newArrayList();
         for (Column partitionColumn : partitionColumns) {
-            partitionSlots.add(new UnboundSlot(partitionColumn.getName()));
+            partitionSlots.add(slotOfColumn.apply(partitionColumn.getName()));
         }
         Set<Expression> predicates = new HashSet<>();
         for (PartitionItem item : partitions) {
@@ -440,6 +454,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             return super.visitLogicalSubQueryAlias(subQueryAlias, predicates);
         }
 
+        /** Whether this base table is one of the tables the MV is partitioned on. */
+        private static boolean isPctTable(MTMV mtmv, BaseColInfo relatedTableColumnInfo) {
+            for (BaseColInfo pctInfo : mtmv.getMvPartitionInfo().getPctInfos()) {
+                if (pctInfo.getTableInfo().equals(relatedTableColumnInfo.getTableInfo())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /**
          * The ranges of the MV partitions this compensation removes, as a predicate on the base table's
          * partition column, or nothing when they cannot be written on one column.
@@ -463,9 +487,12 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         continue;
                     }
                     MTMV mtmv = (MTMV) table;
-                    if (mtmv.getPartitionColumns().size() != 1
-                            || !mtmv.getPartitionColumns().get(0).getName()
-                                    .equalsIgnoreCase(relatedTableColumnInfo.getColName())) {
+                    // A partition key of the MV is written on this base table's column, so the MV has to be
+                    // partitioned on this table -- found through the base table the MV's partition info
+                    // names, not through the column's name, which the MV's own column is an alias of
+                    // whenever the definition renames it. An MV partitioned on several columns has no one
+                    // value here to write that column's key from, and is left as it was.
+                    if (mtmv.getPartitionColumns().size() != 1 || !isPctTable(mtmv, relatedTableColumnInfo)) {
                         continue;
                     }
                     Type columnType = mtmv.getPartitionColumns().get(0).getType();
@@ -474,10 +501,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         if (!(item instanceof ListPartitionItem)) {
                             continue;
                         }
-                        List<Expression> values = ((ListPartitionItem) item).getItems().stream()
-                                .map(key -> convertPartitionKeyToLiteral(key, 0, Optional.of(columnType)))
-                                .collect(Collectors.toList());
-                        res.add(new InPredicate(partitionSlot, values));
+                        // The same NULL-aware conversion the scoped read uses: a key that is NULL is asked
+                        // for as IS NULL, since no comparison to it is ever true and `IN (NULL)` would read
+                        // the rows of that MV partition as none.
+                        res.add(convertListPartitionToIn(item, partitionSlot, Optional.of(columnType)));
                     }
                 } catch (Exception e) {
                     // The ranges are what narrows this read; if they cannot be read, the read is left as it
@@ -485,6 +512,34 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     LOG.warn("Failed to read the removed MV partitions for the base union filter", e);
                     return Sets.newHashSet();
                 }
+            }
+            return res;
+        }
+
+        /** The slot this relation reads that column by, or null when it does not read it. */
+        private static Slot slotByName(LogicalCatalogRelation catalogRelation, String colName) {
+            for (Slot slot : catalogRelation.getOutput()) {
+                if (slot.getName().equals(colName)) {
+                    return slot;
+                }
+            }
+            return null;
+        }
+
+        /**
+         * The slots this relation reads the base table's partition columns by, by column name, or null when
+         * one of them is not read at all. Such a key has no column to be written against, so the read cannot
+         * be pinned to it; see the caller.
+         */
+        private static Map<String, Slot> partitionColumnSlots(OlapTable baseTable,
+                LogicalCatalogRelation catalogRelation) {
+            Map<String, Slot> res = new HashMap<>();
+            for (Column partitionColumn : baseTable.getPartitionColumns()) {
+                Slot slot = slotByName(catalogRelation, partitionColumn.getName());
+                if (slot == null) {
+                    return null;
+                }
+                res.put(partitionColumn.getName(), slot);
             }
             return res;
         }
@@ -514,13 +569,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     if (!Objects.equals(new BaseTableInfo(table), relatedTableColumnInfo.getTableInfo())) {
                         continue;
                     }
-                    Slot partitionSlot = null;
-                    for (Slot slot : catalogRelation.getOutput()) {
-                        if (slot.getName().equals(relatedTableColumnInfo.getColName())) {
-                            partitionSlot = slot;
-                            break;
-                        }
-                    }
+                    Slot partitionSlot = slotByName(catalogRelation, relatedTableColumnInfo.getColName());
                     if (partitionSlot == null) {
                         predicates.setHandleSuccess(false);
                         return catalogRelation;
@@ -575,8 +624,21 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         if (!mvPartitionPredicates.isEmpty()) {
                             preds = mvPartitionPredicates;
                         } else if (targetTable instanceof OlapTable && !hasDefaultPartition) {
+                            // This plan is already bound and nothing binds it again, so the whole-key
+                            // predicates are written against the slots this relation reads.
+                            Map<String, Slot> keySlots = partitionColumnSlots((OlapTable) targetTable,
+                                    catalogRelation);
+                            if (keySlots == null) {
+                                // A partition column the relation does not read has no slot to write the key
+                                // against, and pinning the read to the MV's partition column alone would
+                                // read the partitions differing in the others -- rows the MV branch of the
+                                // union already supplies, which would then be counted twice. Refused rather
+                                // than guessed: the query is answered from the base table.
+                                predicates.setHandleSuccess(false);
+                                return catalogRelation;
+                            }
                             preds = constructPredicatesOfBasePartitions(partitionHasDataItems,
-                                    (OlapTable) targetTable, relatedTableColumnInfo.getColName());
+                                    (OlapTable) targetTable, relatedTableColumnInfo.getColName(), keySlots::get);
                         } else {
                             preds = constructPredicates(partitionHasDataItems, partitionSlot);
                         }

@@ -304,6 +304,36 @@ public class MTMVPartitionUtil {
     }
 
     /**
+     * The base partitions each table is read from for these MV partitions, by base table: the ones the MV
+     * partitions are recorded with, which is the same set the refresh reads and the same one a rebuild of
+     * them has to read again. A table named with an empty set is not read at all, and a table absent from
+     * the map keeps the MV partitions' own key ranges.
+     *
+     * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
+     * by the tables the MV's partition info holds and this reads them by the name it is given, so what
+     * identifies a table here is the table it names, not which of the two objects it was read from.
+     */
+    public static Map<BaseTableInfo, Set<String>> mappedBasePartitions(Map<TableIf, String> tableWithPartKey,
+            MTMVRefreshContext context, Set<String> mvPartitionNames) {
+        Map<BaseTableInfo, Set<String>> res = Maps.newHashMap();
+        for (TableIf table : tableWithPartKey.keySet()) {
+            if (table instanceof OlapTable) {
+                res.put(new BaseTableInfo(table), Sets.newHashSet());
+            }
+        }
+        for (String mvPartitionName : mvPartitionNames) {
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry
+                    : context.getByPartitionName(mvPartitionName).entrySet()) {
+                Set<String> readable = res.get(new BaseTableInfo(entry.getKey()));
+                if (readable != null) {
+                    readable.addAll(entry.getValue());
+                }
+            }
+        }
+        return res;
+    }
+
+    /**
      * check if table is sync with all baseTables
      *
      * @param mtmv
