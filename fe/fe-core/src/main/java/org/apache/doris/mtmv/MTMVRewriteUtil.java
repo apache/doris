@@ -154,7 +154,7 @@ public class MTMVRewriteUtil {
         }
         Set<String> res = Sets.newHashSet();
 
-        Map<Pair<MTMVRelatedTableIf, String>, String> relatedToMv = getPctToMv(
+        Map<Pair<MTMVRelatedTableIf, String>, Set<String>> relatedToMv = getPctToMv(
                 refreshContext.getPartitionMappings());
         for (Entry<List<String>, Set<String>> entry : queryUsedPartitions.entrySet()) {
             TableIf tableIf = MTMVUtil.getTable(entry.getKey());
@@ -166,25 +166,35 @@ public class MTMVRewriteUtil {
             }
             Set<String> pctPartitions = entry.getValue();
             for (String pctPartition : pctPartitions) {
-                String mvPartition = relatedToMv.get(Pair.of(tableIf, pctPartition));
-                if (mvPartition != null) {
-                    res.add(mvPartition);
+                Set<String> mvPartitions = relatedToMv.get(Pair.of(tableIf, pctPartition));
+                if (mvPartitions != null) {
+                    res.addAll(mvPartitions);
                 }
             }
         }
         return res;
     }
 
+    /**
+     * The MV partitions each base partition is read by, for the tables a partition mapping describes.
+     *
+     * <p>A set rather than one name, because one base partition can be read by more than one MV partition: a
+     * list partitioned table's default partition holds the rows no other partition of it claims, so it is
+     * read by every MV partition whose key range their own key falls in, and a map that answered with one of
+     * them would let a rewrite stand on the MV partition that happens to be left while the rows are in
+     * another one.
+     */
     @VisibleForTesting
-    public static Map<Pair<MTMVRelatedTableIf, String>, String> getPctToMv(
+    public static Map<Pair<MTMVRelatedTableIf, String>, Set<String>> getPctToMv(
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings) {
-        Map<Pair<MTMVRelatedTableIf, String>, String> res = Maps.newHashMap();
+        Map<Pair<MTMVRelatedTableIf, String>, Set<String>> res = Maps.newHashMap();
         for (Entry<String, Map<MTMVRelatedTableIf, Set<String>>> entry : partitionMappings.entrySet()) {
             String mvPartitionName = entry.getKey();
             for (Entry<MTMVRelatedTableIf, Set<String>> entry2 : entry.getValue().entrySet()) {
                 MTMVRelatedTableIf pctTable = entry2.getKey();
                 for (String pctPartitionName : entry2.getValue()) {
-                    res.put(Pair.of(pctTable, pctPartitionName), mvPartitionName);
+                    res.computeIfAbsent(Pair.of(pctTable, pctPartitionName), k -> Sets.newHashSet())
+                            .add(mvPartitionName);
                 }
             }
         }
