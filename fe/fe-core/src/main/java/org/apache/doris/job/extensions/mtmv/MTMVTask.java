@@ -1529,11 +1529,8 @@ public class MTMVTask extends AbstractTask {
      */
     private void requireDescribedPartitions(MTMVRefreshContext context, Set<String> execPartitionNames)
             throws AnalysisException {
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return;
-        }
         for (String mvPartitionName : execPartitionNames) {
-            if (context.getByPartitionName(mvPartitionName).isEmpty()) {
+            if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
                 throw new AnalysisException("MV partition " + mvPartitionName + " of " + mtmv.getName()
                         + " is described by no base partition: the alignment has not caught up with a base "
                         + "table change. Refreshing it would write no rows over the rows it holds.");
