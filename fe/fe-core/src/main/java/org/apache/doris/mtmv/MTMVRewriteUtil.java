@@ -121,8 +121,15 @@ public class MTMVRewriteUtil {
                 // the answer is the base table.
                 return Lists.newArrayList();
             }
+            // A partition that alignment has just added is as fresh as it is empty: a base ADD PARTITION can
+            // widen the keys an MV partition covers, which drops the populated one and adds an empty
+            // replacement, and its creation time would let the grace period admit it before any refresh has
+            // read it -- a query rewritten to it then reads no rows at all, including the ones the base
+            // partitions it is to hold carry. So grace needs the partition to have been refreshed at least
+            // once, which the refresh snapshot records.
             if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills) && !forceConsistent) {
+                    + gracePeriodMills) && !forceConsistent
+                    && hasRefreshSnapshot(mtmv, partition.getName())) {
                 res.add(partition);
                 continue;
             }
@@ -175,6 +182,16 @@ public class MTMVRewriteUtil {
             }
         }
         return res;
+    }
+
+    /**
+     * Whether the MV's refresh snapshot describes this MV partition at all, i.e. whether a refresh has recorded
+     * it. A partition alignment has just added has no snapshot: nothing has read it, so its creation time says
+     * nothing about the base partitions it is meant to hold; see the grace period in the caller.
+     */
+    private static boolean hasRefreshSnapshot(MTMV mtmv, String partitionName) {
+        MTMVRefreshSnapshot refreshSnapshot = mtmv.getRefreshSnapshot();
+        return refreshSnapshot != null && refreshSnapshot.getPartitionSnapshots().containsKey(partitionName);
     }
 
     /**
