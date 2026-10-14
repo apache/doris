@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <numeric>
 #include <random>
 #include <vector>
@@ -37,16 +38,31 @@ std::vector<PhrasePositionSpan> make_spans(const std::vector<std::vector<uint32_
     return spans;
 }
 
+// A value in [low, high], drawn as libstdc++'s uniform_int_distribution draws it from a 32-bit
+// generator. Each standard library draws differently, and the digest test depends on the cases it
+// generates, so the draw is written out.
+uint32_t draw(std::mt19937* generator, uint32_t low, uint32_t high) {
+    const uint32_t range = high - low + 1;
+    uint64_t product = static_cast<uint64_t>((*generator)()) * range;
+    auto low_bits = static_cast<uint32_t>(product);
+    if (low_bits < range) {
+        const uint32_t threshold = (0U - range) % range;
+        while (low_bits < threshold) {
+            product = static_cast<uint64_t>((*generator)()) * range;
+            low_bits = static_cast<uint32_t>(product);
+        }
+    }
+    return low + static_cast<uint32_t>(product >> 32);
+}
+
 std::vector<uint32_t> generate_positions(std::mt19937* generator) {
-    std::uniform_int_distribution<uint32_t> frequency_distribution(1, 5);
-    std::uniform_int_distribution<uint32_t> gap_distribution(1, 4);
-    const uint32_t frequency = frequency_distribution(*generator);
+    const uint32_t frequency = draw(generator, 1, 5);
     std::vector<uint32_t> positions;
     positions.reserve(frequency);
-    uint32_t position = gap_distribution(*generator) - 1;
+    uint32_t position = draw(generator, 1, 4) - 1;
     while (positions.size() < frequency) {
         positions.push_back(position);
-        position += gap_distribution(*generator);
+        position += draw(generator, 1, 4);
     }
     return positions;
 }
@@ -189,7 +205,6 @@ TEST(SniiSloppyPhraseMatcher, InterleavedClausesPreserveRepeatedTermCollisions) 
 // matchers gave for the same cases.
 TEST(SniiSloppyPhraseMatcher, GeneratedCasesMatchV3Digest) {
     std::mt19937 generator(0x27011U);
-    std::uniform_int_distribution<size_t> clause_count_distribution(2, 4);
     uint64_t digest = 14695981039346656037ULL;
     size_t count = 0;
     const auto mix = [&digest, &count](float value) {
@@ -198,7 +213,7 @@ TEST(SniiSloppyPhraseMatcher, GeneratedCasesMatchV3Digest) {
         ++count;
     };
     for (size_t iteration = 0; iteration < 256; ++iteration) {
-        const size_t clause_count = clause_count_distribution(generator);
+        const size_t clause_count = draw(&generator, 2, 4);
         std::vector<size_t> plan_index(clause_count);
         std::vector<std::vector<uint32_t>> positions(clause_count);
         for (size_t i = 0; i < clause_count; ++i) {
