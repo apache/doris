@@ -17,12 +17,47 @@
 
 #include "io/obj_storage/obj_storage_config_resolver.h"
 
+#include <variant>
+
 #include "util/s3_util.h"
 
 namespace doris::io {
 
+namespace {
+
+std::variant<S3ClientConfig, AzureClientConfig> backend_from_client_conf(const S3ClientConf& conf) {
+    if (conf.provider == ObjStorageProvider::AZURE) {
+        // Azure has always reused ak/sk as the SharedKey account/key and the bucket as
+        // the blob container.
+        return AzureClientConfig {
+                .endpoint = conf.endpoint,
+                .account = conf.ak,
+                .container = conf.bucket,
+                .auth = AzureSharedKeyConfig {.account_key = conf.sk},
+        };
+    }
+    return S3ClientConfig {
+            .vendor = conf.provider,
+            .endpoint = conf.endpoint,
+            .region = conf.region,
+            .need_override_endpoint = conf.need_override_endpoint,
+            .use_virtual_addressing = conf.use_virtual_addressing,
+            .auth =
+                    {
+                            .access_key = conf.ak,
+                            .secret_key = conf.sk,
+                            .session_token = conf.token,
+                            .provider_type = conf.cred_provider_type,
+                            .role_arn = conf.role_arn,
+                            .external_id = conf.external_id,
+                    },
+    };
+}
+
+} // namespace
+
 ObjStorageClientConfig ObjStorageConfigResolver::from_client_conf(const S3ClientConf& conf) {
-    ObjStorageClientConfig config {
+    return ObjStorageClientConfig {
             .connection =
                     {
                             .max_connections = conf.max_connections,
@@ -31,35 +66,8 @@ ObjStorageClientConfig ObjStorageConfigResolver::from_client_conf(const S3Client
                     },
             .usage = conf.is_internal_bucket ? ClientUsage::INTERNAL_STORAGE
                                              : ClientUsage::EXTERNAL_ACCESS,
+            .backend = backend_from_client_conf(conf),
     };
-    if (conf.provider == ObjStorageProvider::AZURE) {
-        // Azure has always reused ak/sk as the SharedKey account/key and the bucket as
-        // the blob container.
-        config.backend = AzureClientConfig {
-                .endpoint = conf.endpoint,
-                .account = conf.ak,
-                .container = conf.bucket,
-                .auth = AzureSharedKeyConfig {.account_key = conf.sk},
-        };
-    } else {
-        config.backend = S3ClientConfig {
-                .vendor = conf.provider,
-                .endpoint = conf.endpoint,
-                .region = conf.region,
-                .need_override_endpoint = conf.need_override_endpoint,
-                .use_virtual_addressing = conf.use_virtual_addressing,
-                .auth =
-                        {
-                                .access_key = conf.ak,
-                                .secret_key = conf.sk,
-                                .session_token = conf.token,
-                                .provider_type = conf.cred_provider_type,
-                                .role_arn = conf.role_arn,
-                                .external_id = conf.external_id,
-                        },
-        };
-    }
-    return config;
 }
 
 } // namespace doris::io
