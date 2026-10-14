@@ -1,6 +1,6 @@
-# Bitmap allowlist scan benchmark: 2026-10-14
+# Bitmap allowlist scan benchmark
 
-These are local, warm-cache measurements from one macOS arm64 Doris FE and BE, built in Release mode. The native table used local storage; the Iceberg table used a local REST catalog and MinIO. They are useful for comparing query shapes on this machine, not for predicting production latency or comparing directly with OpenSearch.
+These are local, warm-cache measurements from one macOS arm64 Doris FE and BE, built in Release mode. The native table used local storage; the Iceberg table used a local REST catalog and MinIO. They compare query shapes in this setup, not production latency or OpenSearch performance.
 
 ## Setup
 
@@ -39,11 +39,11 @@ With the Iceberg test stack running and `enableIcebergTest=true` in the regressi
 ./run-regression-test.sh --run -d external_table_p2/iceberg -s bitmap_allowlist_scan_iceberg
 ```
 
-The source suites are [`bitmap_allowlist_scan.groovy`](bitmap_allowlist_scan.groovy) and [`bitmap_allowlist_scan_iceberg.groovy`](../external_table_p2/iceberg/bitmap_allowlist_scan_iceberg.groovy). The local run logs were written under `output/regression-test/log/` at 2026-10-14 06:36:50 and 06:37:48. Bitmap literals in those logs are large, so the logs are not checked in.
+The source suites are [`bitmap_allowlist_scan.groovy`](bitmap_allowlist_scan.groovy) and [`bitmap_allowlist_scan_iceberg.groovy`](../external_table_p2/iceberg/bitmap_allowlist_scan_iceberg.groovy).
 
 ## Scan profile
 
-I enabled `enable_profile=true` and `profile_level=2`, then ran the same bitmap and `IN` query shapes at 250,000 and 10 million IDs on both storage paths. The table lists **fact scan** counters, excluding the extra allowlist scan in the `IN` query. Every fact scan read all 20 million rows in the selected org's partition.
+With `enable_profile=true` and `profile_level=2`, the same bitmap and `IN` query shapes were profiled at 250,000 and 10 million IDs on both storage paths. The table lists **fact scan** counters, excluding the extra allowlist scan in the `IN` query. Every fact scan read all 20 million rows in the selected org's partition.
 
 | Storage | IDs | Filter | Fact scan rows | Fact scan output rows | Fact scan bytes |
 | --- | ---: | --- | ---: | ---: | ---: |
@@ -60,7 +60,7 @@ The `IN` scan can output a few rows that the later semi-join rejects; both final
 
 On native storage, the bitmap scan reported `RowsExprPredInput = 20,000,000`, `RowsExprPredFiltered = 19,997,422` at 250,000 IDs and `19,896,907` at 10 million IDs, and `LazyReadTime = 0ns` in both profiles. It read about 1.67 GB regardless of allowlist size. The 250,000-ID `IN` plan built runtime filters from the allowlist and reported `RowsShortCircuitPredFiltered = 19,749,488` and `LazyReadTime = 35.358ms` on the fact scan. Thus the current bitmap expression filters rows *within* the scan, but this profile does not show the desired early resource-ID pruning before `payload` is read. A dedicated scan predicate or runtime filter that can use the bitmap before payload materialization remains the performance work to investigate.
 
-The profile capture was a separate, single execution per shape, not the timing sample above. Its wall times differed substantially from the benchmark means, especially for the 10-million-ID native `IN` path, so the latency advantage needs repeated measurement before relying on it. Raw profiles are local under `/private/tmp/doris_<storage>_<size>_<filter>.profile.txt`; they are not checked in because the Base64 SQL literal makes each bitmap profile large.
+The profile capture was a separate, single execution per shape, not the timing sample above. Its wall times differed substantially from the benchmark means, especially for the 10-million-ID native `IN` path, so the latency advantage needs repeated measurement before relying on it.
 
 ## Compressed bitmap subquery runtime filter: subsequent run
 
@@ -94,7 +94,7 @@ At 250,000, 1 million, and 10 million IDs, both variants read all 20 million tar
 
 ## Iceberg selectivity rerun
 
-The same suite passed again on 2026-10-14 without code changes. The first launch attempt could not connect to FE because its detached process had exited; after starting FE and BE in live sessions, the complete suite passed. Each query shape again had one warm-up and five timed executions. Mean times in milliseconds:
+The same suite passed again without code changes. Each query shape had one warm-up and five timed executions. Mean times in milliseconds:
 
 | Allowlist IDs | Selective text: default | Selective text: scan filter | Broad text: default | Broad text: scan filter |
 | ---: | ---: | ---: | ---: | ---: |
