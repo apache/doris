@@ -125,12 +125,13 @@ public class MTMVRewriteUtil {
             // widen the keys an MV partition covers, which drops the populated one and adds an empty
             // replacement, and its creation time would let the grace period admit it before any refresh has
             // read it -- a query rewritten to it then reads no rows at all, including the ones the base
-            // partitions it is to hold carry. A partition a refresh has written is one the snapshot records,
-            // or, where the snapshot has been lost with the table (a rename recreates it), one that holds
-            // rows: the version of an empty written partition is not one it started at.
+            // partitions it is to hold carry. Grace answers for a partition a refresh has written, which is
+            // what its version says: the version of a written partition, even one a refresh left empty, is not
+            // the one it started at, while a replacement keeps that one and its creation time. The refresh
+            // snapshot cannot tell them apart -- it is keyed by the partition's name, and distinct keys can
+            // generate the same name -- so the version is what this reads.
             if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills) && !forceConsistent
-                    && (partition.hasData() || hasRefreshSnapshot(mtmv, partition.getName()))) {
+                    + gracePeriodMills) && !forceConsistent && partition.hasData()) {
                 res.add(partition);
                 continue;
             }
@@ -183,16 +184,6 @@ public class MTMVRewriteUtil {
             }
         }
         return res;
-    }
-
-    /**
-     * Whether the MV's refresh snapshot describes this MV partition at all, i.e. whether a refresh has recorded
-     * it. A partition alignment has just added is not in it, so its creation time says nothing about the base
-     * partitions it is meant to hold; see the grace period in the caller.
-     */
-    private static boolean hasRefreshSnapshot(MTMV mtmv, String partitionName) {
-        MTMVRefreshSnapshot refreshSnapshot = mtmv.getRefreshSnapshot();
-        return refreshSnapshot != null && refreshSnapshot.getPartitionSnapshots().containsKey(partitionName);
     }
 
     /**
