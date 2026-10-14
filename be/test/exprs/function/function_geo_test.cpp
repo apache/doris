@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/api.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdint.h>
@@ -32,11 +33,15 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/geo/geo_common.h"
 #include "exprs/function/geo/geo_types.h"
 #include "exprs/function/geo/wkb_parse.h"
+#include "exprs/function/string_hex_util.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 
@@ -174,7 +179,7 @@ static void expect_nan_spatial_accessors(PrimitiveType primitive) {
     auto column = type->create_column();
     column->insert_data(wkb.data(), wkb.size());
     ColumnsWithTypeAndName arguments {{std::move(column), type, "spatial"}};
-    const auto result_type = make_nullable(std::make_shared<DataTypeString>());
+    const auto result_type = make_nullable(std::make_shared<DataTypeVarbinary>());
     auto function =
             SimpleFunctionFactory::instance().get_function("st_asbinary", arguments, result_type);
     ASSERT_NE(function, nullptr);
@@ -267,6 +272,270 @@ TEST(VGeoFunctionsTest, GeographyAngleRejectsUnsupportedArgumentsRegardlessOfOrd
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("does not support this Geography WKB shape"),
               std::string::npos);
+}
+
+static std::string spatial_test_wkb(std::string_view hex) {
+    std::string wkb(hex.size() / 2, '\0');
+    EXPECT_EQ(string_hex::hex_decode(hex.data(), hex.size(), wkb.data()), wkb.size());
+    return wkb;
+}
+
+static Status execute_geography_test(const std::string& name, const Strings& values,
+                                     const DataTypePtr& result_type, Block* block) {
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    ColumnNumbers numbers;
+    for (const auto& hex : values) {
+        auto column = type->create_column();
+        const auto wkb = spatial_test_wkb(hex);
+        column->insert_data(wkb.data(), wkb.size());
+        numbers.push_back(block->columns());
+        block->insert({std::move(column), type, "geography"});
+    }
+    auto function = SimpleFunctionFactory::instance().get_function(
+            name, block->get_columns_with_type_and_name(), result_type);
+    EXPECT_NE(function, nullptr);
+    const auto result = block->columns();
+    block->insert({nullptr, result_type, "result"});
+    return function->execute(nullptr, *block, numbers, result, 1);
+}
+
+TEST(VGeoFunctionsTest, GeographyRelationsUseCompleteSphericalEdgesAndAliases) {
+    struct Case {
+        std::string left;
+        std::string right;
+        bool intersects;
+    };
+    const std::vector<Case> cases {
+            {"010100000000000000008066400000000000000000",
+             "010100000000000000008066c00000000000000000", true},
+            {"010100000000000000000000000000000000805640",
+             "010100000000000000008056400000000000805640", true},
+            {"0101000000000000000000000000000000008056c0",
+             "010100000000000000008056c000000000008056c0", true},
+            {"0102000000020000000000000000406540000000000000000000000000004065c00000000000000000",
+             "010100000000000000008066400000000000000000", true},
+            {"01020000000300000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "00000000000400000000000000000",
+             "0101000000000000000000f83f0000000000000000", true},
+            {"01020000000300000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "00000000000400000000000000000",
+             "010200000002000000000000000000f83f000000000000f0bf000000000000f83f000000000000f03f",
+             true},
+            {"01030000000100000005000000000000000040654000000000000024c000000000004065c000000000000"
+             "024c000000000004065c00000000000002440000000000040654000000000000024400000000000406540"
+             "00000000000024c0",
+             "010100000000000000000000000000000000000000", false},
+            {"01030000000100000005000000000000000040654000000000000024c000000000004065c000000000000"
+             "024c000000000004065c00000000000002440000000000040654000000000000024400000000000406540"
+             "00000000000024c0",
+             "010100000000000000008066400000000000000000", true},
+            {"01030000000100000005000000000000000000e0bf000000000000e0bf000000000000e03f00000000000"
+             "0e0bf000000000000e03f000000000000e03f000000000000e0bf000000000000e03f000000000000e0bf"
+             "000000000000e0bf",
+             "01020000000400000000000000000000c0000000000000000000000000000000c00000000000000040000"
+             "0000000000040000000000000004000000000000000400000000000000000",
+             false}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    for (const auto& value : cases) {
+        SCOPED_TRACE(value.left + " versus " + value.right);
+        for (bool reversed : {false, true}) {
+            const Strings arguments = reversed ? Strings {value.right, value.left}
+                                               : Strings {value.left, value.right};
+            for (const auto& name : {"st_intersects", "st_disjoint"}) {
+                Block block;
+                const auto status = execute_geography_test(name, arguments, result_type, &block);
+                ASSERT_TRUE(status.ok()) << status;
+                const bool expected = std::string_view(name) == "st_intersects" ? value.intersects
+                                                                                : !value.intersects;
+                EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(), expected);
+            }
+        }
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyContainmentAndTouchesRejectUnimplementedPairs) {
+    const std::string point = "0101000000000000000000f03f0000000000000040";
+    const std::string line =
+            "0102000000020000000000000000000000000000000000000000000000000000400000000000000000";
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    for (const auto& name : {"st_contains", "st_within"}) {
+        Block block;
+        ASSERT_TRUE(execute_geography_test(name, {point, point}, result_type, &block).ok());
+        EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(), 1);
+        Block unsupported;
+        const auto status = execute_geography_test(name, {line, line}, result_type, &unsupported);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("does not support this Geography shape pair"),
+                  std::string::npos);
+    }
+    Block unsupported;
+    EXPECT_FALSE(
+            execute_geography_test("st_touches", {line, line}, result_type, &unsupported).ok());
+}
+
+TEST(VGeoFunctionsTest, GeographyPointRelationsDistinguishInteriorAndBoundary) {
+    struct Case {
+        std::string name;
+        std::string left;
+        std::string right;
+        bool expected;
+    };
+    const std::vector<Case> cases {
+            {"st_contains",
+             "01020000000300000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "00000000000400000000000000000",
+             "0101000000000000000000f83f0000000000000000", true},
+            {"st_within", "0101000000000000000000f83f0000000000000000",
+             "01020000000300000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "00000000000400000000000000000",
+             true},
+            {"st_touches",
+             "01020000000300000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "00000000000400000000000000000",
+             "0101000000000000000000f83f0000000000000000", false},
+            {"st_contains",
+             "01020000000300000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "00000000000400000000000000000",
+             "010100000000000000000000000000000000000000", false},
+            {"st_within", "010100000000000000000000000000000000000000",
+             "01020000000300000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "00000000000400000000000000000",
+             false},
+            {"st_touches", "010100000000000000000000000000000000000000",
+             "01020000000300000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "00000000000400000000000000000",
+             true},
+            {"st_within", "010100000000000000000000000000000000000000",
+             "01020000000400000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "000000000f03f000000000000f03f00000000000000000000000000000000",
+             true},
+            {"st_touches",
+             "01020000000400000000000000000000000000000000000000000000000000f03f0000000000000000000"
+             "000000000f03f000000000000f03f00000000000000000000000000000000",
+             "010100000000000000000000000000000000000000", false},
+            {"st_contains",
+             "0103000000010000000500000000000000000000c00000000000000000000000000000004000000000000"
+             "000000000000000000040000000000000004000000000000000c0000000000000004000000000000000c0"
+             "0000000000000000",
+             "010100000000000000000000000000000000000000", false},
+            {"st_touches",
+             "0103000000010000000500000000000000000000c00000000000000000000000000000004000000000000"
+             "000000000000000000040000000000000004000000000000000c0000000000000004000000000000000c0"
+             "0000000000000000",
+             "010100000000000000000000000000000000000000", true},
+            {"st_contains",
+             "0103000000010000000500000000000000000000c00000000000000000000000000000004000000000000"
+             "000000000000000000040000000000000004000000000000000c0000000000000004000000000000000c0"
+             "0000000000000000",
+             "01010000000000000000000000000000000000f03f", true},
+            {"st_touches", "01010000000000000000000000000000000000f03f",
+             "0103000000010000000500000000000000000000c00000000000000000000000000000004000000000000"
+             "000000000000000000040000000000000004000000000000000c0000000000000004000000000000000c0"
+             "0000000000000000",
+             false},
+            {"st_contains", "0101000000000000000080664080da314a7200eabf",
+             "010100000000000000008066c080da314a7200eabf", true},
+            {"st_within", "010100000000000000008066c080da314a7200eabf",
+             "0101000000000000000080664080da314a7200eabf", true},
+            {"st_intersects", "0101000000000000000080664080da314a7200eabf",
+             "010100000000000000008066c080da314a7200eabf", true}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    for (const auto& value : cases) {
+        SCOPED_TRACE(value.name + " " + value.left + " versus " + value.right);
+        Block block;
+        ASSERT_TRUE(
+                execute_geography_test(value.name, {value.left, value.right}, result_type, &block)
+                        .ok());
+        EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(), value.expected);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyBearingUsesLatitudeLongitudeAndClockwiseConvention) {
+    struct Case {
+        std::string start;
+        std::string end;
+        double bearing;
+    };
+    const std::vector<Case> cases {
+            {"010100000000000000000024400000000000804640",
+             "010100000000000000000024400000000000004740", 0},
+            {"010100000000000000000024400000000000804640",
+             "010100000000000000000024400000000000004640", M_PI},
+            {"010100000000000000000000000000000000000000",
+             "0101000000000000000000f03f0000000000000000", 1.5707963267948966},
+            {"010100000000000000000000000000000000000000",
+             "0101000000000000000000f0bf0000000000000000", 4.71238898038469}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    for (const auto& value : cases) {
+        Block block;
+        ASSERT_TRUE(
+                execute_geography_test("st_azimuth", {value.start, value.end}, result_type, &block)
+                        .ok());
+        EXPECT_NEAR((*block.get_by_position(2).column)[0].get<TYPE_DOUBLE>(), value.bearing, 1e-12);
+    }
+    Block angle;
+    ASSERT_TRUE(execute_geography_test("st_angle",
+                                       {"010100000000000000000024400000000000004740",
+                                        "010100000000000000000024400000000000804640",
+                                        "010100000000000000000024400000000000004640"},
+                                       result_type, &angle)
+                        .ok());
+    EXPECT_NEAR((*angle.get_by_position(3).column)[0].get<TYPE_DOUBLE>(), M_PI, 1e-12);
+    Block clockwise;
+    ASSERT_TRUE(execute_geography_test("st_angle",
+                                       {"010100000000000000000024400000000000004740",
+                                        "010100000000000000000024400000000000804640",
+                                        "010100000000000000000026400000000000804640"},
+                                       result_type, &clockwise)
+                        .ok());
+    EXPECT_NEAR((*clockwise.get_by_position(3).column)[0].get<TYPE_DOUBLE>(), 1.564625577726284,
+                1e-12);
+    for (const auto& end : {"010100000000000000000024400000000000804640",
+                            "010100000000000000004065c000000000008046c0"}) {
+        Block undefined;
+        ASSERT_TRUE(execute_geography_test("st_azimuth",
+                                           {"010100000000000000000024400000000000804640", end},
+                                           result_type, &undefined)
+                            .ok());
+        EXPECT_TRUE(undefined.get_by_position(2).column->is_null_at(0));
+    }
+}
+
+static void expect_typed_binary_arrow_result(PrimitiveType primitive) {
+    const auto wkb = spatial_test_wkb("0101000000000000000000f03f0000000000000040");
+    const auto input_type = make_nullable(std::make_shared<DataTypeSpatial>(primitive));
+    auto input = input_type->create_column();
+    input->insert_data(wkb.data(), wkb.size());
+    input->insert_default();
+    ColumnsWithTypeAndName arguments {{std::move(input), input_type, "shape"}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeVarbinary>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_asbinary", arguments, result_type);
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*result_type));
+    Block block;
+    block.insert(arguments.front());
+    block.insert({nullptr, result_type, "wkb"});
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 2).ok());
+    Block output;
+    output.insert(block.get_by_position(1));
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(
+            ArrowFlightSchemaConvertor("UTC").get_arrow_schema_from_block(output, &schema).ok());
+    ASSERT_EQ(schema->field(0)->type()->id(), arrow::Type::BINARY);
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(ArrowFlightArrowBlockConvertor(schema, cctz::utc_time_zone())
+                        .convert_to_arrow(output, arrow::default_memory_pool(), &batch)
+                        .ok());
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    const auto& binary = static_cast<const arrow::BinaryArray&>(*batch->column(0));
+    EXPECT_EQ(binary.GetView(0), wkb);
+    EXPECT_TRUE(binary.IsNull(1));
+}
+
+TEST(VGeoFunctionsTest, TypedAsBinaryProducesBinaryArrowWkbAndNulls) {
+    expect_typed_binary_arrow_result(TYPE_GEOMETRY);
+    expect_typed_binary_arrow_result(TYPE_GEOGRAPHY);
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_point_test) {
@@ -621,7 +890,9 @@ TEST(VGeoFunctionsTest, function_geo_projected_geometry_accessors) {
         auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
         geometry_column->insert_data(wkb.data(), wkb.size());
         ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
-        auto result_type = make_nullable(std::make_shared<DataTypeString>());
+        auto result_type = make_nullable(
+                function_name == "st_asbinary" ? DataTypePtr(std::make_shared<DataTypeVarbinary>())
+                                               : DataTypePtr(std::make_shared<DataTypeString>()));
         auto function = SimpleFunctionFactory::instance().get_function(function_name, arguments,
                                                                        result_type);
         ASSERT_NE(nullptr, function);
@@ -669,7 +940,9 @@ TEST(VGeoFunctionsTest, GeographyRawAccessorsPreserveBigEndianWkb) {
         auto column = type->create_column();
         column->insert_data(wkb.data(), wkb.size());
         ColumnsWithTypeAndName arguments {{std::move(column), type, "geography"}};
-        const auto result_type = make_nullable(std::make_shared<DataTypeString>());
+        const auto result_type = make_nullable(
+                name == "st_asbinary" ? DataTypePtr(std::make_shared<DataTypeVarbinary>())
+                                      : DataTypePtr(std::make_shared<DataTypeString>()));
         auto function =
                 SimpleFunctionFactory::instance().get_function(name, arguments, result_type);
         ASSERT_NE(function, nullptr);
@@ -723,10 +996,15 @@ TEST(VGeoFunctionsTest, function_geo_spatial_null_map_overrides_valid_payload) {
         nulls->insert_value(0);
         nulls->insert_value(1);
         auto input = ColumnNullable::create(std::move(payloads), std::move(nulls));
-        DataTypePtr result_type =
-                (std::string_view(name) == "st_x" || std::string_view(name) == "st_y")
-                        ? make_nullable(std::make_shared<DataTypeFloat64>())
-                        : make_nullable(std::make_shared<DataTypeString>());
+        // Typed ST_AsBinary has a binary carrier; the other raw accessors retain theirs.
+        DataTypePtr result_type;
+        if (std::string_view(name) == "st_x" || std::string_view(name) == "st_y") {
+            result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+        } else if (std::string_view(name) == "st_asbinary") {
+            result_type = make_nullable(std::make_shared<DataTypeVarbinary>());
+        } else {
+            result_type = make_nullable(std::make_shared<DataTypeString>());
+        }
         ColumnsWithTypeAndName arguments {{std::move(input), input_type, "geometry"}};
         auto function =
                 SimpleFunctionFactory::instance().get_function(name, arguments, result_type);

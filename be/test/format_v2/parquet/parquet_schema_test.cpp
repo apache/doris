@@ -66,6 +66,39 @@ TEST(ParquetSchemaTest, ExplicitGeographyAlgorithmsPreserveCanonicalMetadata) {
     }
 }
 
+static void expect_spatial_count_definition_level(const tparquet::LogicalType& logical,
+                                                  bool nullable) {
+    FieldDescriptor legacy;
+    EXPECT_EQ(legacy.convert_to_doris_type(logical, nullable).first->is_nullable(), nullable);
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement field;
+    field.__set_name("shape");
+    field.__set_type(tparquet::Type::BYTE_ARRAY);
+    field.__set_logicalType(logical);
+    field.__set_repetition_type(nullable ? tparquet::FieldRepetitionType::OPTIONAL
+                                         : tparquet::FieldRepetitionType::REQUIRED);
+    NativeFieldDescriptor native;
+    ASSERT_TRUE(native.parse_from_thrift({root, field}).ok());
+    EXPECT_EQ(native.get_column(0)->data_type->is_nullable(), nullable);
+    std::vector<std::unique_ptr<ParquetColumnSchema>> columns;
+    ASSERT_TRUE(build_parquet_column_schema(native, &columns).ok());
+    ASSERT_EQ(columns.size(), 1);
+    EXPECT_EQ(columns[0]->nullable_definition_level, nullable ? 1 : 0);
+}
+
+TEST(ParquetSchemaTest, SpatialNullabilitySetsCountDefinitionLevel) {
+    tparquet::LogicalType geometry;
+    geometry.__set_GEOMETRY(tparquet::GeometryType {});
+    tparquet::LogicalType geography;
+    geography.__set_GEOGRAPHY(tparquet::GeographyType {});
+    for (const auto& logical : {geometry, geography}) {
+        expect_spatial_count_definition_level(logical, false);
+        expect_spatial_count_definition_level(logical, true);
+    }
+}
+
 TEST(ParquetSchemaTest, UnannotatedInt96DoesNotAcquireTimezoneFromMappingFlag) {
     tparquet::SchemaElement root;
     root.__set_name("schema");

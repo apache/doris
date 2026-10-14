@@ -711,7 +711,7 @@ public class ScalarType extends Type {
     @Override
     public String toSql(int depth) {
         if (isSpatialType()) {
-            return type.name() + "('" + spatialCrs.replace("'", "''") + "'"
+            return type.name() + "('" + spatialCrs.replace("\\", "\\\\").replace("'", "''") + "'"
                     + (type == PrimitiveType.GEOGRAPHY
                             ? ", '" + spatialAlgorithm.replace("'", "''") + "'" : "") + ")";
         }

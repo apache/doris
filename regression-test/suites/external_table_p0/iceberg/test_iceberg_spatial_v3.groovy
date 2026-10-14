@@ -47,8 +47,8 @@ suite("test_iceberg_spatial_v3", "p0,external,iceberg,external_docker,external_d
         def matches = []
         containers.readLines().each { String line ->
             String containerId = line.split(/\t/, 2)[0]
-            String probe = "${dockerCommand} exec ${containerId} bash -lc "
-                    + "'test -f /mnt/SUCCESS && command -v spark-sql >/dev/null'"
+            String probe = "${dockerCommand} exec ${containerId} bash -lc " +
+                    "'test -f /mnt/SUCCESS && command -v spark-sql >/dev/null'"
             try {
                 executeCommand(probe, 30)
                 matches.add(containerId)
@@ -225,6 +225,18 @@ public class CreateIcebergSpatialV3Table {
             (3, ST_GeometryFromWKBTyped('010100000000000000000008400000000000001040'), NULL),
             (4, NULL, ST_GeogFromWKB('010100000000000000000008400000000000001040'))
     """
+    // Doris writes OPTIONAL GEOMETRY/GEOGRAPHY annotations; count each leaf separately
+    // to exercise definition-level COUNT pushdown, including SQL NULL rows.
+    for (boolean scanV2 : [false, true]) {
+        for (boolean pushdown : [false, true]) {
+            "qt_optional_geometry_count_${scanV2}_${pushdown}"("""select /*+ SET_VAR(
+                enable_file_scanner_v2=${scanV2}, enable_push_down_no_group_agg=${pushdown}) */
+                count(geom) from geometry_values""")
+            "qt_optional_geography_count_${scanV2}_${pushdown}"("""select /*+ SET_VAR(
+                enable_file_scanner_v2=${scanV2}, enable_push_down_no_group_agg=${pushdown}) */
+                count(geog) from geometry_values""")
+        }
+    }
     qt_spatial_schema """desc geometry_values"""
     order_qt_spatial_values """
         select id, ST_AsText(geom), ST_X(geom), ST_Y(geom), ST_GeometryType(geom),

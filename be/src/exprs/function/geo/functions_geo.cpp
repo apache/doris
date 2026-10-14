@@ -18,10 +18,20 @@
 #include "exprs/function/geo/functions_geo.h"
 
 #include <glog/logging.h>
+#include <s2/mutable_s2shape_index.h>
+#include <s2/s2boolean_operation.h>
+#include <s2/s2earth.h>
+#include <s2/s2lax_polygon_shape.h>
+#include <s2/s2lax_polyline_shape.h>
+#include <s2/s2loop.h>
 #include <s2/s2point.h>
+#include <s2/s2polygon.h>
+#include <s2/s2polyline.h>
+#include <s2/s2predicates.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cmath>
 #include <cstdint>
 #include <utility>
 
@@ -34,11 +44,13 @@
 #include "core/column/column_array.h"
 #include "core/column/column_execute_util.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
 #include "exprs/function/geo/geo_common.h"
@@ -97,6 +109,158 @@ static Status decode_calculation_shape(StringRef value, const DataTypePtr& type,
                                     function_name);
     }
     return Status::OK();
+}
+
+// Calculations use canonical positions; raw spatial accessors still return the original WKB.
+static S2Point canonical_geography_point(const S2Point& point) {
+    const auto coordinate = S2LatLng(point);
+    const double latitude = coordinate.lat().radians();
+    // All longitudes at a pole and +/-180 at the date line denote the same position.
+    if (std::abs(latitude) == M_PI_2) {
+        return {0, 0, latitude > 0 ? 1.0 : -1.0};
+    }
+    if (coordinate.lng().radians() == M_PI) {
+        // Flip only sin(longitude): rebuilding latitude can change its last bit.
+        return {point.x(), -point.y(), point.z()};
+    }
+    return point;
+}
+
+static void geography_shape_index(const GeoShape& shape, MutableS2ShapeIndex* index) {
+    switch (shape.type()) {
+    case GEO_SHAPE_LINE_STRING: {
+        const auto* line = assert_cast<const GeoLine&>(shape).polyline();
+        std::vector<S2Point> vertices;
+        for (int i = 0; i < line->num_vertices(); ++i) {
+            vertices.push_back(canonical_geography_point(line->vertex(i)));
+        }
+        index->Add(std::make_unique<S2LaxPolylineShape>(vertices));
+        break;
+    }
+    case GEO_SHAPE_POLYGON: {
+        const auto* polygon = assert_cast<const GeoPolygon&>(shape).polygon();
+        std::vector<S2LaxPolygonShape::Loop> loops;
+        for (int i = 0; i < polygon->num_loops(); ++i) {
+            auto& vertices = loops.emplace_back();
+            const auto* loop = polygon->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                vertices.push_back(canonical_geography_point(loop->oriented_vertex(j)));
+            }
+        }
+        index->Add(std::make_unique<S2LaxPolygonShape>(loops));
+        break;
+    }
+    default:
+        // decode_calculation_shape admits only nonempty Point/LineString/Polygon WKB.
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Unexpected Geography calculation shape");
+    }
+}
+
+static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
+                                     const GeoShape& rhs) {
+    const auto& point_shape = lhs.type() == GEO_SHAPE_POINT ? lhs : rhs;
+    const auto& other = lhs.type() == GEO_SHAPE_POINT ? rhs : lhs;
+    const auto point =
+            canonical_geography_point(*assert_cast<const GeoPoint&>(point_shape).point());
+    bool interior = false;
+    bool boundary = false;
+    if (other.type() == GEO_SHAPE_POINT) {
+        interior = point == canonical_geography_point(*assert_cast<const GeoPoint&>(other).point());
+    } else if (other.type() == GEO_SHAPE_LINE_STRING) {
+        const auto* line = assert_cast<const GeoLine&>(other).polyline();
+        bool member = false;
+        // S2 Boolean operations symbolically move points off edge interiors. Use its
+        // unperturbed distance predicate on every real geodesic edge instead.
+        for (int i = 0; i + 1 < line->num_vertices(); ++i) {
+            member = member ||
+                     s2pred::CompareEdgeDistance(point, canonical_geography_point(line->vertex(i)),
+                                                 canonical_geography_point(line->vertex(i + 1)),
+                                                 S1ChordAngle::Zero()) <= 0;
+        }
+        const auto first = canonical_geography_point(line->vertex(0));
+        const auto last = canonical_geography_point(line->vertex(line->num_vertices() - 1));
+        boundary = first != last && (point == first || point == last);
+        interior = member && !boundary;
+    } else {
+        DCHECK_EQ(other.type(), GEO_SHAPE_POLYGON);
+        const auto* polygon = assert_cast<const GeoPolygon&>(other).polygon();
+        // Polygon rings have closing edges; open polylines above do not.
+        for (int i = 0; i < polygon->num_loops(); ++i) {
+            const auto* loop = polygon->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                boundary = boundary || s2pred::CompareEdgeDistance(
+                                               point, canonical_geography_point(loop->vertex(j)),
+                                               canonical_geography_point(loop->vertex(j + 1)),
+                                               S1ChordAngle::Zero()) <= 0;
+            }
+        }
+        interior = !boundary && polygon->Contains(point);
+    }
+    if (name == "st_intersects") {
+        return interior || boundary;
+    }
+    if (name == "st_disjoint") {
+        return !interior && !boundary;
+    }
+    if (name == "st_touches") {
+        return boundary;
+    }
+    return interior;
+}
+
+static Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoShape& rhs,
+                                 bool* result) {
+    const auto& container = name == "st_within" ? rhs : lhs;
+    const auto& value = name == "st_within" ? lhs : rhs;
+    // Legacy base contains() returns false even for p within itself. Complex containment
+    // and touches pairs need interior/boundary semantics that are not implemented here.
+    if (((name == "st_contains" || name == "st_within") && value.type() != GEO_SHAPE_POINT) ||
+        (name == "st_touches" && lhs.type() != GEO_SHAPE_POINT && rhs.type() != GEO_SHAPE_POINT)) {
+        return Status::NotSupported("Function {} does not support this Geography shape pair", name);
+    }
+    if (lhs.type() == GEO_SHAPE_POINT || rhs.type() == GEO_SHAPE_POINT) {
+        *result = geography_point_relation(name, lhs, rhs);
+        return Status::OK();
+    }
+    MutableS2ShapeIndex left;
+    MutableS2ShapeIndex right;
+    geography_shape_index(container, &left);
+    geography_shape_index(value, &right);
+    S2BooleanOperation::Options options;
+    options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
+    options.set_polyline_model(S2BooleanOperation::PolylineModel::CLOSED);
+    options.set_polyline_loops_have_boundaries(false);
+    const bool intersects = S2BooleanOperation::Intersects(left, right, options);
+    DCHECK(name == "st_intersects" || name == "st_disjoint");
+    *result = name == "st_intersects" ? intersects : !intersects;
+    return Status::OK();
+}
+
+static S2LatLng geography_point_coordinate(StringRef wkb) {
+    double longitude;
+    double latitude;
+    const auto status = WkbParse::point_coordinates(wkb.data, wkb.size, &longitude, &latitude);
+    DCHECK_EQ(status, GEO_PARSE_OK);
+    // Use original coordinates: reconstructing a shared longitude from two S2 vectors
+    // can turn due north into a tiny negative bearing that wraps to almost 2*pi.
+    if (std::abs(latitude) == 90) {
+        longitude = 0;
+    } else if (longitude == 180) {
+        longitude = -180;
+    }
+    return S2LatLng::FromDegrees(latitude, longitude);
+}
+
+static bool geography_bearing(StringRef from, StringRef to, double* bearing) {
+    const auto start = geography_point_coordinate(from);
+    const auto end = geography_point_coordinate(to);
+    // Coincident or antipodal positions have no unique initial bearing.
+    if (start == end || start.GetDistance(end).radians() == M_PI) {
+        return false;
+    }
+    *bearing = S2Earth::GetInitialBearing(start, end).radians();
+    *bearing = std::fmod(*bearing + 2 * M_PI, 2 * M_PI);
+    return true;
 }
 
 static bool decode_wkb_hex(StringRef value, std::string* wkb) {
@@ -470,7 +634,21 @@ struct StAngle {
             }
 
             double angle = 0;
-            if (!GeoPoint::ComputeAngle(pt1, pt2, pt3, &angle)) {
+            bool computed;
+            if (is_spatial_type(p1_type)) {
+                double start_bearing;
+                double end_bearing;
+                computed =
+                        geography_bearing(p2->get_data_at(row), p1->get_data_at(row),
+                                          &start_bearing) &&
+                        geography_bearing(p2->get_data_at(row), p3->get_data_at(row), &end_bearing);
+                if (computed) {
+                    angle = std::fmod(end_bearing - start_bearing + 2 * M_PI, 2 * M_PI);
+                }
+            } else {
+                computed = GeoPoint::ComputeAngle(pt1, pt2, pt3, &angle);
+            }
+            if (!computed) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -527,7 +705,12 @@ struct StAzimuth {
             }
 
             double angle = 0;
-            if (!GeoPoint::ComputeAzimuth(pt1, pt2, &angle)) {
+            // Typed longitude/latitude uses the spherical clockwise bearing path.
+            const bool computed = is_spatial_type(left_type)
+                                          ? geography_bearing(left_col->get_data_at(row),
+                                                              right_col->get_data_at(row), &angle)
+                                          : GeoPoint::ComputeAzimuth(pt1, pt2, &angle);
+            if (!computed) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
@@ -723,7 +906,14 @@ struct StRelationFunction {
                 null_map_data[row] = 1;
                 continue;
             }
-            auto relation_value = Func::evaluate(shape1.get(), shape2.get());
+            bool relation_value;
+            // The legacy relation helpers use planar segments and may close open lines.
+            // Dispatch typed Geography separately so date-line edges remain geodesic.
+            if (is_spatial_type(left_type)) {
+                RETURN_IF_ERROR(geography_relation(NAME, *shape1, *shape2, &relation_value));
+            } else {
+                relation_value = Func::evaluate(shape1.get(), shape2.get());
+            }
             res->get_data()[row] = relation_value;
         }
         block.replace_by_position(result,
@@ -961,7 +1151,10 @@ struct StAsBinary {
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
-        auto res = ColumnString::create();
+        // Raw typed WKB is binary, including byte sequences that are not valid UTF-8.
+        MutableColumnPtr res = is_spatial_type(block.get_data_type(arguments[0]))
+                                       ? MutableColumnPtr(ColumnVarbinary::create())
+                                       : MutableColumnPtr(ColumnString::create());
 
         auto col = block.get_by_position(arguments[0]).column;
         const auto& input_type = block.get_data_type(arguments[0]);
@@ -1002,6 +1195,17 @@ struct StAsBinary {
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
+    }
+};
+
+class StAsBinaryFunction final : public SpatialWkbGeoFunction<StAsBinary> {
+public:
+    static FunctionPtr create() { return std::make_shared<StAsBinaryFunction>(); }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (is_spatial_type(arguments[0])) {
+            return make_nullable(std::make_shared<DataTypeVarbinary>());
+        }
+        return GeoFunction<StAsBinary>::get_return_type_impl(arguments);
     }
 };
 
@@ -1391,7 +1595,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<
             SpatialWkbConstructorFunction<StGeoFromWkb<StGeometryFromWKBTyped>>>();
     factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeogFromWKB>>>();
-    factory.register_function<SpatialWkbGeoFunction<StAsBinary>>();
+    factory.register_function<StAsBinaryFunction>();
     factory.register_function<SpatialWkbGeoFunction<StLength>>();
     factory.register_function<SpatialWkbGeoFunction<StGeometryType>>();
     factory.register_function<SpatialWkbGeoFunction<StDistance>>();

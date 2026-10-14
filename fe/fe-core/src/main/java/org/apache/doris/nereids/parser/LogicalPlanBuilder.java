@@ -5385,14 +5385,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public DataType visitSpatialDataType(SpatialDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            String crs = ctx.crs == null ? "OGC:CRS84" : stripQuotes(ctx.crs.getText());
+            String crs = ctx.crs == null ? "OGC:CRS84" : SqlLiteralUtils.parseStringLiteral(ctx.crs.getText());
             if (ctx.spatialType.getType() == DorisParser.GEOMETRY) {
                 if (ctx.algorithm != null) {
                     throw new AnalysisException("GEOMETRY does not accept an edge algorithm");
                 }
                 return new GeometryType(crs);
             }
-            String algorithm = ctx.algorithm == null ? "spherical" : stripQuotes(ctx.algorithm.getText());
+            String algorithm = ctx.algorithm == null ? "spherical"
+                    : SqlLiteralUtils.parseStringLiteral(ctx.algorithm.getText());
             return new GeographyType(crs, algorithm);
         });
     }

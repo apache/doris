@@ -47,6 +47,10 @@ public class DataTypeTest {
         Assertions.assertEquals(new GeographyType("OGC:CRS84", "spherical"),
                 DataType.convertFromString("GEOGRAPHY('OGC:CRS84', 'SPHERICAL')"));
         for (DataType type : ImmutableList.of(new GeometryType("EPSG:3857"),
+                new GeometryType("projjson:custom'crs"),
+                new GeometryType("projjson:custom\\crs"),
+                new GeographyType("projjson:custom\\crs", "spherical"),
+                new GeographyType("projjson:custom'crs", "spherical"),
                 new GeographyType("OGC:CRS84", "vincenty"),
                 ArrayType.of(new GeometryType("EPSG:4326")))) {
             Assertions.assertEquals(type, DataType.convertFromString(type.toSql()));

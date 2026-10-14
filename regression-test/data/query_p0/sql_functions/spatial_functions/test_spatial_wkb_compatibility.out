@@ -20,3 +20,15 @@ POINT (1 2)	POINT (1 2)	true	true
 -- !iso_dimensions --
 true	true
 
+-- !spherical_dateline --
+true	false	0	false	true
+
+-- !open_geography_line --
+false	false
+
+-- !geography_position_aliases --
+true	false	true	true	true
+
+-- !geography_cardinal_bearings --
+0	3.14159265359	1.570796326795	3.14159265359
+

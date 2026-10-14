@@ -19,6 +19,7 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
@@ -370,7 +371,9 @@ public class MysqlSerializer {
     // see https://github.com/mysql/mysql-server/blob/trunk/include/mysql_com.h#L161
     private int getMysqlFlags(Type type) {
         int flags = 0;
-        if (type.getPrimitiveType().isVarbinaryType()) {
+        if (type.getPrimitiveType().isVarbinaryType()
+                || type.getPrimitiveType() == PrimitiveType.GEOMETRY
+                || type.getPrimitiveType() == PrimitiveType.GEOGRAPHY) {
             flags |= 128; //BINARY_FLAG
         }
         return flags;
@@ -384,6 +387,8 @@ public class MysqlSerializer {
     private int getMysqlResultSetFieldCharsetIndex(Type type) {
         switch (type.getPrimitiveType()) {
             case VARBINARY:
+            case GEOMETRY:
+            case GEOGRAPHY:
                 return 63; // binary
             default:
                 return 33; // utf8_general_ci

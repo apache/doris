@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -58,6 +59,18 @@ public class SpatialConstructorFunctionTest {
         Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
                 asText.getDataType());
         Assertions.assertEquals(defaultGeometry, asText.expectedInputTypes().get(0));
+    }
+
+    @Test
+    public void testTypedAsBinaryReturnsBinaryCarrier() {
+        for (DataType type : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "vincenty"))) {
+            StAsBinary function = new StAsBinary(new SlotReference("shape", type));
+            Assertions.assertEquals(VarBinaryType.INSTANCE, function.getDataType());
+            Assertions.assertEquals(type, function.expectedInputTypes().get(0));
+        }
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
+                new StAsBinary(new StringLiteral("legacy geometry")).getDataType());
     }
 
     @Test

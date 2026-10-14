@@ -119,6 +119,54 @@ TEST(DataTypeSpatialTest, ColumnPreservesWkbThroughFilterAndPermute) {
     EXPECT_EQ(first, permuted->get_data_at(1).to_string());
 }
 
+static void expect_spatial_column_resize(ColumnSpatial& column, size_t payload_size) {
+    column.pop_back(1);
+    column.resize(2);
+    EXPECT_EQ(column.size(), 2);
+    EXPECT_GE(column.allocated_bytes(), column.byte_size());
+    EXPECT_GT(column.byte_size(), payload_size);
+    column.clear();
+    EXPECT_EQ(column.size(), 0);
+}
+
+static void expect_spatial_storage_rejected(PrimitiveType primitive) {
+    DataTypeSpatial type(primitive);
+    EXPECT_THROW(static_cast<void>(type.get_storage_field_type()), Exception);
+}
+
+static void expect_spatial_copy_ownership(PrimitiveType primitive) {
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto source = ColumnSpatial::create(primitive);
+    source->insert_data(wkb.data(), wkb.size());
+    source->insert_default();
+    const IColumn& values = *source;
+    auto copy = source->clone();
+    auto appended = ColumnSpatial::create(primitive);
+    appended->insert(values[0]);
+    Field field;
+    values.get(0, field);
+    appended->insert(field);
+    appended->insert_from(values, 0);
+    const std::array<uint32_t, 2> indices {1, 0};
+    appended->insert_indices_from(values, indices.data(), indices.data() + indices.size());
+    EXPECT_EQ(appended->size(), 5);
+    EXPECT_EQ(appended->get_data_at(3).size, 0);
+    appended->replace_column_data(values, 0, 3);
+    EXPECT_EQ(appended->get_data_at(3).to_string(), wkb);
+    source->clear();
+    EXPECT_EQ(copy->get_data_at(0).to_string(), wkb);
+    EXPECT_EQ(appended->get_data_at(0).to_string(), wkb);
+    EXPECT_EQ(assert_cast<const ColumnSpatial&>(*copy).get_primitive_type(), primitive);
+    expect_spatial_column_resize(*appended, wkb.size());
+    expect_spatial_storage_rejected(primitive);
+}
+
+TEST(DataTypeSpatialTest, ColumnCopiesOwnPayloadAndPreserveSpatialIdentity) {
+    expect_spatial_copy_ownership(TYPE_GEOMETRY);
+    expect_spatial_copy_ownership(TYPE_GEOGRAPHY);
+}
+
 TEST(DataTypeSpatialTest, SpatialCompositeKeysRoundTripThroughIColumn) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
