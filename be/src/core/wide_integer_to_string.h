@@ -23,6 +23,8 @@
 
 #include <string>
 
+#include "core/wide_integer.h"
+
 namespace wide {
 template <size_t Bits, typename Signed>
 class integer;
