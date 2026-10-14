@@ -27,7 +27,11 @@ import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -216,6 +220,53 @@ public class IcebergExpireSnapshotsActionTest {
         // Only the file name counts, not a directory that looks like a manifest list.
         Assertions.assertNull(IcebergExpireSnapshotsAction.metadataFileKindByName(
                 "s3://b/snap-dir/00000-0-0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9-00001.avro"));
+        // Every data file is classified by name, so Avro data files whose names only resemble metadata names are
+        // not metadata: the whole name has to match, UUID included.
+        for (String dataFile : ImmutableList.of("sales-m1.avro", "sales-m-1.avro", "optimized-m-1.avro",
+                "snap-1.avro", "snap-1234-1-sales.avro")) {
+            Assertions.assertNull(
+                    IcebergExpireSnapshotsAction.metadataFileKindByName("s3://b/db1/t/data/" + dataFile), dataFile);
+        }
+    }
+
+    @Test
+    public void countsAnAvroDataFileNamedLikeAManifestAsADataFile() {
+        // The file kind map holds no data files, so every expired data file is classified by its name. An Avro
+        // data file whose name ends in -m<N>.avro is still a data file.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        DataFile avroDataFile = DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("s3://b/db1/t/data/sales-m1.avro")
+                .withFileSizeInBytes(1024)
+                .withRecordCount(1L)
+                .withFormat(FileFormat.AVRO)
+                .build();
+        catalog.loadTable(id).newAppend().appendFile(avroDataFile).commit();
+        catalog.loadTable(id).newDelete().deleteFile(avroDataFile.location()).commit();
+        ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
+
+        Table table = catalog.loadTable(id);
+        Set<String> retained = new HashSet<>();
+        for (ManifestFile manifest : table.currentSnapshot().allManifests(table.io())) {
+            retained.add(manifest.path());
+        }
+        Set<String> expired = new HashSet<>();
+        for (Snapshot snapshot : table.snapshots()) {
+            for (ManifestFile manifest : snapshot.allManifests(table.io())) {
+                if (!retained.contains(manifest.path())) {
+                    expired.add(manifest.path());
+                }
+            }
+        }
+        Assertions.assertFalse(expired.isEmpty(), "the last snapshot must not reference every manifest");
+
+        IcebergExpireSnapshotsAction action =
+                action(ImmutableMap.of("older_than", "4102444800000", "retain_last", "1"));
+        action.validate();
+        List<String> row = action.execute(table, ActionTestTables.session("UTC")).getRows().get(0);
+        Assertions.assertEquals(ImmutableList.of("1", "0", "0", String.valueOf(expired.size()), "2", "0"), row,
+                "sales-m1.avro is the only deleted data file; expired manifests " + expired);
     }
 
     @Test

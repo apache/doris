@@ -71,7 +71,11 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     public static final String SNAPSHOT_IDS = "snapshot_ids";
     public static final String CLEAN_EXPIRED_METADATA = "clean_expired_metadata";
 
-    private static final Pattern MANIFEST_FILE_NAME = Pattern.compile(".*-m\\d+\\.avro");
+    // The names Iceberg gives a manifest list and a manifest; see metadataFileKindByName.
+    private static final String UUID_REGEX = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+    private static final Pattern MANIFEST_LIST_FILE_NAME = Pattern.compile("snap-\\d+-\\d+-" + UUID_REGEX + "\\.avro");
+    private static final Pattern MANIFEST_FILE_NAME =
+            Pattern.compile("(" + UUID_REGEX + "-m\\d+|optimized-m-" + UUID_REGEX + ")\\.avro");
 
     // Test-only gate for the delete-manifest dedup: the number of DISTINCT delete manifests read by the most
     // recent buildFileKindMap call. Asserts each manifest is read once, not once per referencing snapshot.
@@ -346,19 +350,17 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
      * after the map was built. SnapshotProducer names a manifest list
      * {@code snap-<snapshot id>-<attempt>-<commit UUID>.avro} and a manifest {@code <commit UUID>-m<N>.avro};
      * Spark's {@code rewrite_manifests} names a manifest {@code optimized-m-<UUID>.avro}. Returns null for any
-     * other file. A delete file of such a snapshot still counts as a data file, as its name does not tell the
-     * two apart.
+     * other file. The whole name must match, UUID included: every data file takes this path, as the map holds
+     * no data files, so a looser rule would count an Avro data file such as {@code sales-m1.avro} as a manifest.
+     * A delete file of such a snapshot still counts as a data file, as its name does not tell the two apart.
      */
     @VisibleForTesting
     static FileKind metadataFileKindByName(String path) {
         String fileName = path.substring(path.lastIndexOf('/') + 1);
-        if (!fileName.endsWith(".avro")) {
-            return null;
-        }
-        if (fileName.startsWith("snap-")) {
+        if (MANIFEST_LIST_FILE_NAME.matcher(fileName).matches()) {
             return FileKind.MANIFEST_LIST;
         }
-        if (fileName.contains("-m-") || MANIFEST_FILE_NAME.matcher(fileName).matches()) {
+        if (MANIFEST_FILE_NAME.matcher(fileName).matches()) {
             return FileKind.MANIFEST;
         }
         return null;
