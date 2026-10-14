@@ -437,17 +437,32 @@ suite("union_rewrite_grace_big") {
 
       // test when mv is partition roll up
       sql "SET enable_materialized_view_rewrite=true"
-      // should rewrite successful when union rewrite enable and mv is ttl, query the partition which is in mv
-      mv_rewrite_success(query_ttl_all_partition_sql, ttl_mv_name,
-              is_partition_statistics_ready(db, ["lineitem_static", "orders", ttl_mv_name]))
+      // The mv's partition_sync_limit window is a window of now, and this fixture's base partitions are
+      // fixed dates: none of them is inside it, so the mv partition is recorded with none of the partitions
+      // the query reads and is not offered as an answer to it -- the grace period used to answer for it
+      // before the coverage was read, which is the hole this fixes. A query over partitions the window keeps
+      // still rewrites.
+      // Not even a candidate: the memo carries no rewrite step for it, neither chosen nor failed. The mv's
+      // partition_sync_limit window is a window of now and this fixture's base partitions are fixed dates, so
+      // none of them is inside it, and the mv partition is recorded with none of the partitions the query
+      // reads -- the grace period used to answer for it before the coverage was read, which is the hole this
+      // fixes. A query over partitions the window keeps still rewrites.
+      explain {
+          sql(" memo plan ${query_ttl_all_partition_sql}")
+          check { result -> !result.contains(".${ttl_mv_name}") }
+      }
 
       sql "SET enable_materialized_view_rewrite=false"
       order_qt_query_16_0_before "${query_ttl_partition_sql}"
       retryUntilHasSqlCache(query_ttl_partition_sql)
       sql "set enable_sql_cache=false"
       sql "SET enable_materialized_view_rewrite=true"
-      // should rewrite fail when union rewrite enable and query the partition which is not in mv
-      mv_rewrite_fail(query_ttl_partition_sql, ttl_mv_name)
+      // Same for a query pruned to partitions the window left out: not a candidate either, so the memo has no
+      // step for the mv rather than a failed one.
+      explain {
+          sql(" memo plan ${query_ttl_partition_sql}")
+          check { result -> !result.contains(".${ttl_mv_name}") }
+      }
       order_qt_query_16_0_after_no_sql_cache "${query_ttl_partition_sql}"
       sql "set enable_sql_cache=true"
       sql "set enable_strong_consistency_read=true"
