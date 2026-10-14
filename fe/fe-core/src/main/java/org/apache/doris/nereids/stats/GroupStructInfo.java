@@ -152,14 +152,14 @@ public class GroupStructInfo {
      * How many groups this query described. A group is described once: the description is memoized on
      * the group and composed by its parents, so this number only grows when a new group is reached.
      */
-    private static final AtomicInteger describedGroups = new AtomicInteger();
+    private static final AtomicInteger describedGroupCount = new AtomicInteger();
 
     /**
      * How many descriptions were walked while materializing a string. A description whose string is
      * already materialized is copied instead of being walked again, so this number does not grow for
      * the sub tree of an already materialized child.
      */
-    private static final AtomicInteger materializedGroups = new AtomicInteger();
+    private static final AtomicInteger materializedGroupCount = new AtomicInteger();
 
     /** Shared invalid instance: the group content is not supported by the simplified struct info. */
     public static final GroupStructInfo INVALID =
@@ -327,7 +327,7 @@ public class GroupStructInfo {
      * form is already materialized, that materialized string instead of walking the child again.
      */
     private void appendTo(StringBuilder out, LiteralMode mode, boolean shape) {
-        materializedGroups.incrementAndGet();
+        materializedGroupCount.incrementAndGet();
         for (Piece piece : pieces) {
             piece.appendTo(out, mode, shape);
         }
@@ -481,7 +481,7 @@ public class GroupStructInfo {
      * picked is deliberately not consulted for the same reason - a key must not depend on when it is
      * computed.
      */
-    private static GroupExpression describedExpression(Group group) {
+    private static GroupExpression getRepresentativeExpression(Group group) {
         GroupExpression logical = firstLogicalExpression(group);
         if (logical != null) {
             return logical;
@@ -505,7 +505,7 @@ public class GroupStructInfo {
      * group of a plan is described exactly once per query), in both literal modes at once.
      */
     private static GroupStructInfo build(Group group, Ctx ctx) {
-        describedGroups.incrementAndGet();
+        describedGroupCount.incrementAndGet();
         HboStructSummary summary = group.getOrComputeHboStructSummary();
         int maxScansPerGroup = hboMaxScansPerGroup();
         if (maxScansPerGroup > 0 && summary.getScanCount() > maxScansPerGroup) {
@@ -520,7 +520,7 @@ public class GroupStructInfo {
         if (logical != null) {
             return describeExpression(group, logical, ctx);
         }
-        GroupExpression representative = describedExpression(group);
+        GroupExpression representative = getRepresentativeExpression(group);
         if (representative == null) {
             // a group without any expression (no logical one, no physical one, no enforcer): there is
             // nothing to describe
@@ -813,7 +813,7 @@ public class GroupStructInfo {
      * of its children, a transparent operator contributes the chain below it, anything else is a leaf.
      */
     private static ChainInfo buildChainInfo(Group group) {
-        GroupExpression ge = describedExpression(group);
+        GroupExpression ge = getRepresentativeExpression(group);
         if (ge == null) {
             return ChainInfo.failed("no logical expression in group " + describeGroupState(group));
         }
@@ -1410,8 +1410,8 @@ public class GroupStructInfo {
     /** The summary of a group, computed from the (memoized) summaries of its child groups. */
     public static HboStructSummary summaryOf(Group group) {
         // the summary counts what the description renders, so it uses the same expression: for a group
-        // without a logical plan (see describedExpression) that is the physical one it holds
-        GroupExpression ge = describedExpression(group);
+        // without a logical plan (see getRepresentativeExpression) that is the physical one it holds
+        GroupExpression ge = getRepresentativeExpression(group);
         if (ge == null) {
             return new HboStructSummary(0, Collections.emptyList());
         }
@@ -1437,25 +1437,25 @@ public class GroupStructInfo {
     /** The number of groups described since the last reset. For tests only. */
     @VisibleForTesting
     public static int getDescribedGroupCount() {
-        return describedGroups.get();
+        return describedGroupCount.get();
     }
 
     /** Reset the description counter. For tests only. */
     @VisibleForTesting
     public static void resetDescribedGroupCount() {
-        describedGroups.set(0);
+        describedGroupCount.set(0);
     }
 
     /** The number of descriptions walked since the last reset. For tests only. */
     @VisibleForTesting
     public static int getMaterializedGroupCount() {
-        return materializedGroups.get();
+        return materializedGroupCount.get();
     }
 
     /** Reset the materialization counter. For tests only. */
     @VisibleForTesting
     public static void resetMaterializedGroupCount() {
-        materializedGroups.set(0);
+        materializedGroupCount.set(0);
     }
 
     /**
