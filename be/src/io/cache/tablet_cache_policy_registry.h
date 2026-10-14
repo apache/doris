@@ -134,6 +134,8 @@ private:
     std::optional<TabletCachePolicy> set_locked(int64_t tablet_id, const TabletCachePolicy& policy,
                                                 int64_t refreshed_at_s);
     std::optional<TabletCachePolicy> erase_locked(int64_t tablet_id);
+    // Bumps the version of each direction the change from `before` to `after` (nullopt: tablet
+    // unknown) may move the tablet's blocks in.
     void bump_versions(const std::optional<TabletCachePolicy>& before,
                        const std::optional<TabletCachePolicy>& after);
     void persist(int64_t tablet_id, const std::optional<TabletCachePolicy>& policy);
@@ -150,7 +152,13 @@ private:
     // Deadlines (> 0) of the known tablets, to tell when one has passed.
     std::multiset<int64_t> _deadlines;
 
+    // Bumped by a change that may make blocks protected: a deadline moved later (a TTL added or
+    // extended), or a tablet learned or forgotten. A cache path that sees it change sweeps its
+    // class queues for blocks to move to the TTL queue.
     std::atomic<uint64_t> _protection_gained_version {0};
+    // Bumped by a change that may end the protection of blocks: a deadline moved earlier (a TTL
+    // removed or shortened), or a tablet learned or forgotten. A cache path that sees it change
+    // sweeps its TTL queue for blocks to move back to their class queues.
     std::atomic<uint64_t> _protection_lost_version {0};
 
     // Guards the tablets waiting for a fetch. Never held across a fetch.

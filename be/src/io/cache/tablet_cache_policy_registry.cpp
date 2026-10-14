@@ -145,8 +145,10 @@ std::optional<TabletCachePolicy> TabletCachePolicyRegistry::erase_locked(int64_t
 
 void TabletCachePolicyRegistry::bump_versions(const std::optional<TabletCachePolicy>& before,
                                               const std::optional<TabletCachePolicy>& after) {
-    // An unknown tablet is judged by the deadline its blocks carry, so learning or forgetting a
-    // tablet can move its blocks either way.
+    // A block is protected while the deadline is ahead, so a later deadline can only make blocks
+    // protected and an earlier one only end their protection. An unknown tablet is judged by the
+    // deadline each block carries, which may be earlier or later, so learning or forgetting a
+    // tablet can move its blocks either way. The -1 is never compared: a missing side bumps both.
     const int64_t old_deadline = before.has_value() ? before->deadline() : -1;
     const int64_t new_deadline = after.has_value() ? after->deadline() : -1;
     if (!before.has_value() || !after.has_value() || new_deadline > old_deadline) {
