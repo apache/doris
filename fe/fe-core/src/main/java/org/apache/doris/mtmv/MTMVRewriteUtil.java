@@ -84,11 +84,15 @@ public class MTMVRewriteUtil {
         }
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
-        // Which of the partitions grace may answer for a refresh has written, by the partition's own version:
-        // one a refresh left empty is still written, one alignment has just added is not. The versions are read
-        // in one bulk call, because on cloud a single partition's version is a GetVersion RPC of its own and a
-        // query against a view of many partitions would otherwise issue one per partition in grace.
-        Set<String> writtenPartitionsInGrace = Sets.newHashSet();
+        // The partitions grace answers for, decided once and after the version read. The read is what says
+        // which of them a refresh has written -- one it left empty is still written, one alignment has just
+        // added is not -- and on cloud it also writes the partition's cached mtime back (0 for an older
+        // partition that has none), so a partition whose timestamp was inside the window when it was selected
+        // below can be outside it afterwards. Deciding here is what keeps the answer of the loop and the
+        // set the preload is built from the same one. The versions are read in one bulk call, because on cloud
+        // a single partition's version is a GetVersion RPC of its own and a query against a view of many
+        // partitions would otherwise issue one per partition in grace.
+        Set<String> answeredByGrace = Sets.newHashSet();
         if (gracePeriodMills > 0 && !forceConsistent) {
             List<Partition> graceCandidates = Lists.newArrayList();
             for (Partition partition : allPartitions) {
@@ -100,8 +104,10 @@ public class MTMVRewriteUtil {
                 try {
                     List<Long> versions = Partition.getVisibleVersions(graceCandidates);
                     for (int i = 0; i < graceCandidates.size(); i++) {
-                        if (versions.get(i) > Partition.PARTITION_INIT_VERSION) {
-                            writtenPartitionsInGrace.add(graceCandidates.get(i).getName());
+                        Partition candidate = graceCandidates.get(i);
+                        if (versions.get(i) > Partition.PARTITION_INIT_VERSION
+                                && currentTimeMills <= candidate.getVisibleVersionTime() + gracePeriodMills) {
+                            answeredByGrace.add(candidate.getName());
                         }
                     }
                 } catch (RpcException e) {
@@ -158,9 +164,7 @@ public class MTMVRewriteUtil {
             // asked -- the snapshot is keyed by the partition's name, and distinct keys can generate the same
             // name, while on cloud `hasData` answers true for a session that turned empty-partition pruning
             // off, whatever the partition's version is.
-            if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills) && !forceConsistent
-                    && writtenPartitionsInGrace.contains(partition.getName())) {
+            if (answeredByGrace.contains(partition.getName())) {
                 res.add(partition);
                 continue;
             }
@@ -170,13 +174,13 @@ public class MTMVRewriteUtil {
             }
             if (partitionSnapshots == null) {
                 // Every partition that reaches the sync check needs its snapshots prepared, and what keeps a
-                // partition from reaching it is grace -- read from the same set the check above is made of,
-                // rather than from a second reading of the grace period. A partition inside its window that no
-                // refresh has written falls through to be compared (that is what the version read above is for),
-                // so leaving it out here would send that comparison to snapshots nobody prepared.
+                // partition from reaching it is grace -- the one set above, not a second reading of the grace
+                // period. A partition inside the window that no refresh has written, or whose timestamp the
+                // version read moved out of the window, falls through to be compared, so leaving it out here
+                // would send that comparison to snapshots nobody prepared.
                 Set<String> partitionsToPreload = Sets.newHashSet();
                 for (Partition candidate : allPartitions) {
-                    if (!writtenPartitionsInGrace.contains(candidate.getName())
+                    if (!answeredByGrace.contains(candidate.getName())
                             && mtmvNeedComparePartitions.contains(candidate.getName())) {
                         partitionsToPreload.add(candidate.getName());
                     }

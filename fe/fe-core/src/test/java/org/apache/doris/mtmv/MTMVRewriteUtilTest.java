@@ -241,6 +241,41 @@ public class MTMVRewriteUtilTest {
     }
 
     @Test
+    public void testGetMTMVCanRewritePartitionsWhenTheVersionReadMovesThePartitionOutOfGrace()
+            throws AnalysisException {
+        // The bulk version read is what decides that grace may answer for a partition, and it also writes the
+        // partition's timestamp back (on cloud a cold partition is given the mtime the meta service returns,
+        // 0 where it has none). A partition whose timestamp was inside the window when it was selected can
+        // therefore be outside it once the read is done: grace does not answer for it, so it is compared --
+        // and the snapshots for that comparison are the ones of the same set the answer was made of.
+        try (MockedStatic<Partition> partitionStatic = Mockito.mockStatic(Partition.class);
+                MockedStatic<MTMVRefreshContext> refreshContextStatic =
+                        Mockito.mockStatic(MTMVRefreshContext.class)) {
+            MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+            refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(
+                    Mockito.any(MTMV.class), Mockito.anyMap())).thenReturn(context);
+            Mockito.when(context.prepareComparablePartitionSnapshots(Mockito.anySet()))
+                    .thenReturn(Mockito.mock(MTMVRefreshContext.PreparedPartitionSnapshots.class));
+
+            Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+            // Inside its window (creation 1 + grace 2 >= now 3), and the read reports it written and moves the
+            // timestamp it reports out of the window.
+            Mockito.when(p1.getVisibleVersionTime()).thenReturn(1L);
+            partitionStatic.when(() -> Partition.getVisibleVersions(Mockito.anyList()))
+                    .thenAnswer(invocation -> {
+                        Mockito.when(p1.getVisibleVersionTime()).thenReturn(0L);
+                        return Lists.newArrayList(2L);
+                    });
+
+            Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
+                    .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false, null);
+
+            Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
+            Mockito.verify(context).prepareComparablePartitionSnapshots(Sets.newHashSet("p1"));
+        }
+    }
+
+    @Test
     public void testGetMTMVCanRewritePartitionsInGracePeriodStillNeedsTheQueryCovered() throws AnalysisException {
         // A partition inside its grace period is answered usable without being compared, but that says nothing
         // about the base partitions the query reads. One that no MV partition is mapped from is one whose rows
