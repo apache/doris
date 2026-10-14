@@ -167,9 +167,16 @@ public class MTMVRewriteUtil {
             Set<String> pctPartitions = entry.getValue();
             for (String pctPartition : pctPartitions) {
                 Set<String> mvPartitions = relatedToMv.get(Pair.of(tableIf, pctPartition));
-                if (mvPartitions != null) {
-                    res.addAll(mvPartitions);
+                if (mvPartitions == null) {
+                    // A partition the query reads that no MV partition is mapped from -- one the partition
+                    // mapping left out, an expired base partition for instance -- is one the MV's rows say
+                    // nothing about. Answering with the MV partitions the other base partitions map to
+                    // would let the query be rewritten to the MV alone while the rows of this partition are
+                    // not in it at all, so no partition is answered for: the MV is not a candidate for this
+                    // query, and the query is answered from the base table.
+                    return Sets.newHashSet();
                 }
+                res.addAll(mvPartitions);
             }
         }
         return res;
