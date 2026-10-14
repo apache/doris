@@ -19,12 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.TableIf;
@@ -172,28 +170,31 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 builder.put(table, constructPredicates(mvItems, colName));
                 continue;
             }
-            if (readable.isEmpty()) {
-                // No partition of this table feeds the MV partitions being refreshed, which is "no row"
-                // rather than "every row": constructPredicates answers the other way for an empty set,
-                // and that answer would put every row of the table into each of them.
-                builder.put(table, Sets.newHashSet(BooleanLiteral.FALSE));
-                continue;
-            }
             OlapTable olapTable = (OlapTable) table;
             Set<PartitionItem> items = Sets.newHashSet();
             for (String partitionName : readable) {
                 items.add(olapTable.getPartitionItemOrAnalysisException(partitionName));
             }
-            if (hasDefaultListPartition(olapTable)) {
-                // A list partitioned table's default partition takes the rows no other partition of it
-                // claims, and it is not a partition of that table the MV's own partition is recorded with:
-                // a partition of the MV takes the rows whose own key falls in it, wherever the base table
-                // put them, so the rows this refresh is about are the ones the MV partition's key range
-                // names rather than the ones the base partition it is recorded with holds. A table that has
-                // such a partition is therefore read the way an unscoped one is. That read can be seen to be
-                // too wide -- it is the one this scope exists to narrow -- rather than one that drops rows
-                // which belong to the MV partition being refreshed.
-                builder.put(table, constructPredicates(mvItems, colName));
+            if (items.stream().anyMatch(PartitionItem::isDefaultPartition)) {
+                // One of the partitions this MV partition is recorded with is a list partitioned table's
+                // default partition, which takes the rows no other partition of it claims. Those rows are
+                // the ones the MV partition's own key range names, wherever the base table put them, and a
+                // partition of the MV takes them by that key rather than by the partition they were placed
+                // in. So a table whose mapped partitions include one is read the way an unscoped one is:
+                // the MV partition's key range, at the partition column's own type. That read can be seen to
+                // be too wide -- it is the one this scope exists to narrow -- rather than one that drops
+                // rows belonging to the MV partition being refreshed. The mapping names the default
+                // partition in every MV partition that reads the table, so this is reached for each of them
+                // and not only for the one the sentinel key maps to.
+                builder.put(table, constructPredicates(mvItems, colName,
+                        Optional.of(partitionColumnType(olapTable, colName))));
+                continue;
+            }
+            if (readable.isEmpty()) {
+                // No partition of this table feeds the MV partitions being refreshed, which is "no row"
+                // rather than "every row": constructPredicates answers the other way for an empty set,
+                // and that answer would put every row of the table into each of them.
+                builder.put(table, Sets.newHashSet(BooleanLiteral.FALSE));
                 continue;
             }
             builder.put(table, constructPredicatesOfBasePartitions(items, olapTable, colName));
@@ -207,8 +208,13 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     @VisibleForTesting
     public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, String colName) {
-        UnboundSlot slot = new UnboundSlot(colName);
-        return constructPredicates(partitions, slot);
+        return constructPredicates(partitions, colName, Optional.empty());
+    }
+
+    /** The same, for the callers that know the partition column the predicate is written against. */
+    private static Set<Expression> constructPredicates(Set<PartitionItem> partitions, String colName,
+            Optional<Type> columnType) {
+        return constructPredicates(partitions, new UnboundSlot(colName), columnType);
     }
 
     /**
@@ -217,17 +223,22 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     @VisibleForTesting
     public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot) {
+        return constructPredicates(partitions, colSlot, Optional.empty());
+    }
+
+    private static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot,
+            Optional<Type> columnType) {
         Set<Expression> predicates = new HashSet<>();
         if (partitions.isEmpty()) {
             return Sets.newHashSet(BooleanLiteral.TRUE);
         }
         if (partitions.iterator().next() instanceof ListPartitionItem) {
             for (PartitionItem item : partitions) {
-                predicates.add(convertListPartitionToIn(item, colSlot));
+                predicates.add(convertListPartitionToIn(item, colSlot, columnType));
             }
         } else {
             for (PartitionItem item : partitions) {
-                predicates.add(convertRangePartitionToCompare(item, colSlot, Optional.empty()));
+                predicates.add(convertRangePartitionToCompare(item, colSlot, columnType));
             }
         }
         return predicates;
@@ -272,18 +283,15 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return predicates;
     }
 
-    /**
-     * Whether this table has a list partition that takes the rows no other partition of it claims. Such a
-     * partition holds rows for every key its table can be read by, so which rows of it belong to a partition
-     * of the MV is the MV partition's own question and not the partition's.
-     */
-    private static boolean hasDefaultListPartition(OlapTable table) {
-        PartitionInfo partitionInfo = table.getPartitionInfo();
-        if (!(partitionInfo instanceof ListPartitionInfo)) {
-            return false;
+    /** The type of the partition column of this table the MV partition is named by. */
+    private static Type partitionColumnType(OlapTable table, String colName) {
+        for (Column partitionColumn : table.getPartitionColumns()) {
+            if (partitionColumn.getName().equalsIgnoreCase(colName)) {
+                return partitionColumn.getType();
+            }
         }
-        return ((ListPartitionInfo) partitionInfo).getIdToItem(false).values().stream()
-                .anyMatch(PartitionItem::isDefaultPartition);
+        throw new IllegalStateException(
+                "no partition column " + colName + " on table " + table.getName());
     }
 
     /**
@@ -327,9 +335,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 columnType.orElseGet(() -> Type.fromPrimitiveType(key.getTypes().get(keyPos))));
     }
 
-    private static Expression convertListPartitionToIn(PartitionItem item, Slot col) {
+    private static Expression convertListPartitionToIn(PartitionItem item, Slot col, Optional<Type> columnType) {
         List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
-                .map(key -> convertPartitionKeyToLiteral(key, 0, Optional.empty()))
+                .map(key -> convertPartitionKeyToLiteral(key, 0, columnType))
                 .collect(ImmutableList.toImmutableList());
         List<Expression> predicates = new ArrayList<>();
         if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
