@@ -482,12 +482,14 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         // Each table keeps its own partitions: a name means the keys of the table it belongs to, and the
         // tables of a multi-table MV can reuse a name for different keys, so merging the sets would make one
-        // table's base branch read the other's partitions. A table with a query-used partition the mapping
-        // does not name is read for the query's own partitions, since the MV partitions the plan uses answer
-        // none of them.
+        // table's base branch read the other's partitions. Each table's base branch reads the query-used
+        // partitions the mapping does not name -- the MV partitions the plan uses answer the ones it does --
+        // and they are left in place, since the MV's refresh snapshots (none here) record nothing of the
+        // uncovered partitions: a partition whose rows a refresh did read into one of them is the one that
+        // takes those MV partitions out, and then the table is read for the query's own partitions.
         Assertions.assertNotNull(result);
-        Assertions.assertEquals(ImmutableSet.of("t1_p1", "t1_p2"), result.value().get(colInfo1));
-        Assertions.assertEquals(ImmutableSet.of("t2_p1", "t2_p2"), result.value().get(colInfo2));
+        Assertions.assertEquals(ImmutableSet.of("t1_p2"), result.value().get(colInfo1));
+        Assertions.assertEquals(ImmutableSet.of("t2_p1"), result.value().get(colInfo2));
     }
 
     @SuppressWarnings("unchecked")

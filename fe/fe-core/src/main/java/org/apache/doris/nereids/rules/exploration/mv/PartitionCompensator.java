@@ -27,6 +27,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -168,7 +169,25 @@ public class PartitionCompensator {
             for (Set<String> names : tableMapping.values()) {
                 named.addAll(names);
             }
-            if (!Sets.difference(queryUsed, named).isEmpty()) {
+            Set<String> uncovered = Sets.difference(queryUsed, named);
+            if (uncovered.isEmpty()) {
+                continue;
+            }
+            // What decides it is whether the MV partitions this plan uses hold the rows of such a partition:
+            // a partition the window has since left out can have been materialized in one of them by an
+            // earlier refresh, and the union would then count its rows twice -- once from the MV branch and
+            // once from the base table it is also read from. The refresh snapshot names exactly the partitions
+            // a refresh read into each MV partition, so it is what is asked. (It is not the keys: a list
+            // partition's default one holds the keys no other partition of the table claims, so a partition
+            // can be read into an MV partition whose keys do not cover it.)
+            Set<String> recorded = Sets.newHashSet();
+            MTMVRefreshSnapshot refreshSnapshot = mtmv.getRefreshSnapshot();
+            if (refreshSnapshot != null) {
+                for (String mvPartitionName : rewrittenPlanUsePartitionNameSet) {
+                    recorded.addAll(refreshSnapshot.getPctSnapshots(mvPartitionName, new BaseTableInfo(pctTable)));
+                }
+            }
+            if (!Sets.intersection(uncovered, recorded).isEmpty()) {
                 uncoveredFound = true;
             }
         }
