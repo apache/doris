@@ -219,12 +219,13 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             // on by default, fails the refresh for it. So the mapped partitions' bounds are read together
             // with the MV partitions' own ranges -- the term every other table is read through -- and what is
             // read is the rows of the recorded partitions that these MV partitions hold.
-            Expression mvRange = ExpressionUtils.or(constructPredicates(mvItems, colName));
-            Set<Expression> scoped = Sets.newHashSet();
-            for (Expression partition : constructPredicatesOfBasePartitions(items, olapTable, colName)) {
-                scoped.add(ExpressionUtils.and(partition, mvRange));
-            }
-            builder.put(table, scoped);
+            // The two sides are one disjunction each rather than one conjunction per base partition, so that
+            // the MV side is written once: this predicate is injected before the plan is bound, and an
+            // analyzer rebinds each disjunct, so a batch of N partitions would otherwise rewrite the same
+            // MV range N times, giving a predicate of size O(N^2) to build for the same read.
+            builder.put(table, Sets.newHashSet(ExpressionUtils.and(
+                    ExpressionUtils.or(constructPredicatesOfBasePartitions(items, olapTable, colName)),
+                    ExpressionUtils.or(constructPredicates(mvItems, colName)))));
         }
         return builder.build();
     }
