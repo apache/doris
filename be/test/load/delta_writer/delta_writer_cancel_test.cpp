@@ -40,6 +40,7 @@
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/group_rowset_writer.h"
+#include "storage/rowset/rowset_writer_context.h"
 #include "storage/rowset_builder.h"
 #include "storage/storage_engine.h"
 #include "util/countdown_latch.h"
@@ -125,11 +126,16 @@ protected:
             std::shared_ptr<BaseBetaRowsetWriter> rowset_writer;
             if (is_cloud()) {
                 rowset_writer = std::make_shared<CloudRowsetWriter>(*_cloud_engine);
+                rowset_writer->_rowset_meta = std::make_shared<RowsetMeta>();
             } else {
                 rowset_writer = std::make_shared<BetaRowsetWriter>(*_local_engine);
+                // Local writer destruction requires the segcompaction tracker that init()
+                // creates, even when these cancellation tests never create segment files.
+                RowsetWriterContext context;
+                context.tablet_schema = std::make_shared<TabletSchema>();
+                ASSERT_TRUE(rowset_writer->init(context).ok());
             }
             // Set up only the state needed by cancellation and destruction. No files are created.
-            rowset_writer->_rowset_meta = std::make_shared<RowsetMeta>();
             rowset_writer->_calc_delete_bitmap_token = make_token();
             builder->_calc_delete_bitmap_token = make_token();
             builder->_rowset_writer = rowset_writer;

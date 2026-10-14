@@ -58,6 +58,7 @@
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset_builder.h"
 #include "storage/storage_engine.h"
+#include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
@@ -68,11 +69,13 @@
 namespace doris {
 namespace {
 
+constexpr int64_t kStorageResourceId = 6775971001;
+
 // Exercise cloud writer I/O against real temporary files without an object-store service.
 class LocalRemoteFileSystem final : public io::RemoteFileSystem {
 public:
     explicit LocalRemoteFileSystem(std::string root_path)
-            : RemoteFileSystem(std::move(root_path), "bitmap_cancel_test_fs",
+            : RemoteFileSystem(std::move(root_path), std::to_string(kStorageResourceId),
                                io::FileSystemType::BROKER) {}
 
 private:
@@ -177,7 +180,11 @@ protected:
             engine->init_calc_delete_bitmap_executor_for_UT();
             engine->_memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
             engine->_memtable_flush_executor->init(1);
-            engine->set_latest_fs(std::make_shared<LocalRemoteFileSystem>(_root));
+            auto fs = std::make_shared<LocalRemoteFileSystem>(_root);
+            engine->set_latest_fs(fs);
+            // Temporary rowsets copy the resource ID through protobuf metadata and
+            // resolve it from the registry when bitmap callbacks reopen their segments.
+            put_storage_resource(kStorageResourceId, StorageResource {fs}, 0);
             env->set_storage_engine(std::move(engine));
         } else {
             EngineOptions options;
@@ -207,6 +214,10 @@ protected:
         auto* env = ExecEnv::GetInstance();
         env->set_memtable_memory_limiter(nullptr);
         env->set_storage_engine(nullptr);
+        // All cloud writers and callbacks must finish before their resource is removed.
+        if (GetParam()) {
+            delete_storage_resource(kStorageResourceId);
+        }
         env->_storage_engine = std::move(_saved_engine);
         env->_memtable_memory_limiter = std::move(_saved_limiter);
         if (_fragment_mgr) {
@@ -402,7 +413,8 @@ protected:
     void exercise_both_phases() {
         ASSERT_TRUE(_writer->init().ok());
         check_wiring();
-        ASSERT_TRUE(flush_two_memtables().ok());
+        auto st = flush_two_memtables();
+        ASSERT_TRUE(st.ok()) << st;
         ASSERT_TRUE(_writer->close().ok());
         ASSERT_TRUE(_writer->build_rowset().ok());
         std::atomic<int> builder_submissions {0};
