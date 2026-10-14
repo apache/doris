@@ -52,7 +52,8 @@ enum class ScalarPath {
     SUBSTRING
 };
 
-// Inspect the scalar regex engine selected by open().
+// BE UT permits private/protected access. Inspect the state selected by open(), without
+// replacing the production engine or using a second regex implementation as the oracle.
 void check_scalar_path(const LikeState& state, ScalarPath path) {
     if (path == ScalarPath::ANY) {
         return;
@@ -104,7 +105,8 @@ void check_scalar_path(const LikeState& state, ScalarPath path) {
     }
 }
 
-// Use the expression's selected scalar engine for the recall oracle.
+// The expression chooses the real scalar engine, including Hyperscan and its RE2 fallback.
+// Calling RE2 directly would miss differences between the compiler and the production path.
 template <typename Function = FunctionRegexpLike>
 Status scalar_matches(const std::string& pattern, const std::vector<std::string>& rows,
                       std::vector<bool>* matches, bool enable_hyperscan_fallback = true,
@@ -629,8 +631,8 @@ TEST(RegexGramRecallTest, InvalidPatternsRejectAcrossEngineOptions) {
 }
 
 TEST(RegexGramRecallTest, DynamicPatternRegexExecution) {
-    // Dynamic patterns use the scalar regex function. Extended regex permits Boost when RE2
-    // rejects a pattern.
+    // A ColumnString pattern reaches the scalar regex function. Extended regex allows
+    // Boost when RE2 rejects a pattern, even with Hyperscan fallback disabled.
     const std::vector<RecallCase> regexp_cases = {
             {R"(ab\vcdtimeout)",
              {"ab\vcdtimeout", "ab\ncdtimeout", "ab\rcdtimeout", "unrelated"},
