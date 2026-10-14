@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -1388,6 +1389,56 @@ public class MTMVTaskTest {
                 () -> Deencapsulation.invoke(task, "resolveRefreshRequest"));
 
         Assertions.assertTrue(exception.getMessage().contains("unknown refresh method"));
+    }
+
+    @Test
+    public void testRowTtlBaseTableMarksSchemaChange() throws AnalysisException {
+        String message = "asynchronous materialized views do not support base tables with row ttl";
+        MTMVStatus status = Mockito.mock(MTMVStatus.class);
+        Mockito.when(status.getState()).thenReturn(MTMVState.NORMAL);
+        Mockito.when(mtmv.getStatus()).thenReturn(status);
+        mtmvUtilStatic.when(() -> MTMVUtil.checkNoRowTtlBaseTable(relation))
+                .thenThrow(new AnalysisException(message));
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        Mockito.when(mtmv.invalidateWholeMv(Mockito.anyString())).thenReturn(editLogItem);
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, task::checkNoRowTtlBaseTable);
+        Assertions.assertEquals(message, exception.getDetailMessage());
+        InOrder inOrder = Mockito.inOrder(mtmv, editLogItem);
+        inOrder.verify(mtmv).invalidateWholeMv(exception.getMessage());
+        inOrder.verify(editLogItem).await();
+    }
+
+    @Test
+    public void testRowTtlBaseTableAlreadySchemaChangeDoesNotAlterStatus() throws AnalysisException {
+        MTMVStatus status = Mockito.mock(MTMVStatus.class);
+        Mockito.when(status.getState()).thenReturn(MTMVState.SCHEMA_CHANGE);
+        Mockito.when(mtmv.getStatus()).thenReturn(status);
+        AnalysisException expected = new AnalysisException(
+                "asynchronous materialized views do not support base tables with row ttl");
+        mtmvUtilStatic.when(() -> MTMVUtil.checkNoRowTtlBaseTable(relation)).thenThrow(expected);
+
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, task::checkNoRowTtlBaseTable);
+        Assertions.assertSame(expected, exception);
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
+    }
+
+    @Test
+    public void testNonRowTtlBaseTableDoesNotAlterStatus() throws AnalysisException {
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        task.checkNoRowTtlBaseTable();
+
+        mtmvUtilStatic.verify(() -> MTMVUtil.checkNoRowTtlBaseTable(relation));
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
     }
 
     @Test

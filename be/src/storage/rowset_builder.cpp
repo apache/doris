@@ -503,7 +503,8 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
                 table_schema_param->nano_seconds(), table_schema_param->timezone(),
                 table_schema_param->auto_increment_coulumn(),
                 table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase,
-                &_req.load_id));
+                &_req.load_id, table_schema_param->row_ttl_source_column_uid(),
+                table_schema_param->row_ttl_source_column()));
     }
     return Status::OK();
 }

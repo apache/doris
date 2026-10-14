@@ -1097,7 +1097,9 @@ public class ReportHandler extends Daemon {
                                             olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
                                             olapTable.storageDictPageSize(),
                                             olapTable.getColumnSeqMapping(),
-                                            olapTable.getVerticalCompactionNumColumnsPerGroup());
+                                            olapTable.getVerticalCompactionNumColumnsPerGroup(),
+                                            olapTable.getRowTtlDurationMicros(),
+                                            olapTable.getRowTtlTimeZoneOffsetSeconds());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());

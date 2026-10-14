@@ -193,6 +193,10 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processCreateMaterializedView(CreateMaterializedViewCommand createMvCommand, Database db,
             OlapTable olapTable) throws DdlException, AnalysisException {
+        if (olapTable.hasRowTtl()) {
+            throw new DdlException(
+                    "Synchronous materialized views do not support tables with row ttl: " + olapTable.getName());
+        }
         // wait wal delete
         Env.getCurrentEnv().getGroupCommitManager().blockTable(olapTable.getId());
         Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(olapTable.getId());
@@ -921,6 +925,10 @@ public class MaterializedViewHandler extends AlterHandler {
                         + "duplicate table is useless.");
                 }
             }
+        }
+        if (olapTable.hasRowTtl()
+                && rollupSchema.stream().noneMatch(Column::isTtlColumn)) {
+            rollupSchema.add(new Column(olapTable.getTtlColumn()));
         }
         if (olapTable.getEnableLightSchemaChange()) {
             int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;

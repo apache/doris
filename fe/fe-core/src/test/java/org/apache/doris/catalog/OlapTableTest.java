@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
@@ -206,6 +207,35 @@ public class OlapTableTest {
         Mockito.when(replica.getLocalInvertedIndexSize()).thenReturn(localIndexSize);
         Mockito.when(replica.getRemoteInvertedIndexSize()).thenReturn(remoteIndexSize);
         return replica;
+    }
+
+    @Test
+    public void testValidateForFlexiblePartialUpdateRejectsIndexWithoutSkipBitmap() throws UserException {
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn(true).when(table).getEnableUniqueKeyMergeOnWrite();
+        Mockito.doReturn(true).when(table).hasSkipBitmapColumn();
+        Mockito.doReturn(true).when(table).getEnableLightSchemaChange();
+        Mockito.doReturn(false).when(table).hasVariantColumns();
+
+        Mockito.doReturn(Lists.newArrayList()).when(table).getIndexIdListExceptBaseIndex();
+        table.validateForFlexiblePartialUpdate();
+
+        Column skipBitmapColumn = Mockito.mock(Column.class);
+        Mockito.doReturn(true).when(skipBitmapColumn).isSkipBitmapColumn();
+        Mockito.doReturn(Lists.newArrayList(2L)).when(table).getIndexIdListExceptBaseIndex();
+        Mockito.doReturn(Lists.newArrayList(skipBitmapColumn))
+                .when(table).getSchemaByIndexId(2L, true);
+        table.validateForFlexiblePartialUpdate();
+
+        Column valueColumn = Mockito.mock(Column.class);
+        Mockito.doReturn(false).when(valueColumn).isSkipBitmapColumn();
+        Mockito.doReturn(Lists.newArrayList(valueColumn)).when(table).getSchemaByIndexId(2L, true);
+        UserException exception =
+                Assertions.assertThrows(UserException.class, table::validateForFlexiblePartialUpdate);
+        Assertions.assertEquals(
+                "Flexible partial update requires every materialized index"
+                        + " to contain the skip bitmap hidden column.",
+                exception.getDetailMessage());
     }
 
     @Test
