@@ -104,9 +104,12 @@ suite("bitmap_allowlist_scan_iceberg", "p2,external,iceberg,external_docker,exte
         String profile = new ProfileAction(context).getProfileBySql(token, ["RowsRead"])
         logger.info("Iceberg bitmap subquery size ${size} ${shape} profile:\n" + profile.readLines()
                 .findAll { line -> ["RawRowsRead:", "RowsRead:", "RowsFilteredByConjunct:",
-                        "RowsBitmapAllowlistFiltered:", "WaitForRuntimeFilter:",
-                        "UncompressedBytesRead:", "RuntimeFilterInfo:"].any { line.contains(it) } }
-                .take(45).join("\n"))
+                        "FileReadBytes:", "FilteredRowsByLazyRead:", "ReaderReadRows:",
+                        "ReaderSelectRows:", "ReaderSkipRows:", "PredicateFilterTime:",
+                        "MaterializationTime:", "RowGroupsReadNum:", "RowGroupsFiltered:",
+                        "WaitForRuntimeFilter:"].any { line.contains(it) }
+                        && (line.contains("sum ") || line.contains("WaitForRuntimeFilter:")) }
+                .take(30).join("\n"))
         sql "SET enable_profile = false"
     }
 
@@ -175,7 +178,7 @@ suite("bitmap_allowlist_scan_iceberg", "p2,external,iceberg,external_docker,exte
             skipFailure false
             sqls([subqueryBitmap])
         }
-        if (size == 250000L || size == 10000000L) {
+        if (size == 250000L || size == 1000000L || size == 10000000L) {
             logSubqueryProfile(size, "default", subqueryBitmap)
         }
 
@@ -194,8 +197,48 @@ suite("bitmap_allowlist_scan_iceberg", "p2,external,iceberg,external_docker,exte
             skipFailure false
             sqls([subqueryBitmap])
         }
-        if (size == 250000L || size == 10000000L) {
+        if (size == 250000L || size == 1000000L || size == 10000000L) {
             logSubqueryProfile(size, "compressed_rf", subqueryBitmap)
+        }
+        sql "SET enable_bitmap_subquery_runtime_filter = false"
+
+        String broadBitmapQuery = subqueryBitmap.replace("'%needle%'", "'%other%'")
+        String broadJoinQuery = joinQuery.replace("'%needle%'", "'%other%'")
+        test {
+            sql """
+                SELECT b.n FROM (${broadBitmapQuery}) b, (${broadJoinQuery}) j
+                WHERE b.n <> j.n OR b.s <> j.s
+            """
+            rowNum 0
+        }
+        logger.info("Iceberg broad-text bitmap subquery size ${size}: default compressed join")
+        benchmark {
+            warmUp true
+            executeTimes 5
+            skipFailure false
+            sqls([broadBitmapQuery])
+        }
+        if (size == 250000L || size == 1000000L || size == 10000000L) {
+            logSubqueryProfile(size, "broad_default", broadBitmapQuery)
+        }
+
+        sql "SET enable_bitmap_subquery_runtime_filter = true"
+        test {
+            sql """
+                SELECT b.n FROM (${broadBitmapQuery}) b, (${broadJoinQuery}) j
+                WHERE b.n <> j.n OR b.s <> j.s
+            """
+            rowNum 0
+        }
+        logger.info("Iceberg broad-text bitmap subquery size ${size}: compressed bitmap runtime filter")
+        benchmark {
+            warmUp true
+            executeTimes 5
+            skipFailure false
+            sqls([broadBitmapQuery])
+        }
+        if (size == 250000L || size == 1000000L || size == 10000000L) {
+            logSubqueryProfile(size, "broad_compressed_rf", broadBitmapQuery)
         }
         sql "SET enable_bitmap_subquery_runtime_filter = false"
     }
