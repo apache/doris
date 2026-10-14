@@ -1508,12 +1508,20 @@ public class GroupStructInfo {
             return null;
         }
         Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
-        if (groupState.isPresent() && groupsById != null
-                && groupsById.containsKey(Integer.valueOf(groupState.get().toString()))) {
+        boolean known = false;
+        if (groupState.isPresent() && groupsById != null) {
+            try {
+                known = groupsById.containsKey(Integer.valueOf(groupState.get().toString()));
+            } catch (NumberFormatException ignored) {
+                // an empty id is written by a rebuild which copied it from a node without a group
+                known = false;
+            }
+        }
+        if (known) {
             return null;
         }
         return "no group for " + planNode.getClass().getSimpleName()
-                + (groupState.isPresent() ? " (group id " + groupState.get() + " is unknown)" : "");
+                + (groupState.isPresent() ? " (group id '" + groupState.get() + "' is unknown)" : "");
     }
 
     /** The relation key of the group of a plan node, or null when that group is not reachable. */

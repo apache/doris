@@ -171,6 +171,18 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         }
     }
 
+    /**
+     * A node which is rebuilt (typically by {@code resetLogicalProperties}) keeps what identifies it as
+     * a plan of the query: its mutable states, which carry the group it was chosen for, and its
+     * statistics (a constructor argument which the caller passes). This helper covers the states.
+     */
+    public static <T extends Plan> T rebuildKeepingStates(Plan from, T rebuilt) {
+        if (from instanceof AbstractTreeNode && rebuilt instanceof AbstractTreeNode) {
+            ((AbstractTreeNode<?>) rebuilt).copyMutableStatesFrom((AbstractTreeNode<?>) from);
+        }
+        return rebuilt;
+    }
+
     private int computeDepth() {
         int depth = 0;
         for (Plan child : children) {

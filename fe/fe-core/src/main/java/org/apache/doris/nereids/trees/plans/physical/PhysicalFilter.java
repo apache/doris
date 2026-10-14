@@ -163,8 +163,8 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public PhysicalFilter<Plan> resetLogicalProperties() {
-        return new PhysicalFilter<>(conjuncts, groupExpression, null, physicalProperties,
-                statistics, child());
+        return rebuildKeepingStates(this, new PhysicalFilter<>(conjuncts, groupExpression, null, physicalProperties,
+                statistics, child()));
     }
 
     @Override

@@ -297,9 +297,10 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
+        return rebuildKeepingStates(this,
+                new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, groupExpression, null,
-                physicalProperties, statistics, hasSourceRepeat, child());
+                physicalProperties, statistics, hasSourceRepeat, child()));
     }
 
     /**
