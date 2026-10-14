@@ -2163,9 +2163,10 @@ build_lance_c() {
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
 
+    local required_rust_version="1.91.0"
     local cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build lance-c. Install Rust 1.94.0 or set LANCE_C_CARGO."
+        echo "cargo is required to build lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO."
         exit 1
     fi
     if [[ ! -x "${TP_INSTALL_DIR}/bin/protoc" ]]; then
@@ -2173,7 +2174,6 @@ build_lance_c() {
         exit 1
     fi
 
-    local required_rust_version="1.94.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
@@ -2197,7 +2197,7 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # Enforce the minimum supported version. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
             split(required, r, ".");
@@ -2221,7 +2221,9 @@ build_lance_c() {
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
     fi
 
-    local cargo_args=(build --release --locked)
+    # The pinned sources and locked dependencies were built with Rust 1.91.0,
+    # including the BE link; use that verified minimum instead of declared MSRVs.
+    local cargo_args=(build --release --locked --ignore-rust-version)
     if [[ "$(echo "${LANCE_C_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
         cargo_args+=(--offline)
     fi
@@ -2241,13 +2243,13 @@ build_paimon_rust() {
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
 
+    local required_rust_version="1.91.0"
     local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build paimon-rust. Install Rust 1.94.0 or set PAIMON_RUST_CARGO."
+        echo "cargo is required to build paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO."
         exit 1
     fi
 
-    local required_rust_version="1.94.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
@@ -2270,7 +2272,7 @@ build_paimon_rust() {
         echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # Enforce the minimum supported version. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
     # BE binary; they must be built with the SAME rustc toolchain so the linker
@@ -2301,7 +2303,9 @@ build_paimon_rust() {
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
     fi
 
-    local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
+    # Paimon declares Rust 1.94.0, but these pinned sources and locked dependencies
+    # were built with Rust 1.91.0, including the BE link.
+    local cargo_args=(build --release --locked --ignore-rust-version -p paimon-c --features paimon/storage-hdfs)
     # cbindgen invokes cargo metadata itself; command-line flags on the build
     # and install calls do not propagate to that child process.
     cargo_env+=("CARGO=${cargo_bin}")
