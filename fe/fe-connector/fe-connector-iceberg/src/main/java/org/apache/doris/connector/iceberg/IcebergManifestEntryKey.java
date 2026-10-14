@@ -62,6 +62,10 @@ public class IcebergManifestEntryKey {
         return content;
     }
 
+    public Types.StructType getPartitionType() {
+        return partitionType;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

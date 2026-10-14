@@ -18,9 +18,12 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.JvmSizeUtils;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionSpec;
@@ -34,6 +37,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -120,6 +124,28 @@ public class IcebergManifestCacheTest {
             Assertions.assertSame(first, second);
             Assertions.assertEquals(2, first.getDataFiles().size());
         }
+    }
+
+    @Test
+    public void manifestKeyWeightCountsTheBoundPartitionType() {
+        // WHY: the key retains the bound partition type, and an empty value (a delete manifest whose entries are all
+        // DELETED) holds no file that references it, so only the key estimate can account for it. MUTATION:
+        // estimateManifestKey ignoring the partition type -> both entries weigh the same -> red.
+        ManifestCacheValue empty = ManifestCacheValue.forDeleteFiles(Collections.emptyList(), true);
+        MetaCacheSizeEstimate narrow = IcebergCacheSizeEstimator.estimateManifestEntry(deleteManifestKey(1), empty);
+        MetaCacheSizeEstimate wide = IcebergCacheSizeEstimator.estimateManifestEntry(deleteManifestKey(10), empty);
+        Assertions.assertTrue(narrow.isComplete() && wide.isComplete());
+        long extraFieldBytes = wide.getBytes() - narrow.getBytes();
+        Assertions.assertTrue(extraFieldBytes >= 9 * JvmSizeUtils.instanceSize(Types.NestedField.class),
+                "narrow=" + narrow.getBytes() + ", wide=" + wide.getBytes());
+    }
+
+    private static IcebergManifestEntryKey deleteManifestKey(int partitionFieldCount) {
+        List<Types.NestedField> fields = new ArrayList<>();
+        for (int i = 0; i < partitionFieldCount; i++) {
+            fields.add(Types.NestedField.optional(1000 + i, "p" + i, Types.IntegerType.get()));
+        }
+        return new IcebergManifestEntryKey("/m/deletes.avro", ManifestContent.DELETES, Types.StructType.of(fields));
     }
 
     @Test
