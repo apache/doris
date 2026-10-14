@@ -94,6 +94,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* async_cache_write_rejected = nullptr;
     RuntimeProfile::Counter* async_cache_write_buffer_alloc_fail = nullptr;
     RuntimeProfile::Counter* async_cache_write_drop_stale_epoch = nullptr;
+    RuntimeProfile::Counter* async_copy_to_user_timer = nullptr;
+    RuntimeProfile::Counter* async_submit_write_timer = nullptr;
     RuntimeProfile::Counter* inflight_write_buffer_index_hit = nullptr;
     RuntimeProfile::Counter* inflight_write_buffer_index_miss = nullptr;
     RuntimeProfile::Counter* probe_downloaded_hit = nullptr;

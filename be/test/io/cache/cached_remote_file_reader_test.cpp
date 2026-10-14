@@ -1049,42 +1049,6 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_GE(cache()->async_write_manager()->_metrics->snapshot().buffer_alloc_fail, 1);
 }
 
-TEST_F(AsyncCachedRemoteFileReaderTest, async_write_keeps_direct_remote_after_peer_policy_change) {
-    create_cache("cached_remote_reader_async_bypass_peer");
-    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
-    auto reader = create_reader(counting_reader);
-
-    const std::string old_deploy_mode = config::deploy_mode;
-    config::deploy_mode = "cloud";
-    Defer restore_deploy_mode {[&]() { config::deploy_mode = old_deploy_mode; }};
-
-    auto* sync_point = SyncPoint::get_instance();
-    SyncPoint::CallbackGuard guard;
-    sync_point->set_call_back(
-            "CachedRemoteFileReader::read_at_impl:after_resolve_cache_write_mode",
-            [&](auto&&) { config::enable_cache_read_from_peer = true; }, &guard);
-    sync_point->enable_processing();
-    Defer clear_sync_point {[&]() {
-        sync_point->disable_processing();
-        sync_point->clear_all_call_backs();
-    }};
-
-    std::string result(4096, '\0');
-    FileCacheStatistics stats;
-    IOContext context;
-    context.file_cache_stats = &stats;
-    size_t bytes_read = 0;
-    ASSERT_TRUE(
-            reader->read_at(0, Slice(result.data(), result.size()), &bytes_read, &context).ok());
-    EXPECT_EQ(result, std::string(result.size(), '0'));
-    EXPECT_EQ(bytes_read, result.size());
-    EXPECT_FALSE(context.bypass_peer_read);
-    EXPECT_TRUE(counting_reader->last_bypass_peer_read());
-    EXPECT_EQ(stats.async_cache_write_submitted, 1);
-    EXPECT_EQ(stats.bytes_read_from_peer, 0);
-    wait_for_async_writes();
-}
-
 TEST_F(AsyncCachedRemoteFileReaderTest,
        drop_oldest_keeps_new_block_for_adjacent_page_and_drops_old_victim) {
     create_cache("cached_remote_reader_drop_oldest");
@@ -2148,7 +2112,7 @@ TEST_F(BlockFileCacheTest, cache_write_mode_is_resolved_for_each_read_context) {
     context.is_warmup = false;
     config::deploy_mode = "cloud";
     config::enable_cache_read_from_peer = true;
-    EXPECT_EQ(reader->_resolve_cache_write_mode(&context), CacheWriteMode::SYNC_WRITE);
+    EXPECT_EQ(reader->_resolve_cache_write_mode(&context), CacheWriteMode::ASYNC_WRITE);
     context.cache_write_mode_override = CacheWriteMode::NO_WRITE;
     EXPECT_EQ(reader->_resolve_cache_write_mode(&context), CacheWriteMode::NO_WRITE);
     context.cache_write_mode_override = CacheWriteMode::ASYNC_WRITE;

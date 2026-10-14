@@ -104,6 +104,8 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(async_cache_write_rejected);
     SUBTRACT_FIELD(async_cache_write_buffer_alloc_fail);
     SUBTRACT_FIELD(async_cache_write_drop_stale_epoch);
+    SUBTRACT_FIELD(async_copy_to_user_timer);
+    SUBTRACT_FIELD(async_submit_write_timer);
     SUBTRACT_FIELD(inflight_write_buffer_index_hit);
     SUBTRACT_FIELD(inflight_write_buffer_index_miss);
     SUBTRACT_FIELD(probe_downloaded_hit);
@@ -201,6 +203,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
             profile, "AsyncCacheWriteBufferAllocFailCount", TUnit::UNIT, cache_profile, 1);
     async_cache_write_drop_stale_epoch = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "AsyncCacheWriteDropStaleEpochCount", TUnit::UNIT, cache_profile, 1);
+    async_copy_to_user_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "AsyncCopyToUserTimer", cache_profile, 1);
+    async_submit_write_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "AsyncSubmitWriteTimer", cache_profile, 1);
     inflight_write_buffer_index_hit = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InflightWriteBufferIndexHitCount", TUnit::UNIT, cache_profile, 1);
     inflight_write_buffer_index_miss = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -306,7 +312,9 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(total_time, statistics->local_io_timer + statistics->remote_io_timer +
                                        statistics->peer_io_timer + statistics->remote_wait_timer +
                                        statistics->write_cache_io_timer +
-                                       statistics->cache_get_or_set_timer);
+                                       statistics->cache_get_or_set_timer +
+                                       statistics->async_copy_to_user_timer +
+                                       statistics->async_submit_write_timer);
     COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
     COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
     COUNTER_UPDATE(num_peer_io_total, statistics->num_peer_io_total);
@@ -331,6 +339,8 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
                    statistics->async_cache_write_buffer_alloc_fail);
     COUNTER_UPDATE(async_cache_write_drop_stale_epoch,
                    statistics->async_cache_write_drop_stale_epoch);
+    COUNTER_UPDATE(async_copy_to_user_timer, statistics->async_copy_to_user_timer);
+    COUNTER_UPDATE(async_submit_write_timer, statistics->async_submit_write_timer);
     COUNTER_UPDATE(inflight_write_buffer_index_hit, statistics->inflight_write_buffer_index_hit);
     COUNTER_UPDATE(inflight_write_buffer_index_miss, statistics->inflight_write_buffer_index_miss);
     COUNTER_UPDATE(probe_downloaded_hit, statistics->probe_downloaded_hit);
