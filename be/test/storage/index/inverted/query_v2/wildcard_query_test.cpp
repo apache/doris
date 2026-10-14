@@ -58,14 +58,20 @@ public:
 
 private:
     void create_test_index(const std::string& field_name, const std::string& dir) {
-        std::vector<std::string> test_data = {
-                "apple",     "application", "apply",       "apricot", "banana",     "band",
-                "bandana",   "can",         "candy",       "cat",     "catalog",    "dog",
-                "document",  "door",        "hello",       "help",    "helpful",    "test",
-                "testing",   "testcase",    "wildcard",    "wild",    "wilderness", "card",
-                "cardboard", "abc",         "abcd",        "abcde",   "prefix123",  "123suffix",
-                "pre123",    "123suf",      "both123both", "star",    "start",      "started",
-                "starter",   "question",    "quest",       "query",   "queries"};
+        std::vector<std::string> test_data = {"apple",     "application", "apply",
+                                              "apricot",   "banana",      "band",
+                                              "bandana",   "can",         "candy",
+                                              "cat",       "catalog",     "dog",
+                                              "document",  "door",        "hello",
+                                              "help",      "helpful",     "test",
+                                              "testing",   "testcase",    "wildcard",
+                                              "wild",      "wilderness",  "card",
+                                              "cardboard", "abc",         "abcd",
+                                              "abcde",     "prefix123",   "123suffix",
+                                              "pre123",    "123suf",      "both123both",
+                                              "star",      "start",       "started",
+                                              "starter",   "question",    "quest",
+                                              "query",     "queries",     "test test testing"};
 
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config("standard", {});
@@ -154,6 +160,35 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_with_scoring) {
 
     auto wildcard_weight = std::dynamic_pointer_cast<query_v2::WildcardWeight>(weight);
     ASSERT_NE(wildcard_weight, nullptr);
+}
+
+TEST_F(WildcardQueryV2Test, test_wildcard_query_scores_matching_terms) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_NE(reader_holder, nullptr);
+
+    std::wstring field = StringHelper::to_wstring("field");
+    auto query = std::make_shared<query_v2::WildcardQuery>(context, field, "test*");
+    auto weight = query->weight(true);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_EQ(scorer->seek(17), 17);
+    float single_term_score = scorer->score();
+    EXPECT_NE(single_term_score, 1.0F);
+    uint32_t last_doc = reader_holder->maxDoc() - 1;
+    ASSERT_EQ(scorer->seek(last_doc), last_doc);
+    EXPECT_GT(scorer->score(), single_term_score);
+
+    _CLDECDELETE(dir);
 }
 
 // Test wildcard query with asterisk prefix pattern

@@ -59,10 +59,13 @@ public:
 private:
     void create_test_index(const std::string& field_name, const std::string& dir) {
         std::vector<std::string> test_data = {
-                "apple123",   "apple456",     "banana789",     "test123abc", "pattern456",
-                "regex999",   "match123",     "search456",     "prefix123",  "suffix789",
-                "apple_test", "banana_data",  "test_pattern",  "data_regex", "apple_banana",
-                "test_match", "pattern_test", "prefix_suffix", "abc123xyz",  "def456ghi"};
+                "apple123",     "apple456",     "banana789",
+                "test123abc",   "pattern456",   "regex999",
+                "match123",     "search456",    "prefix123",
+                "suffix789",    "apple_test",   "banana_data",
+                "test_pattern", "data_regex",   "apple_banana",
+                "test_match",   "pattern_test", "prefix_suffix",
+                "abc123xyz",    "def456ghi",    "apple789 apple789 apple456"};
 
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config("standard", {});
@@ -166,6 +169,35 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_scoring) {
 
     auto regexp_weight = std::dynamic_pointer_cast<query_v2::RegexpWeight>(weight);
     ASSERT_NE(regexp_weight, nullptr);
+}
+
+TEST_F(RegexpQueryV2Test, test_regexp_query_scores_matching_terms) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_NE(reader_holder, nullptr);
+
+    std::wstring field = StringHelper::to_wstring("content");
+    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, "apple.*");
+    auto weight = query->weight(true);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_EQ(scorer->seek(0), 0);
+    float single_term_score = scorer->score();
+    EXPECT_NE(single_term_score, 1.0F);
+    uint32_t last_doc = reader_holder->maxDoc() - 1;
+    ASSERT_EQ(scorer->seek(last_doc), last_doc);
+    EXPECT_GT(scorer->score(), single_term_score);
+
+    _CLDECDELETE(dir);
 }
 
 // Test regexp query execution
@@ -575,7 +607,7 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_wildcard_pattern) {
         doc = scorer->advance();
     }
 
-    EXPECT_EQ(result.cardinality(), 20);
+    EXPECT_EQ(result.cardinality(), 21);
 
     _CLDECDELETE(dir);
 }
