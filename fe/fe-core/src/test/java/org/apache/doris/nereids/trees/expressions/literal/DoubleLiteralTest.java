@@ -121,6 +121,13 @@ class DoubleLiteralTest {
         DoubleLiteral finalF1 = f1;
         Assertions.assertThrows(CastException.class, () -> finalF1.uncheckedCastTo(IntegerType.INSTANCE));
 
+        // -2^63 is exactly representable as a double although it prints below the BIGINT
+        // minimum, so the checked cast must accept it
+        Expression exactMin = new DoubleLiteral(-9223372036854775808.0)
+                .checkedCastTo(BigIntType.INSTANCE);
+        Assertions.assertInstanceOf(BigIntLiteral.class, exactMin);
+        Assertions.assertEquals(Long.MIN_VALUE, ((BigIntLiteral) exactMin).getValue().longValue());
+
         f1 = new DoubleLiteral(Double.POSITIVE_INFINITY);
         DoubleLiteral finalF2 = f1;
         Assertions.assertThrows(CastException.class, () -> finalF2.uncheckedCastTo(LargeIntType.INSTANCE));

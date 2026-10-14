@@ -172,6 +172,11 @@ public class FloatLiteralTest {
         FloatLiteral finalF3 = f1;
         Assertions.assertThrows(CastException.class, () -> finalF3.uncheckedCastTo(IntegerType.INSTANCE));
 
+        // -2^31 is exactly representable as a float, so the checked cast to INT must accept it
+        Expression exactIntMin = new FloatLiteral(-2147483648.0f).checkedCastTo(IntegerType.INSTANCE);
+        Assertions.assertInstanceOf(IntegerLiteral.class, exactIntMin);
+        Assertions.assertEquals(Integer.MIN_VALUE, ((IntegerLiteral) exactIntMin).getValue().intValue());
+
         // To double
         f1 = new FloatLiteral((float) 234.567);
         expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
