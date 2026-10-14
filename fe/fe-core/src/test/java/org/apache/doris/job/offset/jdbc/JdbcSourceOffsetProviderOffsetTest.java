@@ -99,24 +99,24 @@ public class JdbcSourceOffsetProviderOffsetTest {
         Map<String, String> taskProperties = Collections.singletonMap(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
 
         JdbcOffset first = (JdbcOffset) provider.getNextOffset(null, taskProperties);
-        Assertions.assertEquals(2, first.getSplits().size());
-        Assertions.assertEquals(3, provider.pendingSplitCount());
-        Assertions.assertEquals(10000, provider.snapshotParallelism);
+        Assert.assertEquals(2, first.getSplits().size());
+        Assert.assertEquals(3, provider.pendingSplitCount());
+        Assert.assertEquals(10000, provider.snapshotParallelism);
         // The next task must receive the same uncommitted splits.
         JdbcOffset nextTask = (JdbcOffset) provider.getNextOffset(null, taskProperties);
-        Assertions.assertEquals(first.getSplits(), nextTask.getSplits());
+        Assert.assertEquals(first.getSplits(), nextTask.getSplits());
 
         provider.updateOffset(first);
         JdbcOffset second = (JdbcOffset) provider.getNextOffset(null, taskProperties);
-        Assertions.assertEquals(1, second.getSplits().size());
-        Assertions.assertEquals("source_table:2", second.getSplits().get(0).getSplitId());
-        Assertions.assertEquals(1, provider.pendingSplitCount());
+        Assert.assertEquals(1, second.getSplits().size());
+        Assert.assertEquals("source_table:2", second.getSplits().get(0).getSplitId());
+        Assert.assertEquals(1, provider.pendingSplitCount());
 
         provider.updateOffset(second);
-        Assertions.assertEquals(0, provider.pendingSplitCount());
+        Assert.assertEquals(0, provider.pendingSplitCount());
         JdbcOffset binlog = (JdbcOffset) provider.getNextOffset(null, taskProperties);
-        Assertions.assertFalse(binlog.snapshotSplit());
-        Assertions.assertEquals(3, ((BinlogSplit) binlog.getSplits().get(0)).getFinishedSplits().size());
+        Assert.assertFalse(binlog.snapshotSplit());
+        Assert.assertEquals(3, ((BinlogSplit) binlog.getSplits().get(0)).getFinishedSplits().size());
     }
 
     @Test
@@ -393,8 +393,8 @@ public class JdbcSourceOffsetProviderOffsetTest {
 
     private static void assertInvalidAlterOffsets(JdbcSourceOffsetProvider provider, String... offsets) {
         for (String offset : offsets) {
-            Assertions.assertThrows(AnalysisException.class,
-                    () -> provider.validateAlterOffset(offset), offset);
+            Assert.assertThrows(offset, AnalysisException.class,
+                    () -> provider.validateAlterOffset(offset));
         }
     }
 
