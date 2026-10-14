@@ -2928,6 +2928,7 @@ size_t BlockFileCache::replay_lru_logs_once() {
 
     if (config::enable_evaluate_shadow_queue_diff) {
         SCOPED_CACHE_LOCK(_mutex, this);
+        _lru_recorder->evaluate_queue_diff(_ttl_queue, "ttl", cache_lock);
         _lru_recorder->evaluate_queue_diff(_index_queue, "index", cache_lock);
         _lru_recorder->evaluate_queue_diff(_normal_queue, "normal", cache_lock);
         _lru_recorder->evaluate_queue_diff(_disposable_queue, "disposable", cache_lock);
@@ -2942,6 +2943,7 @@ void BlockFileCache::dump_lru_queues(bool force) {
         _lru_dumper->dump_queue("disposable", force);
         _lru_dumper->dump_queue("normal", force);
         _lru_dumper->dump_queue("index", force);
+        _lru_dumper->dump_queue("ttl", force);
         _lru_dumper->set_first_dump_done();
     }
 }
@@ -2962,11 +2964,8 @@ void BlockFileCache::run_background_lru_dump() {
 }
 
 void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock) {
-    // The TTL queue is not dumped: which blocks belong in it is recomputed from their tablets
-    // as their metadata is loaded. A dump left by an older version only knows a made-up
-    // deadline, and is removed so that a downgrade does not restore it either.
-    _lru_dumper->remove_lru_dump_file("ttl");
     // keep this order coz may be duplicated in different queue, we use the first appearence
+    _lru_dumper->restore_queue(_ttl_queue, "ttl", cache_lock);
     _lru_dumper->restore_queue(_index_queue, "index", cache_lock);
     _lru_dumper->restore_queue(_normal_queue, "normal", cache_lock);
     _lru_dumper->restore_queue(_disposable_queue, "disposable", cache_lock);

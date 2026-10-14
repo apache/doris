@@ -465,7 +465,16 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
         for (int i = 0; i < entry_num; ++i) {
             RETURN_IF_STATUS_ERROR(st, parse_one_lru_entry(in, filename, hash, offset, size));
             CacheContext ctx;
-            if (queue_name == "index") {
+            if (queue_name == "ttl") {
+                ctx.cache_type = FileCacheType::TTL;
+                // TODO(zhengyu): we haven't persist expiration time yet, use 3h default
+                // There are mulitiple places we can correct this fake 3h ttl, e.g.:
+                // 1. during load_cache_info_into_memory (this will cause overwriting the ttl of async load)
+                // 2. after restoring, use sync_meta to modify the ttl
+                // However, I plan not to do this in this commit but to figure a more elegant way
+                // after ttl expiration time being changed from file name encoding to rocksdb persistency.
+                ctx.expiration_time = 10800;
+            } else if (queue_name == "index") {
                 ctx.cache_type = FileCacheType::INDEX;
             } else if (queue_name == "normal") {
                 ctx.cache_type = FileCacheType::NORMAL;
@@ -477,7 +486,11 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
                 return;
             }
             // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
-            _mgr->add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
+            // Each block goes back to the queue it was dumped from. The dump records neither its
+            // tablet nor its class; both are filled in when its metadata is loaded, which also
+            // moves it to the queue they call for, see BlockFileCache::complete_loaded_cell().
+            _mgr->add_cell_in_queue(hash, ctx, ctx.cache_type, offset, size,
+                                    FileBlock::State::DOWNLOADED, cache_lock);
         }
         in.close();
     } else {
@@ -487,15 +500,13 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
 };
 
 void CacheLRUDumper::remove_lru_dump_files() {
-    for (const auto& queue_name : {"disposable", "index", "normal", "ttl"}) {
-        remove_lru_dump_file(queue_name);
-    }
-}
-
-void CacheLRUDumper::remove_lru_dump_file(const std::string& queue_name) {
-    std::string filename = fmt::format("{}/lru_dump_{}.tail", _mgr->_cache_base_path, queue_name);
-    if (std::filesystem::exists(filename)) {
-        std::filesystem::remove(filename);
+    std::vector<std::string> queue_names = {"disposable", "index", "normal", "ttl"};
+    for (const auto& queue_name : queue_names) {
+        std::string filename =
+                fmt::format("{}/lru_dump_{}.tail", _mgr->_cache_base_path, queue_name);
+        if (std::filesystem::exists(filename)) {
+            std::filesystem::remove(filename);
+        }
     }
 }
 

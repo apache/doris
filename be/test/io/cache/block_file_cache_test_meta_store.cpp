@@ -249,16 +249,15 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             verify_meta_key(*meta_store, 50, "key4", 400000, FileCacheType::DISPOSABLE, 0, 100000);
         }
 
-        // all queue are filled, let's check the lru log records. The TTL queue is not dumped,
-        // so nothing records its events.
-        ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 0);
+        // all queue are filled, let's check the lru log records
+        ASSERT_EQ(cache._lru_recorder->_ttl_lru_log_queue.size_approx(), 5);
         ASSERT_EQ(cache._lru_recorder->_index_lru_log_queue.size_approx(), 5);
         ASSERT_EQ(cache._lru_recorder->_normal_lru_log_queue.size_approx(), 5);
         ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 5);
 
         // then check the log replay
-        ASSERT_EQ(cache.replay_lru_logs_once(), 15);
-        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 0);
+        ASSERT_EQ(cache.replay_lru_logs_once(), 20);
+        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 2);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 2);
         ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
         ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 2);
@@ -269,7 +268,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         }
 
         ASSERT_EQ(cache.replay_lru_logs_once(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 0);
+        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 2);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 0);
         ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
         ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 2);

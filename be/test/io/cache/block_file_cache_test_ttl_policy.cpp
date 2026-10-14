@@ -334,8 +334,9 @@ TEST_F(BlockFileCacheTest, ttl_policy_restart_recomputes_queues) {
     EXPECT_EQ(block_of(cache, "t2", 0)->cache_type(), FileCacheType::TTL);
 }
 
-// The TTL queue is not dumped; a dump an older version left is removed at restart.
-TEST_F(BlockFileCacheTest, ttl_policy_ttl_queue_is_not_dumped) {
+// The TTL queue is dumped and restored like the other queues. A restored block only gets its
+// tablet and class when its metadata is loaded, and then goes where its tablet's policy says.
+TEST_F(BlockFileCacheTest, ttl_policy_restored_ttl_queue_follows_policy) {
     TtlPolicyTestGuard guard;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -346,7 +347,6 @@ TEST_F(BlockFileCacheTest, ttl_policy_ttl_queue_is_not_dumped) {
         config::file_cache_background_lru_dump_tail_record_num = original_tail_record_num;
     }};
     config::file_cache_background_lru_dump_tail_record_num = 1000;
-    const std::string ttl_dump = cache_base_path + "/lru_dump_ttl.tail";
     auto* registry = TabletCachePolicyRegistry::instance();
     const int64_t now = UnixSeconds();
     ReadStatistics stats;
@@ -354,22 +354,26 @@ TEST_F(BlockFileCacheTest, ttl_policy_ttl_queue_is_not_dumped) {
         BlockFileCache cache(cache_base_path, ttl_policy_test_settings());
         open_cache(cache);
         registry->upsert(1, {3600, now});
-        fill(cache, "t1", 2, context_of(1, FileCacheType::NORMAL, 0, &stats));
+        registry->upsert(2, {3600, now});
+        fill(cache, "t1", 2, context_of(1, FileCacheType::INDEX, 0, &stats));
         fill(cache, "t2", 2, context_of(2, FileCacheType::NORMAL, 0, &stats));
         cache.replay_lru_logs_once();
         cache.dump_lru_queues(true);
-        EXPECT_FALSE(fs::exists(ttl_dump));
-        EXPECT_TRUE(fs::exists(cache_base_path + "/lru_dump_normal.tail"));
+        EXPECT_TRUE(fs::exists(cache_base_path + "/lru_dump_ttl.tail"));
+        // Tablet 2 loses its TTL before the restart.
+        registry->upsert(2, {0, now});
     }
-    {
-        std::ofstream stale(ttl_dump);
-        stale << "left by an older version";
-    }
+
+    registry->clear();
     BlockFileCache cache(cache_base_path, ttl_policy_test_settings());
     open_cache(cache);
-    EXPECT_FALSE(fs::exists(ttl_dump));
-    EXPECT_EQ(block_of(cache, "t1", 0)->cache_type(), FileCacheType::TTL);
-    EXPECT_EQ(block_of(cache, "t2", 0)->cache_type(), FileCacheType::NORMAL);
+    auto t1 = block_of(cache, "t1", 0);
+    EXPECT_EQ(t1->cache_type(), FileCacheType::TTL);
+    EXPECT_EQ(t1->cache_class(), FileCacheType::INDEX);
+    EXPECT_EQ(t1->tablet_id(), 1);
+    auto t2 = block_of(cache, "t2", 0);
+    EXPECT_EQ(t2->cache_type(), FileCacheType::NORMAL);
+    EXPECT_EQ(t2->tablet_id(), 2);
 }
 
 // A cache path keeps count of the tablets it holds blocks of: only their policies are fetched.

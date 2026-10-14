@@ -29,8 +29,7 @@ namespace {} // namespace
 void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType log_type,
                                           const UInt128Wrapper hash, const size_t offset,
                                           const size_t size) {
-    // The TTL queue is not dumped, see BlockFileCache::restore_lru_queues_from_disk().
-    if (config::file_cache_background_lru_dump_tail_record_num <= 0 || type == FileCacheType::TTL) {
+    if (config::file_cache_background_lru_dump_tail_record_num <= 0) {
         return;
     }
     ++(_lru_queue_update_cnt_from_last_dump[type]);
