@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -29,7 +30,9 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "storage/compaction/collection_similarity.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
+#include "util/defer_op.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -262,9 +265,24 @@ public:
         }
     }
 
+    // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): Keep each operator's bitmap and score updates together.
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         segment_v2::InvertedIndexResultBitmap res;
         bool all_pass = true;
+        auto index_context = context->get_index_context();
+        auto query_context = index_context->get_index_query_context();
+        auto parent_similarity =
+                query_context != nullptr ? query_context->collection_similarity : nullptr;
+        CollectionSimilarityPtr branch_similarity;
+        if (parent_similarity != nullptr) {
+            branch_similarity = std::make_shared<CollectionSimilarity>();
+            query_context->collection_similarity = branch_similarity;
+        }
+        Defer restore_similarity {[&]() {
+            if (branch_similarity != nullptr) {
+                query_context->collection_similarity = parent_similarity;
+            }
+        }};
 
         switch (_op) {
         case TExprOpcode::COMPOUND_OR: {
@@ -285,7 +303,7 @@ public:
                     } else {
                         res |= *index_result;
                     }
-                    if (inverted_index_context->get_score_runtime() == nullptr) {
+                    if (branch_similarity == nullptr) {
                         if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
                             break; // Early exit if result is full
                         }
@@ -348,8 +366,19 @@ public:
                     "Compound operator must be AND, OR, or NOT to execute with inverted index.");
         }
 
+        if (branch_similarity != nullptr && _op != TExprOpcode::COMPOUND_NOT) {
+            auto scores = branch_similarity->release_scores();
+            if (!scores.empty() && (!all_pass || res.is_empty())) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "Cannot score a compound predicate with incomplete index evaluation");
+            }
+            if (all_pass && !res.is_empty()) {
+                DORIS_CHECK(res.get_data_bitmap() != nullptr);
+                parent_similarity->merge_scores(scores, *res.get_data_bitmap());
+            }
+        }
         if (all_pass && !res.is_empty()) {
-            context->get_index_context()->set_index_result_for_expr(this, res);
+            index_context->set_index_result_for_expr(this, res);
         }
         return Status::OK();
     }
