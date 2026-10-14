@@ -26,6 +26,15 @@ void CollectionSimilarity::collect(segment_v2::rowid_t row_id, float score) {
     _bm25_scores[row_id] += score;
 }
 
+void CollectionSimilarity::merge_scores(const ScoreMap& scores,
+                                        const roaring::Roaring& matched_rows) {
+    for (const auto& [row_id, score] : scores) {
+        if (matched_rows.contains(row_id)) {
+            collect(row_id, score);
+        }
+    }
+}
+
 void CollectionSimilarity::get_bm25_scores(roaring::Roaring* row_bitmap,
                                            IColumn::MutablePtr& scores,
                                            std::unique_ptr<std::vector<uint64_t>>& row_ids,

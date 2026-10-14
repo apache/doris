@@ -49,6 +49,8 @@ public:
 
     void collect(segment_v2::rowid_t row_id, float score);
 
+    void merge_scores(const ScoreMap& scores, const roaring::Roaring& matched_rows);
+
     // Hands the collected scores over to the caller and leaves this instance empty.
     // A reader that computes per-document scores inside its own query() cannot return them
     // through the query API, so it publishes them into a throwaway CollectionSimilarity that the
