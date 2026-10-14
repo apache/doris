@@ -473,17 +473,15 @@ public class GroupStructInfo {
     }
 
     /**
-     * The expression which describes a group: the one which was chosen for the final plan as soon as the
-     * choice has been made, the first logical expression before that. The chosen expression may be a
-     * physical one, and it is the plan which will actually run - describing an alternative the optimizer
-     * did not choose (a pushed down top-n for instance, or a CTE consumer which only exists in the memo)
-     * would hide the struct info of nodes which are perfectly describable.
+     * The expression which describes a group. The first logical expression is the one which is used, and
+     * the logical form is what the key of a group has to be made of: the read side looks an entry up
+     * while the plan is still being optimized, i.e. before any expression is chosen, and a physical plan
+     * may hold nodes the logical plan abstracts away (the two staged aggregation of a {@code count(*)},
+     * for instance), which would move the key of every such group and make a pinned entry miss. Only a
+     * group without any logical expression (an enforcer group, or a group a rule filled with physical
+     * expressions only) falls back to its physical expression.
      */
     private static GroupExpression representativeExpression(Group group) {
-        GroupExpression chosen = group.getChosenGroupExpression().orElse(null);
-        if (chosen != null) {
-            return chosen;
-        }
         GroupExpression logical = firstLogicalExpression(group);
         if (logical != null) {
             return logical;
@@ -517,29 +515,12 @@ public class GroupStructInfo {
         }
         GroupExpression logical = firstLogicalExpression(group);
         if (logical != null) {
-            GroupStructInfo described = describeExpression(group, logical, ctx);
-            if (described.isValid()) {
-                return described;
-            }
-            GroupExpression chosen = group.getChosenGroupExpression().orElse(null);
-            if (chosen == null || chosen == logical) {
-                return described;
-            }
-            // The logical form cannot be described (it may be an alternative the optimizer did not
-            // choose, e.g. a pushed down top-n), while the plan which will run can be: describing that
-            // one is better than describing nothing. The logical form is tried first on purpose - the
-            // canonical form of a group has to stay the one an entry was pinned with, and the physical
-            // plan may hold nodes the logical plan abstracts away (the two stage aggregation of a
-            // `count(*)`, for instance), which would move the key of every such group.
-            Ctx retryCtx = new Ctx();
-            retryCtx.visited.addAll(ctx.visited);
-            GroupStructInfo retried = describeExpression(group, chosen, retryCtx);
-            return retried.isValid() ? retried : described;
+            return describeExpression(group, logical, ctx);
         }
         GroupExpression representative = representativeExpression(group);
         if (representative == null) {
-            // a group without any expression (no logical one, no chosen or physical one, no enforcer):
-            // there is nothing to describe
+            // a group without any expression (no logical one, no physical one, no enforcer): there is
+            // nothing to describe
             return invalidStructInfo("no expression in group " + describeGroupState(group));
         }
         return describeExpression(group, representative, ctx);
@@ -1480,10 +1461,10 @@ public class GroupStructInfo {
 
     /**
      * Why the struct info of the group of {@code planNode} is missing, when the reason is known: the
-     * group is too wide for {@code hbo_max_scans_per_group}, its sub tree is shared by two consumers,
-     * it contains an operator the canonical form does not describe, its table name carries a struct
-     * info delimiter, ... Empty for a failure which is a property of the environment (a retried
-     * catalog read) or when the group is not reachable at all.
+     * group is too wide for {@code hbo_max_scans_per_group}, it contains an operator the canonical form
+     * does not describe, its table name carries a struct info delimiter, the data state of one of its
+     * scans cannot be read, ... Empty only when the description is valid, or when the group of the node
+     * is not reachable at all.
      */
     public static Optional<String> skipReasonOfPlanNode(AbstractPlan planNode,
             Map<Integer, Group> groupsById) {

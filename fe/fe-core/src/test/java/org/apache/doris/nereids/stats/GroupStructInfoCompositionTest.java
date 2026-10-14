@@ -224,4 +224,21 @@ public class GroupStructInfoCompositionTest {
                         .anyMatch(group -> group.getHboChainInfoOrNull() != null),
                 "no group memoized the chain it is the root of");
     }
+
+    @Test
+    void testTheStructInfoDoesNotDependOnTheChosenExpression() {
+        GroupStructInfo withoutChoice = GroupStructInfo.describeGroup(joinChainMemo().getRoot());
+        Memo chosenMemo = joinChainMemo();
+        // the plan chooser records the id of the expression it picked; the struct info is built from the
+        // first logical expression, so the key of a group does not move when a plan is chosen (the read
+        // side looks the key up while the plan is still being optimized, before anything is chosen)
+        chosenMemo.getRoot().setChosenGroupExpressionId(9999);
+        GroupStructInfo withChoice = GroupStructInfo.describeGroup(chosenMemo.getRoot());
+        Assertions.assertTrue(withoutChoice.isValid(), withoutChoice.getSkipReason());
+        Assertions.assertTrue(withChoice.isValid(), withChoice.getSkipReason());
+        Assertions.assertEquals(withoutChoice.getCanonical(NO_LITERAL), withChoice.getCanonical(NO_LITERAL));
+        Assertions.assertEquals(withoutChoice.getFingerprint(NO_LITERAL),
+                withChoice.getFingerprint(NO_LITERAL));
+    }
+
 }
