@@ -57,6 +57,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -1014,6 +1015,72 @@ public class IcebergScanPlanProviderTest {
         // Display parity: the table's CURRENT spec is unpartitioned, so it still reports no scanned
         // partitions — the read fix must not change EXPLAIN partition=N/M or sql_block_rule partition_num.
         Assertions.assertEquals(OptionalLong.empty(), provider.scannedPartitionCount(ranges));
+    }
+
+    @Test
+    public void planScanSendsIdentityPartitionsInSpecOrderWithNullFlags() {
+        // From branch-4.x #66012: a range carries its identity partition values keyed and ordered by the partition
+        // spec, and a NULL value travels as an explicit null flag, not as a string.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "Region", Types.StringType.get()),
+                Types.NestedField.optional(2, "Dt", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("Region").identity("Dt").build();
+        Table table = createTable("aligned", schema, spec);
+        table.newAppend().appendFile(partitionedFile(spec, "s3://b/db/aligned/a.parquet", "cn", null)).commit();
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "aligned"), Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertEquals(Arrays.asList("Region", "Dt"), desc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Arrays.asList("cn", ""), desc.getColumnsFromPath());
+        Assertions.assertEquals(Arrays.asList(false, true), desc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void planScanSendsEachFilesOwnIdentityPartitionsAfterSpecEvolution() {
+        // From branch-4.x #66012: after the spec evolves from (Region, Dt) to (Dt, Category), a file of either spec
+        // carries the identity values of its own spec, in that spec's order.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "Region", Types.StringType.get()),
+                Types.NestedField.optional(2, "Dt", Types.StringType.get()),
+                Types.NestedField.optional(3, "Category", Types.StringType.get()));
+        PartitionSpec oldSpec = PartitionSpec.builderFor(schema).identity("Region").identity("Dt").build();
+        Table table = createTable("evolved", schema, oldSpec, Collections.singletonMap("format-version", "2"));
+        table.newAppend().appendFile(partitionedFile(oldSpec, "s3://b/db/evolved/old.parquet", "us", "2024-01-01"))
+                .commit();
+        table.updateSpec().removeField("Region").addField("Category").commit();
+        table.newAppend().appendFile(partitionedFile(table.spec(), "s3://b/db/evolved/new.parquet", null, "books"))
+                .commit();
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "evolved"), Collections.emptyList())
+                .build());
+
+        TFileRangeDesc oldDesc = populate(byPath(ranges, "old.parquet"));
+        Assertions.assertEquals(Arrays.asList("Region", "Dt"), oldDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Arrays.asList("us", "2024-01-01"), oldDesc.getColumnsFromPath());
+        Assertions.assertEquals(Arrays.asList(false, false), oldDesc.getColumnsFromPathIsNull());
+        TFileRangeDesc newDesc = populate(byPath(ranges, "new.parquet"));
+        Assertions.assertEquals(Arrays.asList("Dt", "Category"), newDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Arrays.asList("", "books"), newDesc.getColumnsFromPath());
+        Assertions.assertEquals(Arrays.asList(true, false), newDesc.getColumnsFromPathIsNull());
+    }
+
+    /** A data file whose partition values, in the spec's field order, may be null. */
+    private static DataFile partitionedFile(PartitionSpec spec, String path, String... values) {
+        PartitionData data = new PartitionData(spec.partitionType());
+        for (int i = 0; i < values.length; i++) {
+            data.set(i, values[i]);
+        }
+        return DataFiles.builder(spec).withPath(path).withFormat(FileFormat.PARQUET).withPartition(data)
+                .withFileSizeInBytes(1024).withRecordCount(1).build();
     }
 
     @Test
