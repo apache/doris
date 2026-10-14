@@ -151,9 +151,7 @@ public interface SourceOffsetProvider {
     }
 
     /**
-     * Restore offset from persisted string during image load (gsonPostProcess).
-     * Called immediately after the provider is created so that even PAUSED jobs
-     * have the correct offset state.
+     * Restore offset from an image or job update journal, including for PAUSED jobs.
      */
     default void restoreFromPersistInfo(String persistInfo) {
     }
