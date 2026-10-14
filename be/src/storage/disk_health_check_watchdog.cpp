@@ -17,7 +17,12 @@
 
 #include "storage/disk_health_check_watchdog.h"
 
+#include <pthread.h>
 #include <unistd.h>
+
+#ifndef __APPLE__
+#include <sys/prctl.h>
+#endif
 
 #include <ctime>
 #include <limits>
@@ -112,6 +117,12 @@ bool DiskHealthCheckWatchdog::_claim_timeout(int64_t deadline, int64_t now) {
 }
 
 void DiskHealthCheckWatchdog::_run() {
+    // Best-effort naming must not make supervision depend on Doris thread setup.
+#ifdef __APPLE__
+    static_cast<void>(pthread_setname_np("disk-watchdog"));
+#else
+    static_cast<void>(prctl(PR_SET_NAME, "disk-watchdog"));
+#endif
     while (!_stopped.load(std::memory_order_acquire)) {
         const int64_t deadline = _deadline.load(std::memory_order_acquire);
         if (_claim_timeout(deadline, MonotonicMillis())) {

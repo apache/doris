@@ -125,7 +125,7 @@ TEST(DiskHealthCheckWatchdogTest, IdleAndCompletedChecksDoNotExit) {
     watchdog.stop();
 }
 
-#if !defined(THREAD_SANITIZER)
+#ifndef THREAD_SANITIZER
 
 class DiskHealthCheckWatchdogDeathTest : public testing::Test {
 protected:
@@ -141,6 +141,8 @@ private:
     std::string _saved_style;
 };
 
+// ASSERT_EXIT adds control flow; keep the child setup inside the death-test body.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(DiskHealthCheckWatchdogDeathTest, ExitsWhenCheckHangs) {
     ASSERT_EXIT(
             {
@@ -188,6 +190,8 @@ TEST_F(DiskHealthCheckWatchdogDeathTest, NewCheckPreservesClaimedTimeoutExit) {
             ::testing::ExitedWithCode(74), "");
 }
 
+// ASSERT_EXIT adds control flow; keep the child setup inside the death-test body.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(DiskHealthCheckWatchdogDeathTest, ExitsWhileJoiningBlockedProducer) {
     ASSERT_EXIT(
             {
@@ -218,6 +222,8 @@ TEST_F(DiskHealthCheckWatchdogDeathTest, ExitsWhileJoiningBlockedProducer) {
             ::testing::ExitedWithCode(74), "");
 }
 
+// ASSERT_EXIT adds control flow; keep the child setup inside the death-test body.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(DiskHealthCheckWatchdogDeathTest, ExitsWithFullBlockingStderrPipe) {
     ASSERT_EXIT(
             {

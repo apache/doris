@@ -378,8 +378,15 @@ DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 // Maximum time for one startup disk/spill check, local-engine disk health check,
 // or the final disk-state update/error-disk handling phase. Includes IO-error handling.
+// The probe syncs both its file and directory when sync_file_on_close is enabled;
+// the final phase also waits for storage locks. Allow for healthy disks under load,
+// rather than using disk_stat_monitor_interval as the timeout (60s is a conservative
+// starting point to evaluate against the deployment's measured worst-case latency).
 // 0 disables the watchdog; changes require restart.
 // On timeout BE exits with status 74 without logging, flushing or generating a core.
+// One stalled check exits the whole BE independently of the error-disk percentage.
+// A hang cannot persist a broken path. Repair the disk or exclude it from both data
+// and spill paths before restarting, otherwise startup can time out repeatedly.
 DEFINE_Int32(disk_health_check_timeout_seconds, "0");
 DEFINE_Validator(disk_health_check_timeout_seconds, [](int value) -> bool { return value >= 0; });
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");

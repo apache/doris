@@ -32,7 +32,8 @@ class Status;
 class DiskHealthCheckWatchdog {
 public:
     // EX_IOERR: distinguish this fail-fast path without writing to a possibly
-    // blocked log/stderr. The process supervisor can report this exit status.
+    // blocked log/stderr. A supervisor that waits for BE can report this status;
+    // start_be.sh --daemon does not collect it, and no failing path is logged here.
     static constexpr int kTimeoutExitCode = 74;
 
     DiskHealthCheckWatchdog() = default;

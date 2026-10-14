@@ -503,6 +503,7 @@ void StorageEngine::_start_disk_stat_monitor() {
     // These steps acquire _store_lock and may log a fatal disk failure. Keep
     // supervising them so a stalled report or fatal logger cannot stop probing
     // forever after the last per-disk check has completed.
+    // A timeout deliberately takes precedence over a stalled fatal handler/core dump.
     DiskHealthCheckWatchdog::ScopedCheck check(_disk_health_check_watchdog);
     _update_storage_medium_type_count();
 

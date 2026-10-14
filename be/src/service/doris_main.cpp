@@ -515,6 +515,7 @@ int main(int argc, char** argv) {
     }
 
     if (paths.empty()) {
+        // exit() does not unwind the scope: supervise logging and teardown as well.
         doris::DiskHealthCheckWatchdog::ScopedCheck check(startup_disk_watchdog);
         LOG(ERROR) << "All disks are broken, exit.";
         exit(-1);
@@ -536,6 +537,7 @@ int main(int argc, char** argv) {
         }
     }
     if (spill_paths.empty()) {
+        // Keep the deadline armed through logging, atexit handlers and teardown.
         doris::DiskHealthCheckWatchdog::ScopedCheck check(startup_disk_watchdog);
         LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
