@@ -52,7 +52,7 @@ namespace doris {
 
 class FunctionAITransportTestHelper : public FunctionAISentiment {
 public:
-    using FunctionAISentiment::do_send_request;
+    using FunctionAISentiment::send_request_to_llm;
 };
 
 class FunctionAIFilterBatchTestHelper : public AIFunction<FunctionAIFilterBatchTestHelper> {
@@ -1640,7 +1640,7 @@ TEST(AIFunctionTest, ExecuteBatchRequestSuccess) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
-    config.max_retries = 1;
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
@@ -1679,7 +1679,7 @@ TEST(AIFunctionTest, ExecuteBatchRequestResultSizeMismatch) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
-    config.max_retries = 1;
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
@@ -1709,14 +1709,14 @@ TEST(AIFunctionTest, DoSendRequestTransportError) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
 
-    HttpClient client;
     std::string response;
     FunctionAITransportTestHelper helper;
-    Status st = helper.do_send_request(&client, "{}", response, config, adapter, ctx.get());
+    Status st = helper.send_request_to_llm("{}", response, config, adapter, ctx.get());
 
     ASSERT_FALSE(st.ok());
     ASSERT_EQ(response, "");
@@ -1738,15 +1738,15 @@ TEST(AIFunctionTest, DoSendRequestNon200) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
 
-    HttpClient client;
     std::string response;
     FunctionAITransportTestHelper helper;
-    Status st = helper.do_send_request(&client, R"({"message":"hello"})", response, config, adapter,
-                                       ctx.get());
+    Status st = helper.send_request_to_llm(R"({"message":"hello"})", response, config, adapter,
+                                           ctx.get());
 
     ASSERT_FALSE(st.ok());
     ASSERT_NE(st.to_string().find("http status code is not 200"), std::string::npos);
@@ -1773,15 +1773,15 @@ TEST(AIFunctionTest, DoSendRequestSuccess) {
     config.provider_type = "OPENAI";
     config.model_name = "test-model";
     config.api_key = "secret";
+    config.max_retries = 0;
 
     std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
     adapter->init(config);
 
-    HttpClient client;
     std::string response;
     FunctionAITransportTestHelper helper;
-    Status st = helper.do_send_request(&client, R"({"message":"hello"})", response, config, adapter,
-                                       ctx.get());
+    Status st = helper.send_request_to_llm(R"({"message":"hello"})", response, config, adapter,
+                                           ctx.get());
 
     ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_EQ(response, R"({"ok":true})");

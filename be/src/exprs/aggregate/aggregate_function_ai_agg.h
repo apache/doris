@@ -27,9 +27,9 @@
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/ai/ai_adapter.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "service/http/http_client.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -163,42 +163,25 @@ public:
         }
     }
 
-    static void set_query_context(QueryContext* context) { _ctx = context; }
+    void set_query_context(QueryContext* context, std::shared_ptr<AIRequestExecutor> executor) {
+        _ctx = context;
+        _request_executor = std::move(executor);
+    }
 
     const std::string& get_task() const { return _task; }
 
 private:
     Status send_request_to_ai(const std::string& request_body, std::string& response) const {
-        // Mock path for testing
+        // Real providers still use HTTP in BE_TEST; only explicit mocks bypass it.
 #ifdef BE_TEST
         const char* test_result = std::getenv("AI_TEST_RESULT");
-        response = test_result != nullptr ? test_result : "this is a mock response";
-        return Status::OK();
+        if (test_result != nullptr || _ai_config.provider_type == "MOCK") {
+            response = test_result != nullptr ? test_result : "this is a mock response";
+            return Status::OK();
+        }
 #endif
 
-        return HttpClient::execute_with_retry(
-                _ai_config.max_retries, _ai_config.retry_delay_second,
-                [this, &request_body, &response](HttpClient* client) -> Status {
-                    return this->do_send_request(client, request_body, response);
-                });
-    }
-
-    Status do_send_request(HttpClient* client, const std::string& request_body,
-                           std::string& response) const {
-        RETURN_IF_ERROR(client->init(_ai_config.endpoint));
-        if (_ctx == nullptr) {
-            return Status::InternalError("Query context is null");
-        }
-
-        int64_t remaining_query_time = _ctx->get_remaining_query_time_seconds();
-        if (remaining_query_time <= 0) {
-            return Status::TimedOut("Query timeout exceeded before AI request");
-        }
-        client->set_timeout_ms(remaining_query_time * 1000);
-
-        RETURN_IF_ERROR(_ai_adapter->set_authentication(client));
-
-        return client->execute_post_request(request_body, &response);
+        return _request_executor->execute(request_body, response, _ai_config, *_ai_adapter, _ctx);
     }
 
     // handle overflow situations when adding content.
@@ -233,7 +216,9 @@ private:
         inited = !data.empty();
     }
 
-    static QueryContext* _ctx;
+    QueryContext* _ctx = nullptr;
+    // Local reference only; excluded from serialization and merge().
+    std::shared_ptr<AIRequestExecutor> _request_executor;
     AIResource _ai_config;
     std::shared_ptr<AIAdapter> _ai_adapter;
     std::string _task;
@@ -250,7 +235,7 @@ public:
 
     void set_query_context(QueryContext* context) override {
         if (context) {
-            AggregateFunctionAIAggData::set_query_context(context);
+            _ctx = context;
         }
     }
 
@@ -259,6 +244,12 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     bool is_blockable() const override { return true; }
+
+    void create(AggregateDataPtr __restrict place) const override {
+        new (place) AggregateFunctionAIAggData;
+        // Share one cache across groups instead of retaining a client per group.
+        data(place).set_query_context(_ctx, _request_executor);
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -289,7 +280,10 @@ public:
         }
     }
 
-    void reset(AggregateDataPtr place) const override { data(place).reset(); }
+    void reset(AggregateDataPtr place) const override {
+        data(place).reset();
+        data(place).set_query_context(_ctx, _request_executor);
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
@@ -303,6 +297,8 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
         data(place).read(buf);
+        // A state received from another node uses this evaluator's local cache.
+        data(place).set_query_context(_ctx, _request_executor);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -310,6 +306,11 @@ public:
         DCHECK(!result.empty()) << "AI returns an empty result";
         assert_cast<ColumnString&>(to).insert_data(result.data(), result.size());
     }
+
+private:
+    QueryContext* _ctx = nullptr;
+    // Shared by local group states across input Blocks and result extraction.
+    std::shared_ptr<AIRequestExecutor> _request_executor = std::make_shared<AIRequestExecutor>();
 };
 
 #include "common/compile_check_end.h"
