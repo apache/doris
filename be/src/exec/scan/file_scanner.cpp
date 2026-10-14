@@ -716,7 +716,7 @@ Status FileScanner::_cast_to_input_block(Block* block) {
         auto& arg = _src_block_ptr->get_by_position(_src_block_name_to_idx[slot_desc->col_name()]);
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
-        auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
+        auto data_type = remove_nullable(return_type);
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast =
