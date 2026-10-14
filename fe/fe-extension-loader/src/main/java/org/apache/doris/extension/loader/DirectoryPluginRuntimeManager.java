@@ -283,8 +283,18 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             // Version check before construction, and before asSubclass(): a plugin built against a
             // different SPI major is precisely the one whose types may no longer line up, so it must be
             // answered with a diagnosis naming both versions rather than with a cast or linkage error.
-            String declaredApiVersion = readManifestMainAttribute(
-                    discoveredClass, allJars, apiVersionGate.getManifestAttribute());
+            String declaredApiVersion;
+            try {
+                declaredApiVersion = readManifestMainAttribute(
+                        discoveredClass, allJars, apiVersionGate.getManifestAttribute());
+            } catch (IOException e) {
+                throw new PluginLoadException(
+                        normalizedDir,
+                        LoadFailure.STAGE_API_VERSION,
+                        "Failed to read " + apiVersionGate.getManifestAttribute() + " for factory '"
+                                + factoryClassName + "' in " + normalizedDir + ": " + e.getMessage(),
+                        e);
+            }
             String rejection = apiVersionGate.rejectionReason(declaredApiVersion);
             if (rejection != null) {
                 throw new PluginLoadException(
@@ -375,17 +385,16 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
      * source when available (covers layouts where the service descriptor sits in a root jar but the
      * implementation lives in lib/), otherwise the first candidate jar containing the class entry.
      *
-     * <p>An unreadable jar degrades to null rather than throwing. For the display-only version that leaves
-     * the inventory row's version empty; for the plugin API version it reads as "declared nothing", which
-     * {@link ApiVersionGate} rejects — the fail-closed direction in both cases.
+     * <p>Null means a readable defining jar genuinely omitted the requested datum. An unreadable or
+     * unresolved defining jar throws: the API gate must not mistake failed verification for an absent
+     * legacy declaration. Once the code source identifies a jar, another candidate cannot replace it.
      */
-    private String readFromDefiningJar(Class<?> factoryClass, List<Path> candidateJars, ManifestReader reader) {
+    private String readFromDefiningJar(Class<?> factoryClass, List<Path> candidateJars, ManifestReader reader)
+            throws IOException {
         Path definingJar = ManifestVersions.jarOf(factoryClass);
         if (definingJar != null) {
             try (JarFile jarFile = new JarFile(definingJar.toFile())) {
                 return reader.read(jarFile);
-            } catch (IOException ignored) {
-                // Fall through to scanning the candidate jars.
             }
         }
         String classEntry = factoryClass.getName().replace('.', '/') + ".class";
@@ -395,23 +404,26 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     continue;
                 }
                 return reader.read(jarFile);
-            } catch (IOException ignored) {
-                // Fall through to the next candidate jar.
             }
         }
-        return null;
+        throw new IOException("Cannot locate defining jar for factory '" + factoryClass.getName() + "'");
     }
 
     /** Implementation-Version, honoring the class's package section. Display-only metadata. */
     private String readImplementationVersion(Class<?> factoryClass, List<Path> candidateJars) {
         String packagePath = ManifestVersions.packagePathOf(factoryClass);
-        return readFromDefiningJar(factoryClass, candidateJars,
-                jarFile -> ManifestVersions.fromManifest(jarFile, packagePath));
+        try {
+            return readFromDefiningJar(factoryClass, candidateJars,
+                    jarFile -> ManifestVersions.fromManifest(jarFile, packagePath));
+        } catch (IOException ignored) {
+            // Display-only metadata may be unavailable without making a verified plugin unloadable.
+            return null;
+        }
     }
 
     /** The plugin API version a jar declares, as a MANIFEST main attribute. Null when absent. */
     private String readManifestMainAttribute(Class<?> factoryClass, List<Path> candidateJars,
-            String attributeName) {
+            String attributeName) throws IOException {
         return readFromDefiningJar(factoryClass, candidateJars,
                 jarFile -> ManifestVersions.mainAttribute(jarFile, attributeName));
     }
