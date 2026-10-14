@@ -150,14 +150,15 @@ suite("condition_cache_eligibility") {
     sql "set enable_profile = false"
     def token = UUID.randomUUID().toString()
     def deterministic = """
-        SELECT '${token}', count(*) FROM condition_cache_eligibility WHERE k % 10000 = 0
+        SELECT /* ${token} */ count(*) FROM condition_cache_eligibility WHERE k % 10000 = 0
     """
-    // Execute the same SQL twice so both scans have the same digest; omit the profile token from output.
-    quickRunTest("deterministic_first", deterministic, true, { row -> [row[1]] })
+    // Keep the profile marker in a comment so 4.1's quickRunTest needs no row converter.
+    // Execute the same SQL twice so both scans have the same digest.
+    quickRunTest("deterministic_first", deterministic, true)
     // Only the second execution records a profile, so the token cannot select the warm-up query.
     sql "set enable_profile = true"
     sql "set profile_level = 2"
-    quickRunTest("deterministic_second", deterministic, true, { row -> [row[1]] })
+    quickRunTest("deterministic_second", deterministic, true)
     def profile = profileAction.getProfileBySql(token, ["ConditionCacheLookup", "ConditionCacheSegmentHit"])
     def lookups = (profile =~ /ConditionCacheLookup: (\d+)/)
     assertTrue(lookups.findAll().any { (it[1] as long) > 0 },
