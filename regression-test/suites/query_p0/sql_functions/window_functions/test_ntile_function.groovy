@@ -76,6 +76,12 @@ suite("test_ntile_function") {
     qt_select_const_expr "select k1, k2, k3, ntile(cast(5 - 2 as bigint)) over (partition by k1 order by k2,k3) as ntile from ${tableName} order by k1, k2, k3, ntile;"
     qt_select_const_expr "select k1, k2, k3, ntile(abs(-3)) over (partition by k1 order by k2,k3) as ntile from ${tableName} order by k1, k2, k3, ntile;"
 
+    // the bucket literal must stay a literal even when an unrelated projected column happens to
+    // have the same constant value, e.g. `2 AS two`; rewriting the order-by key must not reuse that
+    // column's slot inside ntile's own bucket argument just because the literal values match
+    qt_select_const_alias_collision "select 2 as two, k1, k2, k3, ntile(2) over (partition by k1 order by k2,k3) as ntile " +
+            "from ${tableName} order by ntile(2) over (partition by k1 order by k2,k3), k1, k2, k3;"
+
     test {
         sql "select k1, k2, k3, ntile(0) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
         exception "positive"

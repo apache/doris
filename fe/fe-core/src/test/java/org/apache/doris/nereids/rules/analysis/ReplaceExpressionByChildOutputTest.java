@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -56,6 +58,28 @@ public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSuppo
                 .matchesFromRoot(
                         logicalSort(logicalProject()).when(sort ->
                                 ((Slot) (sort.getOrderKeys().get(0).getExpr())).getExprId().equals(alias.getExprId()))
+                );
+    }
+
+    @Test
+    void testSortProjectDoesNotReplaceLiteralSubExpression() {
+        // an unrelated output column `2 AS two` must not make the rule reuse its slot for the
+        // literal `2` nested inside a different order-by sub-expression, e.g. a function argument
+        // that has to stay a literal (such as NTILE's bucket)
+        IntegerLiteral literalTwo = new IntegerLiteral(2);
+        Alias alias = new Alias(literalTwo, "two");
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
+        LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalProject<Plan> logicalProject = new LogicalProject<>(ImmutableList.of(alias), logicalOlapScan);
+        Add orderKeyExpr = new Add(literalTwo, col1);
+        List<OrderKey> orderKeys = ImmutableList.of(new OrderKey(orderKeyExpr, true, true));
+        LogicalSort<LogicalProject<Plan>> logicalSort = new LogicalSort<>(orderKeys, logicalProject);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), logicalSort)
+                .applyBottomUp(new ReplaceExpressionByChildOutput())
+                .matchesFromRoot(
+                        logicalSort(logicalProject()).when(sort ->
+                                sort.getOrderKeys().get(0).getExpr().equals(orderKeyExpr))
                 );
     }
 
