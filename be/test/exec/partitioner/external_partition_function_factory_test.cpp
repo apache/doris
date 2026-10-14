@@ -21,8 +21,29 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
+
+#include "runtime/descriptor_helper.h"
 
 namespace doris {
+namespace {
+
+TExpr int_slot_ref_expr() {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::SLOT_REF);
+    node.__set_num_children(0);
+    node.__set_type(create_type_desc(TYPE_INT));
+    node.__set_is_nullable(false);
+    TSlotRef slot_ref;
+    slot_ref.__set_slot_id(1);
+    slot_ref.__set_tuple_id(1);
+    node.__set_slot_ref(slot_ref);
+    TExpr expression;
+    expression.nodes.emplace_back(std::move(node));
+    return expression;
+}
+
+} // namespace
 
 TEST(ExternalPartitionFunctionFactoryTest, CreatesGenericDirectHash) {
     TExternalTableSinkHashPartitionInfo info;
@@ -76,6 +97,36 @@ TEST(ExternalPartitionFunctionFactoryTest, PaimonFixedBucketValidatesOptions) {
             create_external_partition_function(info, 3, ShuffleHashMethod::CRC32, {}, &function);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("requires num_buckets"), std::string::npos);
+}
+
+TEST(ExternalPartitionFunctionFactoryTest, ReadsBranch41DirectHashEncoding) {
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
+    std::unique_ptr<PartitionFunction> function;
+
+    ASSERT_TRUE(create_external_partition_function(info, 3, ShuffleHashMethod::CRC32, {}, &function)
+                        .ok());
+    ASSERT_NE(function, nullptr);
+    EXPECT_EQ(function->partition_count(), 3);
+}
+
+TEST(ExternalPartitionFunctionFactoryTest, ReadsBranch41PaimonFixedBucketEncoding) {
+    TPaimonFixedBucketInfo fixed_bucket_info;
+    fixed_bucket_info.__set_num_buckets(4);
+    fixed_bucket_info.__set_partition_field_indexes({});
+    fixed_bucket_info.__set_bucket_field_indexes({0});
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
+    info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
+    std::unique_ptr<PartitionFunction> function;
+
+    ASSERT_TRUE(create_external_partition_function(info, 3, ShuffleHashMethod::CRC32,
+                                                   {int_slot_ref_expr()}, &function)
+                        .ok());
+    ASSERT_NE(function, nullptr);
+    EXPECT_EQ(function->partition_count(), 3);
 }
 
 } // namespace doris

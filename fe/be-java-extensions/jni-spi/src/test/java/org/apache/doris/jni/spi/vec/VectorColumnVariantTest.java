@@ -46,13 +46,19 @@ public class VectorColumnVariantTest {
             column.appendVariant(ONE_KEY_METADATA, new byte[] {8});
             long meta = table.getMetaAddress();
             Assertions.assertEquals(3L, OffHeap.getLong(null, meta));
+            Assertions.assertArrayEquals(new boolean[] {false, false, false},
+                    OffHeap.getBoolean(null, OffHeap.getLong(null, meta + 8), 3));
             Assertions.assertEquals(2L, OffHeap.getLong(null, meta + 16));
             Assertions.assertArrayEquals(new int[] {0, 3, 8},
                     OffHeap.getInt(null, OffHeap.getLong(null, meta + 24), 3));
+            Assertions.assertArrayEquals(new byte[] {1, 0, 0, 1, 1, 0, 1, 'a'},
+                    OffHeap.getByte(null, OffHeap.getLong(null, meta + 32), 8));
             Assertions.assertArrayEquals(new int[] {0, 0, 1},
                     OffHeap.getInt(null, OffHeap.getLong(null, meta + 40), 3));
             Assertions.assertArrayEquals(new int[] {0, 1, 2, 3},
                     OffHeap.getInt(null, OffHeap.getLong(null, meta + 48), 4));
+            Assertions.assertArrayEquals(new byte[] {0, 4, 8},
+                    OffHeap.getByte(null, OffHeap.getLong(null, meta + 56), 3));
         } finally {
             table.close();
         }
@@ -71,6 +77,10 @@ public class VectorColumnVariantTest {
             Assertions.assertArrayEquals(new boolean[] {false, true},
                     OffHeap.getBoolean(null, OffHeap.getLong(null, meta + 8), 2));
             Assertions.assertEquals(1L, OffHeap.getLong(null, meta + 16));
+            Assertions.assertArrayEquals(new int[] {0, 0},
+                    OffHeap.getInt(null, OffHeap.getLong(null, meta + 40), 2));
+            Assertions.assertArrayEquals(new int[] {0, 1, 2},
+                    OffHeap.getInt(null, OffHeap.getLong(null, meta + 48), 3));
             Assertions.assertArrayEquals(new byte[] {4, 0},
                     OffHeap.getByte(null, OffHeap.getLong(null, meta + 56), 2));
         } finally {
@@ -92,6 +102,8 @@ public class VectorColumnVariantTest {
             Assertions.assertEquals(1L, OffHeap.getLong(null, meta + 16));
             Assertions.assertArrayEquals(new int[] {0, 5},
                     OffHeap.getInt(null, OffHeap.getLong(null, meta + 24), 2));
+            Assertions.assertArrayEquals(new int[] {0},
+                    OffHeap.getInt(null, OffHeap.getLong(null, meta + 40), 1));
         } finally {
             table.close();
         }

@@ -379,6 +379,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
         }
     }
 
+    // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
+    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "storage TopN needs order-by key columns, but none are set up: keys_type={}, "
+                "enable_unique_key_merge_on_write={}, read_orderby_key_num_prefix_columns={}",
+                _tablet_schema->keys_type(), _tablet->enable_unique_key_merge_on_write(),
+                read_params.read_orderby_key_num_prefix_columns);
+    }
+
     return Status::OK();
 }
 

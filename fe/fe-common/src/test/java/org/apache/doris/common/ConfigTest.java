@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -70,6 +71,54 @@ public class ConfigTest {
         }
     }
 
+    // Every config holding an operator-supplied secret must keep @ConfField(sensitive = true) and
+    // must be masked by both dump APIs. The names are listed explicitly on purpose: a check driven
+    // off the annotation alone cannot notice the annotation being *removed*, which is the silent
+    // regression worth guarding -- dropping it while editing a neighbouring line puts the secret
+    // back into every config dump with nothing failing. #67338 marked the first two sensitive and
+    // nothing tested them; mysql_ssl_default_ca_certificate_password,
+    // mysql_ssl_default_server_certificate_password and initial_root_password had no coverage at all.
+    @Test
+    public void testSecretConfigsStaySensitiveAndMasked() throws Exception {
+        List<String> secretConfigs = Arrays.asList(
+                "tls_private_key_password",
+                "key_store_password",
+                "auth_token",
+                "fe_meta_auth_token",
+                "mysql_ssl_default_ca_certificate_password",
+                "mysql_ssl_default_server_certificate_password",
+                "initial_root_password");
+
+        for (String name : secretConfigs) {
+            Field field = Config.class.getField(name);
+            ConfigBase.ConfField confField = field.getAnnotation(ConfigBase.ConfField.class);
+            Assertions.assertNotNull(confField, name + " must be a @ConfField");
+            Assertions.assertTrue(confField.sensitive(),
+                    name + " holds a secret and must stay @ConfField(sensitive = true)");
+
+            String old = (String) field.get(null);
+            try {
+                field.set(null, "super-secret-value-of-" + name);
+
+                Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, ConfigBase.dump().get(name),
+                        name + " must be masked by ConfigBase.dump()");
+                Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue(name),
+                        name + " must be masked by ConfigBase.getConfigInfo()");
+            } finally {
+                field.set(null, old);
+            }
+        }
+
+        // Keeps the list above complete: a config marked sensitive later has to be added here too.
+        for (Field field : Config.class.getFields()) {
+            ConfigBase.ConfField confField = field.getAnnotation(ConfigBase.ConfField.class);
+            if (confField != null && confField.sensitive() && field.getType() == String.class) {
+                Assertions.assertTrue(secretConfigs.contains(field.getName()),
+                        field.getName() + " is sensitive but is missing from secretConfigs in this test");
+            }
+        }
+    }
+
     // An empty sensitive config is left as-is (no secret to hide), so "unset" stays visible.
     @Test
     public void testEmptySensitiveConfigIsNotMasked() {
@@ -91,6 +140,73 @@ public class ConfigTest {
             }
         }
         throw new IllegalStateException("config not found: " + key);
+    }
+
+    @Test
+    public void testOptionsConfigAcceptsItsOptionsOnly() throws ConfigException {
+        String original = Config.mysql_caching_sha2_password_clients;
+        try {
+            ConfigBase.setMutableConfig("mysql_caching_sha2_password_clients", "ALL");
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("mysql_caching_sha2_password_clients", "bogus"));
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+        } finally {
+            Config.mysql_caching_sha2_password_clients = original;
+        }
+    }
+
+    @Test
+    public void testOptionsConfigIsValidatedDuringStartup() throws Exception {
+        String original = Config.mysql_caching_sha2_password_clients;
+        int originalInterval = Config.cloud_warm_up_job_scheduler_interval_millisecond;
+        try {
+            Config config = new Config();
+            Path file = configFile("mysql_caching_sha2_password_clients= ALL \n"
+                    + "cloud_warm_up_job_scheduler_interval_millisecond=0\n");
+            config.init(file.toString());
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            // This unrelated callback rejects zero at runtime; startup must not dispatch it.
+            Assertions.assertEquals(0, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+            config.init(configFile("").toString());
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            for (String value : new String[] {"nnoe", "", " "}) {
+                IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> config.init(configFile("mysql_caching_sha2_password_clients=" + value + "\n")
+                                .toString()));
+                Assertions.assertInstanceOf(ConfigException.class, error.getCause());
+                Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            }
+        } finally {
+            Config.mysql_caching_sha2_password_clients = original;
+            Config.cloud_warm_up_job_scheduler_interval_millisecond = originalInterval;
+        }
+    }
+
+    @Test
+    public void testOptionsConfigIsValidatedInCustomStartupFile() throws Exception {
+        String original = Config.mysql_caching_sha2_password_clients;
+        try {
+            Config config = new Config();
+            config.init(configFile("mysql_caching_sha2_password_clients=auto\n").toString());
+            Path custom = configFile("mysql_caching_sha2_password_clients= NONE \n");
+            config.initCustom(custom.toString());
+            Assertions.assertEquals("none", Config.mysql_caching_sha2_password_clients);
+            Files.writeString(custom, "mysql_caching_sha2_password_clients=nnoe\n");
+            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> config.initCustom(custom.toString()));
+            Assertions.assertInstanceOf(ConfigException.class, error.getCause());
+            Assertions.assertEquals("none", Config.mysql_caching_sha2_password_clients);
+        } finally {
+            Config.mysql_caching_sha2_password_clients = original;
+        }
+    }
+
+    private static Path configFile(String contents) throws Exception {
+        Path file = Files.createTempFile("fe_ut_options_", ".conf");
+        file.toFile().deleteOnExit();
+        Files.writeString(file, contents);
+        return file;
     }
 
     @Test

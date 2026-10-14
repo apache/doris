@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
@@ -95,7 +96,6 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -346,6 +346,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     Table resolveScanTable(PaimonTableHandle paimonHandle) {
         Table table = resolveTable(paimonHandle);
+        if (!paimonHandle.isSystemTable() && PaimonTableDecorators.isChainTable(table)) {
+            // A chain table reads a partition its main branch lacks from its snapshot and delta branches.
+            // Doris plans neither those partitions nor the chain splits yet, so it would read them as empty.
+            throw new DorisConnectorException("Reading Paimon chain table " + paimonHandle.getDatabaseName() + "."
+                    + paimonHandle.getTableName() + " (chain-table.enabled) is not supported yet");
+        }
         return withBoundSchemaAuthentication(paimonHandle, () -> applyScanOptions(paimonHandle, table));
     }
 
@@ -567,10 +573,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Statement-scoped reuse: within one statement the identical scan (same table, same
         // branch/options pin, same generation, same projection, same filter, same limit, same COUNT
         // pushdown) plans once and every duplicated relation shares the result. Session variables
-        // are constant within a statement and deliberately absent from the key.
+        // are constant within a statement and deliberately absent from the key. Every scan of a
+        // statement is planned within one plan, so the memo is dropped when planning ends.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
-                memoKey, () -> new ConcurrentHashMap<>());
+        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request, generation);
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(planScanInternal(session,
@@ -942,6 +949,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 ? physicalVariantSchemaIds(table, paimonHandle, rowType, columns, dataSplits)
                 : Collections.emptySet();
 
+        // Schema IDs are branch-local, even when both branches expose the same current row type.
+        Map<FileStoreTable, Map<Long, Boolean>> legacyOrcTimestampSchemas = new java.util.IdentityHashMap<>();
+        Set<Integer> readFieldIds = scanReadFieldIds(rowType, columns, filter);
+        // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
+        java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
+                () -> resolveSchemaDictTable(table, paimonHandle));
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
@@ -958,9 +971,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
-            if (shouldUseNativeReader(paimonHandle.isForceJni(),
-                    isForceJniScannerEnabled(session), hasVariantProjection,
-                    physicalVariantSchemaIds, optRawFiles)) {
+            boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni(),
+                    isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
+            boolean legacyOrcTimestamp = false;
+            if (nativeEligible) {
+                FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
+                legacyOrcTimestamp = requiresLegacyOrcTimestampReader(splitTable, optRawFiles, readFieldIds,
+                        legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>()));
+            }
+            if (nativeEligible && !legacyOrcTimestamp) {
                 if (ignoreNative) {
                     if (requiresMetadataColumns) {
                         throw new DorisConnectorException(
@@ -996,7 +1015,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
-                if (requiresMetadataColumns) {
+                // Raw convertibility alone does not select the SDK raw reader: historical primary-key
+                // files without delete counts require merging and lose physical file/row positions.
+                if (requiresMetadataColumns && (!legacyOrcTimestamp || !supportsJniPhysicalMetadata(
+                        legacyOrcSchemaTable.get(), dataSplit))) {
                     validateMetadataColumnReader(true, false);
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
@@ -1014,6 +1036,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return ranges;
+    }
+
+    private static boolean supportsJniPhysicalMetadata(Table table, DataSplit split) {
+        if (!split.rawConvertible() || split.isStreaming()) {
+            return false;
+        }
+        // Match Paimon's PrimaryKeyTableRawFileSplitReadProvider eligibility, not convertToRawFiles().
+        return table.primaryKeys().isEmpty()
+                || split.dataFiles().stream().allMatch(file -> file.deleteRowCount().isPresent());
     }
 
     private static boolean usesFallbackRead(Table scanTable, PaimonTableHandle handle) {
@@ -1480,18 +1511,21 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     static FileStoreTable pinCatalogSnapshot(FileStoreTable catalogLessTable, FileStoreTable dataTable) {
-        FileStoreTable source = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
-        FileStoreTable target = PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable);
+        return pinCatalogSnapshotOfBranches(PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable),
+                PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+    }
+
+    private static FileStoreTable pinCatalogSnapshotOfBranches(FileStoreTable target, FileStoreTable source) {
         if (source instanceof FallbackReadFileStoreTable) {
             if (!(target instanceof FallbackReadFileStoreTable)) {
                 throw new IllegalStateException("Catalog-less Paimon table lost its fallback branch");
             }
             FallbackReadFileStoreTable sourcePair = (FallbackReadFileStoreTable) source;
             FallbackReadFileStoreTable targetPair = (FallbackReadFileStoreTable) target;
-            return new FallbackReadFileStoreTable(
-                    pinCatalogSnapshotBranch(targetPair.wrapped(), sourcePair.wrapped()),
-                    pinCatalogSnapshotBranch(targetPair.other(), sourcePair.other()),
-                    PaimonReaderOptions.isWrappedFirst(targetPair));
+            // A chain table nests its snapshot and delta branches in a pair of their own; pin those too.
+            return PaimonTableDecorators.rebuildFallbackPair(targetPair,
+                    pinCatalogSnapshotOfBranches(targetPair.wrapped(), sourcePair.wrapped()),
+                    pinCatalogSnapshotOfBranches(targetPair.other(), sourcePair.other()));
         }
         return pinCatalogSnapshotBranch(target, source);
     }
@@ -1529,15 +1563,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (dataTable.catalogEnvironment().catalogLoader() == null) {
             return dataTable;
         }
-        FileStoreTable undecorated = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
-        if (undecorated instanceof FallbackReadFileStoreTable) {
-            FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
-            return new FallbackReadFileStoreTable(
-                    rebuildWithoutCatalogLoader(fallbackReadTable.wrapped()),
-                    rebuildWithoutCatalogLoader(fallbackReadTable.other()),
-                    PaimonReaderOptions.isWrappedFirst(fallbackReadTable));
+        return dropCatalogLoaderOfBranches(PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+    }
+
+    private static FileStoreTable dropCatalogLoaderOfBranches(FileStoreTable table) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            // A chain table nests its snapshot and delta branches in a pair of their own; rebuild those too.
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    dropCatalogLoaderOfBranches(pair.wrapped()), dropCatalogLoaderOfBranches(pair.other()));
         }
-        return rebuildWithoutCatalogLoader(undecorated);
+        return rebuildWithoutCatalogLoader(table);
     }
 
     private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {
@@ -1927,6 +1963,81 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
     }
 
+    private static Set<Integer> scanReadFieldIds(RowType rowType, List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter) {
+        Set<String> names = columns.stream().filter(PaimonColumnHandle.class::isInstance)
+                .map(PaimonColumnHandle.class::cast)
+                .filter(column -> !column.isMetadataColumn())
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        filter.ifPresent(expression -> collectFilterColumnNames(expression, names));
+        return rowType.getFields().stream()
+                .filter(field -> names.contains(field.name().toLowerCase(Locale.ROOT)))
+                .map(DataField::id).collect(Collectors.toSet());
+    }
+
+    private static void collectFilterColumnNames(ConnectorExpression expression, Set<String> names) {
+        if (expression instanceof ConnectorColumnRef) {
+            names.add(((ConnectorColumnRef) expression).getColumnName().toLowerCase(Locale.ROOT));
+        }
+        expression.getChildren().forEach(child -> collectFilterColumnNames(child, names));
+    }
+
+    static FileStoreTable legacyOrcSplitTable(FileStoreTable table, DataSplit split) {
+        FileStoreTable base = PaimonTableDecorators.unwrapToFallbackOrBase(table);
+        if (base instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) base;
+            boolean fallback = ((FallbackReadFileStoreTable.FallbackSplit) split).isFallback();
+            // Match the SDK reader's branch selection before reading either options or historical schemas.
+            return PaimonReaderOptions.isWrappedFirst(pair) != fallback ? pair.wrapped() : pair.other();
+        }
+        return base;
+    }
+
+    static boolean requiresLegacyOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,
+            Set<Integer> readFieldIds, Map<Long, Boolean> schemaTimestamps) {
+        if (readFieldIds.isEmpty() || !rawFiles.isPresent()
+                || rawFiles.get().stream().noneMatch(f -> f.path().endsWith(".orc"))
+                || !new org.apache.paimon.options.Options(table.options()).get(
+                        org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE)) {
+            return false;
+        }
+        // Only fields present in a file require SDK timezone conversion. A newly added nullable LTZ
+        // column reads as NULL in older files and must not disable their native metadata scans.
+        FileStoreTable fileStoreTable = (FileStoreTable) table;
+        for (RawFile file : rawFiles.get()) {
+            if (file.path().endsWith(".orc") && schemaTimestamps.computeIfAbsent(file.schemaId(),
+                    id -> readsTimestampLtz(
+                            fileStoreTable.schemaManager().schema(id).logicalRowType(), readFieldIds))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean readsTimestampLtz(RowType rowType, Set<Integer> readFieldIds) {
+        return rowType.getFields().stream().anyMatch(
+                field -> readFieldIds.contains(field.id()) && containsTimestampLtz(field.type()));
+    }
+
+    private static boolean containsTimestampLtz(DataType type) {
+        if (type instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+            return true;
+        }
+        if (type instanceof org.apache.paimon.types.ArrayType) {
+            return containsTimestampLtz(((org.apache.paimon.types.ArrayType) type).getElementType());
+        }
+        if (type instanceof org.apache.paimon.types.MapType) {
+            org.apache.paimon.types.MapType map = (org.apache.paimon.types.MapType) type;
+            return containsTimestampLtz(map.getKeyType()) || containsTimestampLtz(map.getValueType());
+        }
+        if (type instanceof org.apache.paimon.types.MultisetType) {
+            return containsTimestampLtz(((org.apache.paimon.types.MultisetType) type).getElementType());
+        }
+        return type instanceof RowType
+                && ((RowType) type).getFieldTypes().stream().anyMatch(PaimonScanPlanProvider::containsTimestampLtz);
+    }
+
     private static boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
         if (!optRawFiles.isPresent() || optRawFiles.get().isEmpty()) {
             return false;
@@ -1967,7 +2078,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 result.put(partitionKeys.get(i), value);
             } catch (UnsupportedOperationException e) {
                 // Legacy parity (PaimonUtil.getPartitionInfoMap): an unsupported partition column
-                // type (e.g. binary/varbinary) drops the ENTIRE map — BE then materializes no
+                // type drops the ENTIRE map — BE then materializes no
                 // columnsFromPath for this split, rather than emitting non-deterministic [B@hash
                 // garbage. Legacy returned null; the connector returns an empty map, which
                 // PaimonScanRange.populateRangeParams treats identically (no columnsFromPath emitted).
@@ -1981,10 +2092,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Renders one Paimon partition value to the canonical string BE expects in columnsFromPath.
-     * Byte-faithful port of legacy PaimonUtil.serializePartitionValue. Pure static (no Table /
-     * ReadBuilder needed) so the correctness-critical per-type rendering is unit-testable offline.
-     * Only TIMESTAMP_WITH_LOCAL_TIME_ZONE consumes {@code timeZone} (session zone, UTC-&gt;session
-     * shift); all other cases ignore it.
+     * Pure static (no Table / ReadBuilder needed) so per-type rendering is testable offline.
+     * Zoned timestamps carry an explicit UTC offset and binary keys carry lossless hex, independent
+     * of the session time zone.
      *
      * <p>For native ORC/Parquet reads, partition columns are NOT stored in the data files — BE
      * materializes them from this string. A raw {@code Object.toString()} corrupts several types:
@@ -2006,8 +2116,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 return value == null ? null : Float.toString((Float) value);
             case DOUBLE:
                 return value == null ? null : Double.toString((Double) value);
-            // BINARY / VARBINARY intentionally unsupported (falls to default -> throws -> map
-            // dropped): a utf8 string render can corrupt the bytes (legacy comment).
+            case BINARY:
+            case VARBINARY:
+                // Native files omit partition columns; the VARBINARY path decoder needs lossless hex.
+                return value == null ? null : "0x" + java.util.HexFormat.of().withUpperCase().formatHex((byte[]) value);
             case DATE:
                 return value == null ? null
                         : LocalDate.ofEpochDay((Integer) value).format(DateTimeFormatter.ISO_LOCAL_DATE);
@@ -2025,10 +2137,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     return null;
                 }
                 return ((Timestamp) value).toLocalDateTime()
-                        .atZone(ZoneId.of("UTC"))
-                        .withZoneSameInstant(ZoneId.of(timeZone))
-                        .toLocalDateTime()
-                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                        .atOffset(java.time.ZoneOffset.UTC)
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
             default:
                 throw new UnsupportedOperationException(
                         "Unsupported type for serializePartitionValue: " + type);

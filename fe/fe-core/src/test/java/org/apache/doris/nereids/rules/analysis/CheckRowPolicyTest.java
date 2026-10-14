@@ -380,10 +380,11 @@ public class CheckRowPolicyTest extends TestWithFeService {
         useUser(userName);
         connectContext.getState().setIsQuery(true);
 
-        Plan rewrittenPlan = PlanChecker.from(connectContext)
-                .analyze("select k1, k2 from " + tableNameMow + " for version as of 1001")
-                .rewrite()
-                .getPlan();
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .parse("select k1, k2 from " + tableNameMow + " for version as of 1001");
+        // PlanChecker runs the analyzer directly, so supply the planner's statement reference.
+        checker.getCascadesContext().getStatementContext().getOrRegisterRowBinlogReferenceTso(() -> 2000L);
+        Plan rewrittenPlan = checker.analyze().rewrite().getPlan();
         Set<LogicalUnion> unions = rewrittenPlan.collect(node -> node instanceof LogicalUnion);
         Assertions.assertEquals(1, unions.size());
 

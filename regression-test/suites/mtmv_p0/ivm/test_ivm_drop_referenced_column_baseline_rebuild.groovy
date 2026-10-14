@@ -109,11 +109,11 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
     order_qt_mv_rows_baseline "SELECT grp, cnt, total FROM ${mvName}"
 
     // ------------------------------------- 2. unreferenced column: no baseline invalidation
-    // The IVM baseline itself is untouched -- no partition requirement is raised. The shared base-table
-    // change hook still moves the MV into SCHEMA_CHANGE for a column change, though, and that state is
-    // what the refresh below reads: it is escalated to a whole-MV COMPLETE. Narrowing the hook so a
-    // change that re-analyses cleanly leaves an IVM MV alone is PR 4's S1-5; pinned here so the
-    // escalation cannot pass unnoticed until then.
+    // Neither half is touched: no partition requirement is raised, and the shared base-table change hook
+    // leaves the MV alone as well -- its criterion is a re-analysis of the MV's own query, and a column
+    // the query does not name leaves that query analysable, so there is no rebuild for the state to stand
+    // for. How that shows up is what the refresh below reports: it stays on the incremental path, which is
+    // the path that records no refresh mode at all, instead of being escalated to a whole-MV COMPLETE.
     def before = ddlJobCount(tableName)
     sql """ALTER TABLE ${tableName} DROP COLUMN spare"""
     waitDdlFinished(tableName, before)
@@ -121,11 +121,13 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
     sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
     task = waitTerminalTask(mvName)
     assertEquals("SUCCESS", task.Status.toString(),
-            "dropping an unreferenced column must not invalidate the IVM baseline: " + task.ErrorMsg)
-    assertEquals("COMPLETE", task.RefreshMode.toString(),
-            "the shared hook still moves the MV into SCHEMA_CHANGE, so this refresh is escalated")
-    assertEquals("1", task.IvmRebuiltPartitions.toString(),
-            "and the escalated refresh reports the partition it rebuilt instead of the request it got")
+            "dropping an unreferenced column must not invalidate the MV: " + task.ErrorMsg)
+    // Only the partition and whole-MV attempts set a mode; an incremental one leaves the column unset,
+    // which comes back as the same literal the folding in the other suites turns into a token.
+    assertEquals("\\N", task.RefreshMode.toString(),
+            "the refresh must not be escalated to a whole-MV COMPLETE, so it records no refresh mode")
+    assertEquals("0", task.IvmRebuiltPartitions.toString(),
+            "and it rebuilds no partition the request did not ask for")
 
     // --------------------------- 3. referenced column: the refresh can no longer analyse
     before = ddlJobCount(tableName)

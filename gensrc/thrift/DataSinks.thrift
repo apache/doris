@@ -233,6 +233,8 @@ struct TResultSink {
     2: optional TResultFileSinkOptions file_options; // deprecated
     // [deprecated] Two-phase read is replaced by TopN lazy materialization.
     3: optional TFetchOption fetch_option;
+    // Absent for old FEs, whose Flight schema comparison requires legacy field metadata.
+    4: optional bool enable_arrow_type_metadata = false;
 }
 
 struct TResultFileSink {
@@ -494,12 +496,14 @@ struct TIcebergTableSink {
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
     // Unset keeps collection enabled for rolling upgrades with older FEs.
     18: optional bool collect_column_stats;
+    // Thrift map values cannot be null. These keys distinguish SQL NULL from text and empty bytes.
+    19: optional set<string> static_partition_null_keys;
     // Iceberg field ids of the FLOAT/DOUBLE fields whose NaN count would survive the table's metrics policy
     // (effective mode != none). Counting a NaN is an extra pass over the data -- unlike the other statistics,
     // which the parquet footer already carries -- so BE must not pay it for a field FE would then drop.
     // Unset or empty means count nothing: an older FE does not read nan_value_counts back, so counting for it
     // would be pure waste, and a table whose float fields are all metrics-disabled has nothing to report.
-    19: optional list<i32> nan_count_field_ids;
+    20: optional list<i32> nan_count_field_ids;
 }
 
 struct TIcebergRewritableDeleteFileSet {

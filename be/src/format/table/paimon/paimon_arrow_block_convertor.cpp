@@ -24,10 +24,7 @@
 
 namespace doris::paimon {
 
-Status PaimonArrowBlockConvertor::init() {
-    if (_arrow_schema != nullptr) {
-        return Status::OK();
-    }
+Status PaimonArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const {
     // Decode the pinned table schema here; rebuilding it from Doris types would lose
     // nested nullability, timestamp precision and Paimon's physical Variant layout.
     auto input = std::make_shared<arrow::io::BufferReader>(
@@ -37,7 +34,16 @@ Status PaimonArrowBlockConvertor::init() {
         return Status::InvalidArgument("Failed to deserialize Paimon Arrow schema: {}",
                                        reader.status().ToString());
     }
-    _arrow_schema = reader.ValueOrDie()->schema();
+    *result = reader.ValueOrDie()->schema();
+    return Status::OK();
+}
+
+Status PaimonArrowBlockConvertor::init() {
+    if (_arrow_schema != nullptr) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(
+            PaimonArrowSchemaConvertor(_serialized_schema).get_arrow_schema(&_arrow_schema));
     _serialized_schema.clear();
     return Status::OK();
 }

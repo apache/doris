@@ -1539,7 +1539,11 @@ public class PropertyAnalyzer {
         if (properties.containsKey(PROPERTIES_BINLOG_TTL_SECONDS)) {
             String ttlSeconds = properties.get(PROPERTIES_BINLOG_TTL_SECONDS);
             try {
-                binlogConfigMap.put(PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(Long.parseLong(ttlSeconds)));
+                long ttl = Long.parseLong(ttlSeconds);
+                if (ttl < BinlogConfig.NO_TTL) {
+                    throw new NumberFormatException();
+                }
+                binlogConfigMap.put(PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(ttl));
                 properties.remove(PROPERTIES_BINLOG_TTL_SECONDS);
             } catch (Exception e) {
                 throw new AnalysisException("Invalid binlog ttl_seconds value: " + ttlSeconds);
@@ -1570,8 +1574,7 @@ public class PropertyAnalyzer {
         if (properties.containsKey(PROPERTIES_BINLOG_FORMAT)) {
             String format = properties.get(PROPERTIES_BINLOG_FORMAT);
             try {
-                BinlogConfig.BinlogFormat.valueOf(format);
-                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, format);
+                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, BinlogConfig.BinlogFormat.fromString(format).name());
                 properties.remove(PROPERTIES_BINLOG_FORMAT);
             } catch (Exception e) {
                 throw new AnalysisException("Invalid binlog format value: " + format);
@@ -1591,6 +1594,16 @@ public class PropertyAnalyzer {
 
 
         return binlogConfigMap;
+    }
+
+    /**
+     * Rewrite binlog.format to its canonical name, for properties persisted as written (database
+     * properties): they are parsed again on replay, and an FE that predates case-insensitive parsing
+     * only accepts the canonical name. The value must already be validated by analyzeBinlogConfig.
+     */
+    public static void normalizeBinlogFormat(Map<String, String> properties) {
+        properties.computeIfPresent(PROPERTIES_BINLOG_FORMAT,
+                (key, format) -> BinlogConfig.BinlogFormat.fromString(format).name());
     }
 
     public static boolean analyzeIsBeingSynced(Map<String, String> properties, boolean defaultValue) {

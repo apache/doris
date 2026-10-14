@@ -30,7 +30,9 @@ import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.reader.FileRecordIterator;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -116,6 +118,7 @@ public class PaimonJniScanner extends JniScanner {
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
+    private int[] outputToReadIndex;
     private List<PaimonVariantProjection> variantProjections;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
@@ -196,7 +199,7 @@ public class PaimonJniScanner extends JniScanner {
 
     private void initReader() throws IOException {
         ReadBuilder readBuilder = table.newReadBuilder();
-        if (this.fields.length > this.paimonAllFieldNames.size()) {
+        if (Arrays.stream(fields).filter(field -> !isFileMetadataField(field)).count() > paimonAllFieldNames.size()) {
             throw new IOException(
                     String.format(
                             "The jni reader fields' size {%s} is not matched with paimon fields' size {%s}."
@@ -207,8 +210,15 @@ public class PaimonJniScanner extends JniScanner {
         List<DataField> readFields = new ArrayList<>(projected.length);
         variantProjections = new ArrayList<>(projected.length);
         boolean hasReadTypeProjection = false;
-        for (int outputIndex = 0; outputIndex < projected.length; outputIndex++) {
-            DataField tableField = table.rowType().getFields().get(projected[outputIndex]);
+        outputToReadIndex = new int[fields.length];
+        Arrays.fill(outputToReadIndex, -1);
+        int outputIndex = 0;
+        for (int readIndex = 0; readIndex < projected.length; readIndex++) {
+            while (isFileMetadataField(fields[outputIndex])) {
+                outputIndex++;
+            }
+            outputToReadIndex[outputIndex] = readIndex;
+            DataField tableField = table.rowType().getFields().get(projected[readIndex]);
             PaimonVariantProjection variantProjection = tableField.type() instanceof VariantType
                     ? PaimonVariantProjection.create(
                             variantAccessPathsByColumn.get(outputIndex), timeZone)
@@ -229,6 +239,7 @@ public class PaimonJniScanner extends JniScanner {
                 readFields.add(tableField.newType(
                         variantProjection.readType().copy(tableField.type().isNullable())));
             }
+            outputIndex++;
         }
         if (hasReadTypeProjection) {
             readBuilder.withReadType(new RowType(readFields));
@@ -328,11 +339,15 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private int[] getProjected() {
-        return Arrays.stream(fields).mapToInt(fieldName -> {
+        return Arrays.stream(fields).filter(field -> !isFileMetadataField(field)).mapToInt(fieldName -> {
             int index = getFieldIndex(paimonAllFieldNames, fieldName);
             Preconditions.checkArgument(index >= 0, "RequiredField %s not found in schema", fieldName);
             return index;
         }).toArray();
+    }
+
+    private static boolean isFileMetadataField(String name) {
+        return "__paimon_file_path".equalsIgnoreCase(name) || "__paimon_row_index".equalsIgnoreCase(name);
     }
 
     static int getFieldIndex(List<String> fieldNames, String fieldName) {
@@ -447,9 +462,24 @@ public class PaimonJniScanner extends JniScanner {
                     rows++;
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
-                        columnValue.setIdx(
-                                i, types[i], paimonDataTypeList.get(i), variantProjections.get(i));
-                        appendData(i, columnValue);
+                        int readIndex = outputToReadIndex[i];
+                        if (readIndex < 0) {
+                            // Physical positions come from the SDK, so filtering/deletion vectors cannot
+                            // turn a returned-row counter into an incorrect file row index.
+                            if (!(recordIterator instanceof FileRecordIterator)) {
+                                throw new IOException("Paimon metadata columns require a physical file iterator");
+                            }
+                            FileRecordIterator<InternalRow> fileRows = (FileRecordIterator<InternalRow>) recordIterator;
+                            if ("__paimon_file_path".equalsIgnoreCase(fields[i])) {
+                                vectorTable.getColumn(i).appendStringAndOffset(fileRows.filePath().toString());
+                            } else {
+                                vectorTable.getColumn(i).appendLong(fileRows.returnedPosition());
+                            }
+                        } else {
+                            columnValue.setIdx(readIndex, types[i], paimonDataTypeList.get(readIndex),
+                                    variantProjections.get(readIndex));
+                            appendData(i, columnValue);
+                        }
                     }
                     if (rows >= batchSize) {
                         if (fields.length == 0) {
@@ -749,6 +779,11 @@ public class PaimonJniScanner extends JniScanner {
             }
             // Each branch owns an independent planner setting; a smaller sibling is not an
             // execution ceiling and must never throttle the other branch.
+            if (pair instanceof ChainGroupReadTable) {
+                // A chain table nests this group over its snapshot and delta branches. The group plans
+                // and reads the chain itself and is the only pair Paimon lets one nest inside another.
+                return new ChainGroupReadTable(main, other);
+            }
             return new FallbackReadFileStoreTable(main, other, isWrappedFirst(pair));
         }
 

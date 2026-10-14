@@ -36,6 +36,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/string_buffer.hpp"
@@ -270,6 +271,28 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryRoundTrip) {
     EXPECT_EQ(binary_array->value_length(0), static_cast<int>(view.size));
     const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
     EXPECT_EQ(memcmp(raw, view.data, view.size), 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, IcebergFixedWidthChecksValuesInsteadOfExpressionLength) {
+    DataTypeVarbinarySerDe serde;
+    cctz::time_zone tz;
+    auto type = std::make_shared<DataTypeVarbinary>();
+    auto field = arrow::field("value", arrow::fixed_size_binary(16));
+    auto column = ColumnVarbinary::create();
+    const auto bytes = make_bytes(16);
+    column->insert_data(bytes.data(), bytes.size());
+    arrow::FixedSizeBinaryBuilder builder(field->type(), arrow::default_memory_pool());
+    // Expression widths may be unbounded after casts, but the target requires exactly 16 bytes.
+    ASSERT_TRUE(
+            serde.write_column_to_iceberg_arrow(type, *column, nullptr, field, &builder, 0, 1, tz)
+                    .ok());
+    std::shared_ptr<arrow::Array> result;
+    ASSERT_TRUE(builder.Finish(&result).ok());
+    EXPECT_EQ(static_cast<arrow::FixedSizeBinaryArray&>(*result).GetView(0), bytes);
+    column->insert_data("short", 5);
+    EXPECT_FALSE(
+            serde.write_column_to_iceberg_arrow(type, *column, nullptr, field, &builder, 1, 2, tz)
+                    .ok());
 }
 
 TEST_F(DataTypeVarbinarySerDeTest, ArrowReadSupportsLargeAndFixedSizeBinary) {
