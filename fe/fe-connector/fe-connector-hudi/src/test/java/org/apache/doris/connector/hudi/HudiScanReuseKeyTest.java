@@ -37,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -202,6 +203,27 @@ class HudiScanReuseKeyTest {
     }
 
     @Test
+    void statementReuseLastsOnlyWhilePlanning() {
+        // Identical scans share their ranges only within one plan, so the memo is kept for planning only: once the
+        // engine ends planning no range is held, and a later plan of the statement plans the scan again.
+        // MUTATION: keeping the memo for the whole statement (computeIfAbsent) -> red.
+        RecordingScanProvider provider = new RecordingScanProvider();
+        MemoScope scope = new MemoScope();
+        ConnectorSession session = new MemoSession(scope);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle().toBuilder().prunedPartitionPaths(null).build(),
+                Collections.<ConnectorColumnHandle>emptyList()).build();
+        List<ConnectorScanRange> planned = provider.planScan(session, request);
+
+        scope.endPlanning();
+
+        Assertions.assertFalse(scope.contains(HudiScanPlanProvider.SCAN_REUSE_NAMESPACE + ":7:same-statement"),
+                "the planned ranges must not outlive planning");
+        Assertions.assertNotSame(planned, provider.planScan(session, request));
+        Assertions.assertEquals(2, provider.planCalls, "a scan planned after planning ended plans again");
+    }
+
+    @Test
     void statementReuseRetriesASchemaResolutionThatFailedOnce() {
         RecordingScanProvider provider = new RecordingScanProvider();
         provider.failNextSchemaIdResolution = true;
@@ -348,11 +370,29 @@ class HudiScanReuseKeyTest {
 
     private static final class MemoScope implements ConnectorStatementScope {
         private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+        private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
 
         @Override
         @SuppressWarnings("unchecked")
         public <T> T computeIfAbsent(String key, Supplier<T> loader) {
             return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
+
+        @Override
+        public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+            T value = computeIfAbsent(key, loader);
+            planningKeys.add(key);
+            return value;
+        }
+
+        @Override
+        public void endPlanning() {
+            planningKeys.forEach(cache::remove);
+            planningKeys.clear();
+        }
+
+        boolean contains(String key) {
+            return cache.containsKey(key);
         }
     }
 

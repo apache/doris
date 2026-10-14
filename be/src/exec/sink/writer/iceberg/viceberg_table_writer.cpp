@@ -31,8 +31,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/sink/writer/external_file_writer_compatibility.h"
 #include "exec/sink/writer/iceberg/iceberg_partition_path.h"
-#include "exec/sink/writer/iceberg/iceberg_writer_compatibility.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
@@ -59,7 +59,7 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _operator_profile = profile;
 
-    RETURN_IF_ERROR(validate_iceberg_external_file_report_ack(state->query_options()));
+    RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options()));
 
     // Get target file size from query options
     // If value is 0 or not set, use config::iceberg_sink_max_file_size

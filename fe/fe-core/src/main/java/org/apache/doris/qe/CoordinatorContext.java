@@ -276,7 +276,8 @@ public class CoordinatorContext {
 
     public static CoordinatorContext buildForSql(NereidsPlanner planner, NereidsCoordinator coordinator) {
         ConnectContext connectContext = planner.getCascadesContext().getConnectContext();
-        TQueryOptions queryOptions = initQueryOptions(connectContext);
+        TQueryOptions queryOptions = initQueryOptions(
+                connectContext, planner.getQueryOptions().getBeExecVersion());
         TQueryGlobals queryGlobals = createQueryGlobals(connectContext);
         TDescriptorTable descriptorTable = DescriptorToThriftConverter.toThrift(planner.getDescTable());
 
@@ -327,9 +328,9 @@ public class CoordinatorContext {
                 executionProfile);
     }
 
-    private static TQueryOptions initQueryOptions(ConnectContext context) {
+    static TQueryOptions initQueryOptions(ConnectContext context, int beExecVersion) {
         TQueryOptions queryOptions = context.getSessionVariable().toThrift();
-        queryOptions.setBeExecVersion(Config.be_exec_version);
+        queryOptions.setBeExecVersion(beExecVersion);
         queryOptions.setQueryTimeout(context.getExecTimeoutS());
         queryOptions.setExecutionTimeout(context.getExecTimeoutS());
         if (queryOptions.getExecutionTimeout() < 1) {

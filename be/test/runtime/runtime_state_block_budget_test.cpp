@@ -60,26 +60,55 @@ TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetAcrossParallelTasks
     EXPECT_FALSE(second_status.ok());
 }
 
-TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetWithOpaqueConnectorData) {
+TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetWithPaimonCommitData) {
     RuntimeState iceberg_state;
-    RuntimeState connector_state;
+    RuntimeState paimon_state;
     auto budget = std::make_shared<ExternalFileReportState>();
     iceberg_state.set_external_file_report_state(budget);
-    connector_state.set_external_file_report_state(budget);
+    paimon_state.set_external_file_report_state(budget);
     const int32_t saved_limit = config::thrift_max_message_size;
     config::thrift_max_message_size = 1024 * 1024 + 512;
     TIcebergCommitData iceberg_data;
     iceberg_data.__set_file_path(std::string(300, 'x'));
+    TPaimonCommitMessage paimon_message;
+    paimon_message.__set_payload(std::string(300, 'y'));
 
     Status first_status = iceberg_state.add_iceberg_commit_datas(iceberg_data);
-    Status second_status = connector_state.add_connector_commit_data(std::string(300, 'y'));
+    ExternalFileReportReservation paimon_reservation;
+    Status second_status =
+            paimon_state.reserve_paimon_commit_messages({paimon_message}, &paimon_reservation);
 
     config::thrift_max_message_size = saved_limit;
     EXPECT_TRUE(first_status.ok()) << first_status;
     EXPECT_FALSE(second_status.ok());
-    std::vector<std::string> collected;
-    connector_state.append_connector_commit_data(&collected);
+    std::vector<TPaimonCommitMessage> collected;
+    paimon_state.append_paimon_commit_messages(&collected);
     EXPECT_TRUE(collected.empty());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, ReleasesUnpublishedPaimonReservationOnScopeExit) {
+    RuntimeState state;
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 1024 * 1024 + 512;
+    TPaimonCommitMessage first_message;
+    first_message.__set_payload(std::string(300, 'x'));
+    {
+        ExternalFileReportReservation first_reservation;
+        ASSERT_TRUE(state.reserve_paimon_commit_messages({first_message}, &first_reservation).ok());
+    }
+
+    TPaimonCommitMessage second_message;
+    second_message.__set_payload(std::string(300, 'y'));
+    ExternalFileReportReservation second_reservation;
+    Status second_status =
+            state.reserve_paimon_commit_messages({second_message}, &second_reservation);
+    config::thrift_max_message_size = saved_limit;
+    ASSERT_TRUE(second_status.ok()) << second_status;
+    state.publish_reserved_paimon_commit_messages({std::move(second_message)}, &second_reservation);
+    std::vector<TPaimonCommitMessage> collected;
+    state.append_paimon_commit_messages(&collected);
+    ASSERT_EQ(1, collected.size());
+    EXPECT_EQ(std::string(300, 'y'), collected[0].payload);
 }
 
 TEST(RuntimeStateIcebergCommitDataTest, UsesTheSmallerCoordinatorThriftLimit) {
@@ -113,7 +142,11 @@ TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
     ASSERT_TRUE(state.add_iceberg_commit_datas(iceberg_data).ok());
     TMCCommitData mc_data;
     state.add_mc_commit_datas(mc_data);
-    ASSERT_TRUE(state.add_connector_commit_data("opaque-fragment").ok());
+    TPaimonCommitMessage paimon_message;
+    paimon_message.__set_payload("paimon-fragment");
+    ExternalFileReportReservation paimon_reservation;
+    ASSERT_TRUE(state.reserve_paimon_commit_messages({paimon_message}, &paimon_reservation).ok());
+    state.publish_reserved_paimon_commit_messages({std::move(paimon_message)}, &paimon_reservation);
     TReportExecStatusParams periodic_params;
 
     state.append_external_file_commit_data(&periodic_params, false);
@@ -121,16 +154,16 @@ TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
     EXPECT_FALSE(periodic_params.__isset.hive_partition_updates);
     EXPECT_FALSE(periodic_params.__isset.iceberg_commit_datas);
     EXPECT_FALSE(periodic_params.__isset.mc_commit_datas);
-    EXPECT_FALSE(periodic_params.__isset.connector_commit_data);
+    EXPECT_FALSE(periodic_params.__isset.paimon_commit_messages);
 
     TReportExecStatusParams final_params;
     state.append_external_file_commit_data(&final_params, true);
     EXPECT_TRUE(final_params.__isset.hive_partition_updates);
     EXPECT_TRUE(final_params.__isset.iceberg_commit_datas);
     EXPECT_TRUE(final_params.__isset.mc_commit_datas);
-    ASSERT_TRUE(final_params.__isset.connector_commit_data);
-    ASSERT_EQ(1, final_params.connector_commit_data.size());
-    EXPECT_EQ("opaque-fragment", final_params.connector_commit_data[0]);
+    ASSERT_TRUE(final_params.__isset.paimon_commit_messages);
+    ASSERT_EQ(1, final_params.paimon_commit_messages.size());
+    EXPECT_EQ("paimon-fragment", final_params.paimon_commit_messages[0].payload);
 }
 
 TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledgement) {

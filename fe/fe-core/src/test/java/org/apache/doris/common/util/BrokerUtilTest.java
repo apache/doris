@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.scan.FilePartitionUtils;
 
 import com.google.common.collect.Lists;
@@ -123,6 +124,31 @@ public class BrokerUtilTest {
             Assertions.fail();
         }
 
+    }
+
+    @Test
+    public void parseColumnsFromPathPreservesNullMetadataAndInputKeys() throws Exception {
+        // A case-insensitive parse lowercases its own copy of the keys, not the caller's list, and turns the Hive
+        // default partition into SQL NULL.
+        List<String> partitionKeys = Lists.newArrayList("Region", "Dt");
+        FilePartitionUtils.ParsedColumnsFromPath parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/REGION=cn/dt=" + ConnectorPartitionValues.NULL_PARTITION_NAME + "/data.parquet",
+                partitionKeys, false, false);
+        Assertions.assertEquals(Lists.newArrayList("cn", ""), parsed.getValues());
+        Assertions.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
+        Assertions.assertEquals(Lists.newArrayList("Region", "Dt"), partitionKeys);
+
+        // A literal \N is data on the query path.
+        parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+        Assertions.assertEquals(Collections.singletonList("\\N"), parsed.getValues());
+        Assertions.assertEquals(Collections.singletonList(false), parsed.getIsNull());
+
+        // An ACID layout has one more directory level between the partition and the file.
+        parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/p=value/delta_1_1/bucket_00000", Collections.singletonList("p"), true, true);
+        Assertions.assertEquals(Collections.singletonList("value"), parsed.getValues());
+        Assertions.assertEquals(Collections.singletonList(false), parsed.getIsNull());
     }
 
 }

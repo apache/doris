@@ -78,6 +78,7 @@ import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
@@ -133,6 +134,10 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    // Immutable for one statement execution. PREPARE does not initialize this value: each EXECUTE
+    // receives a fresh StatementContext and NereidsPlanner pins the query-option snapshot before
+    // analysis starts.
+    private Integer beExecVersion;
     // Initialized on first cost calculation so per-query SET_VAR hints have already taken effect.
     private CostWeight costWeight;
     private Optional<IvmRewriteContext> ivmRewriteContext = Optional.empty();
@@ -471,6 +476,26 @@ public class StatementContext implements Closeable {
         next.isShortCircuitQuery = isShortCircuitQuery;
         next.hasNondeterministic = hasNondeterministic;
         return next;
+    }
+
+    /** Pins the backend execution version selected for this statement execution. */
+    public void initializeBeExecVersion(int beExecVersion) {
+        Preconditions.checkState(this.beExecVersion == null || this.beExecVersion == beExecVersion,
+                "BE execution version is already pinned to %s, cannot change it to %s",
+                this.beExecVersion, beExecVersion);
+        this.beExecVersion = beExecVersion;
+    }
+
+    /** Returns whether this context belongs to an execution whose query options have been pinned. */
+    public boolean hasBeExecVersion() {
+        return beExecVersion != null;
+    }
+
+    /** Returns the backend execution version pinned for this statement execution. */
+    public int getBeExecVersion() {
+        Preconditions.checkState(beExecVersion != null,
+                "BE execution version must be initialized at the execution entry point");
+        return beExecVersion;
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -830,6 +855,17 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Drops the values of this statement's connector scope that only planning reads (see
+     * {@link ConnectorStatementScope#endPlanning}), when a connector has opened the scope; unlike
+     * {@link #getOrCreateConnectorStatementScope}, it never creates one. {@link #releasePlannerResources} calls it.
+     */
+    private synchronized void endConnectorPlanning() {
+        if (this.connectorStatementScope != null) {
+            this.connectorStatementScope.endPlanning();
+        }
+    }
+
+    /**
      * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
      * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
@@ -1148,6 +1184,10 @@ public class StatementContext implements Closeable {
                 }
             }
         }
+        // NereidsPlanner.planWithLock runs this once its plan is translated and the scans are finalized, so what
+        // connectors kept only for planning, such as the ranges identical scans share, can go, also when a resource
+        // failed to close.
+        endConnectorPlanning();
         if (throwable != null) {
             Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
             throw new IllegalStateException("Release resource failed", throwable);

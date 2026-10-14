@@ -88,6 +88,32 @@ public class VariableMgrTest extends TestWithFeService {
     }
 
     @Test
+    public void testDynamicPartitionDropProtectionIsGlobalOnly() throws Exception {
+        try {
+            VariableMgr.setGlobalSessionVariableForImage(
+                    SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION, "false");
+            Assertions.assertFalse(VariableMgr.isDynamicPartitionDropProtectionEnabled());
+
+            SetOptionsCommand sessionStmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                    "set enable_dynamic_partition_drop_protection=true", connectContext);
+            Assertions.assertThrows(DdlException.class, () -> sessionStmt.run(connectContext, null));
+
+            VariableMgr.setGlobalSessionVariableForImage(
+                    SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION, "true");
+            Assertions.assertTrue(VariableMgr.isDynamicPartitionDropProtectionEnabled());
+            Assertions.assertTrue(VariableMgr.newSessionVariable().isEnableDynamicPartitionDropProtection());
+
+            SetOptionsCommand globalStmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                    "set global enable_dynamic_partition_drop_protection=false", connectContext);
+            globalStmt.run(connectContext, null);
+            Assertions.assertFalse(VariableMgr.isDynamicPartitionDropProtectionEnabled());
+        } finally {
+            VariableMgr.setGlobalSessionVariableForImage(
+                    SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION, "false");
+        }
+    }
+
+    @Test
     public void testAuthenticationPolicyIsTheReadOnlyMysqlDefault() throws Exception {
         SessionVariable sessionVariable = new SessionVariable();
         VariableExpr variableExpr = new VariableExpr(GlobalVariable.AUTHENTICATION_POLICY);
