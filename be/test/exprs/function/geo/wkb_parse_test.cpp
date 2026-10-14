@@ -318,6 +318,25 @@ TEST_F(WkbParseTest, MixedNanCoordinatesArePreservedWithoutBecomingEmpty) {
     EXPECT_TRUE(std::isnan(y));
 }
 
+TEST_F(WkbParseTest, LegacyEwkbDimensionsKeepHistoricalXYInterpretation) {
+    const std::string xy = "000000000000F03F0000000000000040";
+    const std::string extra = "00000000000008400000000000001040";
+    for (const std::string header : {"0101000080", "0101000040", "01010000C0", "01010000A0E6100000",
+                                     "0101000060E6100000", "01010000E0E6100000"}) {
+        const auto hex = header + xy + extra;
+        std::stringstream stream(hex);
+        std::unique_ptr<GeoShape> shape;
+        ASSERT_EQ(GEO_PARSE_OK, WkbParse::parse_wkb(stream, shape)) << hex;
+        ASSERT_NE(nullptr, shape);
+        EXPECT_EQ("POINT (1 2)", shape->as_wkt());
+        const auto raw = raw_wkb_from_hex(hex);
+        EXPECT_EQ(GEO_PARSE_WKB_UNSUPPORTED_METADATA,
+                  WkbParse::validate_wkb_bytes(raw.data(), raw.size()));
+        EXPECT_EQ(GEO_PARSE_WKB_UNSUPPORTED_METADATA,
+                  WkbParse::validate_wkb_bytes(raw.data(), raw.size(), true));
+    }
+}
+
 TEST_F(WkbParseTest, UnsupportedMetadataHasTheSameStatusAtEveryDepth) {
     const auto coordinates = raw_wkb_cases().front().first.substr(5);
     const std::vector<std::string> headers = {"01E9030000", "0101000080", "0101000040",

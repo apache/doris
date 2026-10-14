@@ -57,7 +57,7 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type) {
     auto encoded = ctx.dis.readUnsigned();
     constexpr uint32_t ewkb_metadata_flags = 0x80000000 | 0x40000000 | WKB_SRID_FLAG;
     // Typed XY rejects dimension/SRID metadata; e.g. EWKB SRID 4326 is legacy-only.
-    // Historical STRING constructors enable this gate to retain SRID compatibility.
+    // Historical STRING constructors retain their EWKB XY interpretation.
     if (!ctx.allow_ewkb_srid &&
         ((encoded & ewkb_metadata_flags) != 0 || (encoded >= 1000 && encoded < 4000))) {
         return GEO_PARSE_WKB_UNSUPPORTED_METADATA;
@@ -68,6 +68,11 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type) {
         }
         ctx.srid = static_cast<int>(ctx.dis.readUnsigned());
         encoded &= ~WKB_SRID_FLAG;
+    }
+    if (ctx.allow_ewkb_srid) {
+        // Preserve the legacy parser: ignore EWKB dimension flags and read XY coordinates.
+        // Typed constructors keep rejecting these flags above.
+        encoded &= 0xFF;
     }
     // Typed values carry CRS in their schema and support only the XY base types.
     if (encoded < wkbPoint || encoded > wkbGeometryCollection) {

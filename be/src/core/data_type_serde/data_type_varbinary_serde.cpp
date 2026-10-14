@@ -36,8 +36,10 @@ namespace doris {
 namespace {
 
 std::string to_hex(StringRef value) {
-    std::string encoded(value.size * 2, '\0');
-    auto* dst = reinterpret_cast<unsigned char*>(encoded.data());
+    std::string encoded(value.size * 2 + 2, '\0');
+    encoded[0] = '0';
+    encoded[1] = 'x';
+    auto* dst = reinterpret_cast<unsigned char*>(encoded.data() + 2);
     size_t offset = 0;
     string_hex::hex_encode(reinterpret_cast<const unsigned char*>(value.data), value.size, dst,
                            offset);

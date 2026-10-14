@@ -60,6 +60,9 @@ suite("test_varbinary_sql_support") {
     order_qt_nested_bytes """SELECT id, from_binary(a[1]), from_binary(m['key']), from_binary(s.b)
                              FROM binary_sql_nested"""
 
+    order_qt_nested_hex_strings """SELECT id, cast(a as string), cast(m as string), cast(s as string)
+                                   FROM binary_sql_nested"""
+
     // Compare every long value while keeping generated output compact across source batches.
     sql """INSERT INTO binary_sql_input SELECT number + 100,
            concat(repeat('FF', 700), '00AB') FROM numbers('number'='2048')"""

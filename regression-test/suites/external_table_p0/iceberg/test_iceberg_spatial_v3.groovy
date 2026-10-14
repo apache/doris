@@ -457,6 +457,23 @@ public class CreateIcebergSpatialV3Table {
         id int, geom geometry('EPSG:3857'), geog geography('OGC:CRS84', 'vincenty')
         ) engine=iceberg properties ('format-version' = '3')"""
     sql """insert into projected_copy select id, geom, geog from projected_values"""
+    // A generic file TVF must not infer spatial identity outside the Iceberg catalog contract.
+    def spatialFile = (sql """select file_path from `projected_copy\$files` where content = 0""")[0][0]
+    test {
+        sql """select * from S3(
+            'uri' = '${spatialFile}', 'format' = 'parquet',
+            's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
+            's3.access_key' = 'admin', 's3.secret_key' = 'password',
+            's3.region' = 'us-east-1')"""
+        exception "Spatial Parquet columns are only supported through an Iceberg catalog"
+    }
+    // An unannotated BYTE_ARRAY remains binary when read without Iceberg schema metadata.
+    def rawFile = (sql """select file_path from `projected_values\$files` where content = 0""")[0][0]
+    order_qt_raw_file_bytes """select id, from_binary(geom), from_binary(geog) from S3(
+        'uri' = '${rawFile}', 'format' = 'parquet',
+        's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
+        's3.access_key' = 'admin', 's3.secret_key' = 'password',
+        's3.region' = 'us-east-1')"""
     // Recreate the catalog so the second read resolves schema and files from external metadata.
     createCatalog()
     order_qt_spatial_dml_reread """
