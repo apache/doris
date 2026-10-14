@@ -27,6 +27,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "common/query_log_context.h"
+
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
 #include <thrift/Thrift.h>

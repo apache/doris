@@ -53,10 +53,6 @@ public class FlightSqlChannel {
         allocator = new RootAllocator(Long.MAX_VALUE);
     }
 
-    public void addResult(String queryId, String runningQuery, ResultSet resultSet) {
-        addResult(queryId, runningQuery, resultSet, null);
-    }
-
     public void addResult(String queryId, String runningQuery, ResultSet resultSet, TUniqueId logQueryId) {
         List<Field> schemaFields = new ArrayList<>();
         List<FieldVector> dataFields = new ArrayList<>();
@@ -103,10 +99,6 @@ public class FlightSqlChannel {
         dataFields.add(varCharVector);
 
         return new VectorSchemaRoot(schemaFields, dataFields);
-    }
-
-    public void addOKResult(String queryId, String query) {
-        addOKResult(queryId, query, null);
     }
 
     public void addOKResult(String queryId, String query, TUniqueId logQueryId) {

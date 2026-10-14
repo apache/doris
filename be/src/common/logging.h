@@ -127,10 +127,10 @@ private:
 #define LOG_ERROR TaggableLogger(__FILE__, __LINE__, google::GLOG_ERROR)
 #define LOG_FATAL TaggableLogger(__FILE__, __LINE__, google::GLOG_FATAL)
 
-// Avoid the printed log message is truncated by the glog max log size limit
+// Reserve space for the glog prefix, including query and full fragment instance IDs.
 #define LOG_LONG_STRING(severity, long_log_str)                                \
     do {                                                                       \
-        constexpr size_t max_log_size = 30000 - 100;                           \
+        constexpr size_t max_log_size = 30000 - 256;                           \
         size_t pos = 0;                                                        \
         size_t total_size = long_log_str.size();                               \
         size_t tmp_size = std::min(max_log_size, total_size);                  \

@@ -317,6 +317,7 @@ DEFINE_Int32(sys_log_verbose_flags_v, "-1");
 // log buffer level
 DEFINE_String(log_buffer_level, "");
 // Attach query identity to runtime log events (requires restart).
+// Disabling the prefix does not restore migrated runtime message wording.
 DEFINE_Bool(sys_log_enable_query_id, "true");
 // log enable custom date time format
 DEFINE_Bool(sys_log_enable_custom_date_time_format, "false");

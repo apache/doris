@@ -49,7 +49,7 @@ public class FlightSqlResultCacheEntryTest {
     @Test
     public void testLegacyResultHasNoQueryLogIdentity() throws Exception {
         VectorSchemaRoot root = Mockito.mock(VectorSchemaRoot.class);
-        try (FlightSqlResultCacheEntry entry = new FlightSqlResultCacheEntry(root, "SELECT 1")) {
+        try (FlightSqlResultCacheEntry entry = new FlightSqlResultCacheEntry(root, "SELECT 1", null)) {
             Assertions.assertNull(entry.getQueryId());
         }
         Mockito.verify(root).close();
@@ -62,7 +62,7 @@ public class FlightSqlResultCacheEntryTest {
             ShowResultSet result = new ShowResultSet(ShowResultSetMetaData.builder()
                     .addColumn(new Column("value", ScalarType.createVarchar(10))).build(),
                     ImmutableList.of(ImmutableList.of("7")));
-            channel.addResult("independent-cache-key", "SELECT 7", result);
+            channel.addResult("independent-cache-key", "SELECT 7", result, null);
             FlightSqlResultCacheEntry entry = channel.getResult("independent-cache-key");
             Assertions.assertNull(entry.getQueryId());
             Assertions.assertEquals("SELECT 7", entry.getQuery());

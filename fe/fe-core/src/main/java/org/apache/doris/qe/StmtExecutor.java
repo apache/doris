@@ -1360,7 +1360,7 @@ public class StmtExecutor {
                     // query the ranges are the endpoints of), or reading them consumed it (an ADBC
                     // partition, a result stream the failed attempt may have drained). Dispatched again,
                     // the plan would read nothing, or only what the failed attempt left, and succeed.
-                    LOG.warn("not retrying query {} with the same plan: a scan node's ranges cannot be read"
+                    LOG.warn("not retrying query{} with the same plan: a scan node's ranges cannot be read"
                             + " again by the backend. stmt: {}",
                             QueryLogContext.queryIdSuffix(context.queryId()), parsedStmt.getOrigStmt().originStmt);
                     throw e;

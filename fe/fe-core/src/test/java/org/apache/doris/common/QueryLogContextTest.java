@@ -19,16 +19,25 @@ package org.apache.doris.common;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.httpv2.interceptor.ServletTraceIterceptor;
+import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.constants.TaskType;
+import org.apache.doris.scheduler.disruptor.TaskEvent;
+import org.apache.doris.scheduler.disruptor.TaskHandler;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.ThreadContext;
 import org.apache.logging.log4j.core.LogEvent;
@@ -397,5 +406,93 @@ public class QueryLogContextTest {
         });
         Assertions.assertNull(ConnectContext.get());
         Assertions.assertEquals("callback", ThreadContext.get(QueryLogContext.QUERY_ID));
+    }
+
+    @Test
+    public void testStreamingConnectionBuilderDoesNotReplaceCaller() {
+        ConnectContext caller = new ConnectContext();
+        caller.setQueryId(new TUniqueId(1, 2));
+        caller.setThreadLocalInfo();
+        ConnectContext internal = Deencapsulation.invoke(StreamingJobUtils.class, "buildConnectContext");
+        Assertions.assertSame(caller, ConnectContext.get());
+        Assertions.assertEquals("1-2", ThreadContext.get(QueryLogContext.QUERY_ID));
+        try (AutoCloseConnectContext ignored = new AutoCloseConnectContext(internal)) {
+            Assertions.assertSame(internal, ConnectContext.get());
+            Assertions.assertEquals(DebugUtil.printId(internal.queryId()), ThreadContext.get(QueryLogContext.QUERY_ID));
+        }
+        Assertions.assertSame(caller, ConnectContext.get());
+        Assertions.assertEquals("1-2", ThreadContext.get(QueryLogContext.QUERY_ID));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testServletWorkerIsCleanAfterRequest(boolean fail) throws Exception {
+        ServletTraceIterceptor filter = new ServletTraceIterceptor();
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+        Mockito.when(request.getMethod()).thenReturn("POST");
+        ConnectContext stale = new ConnectContext();
+        stale.setQueryId(new TUniqueId(9, 9));
+        stale.setThreadLocalInfo();
+        FilterChain chain = (incoming, outgoing) -> {
+            Assertions.assertNull(ConnectContext.get());
+            Assertions.assertTrue(QueryLogContext.isEmpty());
+            ConnectContext current = new ConnectContext();
+            current.setQueryId(new TUniqueId(1, 2));
+            current.setThreadLocalInfo();
+            if (fail) {
+                throw new ServletException("request failed");
+            }
+        };
+        if (fail) {
+            Assertions.assertThrows(ServletException.class, () -> filter.doFilter(request, response, chain));
+        } else {
+            filter.doFilter(request, response, chain);
+        }
+        Assertions.assertNull(ConnectContext.get());
+        Assertions.assertTrue(QueryLogContext.isEmpty());
+        filter.doFilter(request, response, (incoming, outgoing) -> Assertions.assertTrue(QueryLogContext.isEmpty()));
+    }
+
+    @Test
+    public void testRejectedServletRequestClearsPreviousIdentity() throws Exception {
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+        Mockito.when(request.getMethod()).thenReturn("TRACE");
+        ThreadContext.put(QueryLogContext.QUERY_ID, "stale");
+        FilterChain chain = Mockito.mock(FilterChain.class);
+        new ServletTraceIterceptor().doFilter(request, response, chain);
+        Mockito.verify(response).setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+        Mockito.verifyNoInteractions(chain);
+        Assertions.assertTrue(QueryLogContext.isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testTransientWorkerIsCleanAfterTask(boolean fail) {
+        TaskHandler handler = new TaskHandler() {
+            @Override
+            public void onTransientTaskHandle(TaskEvent event) {
+                Assertions.assertNull(ConnectContext.get());
+                Assertions.assertTrue(QueryLogContext.isEmpty());
+                ConnectContext internal = new ConnectContext();
+                internal.setQueryId(new TUniqueId(3, 4));
+                internal.setThreadLocalInfo();
+                if (fail) {
+                    throw new IllegalStateException("task failed");
+                }
+            }
+        };
+        TaskEvent event = new TaskEvent();
+        event.setTaskType(TaskType.TRANSIENT_TASK);
+        ThreadContext.put(QueryLogContext.QUERY_ID, "stale");
+        if (fail) {
+            Assertions.assertThrows(IllegalStateException.class, () -> handler.onEvent(event));
+        } else {
+            handler.onEvent(event);
+            handler.onEvent(event);
+        }
+        Assertions.assertNull(ConnectContext.get());
+        Assertions.assertTrue(QueryLogContext.isEmpty());
     }
 }

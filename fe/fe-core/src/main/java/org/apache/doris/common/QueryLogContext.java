@@ -81,6 +81,11 @@ public final class QueryLogContext implements AutoCloseable {
         }
     }
 
+    /** Timeout checks may skip an empty scope only when their worker is already unbound. */
+    public static boolean isEmpty() {
+        return ThreadContext.get(QUERY_ID) == null;
+    }
+
     /**
      * Keep the query ID in a runtime message only when the prefix does not already contain it.
      * This preserves attribution when logging is disabled or the caller has no query context.

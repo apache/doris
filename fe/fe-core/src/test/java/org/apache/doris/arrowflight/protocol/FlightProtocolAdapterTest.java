@@ -188,7 +188,7 @@ public class FlightProtocolAdapterTest {
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
         ctx.addFlightSqlDeferredExecutor(deferred);
         // A result the client never pulled: off-heap Arrow buffers the channel holds.
-        adapter.getChannel().addOKResult("query-1", "SELECT 1");
+        adapter.getChannel().addOKResult("query-1", "SELECT 1", null);
         Assertions.assertEquals(1, adapter.getChannel().resultNum());
         Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
 

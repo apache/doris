@@ -78,6 +78,7 @@ public class Config extends ConfigBase {
     public static String sys_log_mode = "ASYNC";
 
     @ConfField(description = "Attach query_id to runtime log events. Requires restart.")
+    // Disabling this prefix does not restore migrated runtime message wording.
     public static boolean sys_log_enable_query_id = true;
 
     @ConfField(description = "The maximum number of FE log files that can be retained within the "

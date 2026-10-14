@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -45,13 +46,19 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
      */
     @Override
     public void onEvent(TaskEvent event) {
-        switch (event.getTaskType()) {
-            case TRANSIENT_TASK:
-                onTransientTaskHandle(event);
-                break;
-            default:
-                LOG.warn("unknown task type: {}", event.getTaskType());
-                break;
+        // A task can install an internal connection without owning the pooled worker.
+        ConnectContext.remove();
+        try {
+            switch (event.getTaskType()) {
+                case TRANSIENT_TASK:
+                    onTransientTaskHandle(event);
+                    break;
+                default:
+                    LOG.warn("unknown task type: {}", event.getTaskType());
+                    break;
+            }
+        } finally {
+            ConnectContext.remove();
         }
     }
 

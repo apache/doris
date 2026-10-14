@@ -58,6 +58,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
+#include "common/query_log_context.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "core/block/block.h"

@@ -111,7 +111,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
-
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
 // connect with its connection id.
@@ -1345,6 +1344,10 @@ public class ConnectContext {
         boolean executingQuery = command == MysqlCommand.COM_QUERY || command == MysqlCommand.COM_STMT_PREPARE
                 || command == MysqlCommand.COM_STMT_EXECUTE;
         TUniqueId currentQueryId = executingQuery ? queryId : null;
+        if (currentQueryId == null && QueryLogContext.isEmpty()) {
+            checkTimeoutInternal(now, null);
+            return;
+        }
         try (QueryLogContext ignored = QueryLogContext.open(currentQueryId)) {
             checkTimeoutInternal(now, currentQueryId);
         }

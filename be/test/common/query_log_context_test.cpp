@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstring>
 #include <functional>
 #include <iomanip>
 #include <limits>
@@ -126,6 +127,33 @@ TEST_F(QueryLogContextTest, MissingAndQueryOnlyIdentity) {
     EXPECT_EQ(" [1-0]", log_marker(QueryLogIdentity(log_test_id(1, 0))));
     EXPECT_EQ(" [1234-abcd]",
               log_marker(QueryLogIdentity(log_test_id(0x1234, 0xabcd), log_test_id(0, 0))));
+}
+
+TEST_F(QueryLogContextTest, LongLogPreservesFullChunksWithFullInstanceIdentity) {
+    ASSERT_TRUE(init_glog("query_log_context_test"));
+    class CaptureSink final : public google::LogSink {
+    public:
+        CaptureSink() { google::AddLogSink(this); }
+        ~CaptureSink() override { google::RemoveLogSink(this); }
+        void send(google::LogSeverity /*severity*/, const char* /*full_filename*/,
+                  const char* base_filename, int /*line*/, const google::LogMessageTime& /*time*/,
+                  const char* message, size_t length) override {
+            if (std::strcmp(base_filename, "query_log_context_test.cpp") == 0) {
+                captured.append(message, length);
+                ++chunks;
+            }
+        }
+        std::string captured;
+        int chunks = 0;
+    } sink;
+    const auto query = log_test_id(-1, -1);
+    const auto instance = log_test_id(-2, -2);
+    ScopedQueryLogContext scope(QueryLogIdentity(query, instance));
+    std::string payload(65000, 'x');
+    payload.replace(payload.size() - 4, 4, "tail");
+    LOG_LONG_STRING(INFO, payload);
+    EXPECT_EQ(3, sink.chunks);
+    EXPECT_EQ(payload, sink.captured);
 }
 
 TEST_F(QueryLogContextTest, MessageSuffixDeduplicatesOnlyTheCurrentQuery) {

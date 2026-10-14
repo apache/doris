@@ -135,6 +135,7 @@ void ScopedQueryLogContext::reset(QueryLogIdentity identity) {
 
 ScopedQueryLogContext::~ScopedQueryLogContext() {
     if (_installed) {
+        DCHECK(get_query_log_identity() == &_identity);
         set_query_log_identity(_previous);
     }
 }

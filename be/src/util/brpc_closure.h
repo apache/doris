@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/query_log_context.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h" // IWYU pragma: keep

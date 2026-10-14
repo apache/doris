@@ -23,16 +23,11 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 
 import java.util.Objects;
 
-
 public final class FlightSqlResultCacheEntry implements AutoCloseable {
 
     private final VectorSchemaRoot vectorSchemaRoot;
     private final String query;
     private final TUniqueId queryId;
-
-    public FlightSqlResultCacheEntry(final VectorSchemaRoot vectorSchemaRoot, final String query) {
-        this(vectorSchemaRoot, query, null);
-    }
 
     public FlightSqlResultCacheEntry(final VectorSchemaRoot vectorSchemaRoot, final String query,
             final TUniqueId queryId) {

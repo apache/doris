@@ -21,6 +21,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include "common/query_log_context.h"
 #include "core/block/block.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/result_block_buffer.h"
