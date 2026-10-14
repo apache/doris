@@ -17,12 +17,23 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
+import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StreamingInsertJobStatusTransitionTest {
@@ -62,5 +73,122 @@ public class StreamingInsertJobStatusTransitionTest {
 
         Assertions.assertFalse(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
         Assertions.assertEquals(JobStatus.STOPPED, job.getJobStatus());
+    }
+
+    @Test
+    public void testManualResumeToleratesSchemaChangesUntilSuccess() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED + " INT -> BIGINT"));
+
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+        job.updateJobStatus(JobStatus.PENDING);
+        job.onManualStatusAltered(JobStatus.PENDING, null);
+        Assertions.assertTrue(job.isTolerateSchemaChange());
+        Assertions.assertNull(job.getFailureReason());
+        Assertions.assertEquals(JobStatus.PENDING, job.getJobStatus());
+
+        // A failed recovery attempt keeps the acceptance until a task succeeds.
+        job.updateJobStatus(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason("Connection reset"));
+        job.updateJobStatus(JobStatus.PENDING);
+        job.onManualStatusAltered(JobStatus.PENDING, null);
+        Assertions.assertTrue(job.isTolerateSchemaChange());
+    }
+
+    @Test
+    public void testOtherFailuresAndAutomaticResumeDoNotAcceptSchemaChanges() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason("Replication slot invalidated"));
+        job.updateJobStatus(JobStatus.PENDING);
+        job.onManualStatusAltered(JobStatus.PENDING, null);
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+
+        job.updateJobStatus(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason("Failed to execute schema change: injected DDL failure"));
+        job.updateJobStatus(JobStatus.PENDING);
+        job.onManualStatusAltered(JobStatus.PENDING, null);
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+
+        job.updateJobStatus(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED + " RENAME"));
+        new StreamingJobSchedulerTask(job).run();
+        Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+    }
+
+    @Test
+    public void testTvfResumeDoesNotAcceptSchemaChanges() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.PAUSED);
+        Deencapsulation.setField(job, "tvfType", "cdc_stream");
+        job.setFailureReason(new FailureReason(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED + " RENAME"));
+
+        job.updateJobStatus(JobStatus.PENDING);
+
+        Assertions.assertEquals(JobStatus.PENDING, job.getJobStatus());
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+    }
+
+    @Test
+    public void testFailedCommitCallbackReleasesWriteLock() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.RUNNING);
+        ReentrantReadWriteLock lock = Deencapsulation.getField(job, "lock");
+        lock.writeLock().lock();
+
+        job.afterCommitted(null, false);
+
+        Assertions.assertEquals(0, lock.getWriteHoldCount());
+    }
+
+    @Test
+    public void testFinishedStatusCannotBeOverwritten() {
+        StreamingInsertJob job = newJob(JobStatus.FINISHED);
+
+        Assertions.assertThrows(JobException.class, () -> job.updateJobStatus(JobStatus.PAUSED));
+        Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
+    }
+
+    @Test
+    public void testPauseAndResumeKeepOffsetProviderOpen() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.RUNNING);
+        SourceOffsetProvider provider = Mockito.mock(SourceOffsetProvider.class);
+        Deencapsulation.setField(job, "offsetProvider", provider);
+
+        job.updateJobStatus(JobStatus.PAUSED);
+        job.updateJobStatus(JobStatus.PENDING);
+
+        Mockito.verify(provider, Mockito.never()).close();
+    }
+
+    @Test
+    public void testFinalStatusesCloseOffsetProvider() throws Exception {
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
+            GlobalTransactionMgrIface transactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            TxnStateCallbackFactory callbackFactory = Mockito.mock(TxnStateCallbackFactory.class);
+            env.when(Env::getCurrentGlobalTransactionMgr).thenReturn(transactionMgr);
+            Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
+            for (JobStatus status : new JobStatus[] {JobStatus.STOPPED, JobStatus.FINISHED}) {
+                StreamingInsertJob job = newJob(JobStatus.RUNNING);
+                SourceOffsetProvider provider = Mockito.mock(SourceOffsetProvider.class);
+                Deencapsulation.setField(job, "offsetProvider", provider);
+
+                job.updateJobStatus(status);
+
+                Mockito.verify(provider).close();
+            }
+        }
+    }
+
+    @Test
+    public void testDropPendingJobPreventsLateMetadataFetch() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.PENDING);
+        S3EventSourceOffsetProvider provider = new S3EventSourceOffsetProvider("unused-queue");
+        Deencapsulation.setField(job, "offsetProvider", provider);
+
+        job.cleanup();
+        job.updateJobStatus(JobStatus.RUNNING);
+
+        // An old scheduler may still hold the removed job; it must not create clients with these invalid properties.
+        Assertions.assertDoesNotThrow(() -> provider.fetchRemoteMeta(
+                new StreamingJobProperties(Collections.emptyMap()), Collections.emptyMap()));
     }
 }

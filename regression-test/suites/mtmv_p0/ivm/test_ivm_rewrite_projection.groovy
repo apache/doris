@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_ivm_rewrite_projection") {
+    // The order_qt_rewrite_projection_base query below must read the base table instead of being
+    // answered by the MV, so transparent rewrite is off by default and enabled only around the
+    // rewrite-hit check. A SET_VAR hint cannot do this: the switch is read during
+    // collectAndLockTable, before analyze() applies hints.
+    sql """set enable_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists rewrite_projection_ivm;"""
     sql """drop table if exists rewrite_projection_base;"""
 
@@ -57,12 +62,14 @@ suite("test_ivm_rewrite_projection") {
     sql """REFRESH MATERIALIZED VIEW rewrite_projection_ivm COMPLETE"""
     waitingMTMVTaskFinishedByMvName("rewrite_projection_ivm")
 
+    sql """set enable_materialized_view_rewrite = true;"""
     mv_rewrite_success_without_check_chosen("""
         SELECT id, category, amount
         FROM rewrite_projection_base
         WHERE amount >= 10
         ORDER BY id
     """, "rewrite_projection_ivm")
+    sql """set enable_materialized_view_rewrite = false;"""
 
     order_qt_rewrite_projection_base """
         SELECT id, category, amount

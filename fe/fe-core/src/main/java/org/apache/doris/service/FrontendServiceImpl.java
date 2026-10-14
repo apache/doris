@@ -1370,6 +1370,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private UserIdentity resolveForwardedAuthUserIdentity(String fullUserName, String passwd, String clientIp,
             ForwardedCertificateInfo certInfo) throws AuthenticationException {
+
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(fullUserName, clientIp) != null) {
+            throw new AuthenticationException("Authentication-bound users must authenticate through their integration");
+        }
         CertificateAuthDecision certDecision = StreamLoadCertificateAuthHelper.authenticateForwarded(
                 CERT_RUNTIME_AUTH_SERVICE, fullUserName, clientIp, certInfo);
         if (certDecision.isReject()) {
@@ -1377,7 +1381,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     ? "TLS certificate verification failed"
                     : certDecision.getErrorMessage());
         }
-        if (certDecision.shouldSkipPasswordVerification()) {
+        if (certDecision.shouldSkipPasswordVerification()
+                && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
             return certDecision.getUserIdentity();
         }
 
@@ -3881,12 +3886,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // This allows the BE to discover peer candidates across warehouses.
                         backends = cloudReplica.getAllPrimaryBes();
                         // Also collect secondary backends (may have cached data during primary failover)
-                        for (String computeGroupId : cloudReplica.getPrimaryComputeGroupIds()) {
-                            Backend secondaryBe = cloudReplica.getSecondaryBackend(computeGroupId);
-                            if (secondaryBe != null) {
-                                backends.add(secondaryBe);
-                            }
-                        }
+                        backends.addAll(cloudReplica.getAllSecondaryBes());
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,

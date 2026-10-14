@@ -22,6 +22,8 @@ public class UserDesc {
     private UserIdentity userIdent;
     private PassVar passVar;
     private boolean hasPassword = true;
+    private String authIntegration;
+    private String authIdentity;
 
     public UserDesc(UserIdentity userIdent) {
         this(userIdent, new PassVar("", false));
@@ -31,6 +33,20 @@ public class UserDesc {
     public UserDesc(UserIdentity userIdent, PassVar passVar) {
         this.userIdent = userIdent;
         this.passVar = passVar;
+    }
+
+    public UserDesc(UserIdentity userIdent, String authIntegration, String authIdentity) {
+        this(userIdent);
+        this.authIntegration = authIntegration;
+        this.authIdentity = authIdentity;
+    }
+
+    public String getAuthIntegration() {
+        return authIntegration;
+    }
+
+    public String getAuthIdentity() {
+        return authIdentity;
     }
 
     // For unit test only

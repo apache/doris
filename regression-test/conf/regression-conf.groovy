@@ -274,6 +274,10 @@ s3ExportBucketName = ""
 
 externalEnvIp="127.0.0.1"
 
+// Optional Trino server for JDBC TVF regression (WITH SESSION requires a supporting Trino version).
+enableTrinoJdbcTest = false
+trino_jdbc_port = 8080
+
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
 

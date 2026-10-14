@@ -85,7 +85,7 @@ public class JniPluginSurfaceTest {
      */
     @Test
     public void jniPluginApiMajorTracksTheRecordedSurfaceChange() {
-        Assertions.assertEquals("4.0", SpiVersion.version());
+        Assertions.assertEquals("5.0", SpiVersion.version());
     }
 
     /** The package the frozen surface is, entirely: everything shipped in doris-jni-spi.jar. */

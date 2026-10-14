@@ -416,14 +416,14 @@ TEST_F(ParquetReaderTest, normal) {
     delete p_reader;
 }
 
-TEST_F(ParquetReaderTest, uuid_text_and_varbinary_cached_mappings) {
+TEST_F(ParquetReaderTest, uuid_native_type_ignores_binary_mapping) {
     // Reuse the same footer cache with both mappings, then repeat each cache lookup.
     for (const bool mapping : {false, true, false, true}) {
         TDescriptorTable t_desc_table;
         TTableDescriptor t_table_desc;
         std::vector<std::string> table_column_names = {"id", "col1"};
-        std::vector<TPrimitiveType::type> table_column_types = {
-                TPrimitiveType::INT, mapping ? TPrimitiveType::VARBINARY : TPrimitiveType::STRING};
+        std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::INT,
+                                                                TPrimitiveType::UUID};
         create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
         DescriptorTbl* desc_tbl;
         ObjectPool obj_pool;
@@ -484,21 +484,10 @@ TEST_F(ParquetReaderTest, uuid_text_and_varbinary_cached_mappings) {
             ASSERT_EQ(col.column->size(), 3);
         }
         auto col = block->safe_get_by_position(1).column;
-        auto nullable_column = assert_cast<const ColumnNullable*>(col.get());
-        if (mapping) {
-            auto varbinary_column = assert_cast<const ColumnVarbinary*>(
-                    nullable_column->get_nested_column_ptr().get());
-            auto& data = varbinary_column->get_data();
-            EXPECT_EQ(data[0].dump_hex(), "0x550E8400E29B41D4A716446655440000");
-            EXPECT_EQ(data[1].dump_hex(), "0x123E4567E89B12D3A456426614174000");
-            EXPECT_EQ(data[2].dump_hex(), "0x00000000000000000000000000000000");
-        } else {
-            const auto& strings =
-                    assert_cast<const ColumnString&>(nullable_column->get_nested_column());
-            EXPECT_EQ(strings.get_data_at(0).to_string(), "550e8400-e29b-41d4-a716-446655440000");
-            EXPECT_EQ(strings.get_data_at(1).to_string(), "123e4567-e89b-12d3-a456-426614174000");
-            EXPECT_EQ(strings.get_data_at(2).to_string(), "00000000-0000-0000-0000-000000000000");
-        }
+        const auto& type = block->safe_get_by_position(1).type;
+        EXPECT_EQ(type->to_string(*col, 0), "550e8400-e29b-41d4-a716-446655440000");
+        EXPECT_EQ(type->to_string(*col, 1), "123e4567-e89b-12d3-a456-426614174000");
+        EXPECT_EQ(type->to_string(*col, 2), "00000000-0000-0000-0000-000000000000");
     }
 }
 

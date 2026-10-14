@@ -23,11 +23,27 @@ import org.apache.doris.nereids.jobs.executor.TableCollectAndHookInitializer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TQueryOptions;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class NereidsPlannerTest {
+
+    @Test
+    public void testReplanningReusesPinnedBeExecVersion() {
+        StatementContext statementContext = new StatementContext();
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        TQueryOptions firstAttempt = new TQueryOptions().setBeExecVersion(13);
+        TQueryOptions retryAttempt = new TQueryOptions().setBeExecVersion(16);
+
+        planner.pinBeExecVersion(firstAttempt);
+        planner.pinBeExecVersion(retryAttempt);
+
+        Assertions.assertEquals(13, firstAttempt.getBeExecVersion());
+        Assertions.assertEquals(13, retryAttempt.getBeExecVersion());
+    }
 
     @Test
     public void testCollectAndLockTableRecordsPreloadTimeWhenExecuted() {

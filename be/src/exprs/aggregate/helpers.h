@@ -36,6 +36,7 @@
  * 4. deserialize_and_merge_vec_selected
  * 5. serialize_without_key_to_column
  * 6. deserialize_and_merge_from_column
+ * 7. deserialize_from_column_row
  */
 #define CHECK_AGG_FUNCTION_SERIALIZED_TYPE(FunctionTemplate)                                       \
     do {                                                                                           \
@@ -43,6 +44,11 @@
                 !std::is_same_v<decltype(&FunctionTemplate::get_serialized_type),                  \
                                 decltype(&IAggregateFunction::get_serialized_type)>;               \
         if constexpr (_is_new_serialized_type) {                                                   \
+            static_assert(                                                                         \
+                    !std::is_same_v<decltype(&FunctionTemplate::deserialize_from_column_row),      \
+                                    decltype(&IAggregateFunctionHelper<                            \
+                                             FunctionTemplate>::deserialize_from_column_row)>,     \
+                    "need to override deserialize_from_column_row");                               \
             static_assert(!std::is_same_v<decltype(&FunctionTemplate::serialize_to_column),        \
                                           decltype(&IAggregateFunctionHelper<                      \
                                                    FunctionTemplate>::serialize_to_column)>,       \

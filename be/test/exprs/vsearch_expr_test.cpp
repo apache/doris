@@ -38,6 +38,7 @@
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/schema.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -105,8 +106,9 @@ std::shared_ptr<IndexExecContext> make_inverted_context(
         std::vector<IndexFieldNameAndTypePair>& storage_types,
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>& status_map) {
     segment_v2::ColumnIteratorOptions column_iter_opts;
-    return std::make_shared<IndexExecContext>(index_iterators, storage_types, status_map, nullptr,
-                                              nullptr, column_iter_opts);
+    return std::make_shared<IndexExecContext>(
+            index_iterators, storage_types, status_map, nullptr, nullptr, column_iter_opts,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
 }
 
 std::shared_ptr<segment_v2::Segment> make_segment_with_variant_parent() {
@@ -179,6 +181,24 @@ TEST_F(VSearchExprTest, TestConstruction) {
 
     ASSERT_NE(nullptr, vsearch_expr);
     EXPECT_EQ("VSearchExpr", vsearch_expr->expr_name());
+}
+
+TEST_F(VSearchExprTest, IndexContextKeepsReadSchemaAlive) {
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    segment_v2::ColumnIteratorOptions column_iter_opts;
+    auto schema = std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {});
+    const auto* schema_ptr = schema.get();
+    std::weak_ptr<ReadSchema> weak_schema = schema;
+    auto context = std::make_shared<IndexExecContext>(index_iterators, storage_types, status_map,
+                                                      nullptr, nullptr, column_iter_opts, schema);
+
+    schema.reset();
+    EXPECT_FALSE(weak_schema.expired());
+    EXPECT_EQ(context->read_schema().get(), schema_ptr);
+    context.reset();
+    EXPECT_TRUE(weak_schema.expired());
 }
 
 TEST_F(VSearchExprTest, TestIsConstant) {
@@ -1422,7 +1442,8 @@ TEST_F(VSearchExprTest, MissingVariantChildIteratorDoesNotUseParentIterator) {
     segment_v2::ColumnIteratorOptions column_iter_opts;
     auto segment = make_segment_with_variant_parent();
     auto inverted_ctx = std::make_shared<IndexExecContext>(
-            index_iterators, storage_types, status_map, nullptr, segment.get(), column_iter_opts);
+            index_iterators, storage_types, status_map, nullptr, segment.get(), column_iter_opts,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 

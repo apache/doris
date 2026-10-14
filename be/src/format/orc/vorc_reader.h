@@ -654,6 +654,18 @@ private:
                     continue;
                 }
             }
+            if (data->hasNulls && !data->notNull[i]) {
+                continue;
+            }
+            // Check the UTC epoch before packing: ORC permits years outside Doris's 0001-9999 range.
+            static constexpr int64_t MIN_SECONDS = -62135596800LL;
+            static constexpr int64_t MAX_SECONDS = 253402300799LL;
+            if (data->data[i] < MIN_SECONDS || data->data[i] > MAX_SECONDS) {
+                return Status::DataQualityError(
+                        "Decoded TIMESTAMPTZ column '{}' is outside the Doris 0001-9999 range: "
+                        "seconds={}",
+                        col_name, data->data[i]);
+            }
             tz.from_unixtime(data->data[i], utc_time_zone);
             // nanoseconds will lose precision. only keep microseconds.
             tz.set_microsecond(data->nanoseconds[i] / 1000);

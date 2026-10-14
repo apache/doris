@@ -527,4 +527,102 @@ TEST_F(DatelikeSerDeBatchTest, datetimev1_from_decimal_batch_mixed) {
     EXPECT_TRUE(target->is_null_at(3));
 }
 
+// ============================================================================
+// A row that the caller supplied null map marks as NULL may still carry an
+// arbitrary hidden payload in the source column (for example the branch of an
+// IF() that was not taken). The strict mode batches must skip such rows instead
+// of validating their payload, while rows that are not marked as NULL must still
+// report errors.
+// ============================================================================
+TEST_F(DatelikeSerDeBatchTest, datev1_from_int_strict_mode_batch_skips_masked_rows) {
+    DataTypeDateSerDe<TYPE_DATE> serde;
+    // Row 0 is masked as NULL and keeps the invalid hidden payload -1.
+    auto from_col = build_int64_column({-1, 20230115});
+    NullMap null_map {1, 0};
+
+    auto target = ColumnDate::create();
+    auto st = serde.from_int_strict_mode_batch<DataTypeInt64>(*from_col, *target, null_map.data());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto expected = ColumnDate::create();
+    auto visible_col = build_int64_column({20230115});
+    ASSERT_TRUE(serde.from_int_strict_mode_batch<DataTypeInt64>(*visible_col, *expected).ok());
+    EXPECT_TRUE(target->get_data()[1] == expected->get_data()[0]);
+
+    // The hidden payload is visible to the cast when no null map is passed.
+    EXPECT_FALSE(serde.from_int_strict_mode_batch<DataTypeInt64>(*from_col, *target).ok());
+}
+
+TEST_F(DatelikeSerDeBatchTest, datev2_from_int_strict_mode_batch_skips_masked_rows) {
+    DataTypeDateV2SerDe serde;
+    auto from_col = build_int64_column({-1, 20230115});
+    NullMap null_map {1, 0};
+
+    auto target = ColumnDateV2::create();
+    auto st = serde.from_int_strict_mode_batch<DataTypeInt64>(*from_col, *target, null_map.data());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto expected = ColumnDateV2::create();
+    auto visible_col = build_int64_column({20230115});
+    ASSERT_TRUE(serde.from_int_strict_mode_batch<DataTypeInt64>(*visible_col, *expected).ok());
+    EXPECT_EQ(target->get_data()[1], expected->get_data()[0]);
+
+    EXPECT_FALSE(serde.from_int_strict_mode_batch<DataTypeInt64>(*from_col, *target).ok());
+}
+
+TEST_F(DatelikeSerDeBatchTest, datetimev2_from_decimal_strict_mode_batch_skips_masked_rows) {
+    DataTypeDateTimeV2SerDe serde(/*scale=*/0);
+    auto from_col = build_decimal64_column({-1, 20230115143059}, /*scale=*/0);
+    NullMap null_map {1, 0};
+
+    auto target = ColumnDateTimeV2::create();
+    auto st = serde.from_decimal_strict_mode_batch<DataTypeDecimal64>(*from_col, *target,
+                                                                      null_map.data());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto expected = ColumnDateTimeV2::create();
+    auto visible_col = build_decimal64_column({20230115143059}, /*scale=*/0);
+    ASSERT_TRUE(
+            serde.from_decimal_strict_mode_batch<DataTypeDecimal64>(*visible_col, *expected).ok());
+    EXPECT_EQ(target->get_data()[1], expected->get_data()[0]);
+
+    EXPECT_FALSE(serde.from_decimal_strict_mode_batch<DataTypeDecimal64>(*from_col, *target).ok());
+}
+
+TEST_F(DatelikeSerDeBatchTest, timestamp_ns_from_int_strict_mode_batch_skips_masked_rows) {
+    DataTypeTimeStampNsSerDe serde;
+    // Row 0 is masked as NULL and keeps 16770921001243, which is outside the supported range.
+    auto from_col = build_int64_column({16770921001243, 20230115143059});
+    NullMap null_map {1, 0};
+
+    auto target = ColumnTimeStampNs::create();
+    auto st = serde.from_int_strict_mode_batch<DataTypeInt64>(*from_col, *target, null_map.data());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto expected = ColumnTimeStampNs::create();
+    auto visible_col = build_int64_column({20230115143059});
+    ASSERT_TRUE(serde.from_int_strict_mode_batch<DataTypeInt64>(*visible_col, *expected).ok());
+    EXPECT_EQ(target->get_data()[1], expected->get_data()[0]);
+
+    EXPECT_FALSE(serde.from_int_strict_mode_batch<DataTypeInt64>(*from_col, *target).ok());
+}
+
+TEST_F(DatelikeSerDeBatchTest, timev2_from_float_strict_mode_batch_skips_masked_rows) {
+    DataTypeTimeV2SerDe serde(/*scale=*/0);
+    auto from_col = build_float64_column({99999999.0, 123.0});
+    NullMap null_map {1, 0};
+
+    auto target = ColumnTimeV2::create();
+    auto st = serde.from_float_strict_mode_batch<DataTypeFloat64>(*from_col, *target,
+                                                                  null_map.data());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto expected = ColumnTimeV2::create();
+    auto visible_col = build_float64_column({123.0});
+    ASSERT_TRUE(serde.from_float_strict_mode_batch<DataTypeFloat64>(*visible_col, *expected).ok());
+    EXPECT_EQ(target->get_data()[1], expected->get_data()[0]);
+
+    EXPECT_FALSE(serde.from_float_strict_mode_batch<DataTypeFloat64>(*from_col, *target).ok());
+}
+
 } // namespace doris

@@ -23,12 +23,8 @@
 
 #include <string>
 
+// fmt's range formatter inspects the type while resolving the explicit instantiations below.
 #include "core/wide_integer.h"
-
-namespace wide {
-template <size_t Bits, typename Signed>
-class integer;
-}
 
 using Int128 = wide::integer<128, signed>;
 using UInt128 = wide::integer<128, unsigned>;

@@ -27,6 +27,7 @@ import org.apache.fluss.client.admin.OffsetSpec;
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.writer.UpsertWriter;
+import org.apache.fluss.fs.FsPathAndFileName;
 import org.apache.fluss.metadata.DatabaseDescriptor;
 import org.apache.fluss.metadata.PartitionSpec;
 import org.apache.fluss.metadata.Schema;
@@ -49,7 +50,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -61,6 +68,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 /**
  * Reading a fluss primary-key table through the scanner, against a real cluster in this JVM.
@@ -451,6 +461,54 @@ public class FlussJniScannerPkTest {
         Assertions.assertThrows(Exception.class, () -> read(params, 1024));
     }
 
+    // ---------------------------------------------------------------- lifecycle
+
+    /**
+     * BE can close a range while fluss is still copying its kv snapshot - the range of a query that was
+     * cancelled or failed elsewhere - and fluss's reader can only be closed once that copy is over. The
+     * copy runs on the download threads of the range's connection, so the connection has to outlive it:
+     * shut down under the copy, its download pool drops the files still queued, and the reader waits for
+     * them forever, with the pool thread it runs on, the thread waiting to close it and the half-copied
+     * snapshot directory.
+     *
+     * <p>The test holds the copy up for as long as it needs: the snapshot file fluss copies first is
+     * swapped for a FIFO, on which the copy blocks until the file's bytes are written into it, and a
+     * single download thread leaves every other file queued behind it.
+     */
+    @Test
+    public void rangeClosedWhileItsSnapshotIsCopiedLeavesNothingWaitingForTheCopy() throws Exception {
+        TablePath tablePath = TablePath.of(db, "pk_closed_while_copying");
+        createPkTable(tablePath);
+        upsert(tablePath, row(1, "one"), row(2, "two"));
+        long snapshotId = snapshot(tablePath);
+        long logOffset = snapshotLogOffset(tablePath);
+        List<FsPathAndFileName> files = admin.getKvSnapshotMetadata(
+                new TableBucket(tableId(tablePath), 0), snapshotId).get().getSnapshotFiles();
+        Assertions.assertTrue(files.size() > 1, "no file would wait behind the first: " + files);
+        // Copied first: fluss hands the files to the download threads in this order.
+        Path first = Paths.get(files.get(0).getPath().toUri());
+        byte[] firstBytes = Files.readAllBytes(first);
+        Files.delete(first);
+        Assertions.assertEquals(0, new ProcessBuilder("mkfifo", first.toString()).start().waitFor());
+
+        Path copyDir = Files.createTempDirectory("doris-fluss-snapshot-copy");
+        Map<String, String> params = pkParams(tablePath, columns("id", "int", "name", "string"),
+                snapshotId, logOffset, logOffset);
+        params.put("fluss.client.client.remote-file.download-thread-num", "1");
+        params.put("fluss.client.client.scanner.io.tmpdir", copyDir.toString());
+        FlussJniScanner scanner = new FlussJniScanner(1024, params);
+        scanner.open();
+        await(FlussJniScannerPkTest::copyBlockedOnItsFirstFile, "the snapshot copy never reached its first file");
+        scanner.close();
+        // Long enough for a connection closed under the copy to have shut its download pool down.
+        Thread.sleep(1000);
+
+        // The copy is the FIFO's reader, so this returns once the bytes are handed over.
+        Assertions.assertTimeoutPreemptively(Duration.ofSeconds(60), () -> Files.write(first, firstBytes));
+        await(() -> isEmpty(copyDir), "the snapshot reader is still waiting for files nobody will copy");
+        Files.delete(copyDir);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private void createPkTable(TablePath tablePath) throws Exception {
@@ -590,5 +648,36 @@ public class FlussJniScannerPkTest {
         Object[][] sorted = Arrays.copyOf(rows, rows.length);
         Arrays.sort(sorted, Comparator.comparingInt(row -> (Integer) row[0]));
         return sorted;
+    }
+
+    /** Whether a thread copying kv snapshot files is blocked opening one of them - the FIFO, above. */
+    private static boolean copyBlockedOnItsFirstFile() {
+        for (StackTraceElement[] stack : Thread.getAllStackTraces().values()) {
+            boolean opening = false;
+            boolean copying = false;
+            for (StackTraceElement frame : stack) {
+                opening |= frame.getClassName().equals(FileInputStream.class.getName())
+                        && frame.getMethodName().equals("open0");
+                copying |= frame.getClassName().equals("org.apache.fluss.fs.utils.FileDownloadUtils");
+            }
+            if (opening && copying) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isEmpty(Path dir) throws IOException {
+        try (Stream<Path> entries = Files.list(dir)) {
+            return !entries.findAny().isPresent();
+        }
+    }
+
+    private static void await(Callable<Boolean> condition, String failure) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        while (!condition.call()) {
+            Assertions.assertTrue(System.nanoTime() < deadline, failure);
+            Thread.sleep(50);
+        }
     }
 }

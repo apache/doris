@@ -23,7 +23,6 @@ import org.apache.doris.jni.toolkit.vec.JniSchemaParams;
 import org.apache.doris.jni.toolkit.vec.NestedProjection;
 
 import org.apache.fluss.client.Connection;
-import org.apache.fluss.client.ConnectionFactory;
 import org.apache.fluss.client.FlussConnection;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.scanner.batch.BatchScanner;
@@ -46,6 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Reads one fluss scan range — one bucket of one partition, bounded by log offsets.
@@ -116,11 +116,20 @@ public class FlussJniScanner extends JniScanner {
     /** {@code null} on an unpartitioned table, which fluss subscribes to by bucket alone. */
     private final Long partitionId;
 
+    /** Borrowed from {@link FlussConnectionPool} for this range, and given back when it is closed. */
+    private FlussConnectionPool.Lease lease;
+    /** Whether no connection was idle, so this range opened the one it borrowed. */
+    private boolean openedConnection;
     private Connection connection;
     private Table table;
     private BatchScanner scanner;
     /** The same object as {@link #scanner} on a {@code PK_TAIL} range, for what it counted. */
     private PkTailBatchScanner tailScanner;
+    /**
+     * The same object as {@link #scanner} on a {@code PK_FULL} range, for when it stops using the
+     * connection; see {@link #closeInternal()}.
+     */
+    private SafeKvSnapshotAndLogBatchScanner fullScanner;
 
     /** Fluss types of the projected columns, positionally aligned with {@link #fields}. */
     private List<DataType> projectedTypes;
@@ -194,9 +203,12 @@ public class FlussJniScanner extends JniScanner {
         // The fluss client spawns its own threads (netty IO, metadata updater) while connecting, and a
         // thread inherits the context classloader of whoever created it. Started under BE's loader they
         // would not see fluss at all - which is why JniScanner.open() installs this plugin's loader as
-        // the context classloader around this call and restores the caller's on the way out.
+        // the context classloader around this call and restores the caller's on the way out. A borrowed
+        // connection was opened under it too, by whichever range opened it first.
         try {
-            connection = ConnectionFactory.createConnection(clientConfig());
+            lease = FlussConnectionPool.INSTANCE.borrow(clientConfig());
+            openedConnection = lease.opened();
+            connection = lease.connection();
             table = connection.getTable(TablePath.of(required(DB_NAME), required(TABLE_NAME)));
 
             RowType rowType = table.getTableInfo().getRowType();
@@ -263,8 +275,9 @@ public class FlussJniScanner extends JniScanner {
      * snapshot is far behind costs the most.
      */
     private BatchScanner primaryKeyScanner(TableBucket tableBucket, int[] projection) {
-        return new SafeKvSnapshotAndLogBatchScanner(
+        fullScanner = new SafeKvSnapshotAndLogBatchScanner(
                 table, tableBucket, kvSnapshotId, logStartOffset, logStopOffset, projection);
+        return fullScanner;
     }
 
     /**
@@ -305,6 +318,14 @@ public class FlussJniScanner extends JniScanner {
             if (entry.getKey().startsWith(CLIENT_PREFIX)) {
                 config.setString(entry.getKey().substring(CLIENT_PREFIX.length()), entry.getValue());
             }
+        }
+        if (!config.contains(ConfigOptions.NETTY_CLIENT_NUM_NETWORK_THREADS)) {
+            // A connection serves one range at a time (FlussConnectionPool): one stream of requests,
+            // which one network thread carries. Fluss's default is four per connection - four selectors
+            // opened up front, and a thread for each server the connection reaches - while a scan reads
+            // up to sixteen ranges at once, each on a connection of its own, so eight concurrent scans
+            // held over a hundred connections. A catalog that sets the option keeps its number.
+            config.set(ConfigOptions.NETTY_CLIENT_NUM_NETWORK_THREADS, 1);
         }
         if (!RANGE_TYPE_PK_FULL.equals(rangeType)) {
             // Local-first mistakes lake-covered offsets for readable local log. Remote-first first
@@ -348,14 +369,39 @@ public class FlussJniScanner extends JniScanner {
     @Override
     protected void closeInternal() throws IOException {
         IOException failure = null;
+        CompletableFuture<Void> released = fullScanner == null
+                ? CompletableFuture.completedFuture(null) : fullScanner.released();
         // Close everything even if an earlier close throws: a leaked fluss connection keeps its netty
         // and metadata-updater threads alive for the life of the BE process.
         failure = closeQuietly(scanner, "scanner", failure);
         scanner = null;
+        fullScanner = null;
         failure = closeQuietly(table, "table", failure);
         table = null;
-        failure = closeQuietly(connection, "connection", failure);
-        connection = null;
+        if (lease != null) {
+            FlussConnectionPool.Lease returned = lease;
+            // A range read to its end gives the connection back to serve the next one (see
+            // FlussConnectionPool); one that failed or was closed before its end (a LIMIT, a cancel) has it
+            // closed instead, for the reasons FlussConnectionPool#discard gives.
+            Runnable handBack = finished && failure == null
+                    ? () -> FlussConnectionPool.INSTANCE.giveBack(returned)
+                    : () -> FlussConnectionPool.INSTANCE.discard(returned);
+            if (released.isDone()) {
+                handBack.run();
+            } else {
+                // A primary-key range closed before its kv snapshot arrived: fluss goes on copying the
+                // snapshot on the connection's download threads until the reader can be closed. Closed
+                // under that copy, the connection would drop the files still queued, and the reader would
+                // wait for them forever - with the pool thread it runs on, the thread waiting to close it,
+                // and the half-copied snapshot directory. So the connection waits for the reader instead.
+                // handBack is a discard here, since a range whose snapshot never arrived was not read to
+                // its end, and a connection no closer thread can take is closed on the thread completing
+                // released (FlussConnectionCloser#close): the future thenRun returns has nothing to report.
+                released.thenRun(handBack);
+            }
+            lease = null;
+            connection = null;
+        }
         currentBatch = null;
         if (failure != null) {
             throw failure;
@@ -385,6 +431,8 @@ public class FlussJniScanner extends JniScanner {
         Map<String, String> statistics = new HashMap<>();
         statistics.put("counter:FlussJniRowsRead", String.valueOf(rowsRead));
         statistics.put("gauge:FlussJniRequiredFieldCount", String.valueOf(fields.length));
+        // Summed over a query's ranges: the connections it had to open because none was idle.
+        statistics.put("counter:FlussJniConnectionsOpened", openedConnection ? "1" : "0");
         if (tailScanner != null) {
             // What the tail cost and what it hid: the records replayed, and the keys it ended deleted —
             // those are lake rows that disappear with nothing returned in their place.

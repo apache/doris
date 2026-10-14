@@ -1584,13 +1584,16 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::BINARY:
-        if (_scan_params.__isset.enable_mapping_varbinary &&
-            _scan_params.enable_mapping_varbinary) {
+        // Logical UUID annotations take precedence over physical binary mapping.
+        if ((orc_type->hasAttributeKey("doris.logical_type") &&
+             orc_type->getAttributeValue("doris.logical_type") == "uuid") ||
+            (orc_type->hasAttributeKey("iceberg.binary-type") &&
+             orc_type->getAttributeValue("iceberg.binary-type") == "UUID")) {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_UUID, true);
+        } else if (_scan_params.__isset.enable_mapping_varbinary &&
+                   _scan_params.enable_mapping_varbinary) {
             return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY,
                                                                 true);
-        } else if (orc_type->hasAttributeKey("doris.logical_type") &&
-                   orc_type->getAttributeValue("doris.logical_type") == "uuid") {
-            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_UUID, true);
         } else {
             return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
         }
