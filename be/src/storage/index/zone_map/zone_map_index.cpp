@@ -210,16 +210,6 @@ void TypedZoneMapIndexWriter<FT>::_materialize_page_minmax() {
     if constexpr (is_string_type(Type)) {
         _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
         _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
-    } else if constexpr (Type == TYPE_DATE || Type == TYPE_DATETIME) {
-        // Partial-update defaults use VecDateTimeValue::DEFAULT_VALUE, whose legacy type tag is
-        // outside TIME_DATE/TIME_DATETIME. Normalize the copy before serialization; otherwise its
-        // to_buffer() is empty and a stored 1970-01-01 bound is read back as year 1.
-        auto min = _page_min;
-        auto max = _page_max;
-        min.set_type(Type == TYPE_DATE ? TIME_DATE : TIME_DATETIME);
-        max.set_type(Type == TYPE_DATE ? TIME_DATE : TIME_DATETIME);
-        _page_zone_map.min_value = doris::Field::create_field<Type>(min);
-        _page_zone_map.max_value = doris::Field::create_field<Type>(max);
     } else {
         // Bounds are kept as compute-layer values here: for example, a DATE is a
         // VecDateTimeValue and a DECIMALV2 is a DecimalV2Value. Decode only values
