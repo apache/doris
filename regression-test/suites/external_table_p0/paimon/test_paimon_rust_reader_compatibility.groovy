@@ -46,11 +46,13 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         sql "set enable_file_scanner_v2=true"
         sql "set force_jni_scanner=false"
         def profiles = new ProfileAction(context)
-        def check = { String query, List expected, boolean rustExpected ->
+        def check = { String query, List expected, boolean rustExpected, boolean forceJni = false ->
             sql "set enable_paimon_rust_reader=false"
+            sql "set force_jni_scanner=true"
             def baseline = sql(query)
             assertEquals(expected.toString(), baseline.toString())
             sql "set enable_paimon_rust_reader=true"
+            sql "set force_jni_scanner=${forceJni}"
             def actual = sql(query)
             def queryId = sql("select last_query_id()")[0][0].toString()
             // A scanner can be published before its children; absence is meaningful only at completion.
@@ -74,7 +76,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         check("select id,v from credential_values", [[1,11]], true)
         // The explicit JNI escape hatch takes precedence over the Rust-reader enable flag.
         sql "set force_jni_scanner=true"
-        check("select id,v from credential_values", [[1,11]], false)
+        check("select id,v from credential_values", [[1,11]], false, true)
         sql "set force_jni_scanner=false"
         ["'s3.credentials_provider_type'='ANONYMOUS'"].eachWithIndex { extra, index ->
             def crossedCatalog = "${catalog}_credentials_${index}"
@@ -116,44 +118,47 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             assertFalse(values.isEmpty(), "missing Parquet RawRowsRead counter")
             values
         }
-        // With Rust disabled, the default native raw-file path must retain footer aggregation;
-        // result equality alone would hide a full-scan regression. Explicitly enabling Rust is
-        // intentionally tested by the positive Rust-reader cases above and below.
+        // Rust-enabled scans must retain the native footer aggregate optimization too.
         sql "set force_jni_scanner=false"
-        sql "set enable_paimon_rust_reader=false"
-        aggregateQueries.each { entry ->
-            [false, true].each { pushdown ->
-                sql "set enable_push_down_no_group_agg=${pushdown}"
-                explain {
-                    sql(entry[0])
-                    contains "pushdown agg=${pushdown ? entry[2] : 'NONE'}"
-                    contains "paimonNativeReadSplits="
-                }
-                assertEquals(entry[1].toString(), sql(entry[0]).toString())
-                def queryId = sql("select last_query_id()")[0][0].toString()
-                def profile = profiles.getProfile(queryId,
-                        ["FileScannerV2", "ParquetReader", "Profile Completion State: COMPLETE"])
-                assertFalse(profile.contains("PaimonRustReader"))
-                def rows = rawRows(profile)
-                if (pushdown) {
-                    assertTrue(rows.every { it == 0 }, "footer aggregate must not read data rows")
-                } else {
-                    assertTrue(rows.any { it > 0 }, "full-scan control must read data rows")
+        [false, true].each { rust ->
+            sql "set enable_paimon_rust_reader=${rust}"
+            aggregateQueries.each { entry ->
+                [false, true].each { pushdown ->
+                    sql "set enable_push_down_no_group_agg=${pushdown}"
+                    explain {
+                        sql(entry[0])
+                        contains "pushdown agg=${pushdown ? entry[2] : 'NONE'}"
+                    }
+                    assertEquals(entry[1].toString(), sql(entry[0]).toString())
+                    def queryId = sql("select last_query_id()")[0][0].toString()
+                    boolean rustExpected = rust && !pushdown
+                    def profile = profiles.getProfile(queryId,
+                            ["FileScannerV2", rustExpected ? "PaimonRustReader" : "ParquetReader",
+                             "Profile Completion State: COMPLETE"])
+                    assertEquals(rustExpected, profile.contains("PaimonRustReader"))
+                    if (!rustExpected) {
+                        def rows = rawRows(profile)
+                        if (pushdown) {
+                            assertTrue(rows.every { it == 0 }, "footer aggregate must not read data rows")
+                        } else {
+                            assertTrue(rows.any { it > 0 }, "full-scan control must read data rows")
+                        }
+                    }
                 }
             }
         }
         sql "set enable_push_down_no_group_agg=true"
         sql "set force_jni_scanner=true"
         // Forced JNI logical splits still return real rows to the upper aggregate.
-        aggregateQueries.each { entry -> check(entry[0], entry[1], false) }
+        aggregateQueries.each { entry -> check(entry[0], entry[1], false, true) }
         sql "set force_jni_scanner=false"
 
+        // Uncompacted primary-key files keep these Java/Rust cast comparisons on logical splits.
         ["DATE", "DATETIME(3)"].eachWithIndex { target, index ->
             def name = "string_to_temporal_${index}"
-            sql """CREATE TABLE ${name} (id INT, v STRING) ENGINE=paimon
-                PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
+            createPk(name, "v STRING", "")
             sql "INSERT INTO ${name} VALUES (1,'42'), (2,NULL)"
-            check("select id,v from ${name} order by id", [[1,"42"],[2,null]], false)
+            check("select id,v from ${name} order by id", [[1,"42"],[2,null]], true)
             sql "ALTER TABLE ${name} MODIFY COLUMN v ${target} NULL"
             // The historical string is an epoch count in Java, not an Arrow calendar literal.
             check("select id,cast(v as string) from ${name} order by id",
@@ -162,8 +167,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         ["INT", "BIGINT"].each { sourceType ->
             [0, 3, 6].each { precision ->
                 def name = "integer_to_timestamp_${sourceType.toLowerCase()}_${precision}"
-                sql """CREATE TABLE ${name} (id INT, v ${sourceType}) ENGINE=paimon
-                    PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
+                createPk(name, "v ${sourceType}", "")
                 sql "INSERT INTO ${name} VALUES (1,1700000000), (2,NULL)"
                 sql "ALTER TABLE ${name} MODIFY COLUMN v DATETIME(${precision}) NULL"
                 // All target precisions must interpret the source number as epoch seconds.

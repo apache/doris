@@ -51,12 +51,13 @@ public final class ConnectorScanRequest {
     private final List<String> requiredPartitions;
     private final boolean partitionsPrunedToEmpty;
     private final boolean countPushdown;
+    private final boolean aggregatePushdown;
     private final boolean explainOnly;
     private final Set<String> backendCapabilities;
 
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
-            boolean partitionsPrunedToEmpty, boolean countPushdown, boolean explainOnly,
+            boolean partitionsPrunedToEmpty, boolean countPushdown, boolean aggregatePushdown, boolean explainOnly,
             Set<String> backendCapabilities) {
         this.tableHandle = tableHandle;
         this.columns = columns;
@@ -65,6 +66,7 @@ public final class ConnectorScanRequest {
         this.requiredPartitions = requiredPartitions;
         this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
         this.countPushdown = countPushdown;
+        this.aggregatePushdown = aggregatePushdown;
         this.explainOnly = explainOnly;
         this.backendCapabilities = backendCapabilities;
     }
@@ -135,6 +137,11 @@ public final class ConnectorScanRequest {
         return countPushdown;
     }
 
+    /** Whether BE expects a no-grouping aggregate, including COUNT(column) or MIN/MAX. */
+    public boolean isAggregatePushdown() {
+        return aggregatePushdown;
+    }
+
     /**
      * Whether this plan is being built only to be shown ({@code EXPLAIN}), never run.
      *
@@ -163,7 +170,7 @@ public final class ConnectorScanRequest {
     /** This request with the partition set replaced — the batched scan's per-batch request. */
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
         return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, explainOnly,
+                normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, aggregatePushdown, explainOnly,
                 backendCapabilities);
     }
 
@@ -181,6 +188,7 @@ public final class ConnectorScanRequest {
         private List<String> requiredPartitions = Collections.emptyList();
         private boolean partitionsPrunedToEmpty;
         private boolean countPushdown;
+        private boolean aggregatePushdown;
         private boolean explainOnly;
         private Set<String> backendCapabilities = Collections.emptySet();
 
@@ -216,6 +224,12 @@ public final class ConnectorScanRequest {
             return this;
         }
 
+        /** Records a no-grouping aggregate that the backend will execute in this scan. */
+        public Builder aggregatePushdown(boolean aggregatePushdown) {
+            this.aggregatePushdown = aggregatePushdown;
+            return this;
+        }
+
         /** Defaults to false: a plan that will be run. */
         public Builder explainOnly(boolean explainOnly) {
             this.explainOnly = explainOnly;
@@ -231,7 +245,7 @@ public final class ConnectorScanRequest {
 
         public ConnectorScanRequest build() {
             return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                    requiredPartitions, partitionsPrunedToEmpty, countPushdown, explainOnly,
+                    requiredPartitions, partitionsPrunedToEmpty, countPushdown, aggregatePushdown, explainOnly,
                     backendCapabilities);
         }
     }

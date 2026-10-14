@@ -61,6 +61,7 @@ import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaManager;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FormatTable;
@@ -80,6 +81,7 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
+import org.apache.paimon.utils.JsonSerdeUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -1015,6 +1017,8 @@ public class PaimonScanPlanProviderTest {
                             .backendCapabilities(Collections.singleton(
                                     PaimonRustReaderSelector.BACKEND_CAPABILITY))
                             .build());
+            List<ConnectorScanRange> aggregated = provider.planScan(session,
+                    scanOf(latest).aggregatePushdown(true).build());
             List<ConnectorScanRange> limited = provider.planScan(session, scanOf(latest).limit(1).build());
             Assertions.assertEquals(1, limited.size(), "LIMIT 1 stops split planning after one split");
             List<ConnectorScanRange> count = provider.planScan(session, scanOf(latest).countPushdown(true).build());
@@ -1026,7 +1030,7 @@ public class PaimonScanPlanProviderTest {
                     scanOf(latest).build());
 
             List<List<ConnectorScanRange>> plans = Arrays.asList(plain, atS1, atS2, delta, filtered, otherFilter,
-                    projected, nestedProjected, rustBackendProjected, limited, count, onBranch, otherCatalog);
+                    projected, nestedProjected, rustBackendProjected, aggregated, limited, count, onBranch, otherCatalog);
             Set<List<ConnectorScanRange>> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
             distinct.addAll(plans);
             Assertions.assertEquals(plans.size(), distinct.size(),
@@ -1149,6 +1153,49 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertTrue(rustRanges.stream().allMatch(range -> "PAIMON_RUST".equals(
                             range.getProperties().get("paimon.reader_type"))),
                     "explicitly enabled compatible Rust reads must precede native raw-file routing");
+
+            ConnectorScanRequest aggregateRequest = ConnectorScanRequest.builder(handle, columns)
+                    .backendCapabilities(Collections.singleton(PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                    .aggregatePushdown(true)
+                    .build();
+            List<ConnectorScanRange> aggregateRanges = provider.planScan(
+                    sessionWithProps(rustProperties), aggregateRequest);
+            Assertions.assertFalse(aggregateRanges.isEmpty());
+            Assertions.assertTrue(aggregateRanges.stream().allMatch(range ->
+                    !range.getProperties().containsKey("paimon.split")),
+                    "footer aggregates require native physical-file ranges even with Rust enabled");
+
+            Map<String, String> ignoreJniProperties = new HashMap<>(rustProperties);
+            ignoreJniProperties.put("ignore_split_type", "IGNORE_JNI");
+            Assertions.assertTrue(provider.planScan(sessionWithProps(ignoreJniProperties), rustRequest).isEmpty(),
+                    "IGNORE_JNI must drop logical Rust ranges");
+
+            ConnectorScanRequest countRequest = ConnectorScanRequest.builder(handle, columns)
+                    .backendCapabilities(Collections.singleton(PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                    .countPushdown(true).aggregatePushdown(true).build();
+            List<ConnectorScanRange> countRanges = provider.planScan(sessionWithProps(rustProperties), countRequest);
+            Assertions.assertEquals(1, countRanges.size());
+            Assertions.assertEquals("1", countRanges.get(0).getProperties().get("paimon.row_count"));
+            Assertions.assertNotEquals("PAIMON_RUST", countRanges.get(0).getProperties().get("paimon.reader_type"));
+
+            Map<String, String> relationOptions = new HashMap<>();
+            relationOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(),
+                    Long.toString(table.latestSnapshot().orElseThrow(AssertionError::new).id()));
+            relationOptions.put(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "17");
+            PaimonTableHandle pinned = handle.withScanOptions(relationOptions);
+            List<ConnectorScanRange> pinnedRanges = provider.planScan(sessionWithProps(rustProperties),
+                    ConnectorScanRequest.builder(pinned, columns)
+                            .backendCapabilities(Collections.singleton(PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                            .build());
+            Assertions.assertFalse(pinnedRanges.isEmpty());
+            Map<String, String> payload = pinnedRanges.get(0).getProperties();
+            Assertions.assertEquals("PAIMON_RUST", payload.get("paimon.reader_type"));
+            Assertions.assertEquals("db", payload.get("paimon.database_name"));
+            Assertions.assertEquals("rust_reader_priority", payload.get("paimon.table_name"));
+            TableSchema schema = JsonSerdeUtil.fromJson(payload.get("paimon.table_schema_json"), TableSchema.class);
+            Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+            Assertions.assertEquals("17", schema.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+            Assertions.assertFalse(payload.containsKey("paimon.branch_name"), "main is the default Rust branch");
 
             Map<String, String> forceJniProperties = new HashMap<>(rustProperties);
             forceJniProperties.put("force_jni_scanner", "true");

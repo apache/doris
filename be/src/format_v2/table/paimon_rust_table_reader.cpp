@@ -48,8 +48,7 @@ extern "C" {
 
 namespace doris::format::paimon {
 
-namespace {
-constexpr const char* VALUE_KIND_FIELD = "_VALUE_KIND";
+namespace rust_handles {
 
 // ---------------------------------------------------------------------------
 // RAII wrappers over the paimon-rust C handles. Each handle is an opaque
@@ -73,6 +72,11 @@ PAIMON_OWNED(record_batch_reader, paimon_record_batch_reader_free);
 PAIMON_OWNED(error, paimon_error_free);
 
 #undef PAIMON_OWNED
+
+} // namespace rust_handles
+
+namespace {
+constexpr const char* VALUE_KIND_FIELD = "_VALUE_KIND";
 
 // One Arrow batch (schema + array containers). Owning it requires a two-step
 // teardown that the unique_ptr deleters above can't express: first invoke the
@@ -106,7 +110,7 @@ private:
 // Render a paimon_error into a string. Takes ownership of `err` via RAII so it
 // is freed on every return path. Safe to call with nullptr.
 std::string consume_error(paimon_error* err) {
-    error_ptr owned(err);
+    rust_handles::error_ptr owned(err);
     if (!owned) {
         return "unknown error";
     }
@@ -140,11 +144,11 @@ std::string format_options(const std::map<std::string, std::string>& options) {
 // reader depends on the whole pipeline above it. So the table MUST be declared
 // first (destroyed last) and the record batch reader last.
 struct PaimonRustTableReader::PaimonHandles {
-    table_ptr table;
-    read_builder_ptr read_builder;
-    plan_ptr plan;
-    table_read_ptr table_read;
-    record_batch_reader_ptr reader;
+    rust_handles::table_ptr table;
+    rust_handles::read_builder_ptr read_builder;
+    rust_handles::plan_ptr plan;
+    rust_handles::table_read_ptr table_read;
+    rust_handles::record_batch_reader_ptr reader;
 };
 
 PaimonRustTableReader::PaimonRustTableReader() = default;

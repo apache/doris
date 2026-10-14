@@ -22,16 +22,22 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileSource;
+import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
+import org.apache.paimon.table.sink.BatchTableCommit;
+import org.apache.paimon.table.sink.BatchTableWrite;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
@@ -209,6 +215,49 @@ public class PaimonRustReaderSelectorTest {
                 DataTypes.TIMESTAMP(6));
         Assertions.assertTrue(selector(enabledSession(), true, timestamp6, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split(file("data.parquet", timestamp6.schema().id(), null))));
+    }
+
+    @Test
+    public void deduplicateMergeOnReadDoesNotRejectAnOtherwiseCompatibleSplit() throws Exception {
+        Path location = new Path(fileLocation("deduplicate-mor"));
+        LocalFileIO fileIO = LocalFileIO.create();
+        new SchemaManager(fileIO, location).createTable(Schema.newBuilder()
+                .column("id", DataTypes.INT().notNull()).column("v", DataTypes.INT())
+                .primaryKey("id").option("bucket", "1").option("write-only", "true")
+                .option("file.format", "parquet").option("merge-engine", "deduplicate")
+                .option("deletion-vectors.enabled", "true")
+                .option("deletion-vectors.merge-on-read", "true").build());
+        FileStoreTable table = FileStoreTableFactory.create(fileIO, location);
+        BatchWriteBuilder builder = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = builder.newWrite(); BatchTableCommit commit = builder.newCommit()) {
+            write.write(GenericRow.of(1, 11));
+            commit.commit(write.prepareCommit());
+        }
+        List<org.apache.paimon.table.source.Split> splits = table.newScan().plan().splits();
+        Assertions.assertFalse(splits.isEmpty());
+        PaimonRustReaderSelector selector = selector(enabledSession(), true, table,
+                Collections.singletonList(new PaimonColumnHandle("v", 1)), Collections.emptyMap(),
+                false, false, false);
+        for (org.apache.paimon.table.source.Split split : splits) {
+            Assertions.assertTrue(selector.canRead((DataSplit) split));
+        }
+    }
+
+    @Test
+    public void rustMetadataKeepsResolvedBranchAndReaderOptionsWithoutTimeTravelSelectors() throws Exception {
+        Map<String, String> options = new HashMap<>();
+        options.put(CoreOptions.BRANCH.key(), "audit");
+        options.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), "7");
+        options.put(CoreOptions.SCAN_MODE.key(), "from-snapshot");
+        options.put(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "17");
+        FileStoreTable table = table(fileLocation("branch-metadata"), options, DataTypes.INT());
+        PaimonScanPlanProvider.RustScanMetadata metadata = PaimonScanPlanProvider.RustScanMetadata.from(table);
+        TableSchema schema = org.apache.paimon.utils.JsonSerdeUtil.fromJson(metadata.schemaJson, TableSchema.class);
+        Assertions.assertEquals("audit", metadata.branch);
+        Assertions.assertEquals(table.location().toString(), metadata.tableLocation);
+        Assertions.assertEquals("17", schema.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+        Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_MODE.key()));
     }
 
     private String fileLocation(String name) throws Exception {

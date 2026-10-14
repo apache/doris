@@ -195,6 +195,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest#getFilter():java.util.O
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getLimit():long
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getRequiredPartitions():java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getTableHandle():org.apache.doris.connector.spi.handle.ConnectorTableHandle
+org.apache.doris.connector.spi.scan.ConnectorScanRequest#isAggregatePushdown():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isCountPushdown():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isExplainOnly():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isPartitionsPrunedToEmpty():boolean

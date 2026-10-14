@@ -3852,6 +3852,9 @@ public class SessionVariable implements Serializable, Writable {
         this.orcOnceMaxReadBytes = Util.getRandomLong(0, 8L * 1024L * 1024L, 16L * 1024L * 1024L);
         this.orcMaxMergeDistanceBytes = Util.getRandomLong(0, 1L * 1024L * 1024L, 10L * 1024L * 1024L);
 
+        // paimon
+        this.enablePaimonRustReader = random.nextBoolean();
+
         // jni
         this.forceJniScanner = random.nextBoolean();
         // statistics

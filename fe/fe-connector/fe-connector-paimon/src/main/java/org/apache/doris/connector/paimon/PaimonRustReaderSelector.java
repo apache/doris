@@ -42,7 +42,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/** Chooses the Rust reader only for table, split, storage and backend shapes it can read safely. */
+/**
+ * Chooses the Rust reader only for table, split, storage and backend shapes it can read safely.
+ * Nested pruning and precision 7-9 timestamps still require JNI because the pinned Arrow ABI
+ * cannot preserve their full semantics. COUNT(*) metadata ranges bypass this selector entirely.
+ */
 final class PaimonRustReaderSelector {
     static final String BACKEND_CAPABILITY = "paimon-rust-reader";
     private static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
@@ -100,7 +104,8 @@ final class PaimonRustReaderSelector {
                 && backendsSupportRust
                 && !usesFallbackRead && !incrementalRead && !projectedVariant
                 && !options.queryAuthEnabled() && !restTokenTable
-                && !deletionVectorsMergeOnRead && !deduplicateIgnoreDelete
+                && !(partialUpdateOrAggregateWithDeletionVectors && deletionVectorsMergeOnRead)
+                && !deduplicateIgnoreDelete
                 && !unsupportedMergeOption && scanModeSupported
                 && isRustVerifiedLocationScheme(location)
                 && (!isHdfsLocationScheme(location)

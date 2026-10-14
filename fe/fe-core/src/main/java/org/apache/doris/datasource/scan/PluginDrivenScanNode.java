@@ -88,6 +88,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.logging.log4j.LogManager;
@@ -1729,6 +1730,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
+                .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
                 .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
                 // connector whose planning has a side effect on the source (ADBC: asking the driver to

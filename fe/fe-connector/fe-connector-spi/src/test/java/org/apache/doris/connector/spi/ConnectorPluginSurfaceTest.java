@@ -88,7 +88,7 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 15 carries backend capability accessors on ConnectorScanRequest.
+        // Major 15 carries backend capability and aggregate-pushdown accessors on ConnectorScanRequest.
         Assertions.assertEquals("15.0", version.getProperty("api.version"));
     }
 

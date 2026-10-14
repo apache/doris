@@ -233,7 +233,7 @@ final class PaimonRustReaderCapabilities {
         }
     }
 
-    private static boolean hasCompatibleAggregates(TableSchema schema) {
+    static boolean hasCompatibleAggregates(TableSchema schema) {
         Map<String, String> options = schema.options();
         CoreOptions.MergeEngine engine = new CoreOptions(options).mergeEngine();
         if (engine != CoreOptions.MergeEngine.AGGREGATE && engine != CoreOptions.MergeEngine.PARTIAL_UPDATE) {
