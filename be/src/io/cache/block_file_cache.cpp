@@ -1096,9 +1096,7 @@ std::string BlockFileCache::clear_file_cache_impl(bool sync_remove) {
             if (!cell->releasable()) {
                 LOG(INFO) << "cell is not releasable, hash="
                           << cell->file_block->get_hash_value().to_string()
-                          << " offset=" << cell->file_block->offset()
-                          << " use_count=" << cell->file_block.use_count() << " state="
-                          << FileBlock::state_to_string(cell->file_block->state_unsafe());
+                          << " offset=" << cell->file_block->offset();
                 mark_cell_deleting(*cell, cache_lock);
                 ++num_cells_wait_recycle;
                 continue;

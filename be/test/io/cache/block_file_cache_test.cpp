@@ -3885,12 +3885,12 @@ TEST_F(BlockFileCacheTest, recycle_deleting_blocks_reclaims_stranded_busy_blocks
     settings.max_file_block_size = 64;
     settings.max_query_cache_size = num_blocks * block_size * 2;
 
-    int64_t origin_gc_interval = config::file_cache_background_gc_interval_ms;
-    // Park the background GC thread: the explicit recycle_deleting_blocks() calls below must be
-    // the only thing reclaiming blocks, otherwise the assertions race with it.
-    config::file_cache_background_gc_interval_ms = 3600 * 1000;
-    Defer restore_gc_interval {
-            [&] { config::file_cache_background_gc_interval_ms = origin_gc_interval; }};
+    int64_t origin_qps_limit = config::file_cache_remove_block_qps_limit;
+    // Give the background GC thread no removal budget: the explicit recycle_deleting_blocks()
+    // calls below must be the only thing reclaiming blocks, otherwise the assertions race with
+    // it. The GC interval stays short, so ~BlockFileCache() never waits long for that thread.
+    config::file_cache_remove_block_qps_limit = 0;
+    Defer restore_qps_limit {[&] { config::file_cache_remove_block_qps_limit = origin_qps_limit; }};
 
     io::BlockFileCache cache(my_cache_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -3994,12 +3994,12 @@ TEST_F(BlockFileCacheTest, recycle_deleting_blocks_honours_batch_limit) {
     settings.max_file_block_size = 64;
     settings.max_query_cache_size = num_blocks * block_size * 2;
 
-    int64_t origin_gc_interval = config::file_cache_background_gc_interval_ms;
-    // Park the background GC thread: the explicit recycle_deleting_blocks() calls below must be
-    // the only thing reclaiming blocks, otherwise the assertions race with it.
-    config::file_cache_background_gc_interval_ms = 3600 * 1000;
-    Defer restore_gc_interval {
-            [&] { config::file_cache_background_gc_interval_ms = origin_gc_interval; }};
+    int64_t origin_qps_limit = config::file_cache_remove_block_qps_limit;
+    // Give the background GC thread no removal budget: the explicit recycle_deleting_blocks()
+    // calls below must be the only thing reclaiming blocks, otherwise the assertions race with
+    // it. The GC interval stays short, so ~BlockFileCache() never waits long for that thread.
+    config::file_cache_remove_block_qps_limit = 0;
+    Defer restore_qps_limit {[&] { config::file_cache_remove_block_qps_limit = origin_qps_limit; }};
 
     io::BlockFileCache cache(my_cache_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -4054,12 +4054,12 @@ TEST_F(BlockFileCacheTest, recycle_deleting_blocks_ignores_block_recreated_at_sa
     settings.max_file_block_size = 64;
     settings.max_query_cache_size = 64;
 
-    int64_t origin_gc_interval = config::file_cache_background_gc_interval_ms;
-    // Park the background GC thread: the explicit recycle_deleting_blocks() calls below must be
-    // the only thing reclaiming blocks, otherwise the assertions race with it.
-    config::file_cache_background_gc_interval_ms = 3600 * 1000;
-    Defer restore_gc_interval {
-            [&] { config::file_cache_background_gc_interval_ms = origin_gc_interval; }};
+    int64_t origin_qps_limit = config::file_cache_remove_block_qps_limit;
+    // Give the background GC thread no removal budget: the explicit recycle_deleting_blocks()
+    // calls below must be the only thing reclaiming blocks, otherwise the assertions race with
+    // it. The GC interval stays short, so ~BlockFileCache() never waits long for that thread.
+    config::file_cache_remove_block_qps_limit = 0;
+    Defer restore_qps_limit {[&] { config::file_cache_remove_block_qps_limit = origin_qps_limit; }};
 
     io::BlockFileCache cache(my_cache_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -4133,12 +4133,12 @@ TEST_F(BlockFileCacheTest, recycle_deleting_blocks_reclaims_empty_blocks) {
     settings.max_file_block_size = 64;
     settings.max_query_cache_size = 64;
 
-    int64_t origin_gc_interval = config::file_cache_background_gc_interval_ms;
-    // Park the background GC thread: the explicit recycle_deleting_blocks() calls below must be
-    // the only thing reclaiming blocks, otherwise the assertions race with it.
-    config::file_cache_background_gc_interval_ms = 3600 * 1000;
-    Defer restore_gc_interval {
-            [&] { config::file_cache_background_gc_interval_ms = origin_gc_interval; }};
+    int64_t origin_qps_limit = config::file_cache_remove_block_qps_limit;
+    // Give the background GC thread no removal budget: the explicit recycle_deleting_blocks()
+    // calls below must be the only thing reclaiming blocks, otherwise the assertions race with
+    // it. The GC interval stays short, so ~BlockFileCache() never waits long for that thread.
+    config::file_cache_remove_block_qps_limit = 0;
+    Defer restore_qps_limit {[&] { config::file_cache_remove_block_qps_limit = origin_qps_limit; }};
 
     io::BlockFileCache cache(my_cache_path, settings);
     ASSERT_TRUE(cache.initialize());
@@ -4193,12 +4193,12 @@ TEST_F(BlockFileCacheTest, recycle_deleting_blocks_reclaims_block_removed_while_
     settings.max_file_block_size = 64;
     settings.max_query_cache_size = 64;
 
-    int64_t origin_gc_interval = config::file_cache_background_gc_interval_ms;
-    // Park the background GC thread: the explicit recycle_deleting_blocks() calls below must be
-    // the only thing reclaiming blocks, otherwise the assertions race with it.
-    config::file_cache_background_gc_interval_ms = 3600 * 1000;
-    Defer restore_gc_interval {
-            [&] { config::file_cache_background_gc_interval_ms = origin_gc_interval; }};
+    int64_t origin_qps_limit = config::file_cache_remove_block_qps_limit;
+    // Give the background GC thread no removal budget: the explicit recycle_deleting_blocks()
+    // calls below must be the only thing reclaiming blocks, otherwise the assertions race with
+    // it. The GC interval stays short, so ~BlockFileCache() never waits long for that thread.
+    config::file_cache_remove_block_qps_limit = 0;
+    Defer restore_qps_limit {[&] { config::file_cache_remove_block_qps_limit = origin_qps_limit; }};
 
     io::BlockFileCache cache(my_cache_path, settings);
     ASSERT_TRUE(cache.initialize());
