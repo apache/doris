@@ -1454,6 +1454,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
+        if (!txnOperated) {
+            // Cloud commit failures have no transaction state; release the lock before retrying.
+            writeUnlock();
+            return;
+        }
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
         StreamingTaskTxnCommitAttachment attachment =
                 (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
