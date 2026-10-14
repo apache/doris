@@ -41,6 +41,7 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(
     return nullptr;
 }
 
+template <typename Digest>
 AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr) {
@@ -49,11 +50,13 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
         return nullptr;
     }
     if (argument_types.size() == 3) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedThreeParams>(
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxWeightedThreeParams<Digest>>(
                 argument_types, result_is_nullable, attr);
     }
     if (argument_types.size() == 4) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedFourParams>(
+        return creator_without_type::create<
+                AggregateFunctionPercentileApproxWeightedFourParams<Digest>>(
                 argument_types, result_is_nullable, attr);
     }
     return nullptr;
@@ -109,8 +112,21 @@ void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactor
                                    create_aggregate_function_percentile_approx);
     factory.register_function_both("percentile_approx_array",
                                    create_aggregate_function_percentile_approx_array);
-    factory.register_function_both("percentile_approx_weighted",
-                                   create_aggregate_function_percentile_approx_weighted);
+    factory.register_function_both(
+            "percentile_approx_weighted",
+            create_aggregate_function_percentile_approx_weighted<WeightedTDigest>);
+    // Version 17 and older exchange FLOAT digest states. Keep that implementation
+    // for mixed-version clusters and mark stored weighted AGG_STATE data incompatible
+    // across this boundary, rather than reading FLOAT bytes as wide weights.
+    constexpr auto old_be_exec_version = SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION - 1;
+    factory.register_alternative_function(
+            "percentile_approx_weighted",
+            create_aggregate_function_percentile_approx_weighted<TDigest>, false,
+            old_be_exec_version);
+    factory.register_alternative_function(
+            "percentile_approx_weighted",
+            create_aggregate_function_percentile_approx_weighted<TDigest>, true,
+            old_be_exec_version);
 
     register_percentile_approx_old_function(factory);
 }

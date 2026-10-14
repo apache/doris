@@ -75,6 +75,15 @@ void BeExecVersionManager::check_function_restriction(int be_exec_version,
 void BeExecVersionManager::check_function_compatibility(int current_be_exec_version,
                                                         int data_be_exec_version,
                                                         std::string function_name) {
+    // Nullable aggregates report e.g. Nullable(percentile_approx_weighted), while
+    // compatibility is registered for the underlying function. Without unwrapping,
+    // nullable FLOAT weighted states would bypass the version 18 format boundary.
+    constexpr auto nullable_prefix_size = sizeof("Nullable(") - 1;
+    while (function_name.starts_with("Nullable(")) {
+        DCHECK(function_name.ends_with(")"));
+        function_name = function_name.substr(nullable_prefix_size,
+                                             function_name.size() - nullable_prefix_size - 1);
+    }
     if (get_function_compatibility(current_be_exec_version, function_name) ==
         get_function_compatibility(data_be_exec_version, function_name)) {
         return;
@@ -156,8 +165,10 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   a. support Paimon table writes.
 // 17: start from master
 //   a. use exact logical frames for map_agg_v2 aggregate state serialization.
+// 18: start from master
+//   a. retain the full DOUBLE weight range in weighted percentile aggregate states.
 
-const int BeExecVersionManager::max_be_exec_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION;
+const int BeExecVersionManager::max_be_exec_version = SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_alternative_map {};

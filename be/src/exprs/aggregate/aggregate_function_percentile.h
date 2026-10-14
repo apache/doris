@@ -76,10 +76,11 @@ inline void check_percentile_array_column_type(const IAggregateFunction& functio
     }
 }
 
-struct PercentileApproxState {
+template <typename Digest>
+struct PercentileApproxStateImpl {
     static constexpr double INIT_QUANTILE = -1.0;
-    PercentileApproxState() = default;
-    ~PercentileApproxState() = default;
+    PercentileApproxStateImpl() = default;
+    ~PercentileApproxStateImpl() = default;
 
     void init(double quantile, float compression = 10000) {
         if (!init_flag) {
@@ -90,7 +91,7 @@ struct PercentileApproxState {
             if (!std::isfinite(compression) || compression < 2048 || compression > 10000) {
                 compression = 10000;
             }
-            digest = TDigest::create_unique(compression);
+            digest = Digest::create_unique(compression);
             check_quantile(quantile);
             target_quantile = quantile;
             compressions = compression;
@@ -124,7 +125,7 @@ struct PercentileApproxState {
         buf.read_binary(compressions);
         std::string str;
         buf.read_binary(str);
-        digest = TDigest::create_unique(compressions);
+        digest = Digest::create_unique(compressions);
         digest->unserialize((uint8_t*)str.c_str());
     }
 
@@ -136,14 +137,14 @@ struct PercentileApproxState {
         }
     }
 
-    void merge(const PercentileApproxState& rhs) {
+    void merge(const PercentileApproxStateImpl& rhs) {
         if (!rhs.init_flag || rhs.digest->total_size() == 0) {
             return;
         }
         if (!init_flag || digest->total_size() == 0) {
             target_quantile = rhs.target_quantile;
             compressions = rhs.compressions;
-            digest = TDigest::create_unique(compressions);
+            digest = Digest::create_unique(compressions);
             init_flag = true;
         } else if (UNLIKELY(target_quantile != rhs.target_quantile ||
                             compressions != rhs.compressions)) {
@@ -157,31 +158,40 @@ struct PercentileApproxState {
     void add(double source) { digest->add(static_cast<float>(source)); }
 
     void add_with_weight(double source, double weight) {
-        // the weight should be positive num, as have check the value valid use DCHECK_GT(c._weight, 0);
-        if (weight <= 0) {
+        const auto digest_weight = static_cast<typename Digest::Weight>(weight);
+        // Old execution versions still use FLOAT weights: 1e-100 becomes zero there.
+        // Validate the stored weight so the legacy path cannot create zero-weight centroids.
+        if (digest_weight <= 0) {
             return;
         }
-        digest->add(static_cast<float>(source), static_cast<float>(weight));
+        // NaN and +Inf have undefined ranks and can fail Centroid::add's positive-weight check.
+        if (!std::isfinite(weight)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "percentile_approx_weighted requires finite weights");
+        }
+        digest->add(static_cast<float>(source), digest_weight);
     }
 
     void reset() {
         target_quantile = INIT_QUANTILE;
         init_flag = false;
-        digest = TDigest::create_unique(compressions);
+        digest = Digest::create_unique(compressions);
     }
 
     bool init_flag = false;
-    std::unique_ptr<TDigest> digest;
+    std::unique_ptr<Digest> digest;
     double target_quantile = INIT_QUANTILE;
     float compressions = 10000;
 };
 
-template <typename Derived>
-class AggregateFunctionPercentileApproxBase
-        : public IAggregateFunctionDataHelper<PercentileApproxState, Derived> {
+using PercentileApproxState = PercentileApproxStateImpl<TDigest>;
+using PercentileApproxWeightedState = PercentileApproxStateImpl<WeightedTDigest>;
+
+template <typename Derived, typename State = PercentileApproxState>
+class AggregateFunctionPercentileApproxBase : public IAggregateFunctionDataHelper<State, Derived> {
 public:
     AggregateFunctionPercentileApproxBase(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<PercentileApproxState, Derived>(argument_types_) {}
+            : IAggregateFunctionDataHelper<State, Derived>(argument_types_) {}
 
     String get_name() const override { return "percentile_approx"; }
 
@@ -265,15 +275,20 @@ public:
     }
 };
 
+template <typename Digest>
 class AggregateFunctionPercentileApproxWeightedThreeParams final
         : public AggregateFunctionPercentileApproxBase<
-                  AggregateFunctionPercentileApproxWeightedThreeParams>,
+                  AggregateFunctionPercentileApproxWeightedThreeParams<Digest>,
+                  PercentileApproxStateImpl<Digest>>,
           MultiExpression,
           NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApproxBase<
-                      AggregateFunctionPercentileApproxWeightedThreeParams>(argument_types_) {}
+                      AggregateFunctionPercentileApproxWeightedThreeParams<Digest>,
+                      PercentileApproxStateImpl<Digest>>(argument_types_) {}
+
+    String get_name() const override { return "percentile_approx_weighted"; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -297,15 +312,20 @@ public:
     }
 };
 
+template <typename Digest>
 class AggregateFunctionPercentileApproxWeightedFourParams final
         : public AggregateFunctionPercentileApproxBase<
-                  AggregateFunctionPercentileApproxWeightedFourParams>,
+                  AggregateFunctionPercentileApproxWeightedFourParams<Digest>,
+                  PercentileApproxStateImpl<Digest>>,
           MultiExpression,
           NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedFourParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApproxBase<
-                      AggregateFunctionPercentileApproxWeightedFourParams>(argument_types_) {}
+                      AggregateFunctionPercentileApproxWeightedFourParams<Digest>,
+                      PercentileApproxStateImpl<Digest>>(argument_types_) {}
+    String get_name() const override { return "percentile_approx_weighted"; }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& sources =

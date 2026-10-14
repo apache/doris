@@ -29,7 +29,9 @@
 
 namespace doris {
 
-class TDigest;
+template <typename WeightType>
+class TDigestImpl;
+using TDigest = TDigestImpl<float>;
 
 const static int QUANTILE_STATE_EXPLICIT_NUM = 2048;
 const static int QUANTILE_STATE_COMPRESSION_MIN = 2048;

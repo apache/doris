@@ -2028,9 +2028,11 @@ public class Config extends ConfigBase {
             = ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION;
     // Older backends serialize map_agg_v2 keys with the legacy padded frame format.
     public static final int MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION = 17;
+    // Older backends narrow percentile_approx_weighted aggregate state weights to FLOAT.
+    public static final int WIDE_WEIGHTED_PERCENTILE_MIN_BE_EXEC_VERSION = 18;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = WIDE_WEIGHTED_PERCENTILE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

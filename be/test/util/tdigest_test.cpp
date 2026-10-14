@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <array>
 #include <memory>
 #include <numeric>
 #include <random>
@@ -75,6 +76,88 @@ static double quantile(const double q, const std::vector<double>& values) {
         }
     }
     return q1;
+}
+
+TEST(WeightedTDigestTest, ScaleInvariantAfterCompressionSerializationAndMerge) {
+    const std::array<float, 5> levels {0, 0.1, 0.5, 0.9, 1};
+    WeightedTDigest reference(100);
+    for (int i = 0; i < 10000; ++i) {
+        reference.add(i % 100, 1);
+    }
+    std::array<float, 5> expected;
+    for (size_t i = 0; i < levels.size(); ++i) {
+        expected[i] = reference.quantile(levels[i]);
+    }
+
+    for (double weight : {1e-100, 1.0, 1e100, std::numeric_limits<double>::denorm_min(),
+                          std::numeric_limits<double>::max()}) {
+        SCOPED_TRACE(weight);
+        WeightedTDigest source(100);
+        for (int i = 0; i < 10000; ++i) {
+            source.add(i % 100, weight);
+        }
+        source.quantile(0.5);
+        source.add(50, weight);
+        std::vector<uint8_t> bytes(source.serialized_size());
+        ASSERT_EQ(bytes.size(), source.serialize(bytes.data()));
+        WeightedTDigest restored(100);
+        restored.unserialize(bytes.data());
+        EXPECT_EQ(source.processed().size(), restored.processed().size());
+        EXPECT_EQ(source.unprocessed().size(), restored.unprocessed().size());
+        WeightedTDigest merged(100);
+        merged.merge(&restored);
+        for (size_t i = 0; i < levels.size(); ++i) {
+            EXPECT_NEAR(expected[i], restored.quantile(levels[i]), 0.1);
+            EXPECT_FLOAT_EQ(restored.quantile(levels[i]), merged.quantile(levels[i]));
+        }
+    }
+}
+
+TEST(WeightedTDigestTest, PreserveRatioWhenMergingDifferentWeightScales) {
+    WeightedTDigest small(10000);
+    small.add(0, 1e-100);
+    small.quantile(0.5);
+    WeightedTDigest large(10000);
+    large.add(10, 1e100);
+    large.merge(&small);
+    EXPECT_FLOAT_EQ(0, large.quantile(0));
+    EXPECT_FLOAT_EQ(10, large.quantile(0.5));
+    EXPECT_FLOAT_EQ(10, large.quantile(1));
+}
+
+TEST_F(TDigestTest, PreserveLegacyFloatWireBytes) {
+    // Construct the old wire layout independently: two unprocessed FLOAT centroids,
+    // with values 0 and 10 and weights 1 and 3, must retain the exact byte format.
+    std::vector<uint8_t> legacy;
+    const auto append = [&](const auto& value) {
+        const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+        legacy.insert(legacy.end(), bytes, bytes + sizeof(value));
+    };
+    append(uint32_t(52 + 16));
+    append(float(100));
+    append(std::numeric_limits<float>::max());
+    append(std::numeric_limits<float>::lowest());
+    append(size_t(200));
+    append(size_t(800));
+    append(float(0));
+    append(float(4));
+    append(uint32_t(0));
+    append(uint32_t(2));
+    append(float(0));
+    append(float(1));
+    append(float(10));
+    append(float(3));
+    append(uint32_t(0));
+
+    TDigest digest(100);
+    digest.add(0, 1);
+    digest.add(10, 3);
+    std::vector<uint8_t> serialized(digest.serialized_size());
+    ASSERT_EQ(serialized.size(), digest.serialize(serialized.data()));
+    EXPECT_EQ(legacy, serialized);
+    TDigest restored(100);
+    restored.unserialize(legacy.data());
+    EXPECT_FLOAT_EQ(7.5, restored.quantile(0.5));
 }
 
 TEST_F(TDigestTest, CopyPreservesValuesWithoutSpareCapacity) {

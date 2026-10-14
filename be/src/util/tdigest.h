@@ -48,8 +48,10 @@
 #include <cfloat>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <queue>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -64,11 +66,14 @@ using Index = size_t;
 
 constexpr size_t K_HIGH_WATER = 40000;
 
-class Centroid {
+template <typename WeightType>
+class CentroidImpl {
 public:
-    Centroid() : Centroid(0.0, 0.0) {}
+    using Weight = WeightType;
 
-    Centroid(Value mean, Weight weight) : _mean(mean), _weight(weight) {}
+    CentroidImpl() : CentroidImpl(0.0, 0.0) {}
+
+    CentroidImpl(Value mean, Weight weight) : _mean(mean), _weight(weight) {}
 
     Value mean() const noexcept { return _mean; }
 
@@ -78,11 +83,11 @@ public:
 
     Weight& weight() noexcept { return _weight; }
 
-    void add(const Centroid& c) {
+    void add(const CentroidImpl& c) {
         DCHECK_GT(c._weight, 0);
         if (_weight != 0.0) {
             _weight += c._weight;
-            _mean += c._weight * (c._mean - _mean) / _weight;
+            _mean += static_cast<Value>(c._weight * (c._mean - _mean) / _weight);
         } else {
             _weight = c._weight;
             _mean = c._mean;
@@ -94,52 +99,60 @@ private:
     Weight _weight = 0;
 };
 
-struct CentroidList {
-    CentroidList(const std::vector<Centroid>& s) : iter(s.cbegin()), end(s.cend()) {}
-    std::vector<Centroid>::const_iterator iter;
-    std::vector<Centroid>::const_iterator end;
+using Centroid = CentroidImpl<Weight>;
 
-    bool advance() { return ++iter != end; }
-};
+template <typename WeightType>
+class TDigestImpl {
+    ENABLE_FACTORY_CREATOR(TDigestImpl);
 
-class CentroidListComparator {
 public:
-    CentroidListComparator() = default;
+    using Weight = WeightType;
+    using Centroid = CentroidImpl<Weight>;
 
-    bool operator()(const CentroidList& left, const CentroidList& right) const {
-        return left.iter->mean() > right.iter->mean();
-    }
-};
+private:
+    struct CentroidList {
+        CentroidList(const std::vector<Centroid>& s) : iter(s.cbegin()), end(s.cend()) {}
+        typename std::vector<Centroid>::const_iterator iter;
+        typename std::vector<Centroid>::const_iterator end;
 
-using CentroidListQueue =
-        std::priority_queue<CentroidList, std::vector<CentroidList>, CentroidListComparator>;
+        bool advance() { return ++iter != end; }
+    };
 
-struct CentroidComparator {
-    bool operator()(const Centroid& a, const Centroid& b) const { return a.mean() < b.mean(); }
-};
+    class CentroidListComparator {
+    public:
+        CentroidListComparator() = default;
 
-class TDigest {
-    ENABLE_FACTORY_CREATOR(TDigest);
+        bool operator()(const CentroidList& left, const CentroidList& right) const {
+            return left.iter->mean() > right.iter->mean();
+        }
+    };
+
+    using CentroidListQueue =
+            std::priority_queue<CentroidList, std::vector<CentroidList>, CentroidListComparator>;
+
+    struct CentroidComparator {
+        bool operator()(const Centroid& a, const Centroid& b) const { return a.mean() < b.mean(); }
+    };
 
     class TDigestComparator {
     public:
         TDigestComparator() = default;
 
-        bool operator()(const TDigest* left, const TDigest* right) const {
+        bool operator()(const TDigestImpl* left, const TDigestImpl* right) const {
             return left->total_size() > right->total_size();
         }
     };
-    using TDigestQueue =
-            std::priority_queue<const TDigest*, std::vector<const TDigest*>, TDigestComparator>;
+    using TDigestQueue = std::priority_queue<const TDigestImpl*, std::vector<const TDigestImpl*>,
+                                             TDigestComparator>;
 
 public:
-    TDigest() : TDigest(10000) {}
+    TDigestImpl() : TDigestImpl(10000) {}
 
-    explicit TDigest(Value compression) : TDigest(compression, 0) {}
+    explicit TDigestImpl(Value compression) : TDigestImpl(compression, 0) {}
 
-    TDigest(Value compression, Index buffer_size) : TDigest(compression, buffer_size, 0) {}
+    TDigestImpl(Value compression, Index buffer_size) : TDigestImpl(compression, buffer_size, 0) {}
 
-    TDigest(Value compression, Index unmerged_size, Index merged_size)
+    TDigestImpl(Value compression, Index unmerged_size, Index merged_size)
             : _compression(compression),
               _max_processed(processed_size(merged_size, compression)),
               _max_unprocessed(unprocessed_size(unmerged_size, compression)) {
@@ -147,9 +160,9 @@ public:
         _unprocessed.reserve(_max_unprocessed + 1);
     }
 
-    TDigest(std::vector<Centroid>&& processed, std::vector<Centroid>&& unprocessed,
-            Value compression, Index unmerged_size, Index merged_size)
-            : TDigest(compression, unmerged_size, merged_size) {
+    TDigestImpl(std::vector<Centroid>&& processed, std::vector<Centroid>&& unprocessed,
+                Value compression, Index unmerged_size, Index merged_size)
+            : TDigestImpl(compression, unmerged_size, merged_size) {
         _processed = std::move(processed);
         _unprocessed = std::move(unprocessed);
 
@@ -170,9 +183,9 @@ public:
         return w;
     }
 
-    TDigest(const TDigest&) = default;
+    TDigestImpl(const TDigestImpl&) = default;
 
-    TDigest& operator=(TDigest&& o) {
+    TDigestImpl& operator=(TDigestImpl&& o) {
         _compression = o._compression;
         _max_processed = o._max_processed;
         _max_unprocessed = o._max_unprocessed;
@@ -186,9 +199,9 @@ public:
         return *this;
     }
 
-    TDigest(TDigest&& o)
-            : TDigest(std::move(o._processed), std::move(o._unprocessed), o._compression,
-                      o._max_unprocessed, o._max_processed) {}
+    TDigestImpl(TDigestImpl&& o)
+            : TDigestImpl(std::move(o._processed), std::move(o._unprocessed), o._compression,
+                          o._max_unprocessed, o._max_processed) {}
 
     static inline Index processed_size(Index size, Value compression) noexcept {
         return (size == 0) ? static_cast<Index>(2 * std::ceil(compression)) : size;
@@ -199,8 +212,8 @@ public:
     }
 
     // merge in another t-digest
-    void merge(const TDigest* other) {
-        std::vector<const TDigest*> others {other};
+    void merge(const TDigestImpl* other) {
+        std::vector<const TDigestImpl*> others {other};
         add(others.cbegin(), others.cend());
     }
 
@@ -212,20 +225,20 @@ public:
 
     Index max_processed() const { return _max_processed; }
 
-    void add(std::vector<const TDigest*> digests) { add(digests.cbegin(), digests.cend()); }
+    void add(std::vector<const TDigestImpl*> digests) { add(digests.cbegin(), digests.cend()); }
 
     // merge in a vector of tdigests in the most efficient manner possible
     // in constant space
     // works for any value of K_HIGH_WATER
-    void add(std::vector<const TDigest*>::const_iterator iter,
-             std::vector<const TDigest*>::const_iterator end) {
+    void add(typename std::vector<const TDigestImpl*>::const_iterator iter,
+             typename std::vector<const TDigestImpl*>::const_iterator end) {
         if (iter != end) {
             auto size = std::distance(iter, end);
             TDigestQueue pq(TDigestComparator {});
             for (; iter != end; iter++) {
                 pq.push((*iter));
             }
-            std::vector<const TDigest*> batch;
+            std::vector<const TDigestImpl*> batch;
             batch.reserve(size);
 
             size_t total_size = 0;
@@ -254,7 +267,14 @@ public:
 
     size_t total_size() const { return _processed.size() + _unprocessed.size(); }
 
-    long total_weight() const { return static_cast<long>(_processed_weight + _unprocessed_weight); }
+    auto total_weight() const {
+        if constexpr (std::is_same_v<Weight, float>) {
+            return static_cast<long>(_processed_weight + _unprocessed_weight);
+        } else {
+            // Weighted mass may be fractional or exceed LONG_MAX, e.g. two 1e100 weights.
+            return _processed_weight + _unprocessed_weight;
+        }
+    }
 
     // return the cdf on the t-digest
     Value cdf(Value x) {
@@ -347,8 +367,9 @@ public:
             VLOG_CRITICAL << "middle "
                           << " z1 " << z1 << " z2 " << z2 << " x " << x;
 
-            return _weighted_average(_cumulative[i - 1], z2, _cumulative[i], z1) /
-                   _processed_weight;
+            return static_cast<Value>(
+                    _weighted_average(_cumulative[i - 1], z2, _cumulative[i], z1) /
+                    _processed_weight);
         }
     }
 
@@ -409,8 +430,8 @@ public:
 
             DCHECK_LE(index, _processed_weight);
             DCHECK_GE(index, _processed_weight - _weight(n - 1) / 2.0);
-            auto z1 = static_cast<Value>(index - _processed_weight - _weight(n - 1) / 2.0);
-            auto z2 = static_cast<Value>(_weight(n - 1) / 2 - z1);
+            auto z1 = static_cast<Weight>(index - _processed_weight - _weight(n - 1) / 2.0);
+            auto z2 = static_cast<Weight>(_weight(n - 1) / 2 - z1);
             result[level_index] =
                     static_cast<double>(_weighted_average(_mean(n - 1), z1, _max, z2));
         }
@@ -459,8 +480,8 @@ public:
         DCHECK_LE(index, _processed_weight);
         DCHECK_GE(index, _processed_weight - _weight(n - 1) / 2.0);
 
-        auto z1 = static_cast<Value>(index - _processed_weight - _weight(n - 1) / 2.0);
-        auto z2 = static_cast<Value>(_weight(n - 1) / 2 - z1);
+        auto z1 = static_cast<Weight>(index - _processed_weight - _weight(n - 1) / 2.0);
+        auto z2 = static_cast<Weight>(_weight(n - 1) / 2 - z1);
         return _weighted_average(_mean(n - 1), z1, _max, z2);
     }
 
@@ -482,8 +503,8 @@ public:
         return true;
     }
 
-    void add(std::vector<Centroid>::const_iterator iter,
-             std::vector<Centroid>::const_iterator end) {
+    void add(typename std::vector<Centroid>::const_iterator iter,
+             typename std::vector<Centroid>::const_iterator end) {
         while (iter != end) {
             const size_t diff = std::distance(iter, end);
             const size_t room = _max_unprocessed - _unprocessed.size();
@@ -498,10 +519,12 @@ public:
     }
 
     uint32_t serialized_size() {
-        return static_cast<uint32_t>(sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 +
-                                     sizeof(uint32_t) * 3 + _processed.size() * sizeof(Centroid) +
-                                     _unprocessed.size() * sizeof(Centroid) +
-                                     _cumulative.size() * sizeof(Weight));
+        return static_cast<uint32_t>(sizeof(uint32_t) + sizeof(Value) * 3 +
+                                     SERIALIZED_WEIGHT_SIZE * 2 + sizeof(Index) * 2 +
+                                     sizeof(uint32_t) * 3 +
+                                     (_processed.size() + _unprocessed.size()) *
+                                             (sizeof(Value) + SERIALIZED_WEIGHT_SIZE) +
+                                     _cumulative.size() * SERIALIZED_WEIGHT_SIZE);
     }
 
     size_t serialize(uint8_t* writer) {
@@ -519,17 +542,14 @@ public:
         writer += sizeof(Index);
         memcpy(writer, &_max_unprocessed, sizeof(Index));
         writer += sizeof(Index);
-        memcpy(writer, &_processed_weight, sizeof(Value));
-        writer += sizeof(Value);
-        memcpy(writer, &_unprocessed_weight, sizeof(Value));
-        writer += sizeof(Value);
+        _serialize_weight(writer, _processed_weight);
+        _serialize_weight(writer, _unprocessed_weight);
 
         auto size = static_cast<uint32_t>(_processed.size());
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
         for (int i = 0; i < size; i++) {
-            memcpy(writer, &_processed[i], sizeof(Centroid));
-            writer += sizeof(Centroid);
+            _serialize_centroid(writer, _processed[i]);
         }
 
         size = static_cast<uint32_t>(_unprocessed.size());
@@ -537,16 +557,14 @@ public:
         writer += sizeof(uint32_t);
         //TODO(weixiang): may be once memcpy is enough!
         for (int i = 0; i < size; i++) {
-            memcpy(writer, &_unprocessed[i], sizeof(Centroid));
-            writer += sizeof(Centroid);
+            _serialize_centroid(writer, _unprocessed[i]);
         }
 
         size = static_cast<uint32_t>(_cumulative.size());
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
         for (int i = 0; i < size; i++) {
-            memcpy(writer, &_cumulative[i], sizeof(Weight));
-            writer += sizeof(Weight);
+            _serialize_weight(writer, _cumulative[i]);
         }
         return writer - dst;
     }
@@ -566,36 +584,83 @@ public:
         type_reader += sizeof(Index);
         memcpy(&_max_unprocessed, type_reader, sizeof(Index));
         type_reader += sizeof(Index);
-        memcpy(&_processed_weight, type_reader, sizeof(Value));
-        type_reader += sizeof(Value);
-        memcpy(&_unprocessed_weight, type_reader, sizeof(Value));
-        type_reader += sizeof(Value);
+        _processed_weight = _unserialize_weight(type_reader);
+        _unprocessed_weight = _unserialize_weight(type_reader);
 
         uint32_t size;
         memcpy(&size, type_reader, sizeof(uint32_t));
         type_reader += sizeof(uint32_t);
         _processed.resize(size);
         for (int i = 0; i < size; i++) {
-            memcpy(&_processed[i], type_reader, sizeof(Centroid));
-            type_reader += sizeof(Centroid);
+            _processed[i] = _unserialize_centroid(type_reader);
         }
         memcpy(&size, type_reader, sizeof(uint32_t));
         type_reader += sizeof(uint32_t);
         _unprocessed.resize(size);
         for (int i = 0; i < size; i++) {
-            memcpy(&_unprocessed[i], type_reader, sizeof(Centroid));
-            type_reader += sizeof(Centroid);
+            _unprocessed[i] = _unserialize_centroid(type_reader);
         }
         memcpy(&size, type_reader, sizeof(uint32_t));
         type_reader += sizeof(uint32_t);
         _cumulative.resize(size);
         for (int i = 0; i < size; i++) {
-            memcpy(&_cumulative[i], type_reader, sizeof(Weight));
-            type_reader += sizeof(Weight);
+            _cumulative[i] = _unserialize_weight(type_reader);
         }
     }
 
 private:
+    static constexpr size_t SERIALIZED_WEIGHT_SIZE =
+            std::is_same_v<Weight, float> ? sizeof(float) : sizeof(double) + sizeof(int32_t);
+
+    static void _serialize_weight(uint8_t*& writer, Weight weight) {
+        if constexpr (std::is_same_v<Weight, float>) {
+            memcpy(writer, &weight, sizeof(weight));
+            writer += sizeof(weight);
+        } else {
+            // x86 and ARM use different long double representations. Encode a DOUBLE
+            // significand and binary exponent instead of their native bytes; even a
+            // mass of 2 * DBL_MAX is represented by a finite significand and exponent 1025.
+            int exponent;
+            const auto significand = static_cast<double>(std::frexp(weight, &exponent));
+            const auto binary_exponent = static_cast<int32_t>(exponent);
+            memcpy(writer, &significand, sizeof(significand));
+            writer += sizeof(significand);
+            memcpy(writer, &binary_exponent, sizeof(binary_exponent));
+            writer += sizeof(binary_exponent);
+        }
+    }
+
+    static Weight _unserialize_weight(const uint8_t*& reader) {
+        if constexpr (std::is_same_v<Weight, float>) {
+            Weight weight;
+            memcpy(&weight, reader, sizeof(weight));
+            reader += sizeof(weight);
+            return weight;
+        } else {
+            double significand;
+            int32_t exponent;
+            memcpy(&significand, reader, sizeof(significand));
+            reader += sizeof(significand);
+            memcpy(&exponent, reader, sizeof(exponent));
+            reader += sizeof(exponent);
+            return std::ldexp(static_cast<Weight>(significand), exponent);
+        }
+    }
+
+    static void _serialize_centroid(uint8_t*& writer, const Centroid& centroid) {
+        const auto mean = centroid.mean();
+        memcpy(writer, &mean, sizeof(mean));
+        writer += sizeof(mean);
+        _serialize_weight(writer, centroid.weight());
+    }
+
+    static Centroid _unserialize_centroid(const uint8_t*& reader) {
+        Value mean;
+        memcpy(&mean, reader, sizeof(mean));
+        reader += sizeof(mean);
+        return Centroid(mean, _unserialize_weight(reader));
+    }
+
     Value _compression;
 
     Value _min = std::numeric_limits<Value>::max();
@@ -608,9 +673,9 @@ private:
 
     Index _max_unprocessed;
 
-    Value _processed_weight = 0.0;
+    Weight _processed_weight = 0.0;
 
-    Value _unprocessed_weight = 0.0;
+    Weight _unprocessed_weight = 0.0;
 
     std::vector<Centroid> _processed;
 
@@ -625,7 +690,7 @@ private:
     Weight _weight(int64_t i) const noexcept { return _processed[i].weight(); }
 
     // append all unprocessed centroids into current unprocessed vector
-    void _merge_unprocessed(const std::vector<const TDigest*>& tdigests) {
+    void _merge_unprocessed(const std::vector<const TDigestImpl*>& tdigests) {
         if (tdigests.size() == 0) {
             return;
         }
@@ -644,7 +709,7 @@ private:
     }
 
     // merge all processed centroids together into a single sorted vector
-    void _merge_processed(const std::vector<const TDigest*>& tdigests) {
+    void _merge_processed(const std::vector<const TDigestImpl*>& tdigests) {
         if (tdigests.size() == 0) {
             return;
         }
@@ -737,7 +802,7 @@ private:
                 w_so_far = projected_w;
                 (_processed.end() - 1)->add(centroid);
             } else {
-                auto k1 = _integrated_location(w_so_far / _processed_weight);
+                auto k1 = _integrated_location(static_cast<Value>(w_so_far / _processed_weight));
                 w_limit = _processed_weight * _integrated_q(static_cast<Value>(k1 + 1.0));
                 w_so_far += centroid.weight();
                 _processed.emplace_back(centroid);
@@ -751,7 +816,7 @@ private:
         _update_cumulative();
     }
 
-    size_t _check_weights(const std::vector<Centroid>& sorted, Value total) {
+    size_t _check_weights(const std::vector<Centroid>& sorted, Weight total) {
         size_t bad_weight = 0;
         auto k1 = 0.0;
         auto q = 0.0;
@@ -809,7 +874,8 @@ private:
      * the order of the variables if <code>x2</code> is greater than
      * <code>x1</code>.
     */
-    static Value _weighted_average(Value x1, Value w1, Value x2, Value w2) {
+    template <typename AverageValue>
+    static AverageValue _weighted_average(AverageValue x1, Weight w1, AverageValue x2, Weight w2) {
         return (x1 <= x2) ? _weighted_average_sorted(x1, w1, x2, w2)
                           : _weighted_average_sorted(x2, w2, x1, w1);
     }
@@ -821,9 +887,11 @@ private:
     * and is guaranteed to return a number between <code>x1</code> and
     * <code>x2</code>.
     */
-    static Value _weighted_average_sorted(Value x1, Value w1, Value x2, Value w2) {
+    template <typename AverageValue>
+    static AverageValue _weighted_average_sorted(AverageValue x1, Weight w1, AverageValue x2,
+                                                 Weight w2) {
         DCHECK_LE(x1, x2);
-        const Value x = (x1 * w1 + x2 * w2) / (w1 + w2);
+        const auto x = static_cast<AverageValue>((x1 * w1 + x2 * w2) / (w1 + w2));
         return std::max(x1, std::min(x, x2));
     }
 
@@ -849,4 +917,14 @@ private:
         return previous_mean * previous_weight + next_mean * next_weight;
     }
 };
+// Keep the persisted QUANTILE_STATE and unweighted percentile FLOAT layout unchanged.
+using TDigest = TDigestImpl<float>;
+// DOUBLE inputs can sum above DBL_MAX or need ranks below DBL_TRUE_MIN / 2.
+// For example, two DBL_MAX weights and two DBL_TRUE_MIN weights both have median rank w.
+using WeightedTDigest = TDigestImpl<long double>;
+static_assert(std::numeric_limits<long double>::max_exponent >
+              std::numeric_limits<double>::max_exponent + 64);
+static_assert(std::numeric_limits<long double>::min_exponent <
+              std::numeric_limits<double>::min_exponent - std::numeric_limits<double>::digits);
+
 } // namespace doris

@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -40,6 +41,15 @@
 namespace doris {
 
 namespace {
+
+AggregateFunctionPtr create_weighted_percentile_function(size_t arguments, int version,
+                                                         bool nullable = false) {
+    auto number_type = std::make_shared<DataTypeFloat64>();
+    DataTypePtr type = nullable ? make_nullable(number_type) : number_type;
+    return AggregateFunctionSimpleFactory::instance().get("percentile_approx_weighted",
+                                                          DataTypes(arguments, type), type,
+                                                          nullable, version, {.column_names = {}});
+}
 
 AggregateFunctionPtr create_percentile_approx_array_function(bool has_compression) {
     DataTypes argument_types {
@@ -112,6 +122,207 @@ void expect_results_equal(const std::vector<double>& actual, const std::vector<d
 }
 
 } // namespace
+
+TEST(PercentileApproxStateTest, IgnoreWeightsThatUnderflowToZero) {
+    PercentileApproxState state;
+    state.init(0.5);
+    state.add_with_weight(0, 1e-100);
+    state.add_with_weight(10, 1e-100);
+    state.add_with_weight(20, std::numeric_limits<double>::denorm_min());
+    state.add_with_weight(30, 0);
+    state.add_with_weight(40, -1);
+
+    ASSERT_EQ(0, state.digest->total_size());
+    EXPECT_TRUE(std::isnan(state.get()));
+}
+
+TEST(PercentileApproxStateTest, UnderflowWeightsDoNotAffectValidSamples) {
+    PercentileApproxState state;
+    state.init(0.5);
+    state.add_with_weight(-1000, 1e-100);
+    state.add_with_weight(0, 1);
+    state.add_with_weight(10, 1);
+    state.add_with_weight(1000, 1e-100);
+
+    ASSERT_EQ(2, state.digest->total_size());
+    EXPECT_DOUBLE_EQ(5, state.get());
+
+    PercentileApproxState empty;
+    empty.init(0.5);
+    empty.add_with_weight(2000, 1e-100);
+    state.merge(empty);
+    EXPECT_DOUBLE_EQ(5, state.get());
+    empty.merge(state);
+    EXPECT_DOUBLE_EQ(5, empty.get());
+}
+
+TEST(PercentileApproxStateTest, PreservePositiveFloatWeights) {
+    for (double weight : {static_cast<double>(std::numeric_limits<Weight>::denorm_min()),
+                          static_cast<double>(std::numeric_limits<Weight>::min()), 1e-40}) {
+        PercentileApproxState state;
+        state.init(0.5);
+        state.add_with_weight(10, weight);
+
+        ASSERT_EQ(1, state.digest->total_size());
+        EXPECT_FLOAT_EQ(static_cast<Weight>(weight), state.digest->unprocessed_weight());
+        EXPECT_DOUBLE_EQ(10, state.get());
+    }
+}
+
+TEST(PercentileApproxWeightedStateTest, PreserveDoubleWeightScale) {
+    for (double weight : {1e-100, 1.0, 1e100, std::numeric_limits<double>::denorm_min(),
+                          std::numeric_limits<double>::min(), std::numeric_limits<double>::max()}) {
+        SCOPED_TRACE(weight);
+        PercentileApproxWeightedState state;
+        state.init(0.5);
+        state.add_with_weight(0, weight);
+        state.add_with_weight(10, weight);
+        EXPECT_DOUBLE_EQ(5, state.get());
+    }
+
+    for (double weight : {1e-100, 1.0, 1e100}) {
+        PercentileApproxWeightedState state;
+        state.init(0.5);
+        state.add_with_weight(0, weight);
+        state.add_with_weight(10, 3 * weight);
+        EXPECT_DOUBLE_EQ(7.5, state.get());
+    }
+}
+
+TEST(PercentileApproxWeightedStateTest, RetainTinyPositiveSamplesAndIgnoreNonpositiveWeights) {
+    PercentileApproxWeightedState state;
+    state.init(0.5);
+    state.add_with_weight(-1000, 1e-100);
+    state.add_with_weight(0, 1);
+    state.add_with_weight(10, 1);
+    state.add_with_weight(1000, 1e-100);
+    state.add_with_weight(-2000, 0);
+    state.add_with_weight(2000, -1);
+    EXPECT_EQ(4, state.digest->total_size());
+    EXPECT_DOUBLE_EQ(5, state.get());
+    EXPECT_FLOAT_EQ(-1000, state.digest->quantile(0));
+    EXPECT_FLOAT_EQ(1000, state.digest->quantile(1));
+
+    PercentileApproxWeightedState empty;
+    empty.init(0.5);
+    empty.add_with_weight(0, 0);
+    empty.add_with_weight(10, -1);
+    EXPECT_TRUE(std::isnan(empty.get()));
+    empty.merge(state);
+    EXPECT_DOUBLE_EQ(5, empty.get());
+}
+
+TEST(PercentileApproxWeightedStateTest, RejectNonfiniteWeights) {
+    PercentileApproxWeightedState state;
+    state.init(0.5);
+    EXPECT_THROW(state.add_with_weight(0, std::numeric_limits<double>::quiet_NaN()), Exception);
+    EXPECT_THROW(state.add_with_weight(10, std::numeric_limits<double>::infinity()), Exception);
+    EXPECT_TRUE(std::isnan(state.get()));
+}
+
+TEST(AggregateFunctionPercentileApproxWeightedTest, SerializationMergeAndReset) {
+    Arena arena;
+    auto type = std::make_shared<DataTypeFloat64>();
+    for (size_t arguments : {3, 4}) {
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                "percentile_approx_weighted", DataTypes(arguments, type), type, false,
+                BeExecVersionManager::get_newest_version(), {.column_names = {}});
+        ASSERT_NE(nullptr, function);
+        EXPECT_EQ("percentile_approx_weighted", function->get_name());
+        for (double weight : {1e-100, 1.0, 1e100, std::numeric_limits<double>::denorm_min(),
+                              std::numeric_limits<double>::max()}) {
+            SCOPED_TRACE(weight);
+            std::unique_ptr<char[]> source(new char[function->size_of_data()]);
+            std::unique_ptr<char[]> restored(new char[function->size_of_data()]);
+            function->create(source.get());
+            function->create(restored.get());
+            Defer destroy([&] {
+                function->destroy(source.get());
+                function->destroy(restored.get());
+            });
+            auto values = create_values({0, 10});
+            auto weights = create_values({weight, weight});
+            auto quantile = create_values({0.5, 0.5});
+            auto compression = create_values({2048, 2048});
+            const IColumn* columns[] = {values.get(), weights.get(), quantile.get(),
+                                        compression.get()};
+            function->add(source.get(), columns, 0, arena);
+            ColumnString serialized;
+            VectorBufferWriter writer(serialized);
+            function->serialize(source.get(), writer);
+            writer.commit();
+            VectorBufferReader reader(serialized.get_data_at(0));
+            function->deserialize(restored.get(), reader, arena);
+            function->reset(source.get());
+            function->add(source.get(), columns, 1, arena);
+            function->merge(restored.get(), source.get(), arena);
+            auto result = ColumnFloat64::create();
+            function->insert_result_into(restored.get(), *result);
+            EXPECT_DOUBLE_EQ(5, result->get_element(0));
+        }
+    }
+}
+
+class AggregateFunctionPercentileApproxWeightedVersionTest : public testing::TestWithParam<size_t> {
+};
+
+TEST_P(AggregateFunctionPercentileApproxWeightedVersionTest, RetainLegacyWeightBehavior) {
+    const auto arguments = GetParam();
+    auto legacy = create_weighted_percentile_function(arguments,
+                                                      SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION - 1);
+    auto current = create_weighted_percentile_function(arguments,
+                                                       SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION);
+    ASSERT_NE(nullptr, legacy);
+    ASSERT_NE(nullptr, current);
+    auto values = create_values({0, 10});
+    auto weights = create_values({1e-100, 1e-100});
+    auto quantile = create_values({0.5, 0.5});
+    auto compression = create_values({2048, 2048});
+    const IColumn* columns[] = {values.get(), weights.get(), quantile.get(), compression.get()};
+    Arena arena;
+    std::unique_ptr<char[]> legacy_state(new char[legacy->size_of_data()]);
+    std::unique_ptr<char[]> current_state(new char[current->size_of_data()]);
+    legacy->create(legacy_state.get());
+    current->create(current_state.get());
+    Defer destroy([&] {
+        legacy->destroy(legacy_state.get());
+        current->destroy(current_state.get());
+    });
+    legacy->add_batch_single_place(2, legacy_state.get(), columns, arena);
+    current->add_batch_single_place(2, current_state.get(), columns, arena);
+    auto legacy_result = ColumnFloat64::create();
+    auto current_result = ColumnFloat64::create();
+    legacy->insert_result_into(legacy_state.get(), *legacy_result);
+    current->insert_result_into(current_state.get(), *current_result);
+    EXPECT_TRUE(std::isnan(legacy_result->get_element(0)));
+    EXPECT_DOUBLE_EQ(5, current_result->get_element(0));
+}
+
+TEST_P(AggregateFunctionPercentileApproxWeightedVersionTest, RejectIncompatibleStates) {
+    auto function = create_weighted_percentile_function(GetParam(),
+                                                        SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION);
+    ASSERT_NE(nullptr, function);
+    EXPECT_NO_THROW(BeExecVersionManager::check_function_compatibility(
+            8, SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION - 1, function->get_name()));
+    EXPECT_THROW(BeExecVersionManager::check_function_compatibility(
+                         SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION - 1,
+                         SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION, function->get_name()),
+                 Exception);
+}
+
+TEST_P(AggregateFunctionPercentileApproxWeightedVersionTest, RejectIncompatibleNullableStates) {
+    auto function = create_weighted_percentile_function(
+            GetParam(), SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION, true);
+    ASSERT_NE(nullptr, function);
+    EXPECT_THROW(BeExecVersionManager::check_function_compatibility(
+                         SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION - 1,
+                         SUPPORT_WIDE_WEIGHTED_PERCENTILE_VERSION, function->get_name()),
+                 Exception);
+}
+
+INSTANTIATE_TEST_SUITE_P(ThreeAndFourParameters,
+                         AggregateFunctionPercentileApproxWeightedVersionTest,
+                         testing::Values(size_t(3), size_t(4)));
 
 TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
     auto type = std::make_shared<DataTypeQuantileState>();
