@@ -158,7 +158,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.topn_filter_target_node_id = read_params.topn_filter_target_node_id;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
-    _reader_context.filter_block_conjuncts = read_params.filter_block_conjuncts;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
@@ -197,6 +196,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
 
     _reader_context.condition_cache_digest = read_params.condition_cache_digest;
+    // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
+    _reader_context.general_read_limit = read_params.general_read_limit;
     return Status::OK();
 }
 
@@ -426,6 +427,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
                     "_orderby_key_columns.size()={}",
                     read_params.read_orderby_key_num_prefix_columns, _orderby_key_columns.size());
         }
+    }
+
+    // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
+    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "storage TopN needs order-by key columns, but none are set up: keys_type={}, "
+                "enable_unique_key_merge_on_write={}, read_orderby_key_num_prefix_columns={}",
+                _tablet_schema->keys_type(), _tablet->enable_unique_key_merge_on_write(),
+                read_params.read_orderby_key_num_prefix_columns);
     }
 
     return Status::OK();

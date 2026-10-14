@@ -17,7 +17,7 @@
 
 suite("test_disable_root_variant_match", "p0") {
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
 
@@ -60,7 +60,7 @@ suite("test_disable_root_variant_match", "p0") {
 
     test {
         sql """
-            SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id
+            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id
             FROM test_disable_root_variant_match_tbl
             WHERE response MATCH 'doris'
             ORDER BY id
@@ -70,7 +70,7 @@ suite("test_disable_root_variant_match", "p0") {
 
     test {
         sql """
-            SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id
+            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id
             FROM test_disable_root_variant_match_tbl
             WHERE response_body MATCH_ANY 'doris'
                 OR response MATCH_ANY 'doris'
@@ -80,7 +80,7 @@ suite("test_disable_root_variant_match", "p0") {
     }
 
     def variantSubcolumnMatchResult = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true)*/ id
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true)*/ id
         FROM test_disable_root_variant_match_tbl
         WHERE response['msg'] MATCH 'doris'
         ORDER BY id

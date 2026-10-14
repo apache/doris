@@ -19,7 +19,7 @@ suite("test_variant_multi_index_file", "p0, nonConcurrent"){
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql "set default_variant_max_subcolumns_count = 100"
     sql """ set default_variant_doc_materialization_min_rows = 0 """
 

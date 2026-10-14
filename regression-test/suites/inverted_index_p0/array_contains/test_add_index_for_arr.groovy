@@ -26,7 +26,7 @@ suite("test_add_index_for_arr") {
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
     sql """ set enable_inverted_index_query=false"""
-    sql """ set enable_common_expr_pushdown=true """
+    sql """ set enable_segment_limit_pushdown=true """
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){

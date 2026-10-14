@@ -39,7 +39,7 @@ suite("predefined_typed_to_sparse", "p0,nonConcurrent") {
             cast(var['datev2_1'] as datev2), cast(var['ipv4_1'] as ipv4),
             cast(var['ipv6_1'] as ipv6), cast(var['largeint_1'] as largeint),
             cast(var['char_1'] as text)"""
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_doc_mode = false """
     def count = new Random().nextInt(10) + 1
 

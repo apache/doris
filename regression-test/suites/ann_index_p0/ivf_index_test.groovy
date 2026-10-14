@@ -16,7 +16,7 @@
 // under the License.
 
 suite ("ivf_index_test") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
 
     // IVF index
     sql "drop table if exists ivf_tbl_ann_l2"

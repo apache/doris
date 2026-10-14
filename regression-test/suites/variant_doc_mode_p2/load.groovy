@@ -132,7 +132,7 @@ suite("test_doc_value_p2", "p2"){
     trigger_and_wait_compaction("github_events", "full")
 
     sql """set enable_match_without_inverted_index = false"""
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
 

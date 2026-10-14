@@ -43,8 +43,7 @@ suite('test_inverted_index_collection_stats', 'p0') {
     // Enable profile
     sql """ set enable_profile = true; """
     sql """ set profile_level = 2; """
-    sql """ set enable_common_expr_pushdown = true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     
     // Execute MATCH_ALL query which triggers CollectionStatistics::collect
     def queryId = "test_inverted_index_collection_stats_${System.currentTimeMillis()}"

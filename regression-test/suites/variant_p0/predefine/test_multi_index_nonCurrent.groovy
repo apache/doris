@@ -19,7 +19,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
     // Exercise index evaluation instead of reusing cached query or condition results.
@@ -51,7 +51,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """insert into ${tableName} values(1, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (2, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (3, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (4, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (5, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')) """
     // insert into test_variant_multi_index_nonCurrent  values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}')
     sql """ set inverted_index_skip_threshold = 0 """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
 
     queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'")
@@ -128,7 +128,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
                                 (5, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')) """
 
     sql """ set inverted_index_skip_threshold = 0 """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
 
     queryAndCheck("select count() from ${tableName} where var['string1'] match_phrase 'hello'")

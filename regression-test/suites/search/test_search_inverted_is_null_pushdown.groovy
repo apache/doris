@@ -42,7 +42,7 @@ suite("test_search_inverted_is_null_pushdown", "p0") {
         (4, NULL, 'qux', 10)
     """
 
-    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_segment_limit_pushdown=true"
     sql "SET inverted_index_skip_threshold=0"
 
     def nullBranchQuery = """

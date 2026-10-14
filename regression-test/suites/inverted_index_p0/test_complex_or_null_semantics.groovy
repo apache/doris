@@ -79,7 +79,7 @@ suite("test_complex_or_null_semantics") {
         (30, 'Misc', 'Random content', 'Anonymous', 'Misc')
     """
 
-    sql "SET enable_common_expr_pushdown = true"
+    sql "SET enable_segment_limit_pushdown = true"
 
     // Test 1: The core bug scenario - cross-field OR with one field NULL
     // title:ALL("Philosophy") OR content:ALL("Disney+ Hotstar")

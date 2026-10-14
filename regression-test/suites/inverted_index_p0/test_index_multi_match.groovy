@@ -93,7 +93,7 @@ suite("test_index_multi_match", "p0"){
 
         sql "sync"
 
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         qt_sql """ select count() from ${indexTbName2} where (clientip match_phrase_prefix '2'); """
         qt_sql """ select count() from ${indexTbName2} where (clientip match_phrase_prefix '2' or request match_phrase_prefix '2'); """

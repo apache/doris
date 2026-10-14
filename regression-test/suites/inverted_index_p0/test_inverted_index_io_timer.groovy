@@ -97,8 +97,7 @@ suite('test_inverted_index_io_timer', 'p0') {
         sql """ set enable_sql_cache = false; """
         sql """ set enable_inverted_index_searcher_cache = false; """
         sql """ set enable_inverted_index_query_cache = false; """
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         sql """ set enable_match_without_inverted_index = false; """
         
         // Execute query with inverted index using profile

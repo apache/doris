@@ -17,7 +17,7 @@
 
 suite("ann_index_only_scan_expr_debug_point", "nonConcurrent") {
     sql "unset variable all;"
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql "set enable_no_need_read_data_opt=true;"
     sql "set parallel_pipeline_task_num=1;"

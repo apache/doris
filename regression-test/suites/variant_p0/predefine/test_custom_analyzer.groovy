@@ -111,7 +111,7 @@ suite("test_variant_custom_analyzer", "p0") {
     try {
         trigger_and_wait_compaction(indexTbName1, "full", 1800)
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """ select a, ch['ch'] from ${indexTbName1} where ch['ch'] match 'abcDEF'; """
         qt_sql """ select a, ch['ch'] from ${indexTbName1} where ch['ch'] match '中'; """
@@ -137,7 +137,7 @@ suite("test_variant_custom_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """ select a, ch['ch'] from ${indexTbName2} where ch['ch'] match '102'; """
     } finally {
@@ -161,7 +161,7 @@ suite("test_variant_custom_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql """ select a, ch['ch'] from ${indexTbName3} where ch['ch'] match '1080º avalanche'; """
     } finally {

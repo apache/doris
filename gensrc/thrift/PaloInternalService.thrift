@@ -209,7 +209,7 @@ struct TQueryOptions {
 
   64: optional bool dry_run_query = false
 
-  65: optional bool enable_common_expr_pushdown = false;
+  65: optional bool enable_common_expr_pushdown = false; // deprecated
 
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
@@ -515,6 +515,9 @@ struct TQueryOptions {
   229: optional bool enable_paimon_rust_reader = false;
 
   230: optional bool enable_prune_nested_column = false;
+
+  // Push LIMIT into SegmentIterator when safe.
+  231: optional bool enable_segment_limit_pushdown = true
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

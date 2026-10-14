@@ -192,7 +192,7 @@ suite("test_pk_uk_case_unique_with_mow", "inverted_index") {
         """
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         // count(*)
         def result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
