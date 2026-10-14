@@ -153,8 +153,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * synchronized, so the transparent rewrite serves them and no refresh plans it again.
      *
      * <p>Every other table keeps the MV partition's own key range, which is what the tables the caller
-     * does not scope were always read through. Scoped tables are olap ones; the partition names are
-     * looked up on one, see the caller.
+     * does not scope were always read through, and a scoped range table keeps it as well: a partition of
+     * a base range table can hold a row past the MV partition it is rolled up into, see below. Scoped
+     * tables are olap ones; the partition names are looked up on one, see the caller.
      */
     private static Map<TableIf, Set<Expression>> constructTableWithPredicates(MTMV mv,
             Set<String> partitionNames, Map<TableIf, String> tableWithPartKey,
@@ -203,7 +204,27 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 builder.put(table, Sets.newHashSet(BooleanLiteral.FALSE));
                 continue;
             }
-            builder.put(table, constructPredicatesOfBasePartitions(items, olapTable, colName));
+            if (items.iterator().next() instanceof ListPartitionItem) {
+                // A key of a list partition is a value the MV partition's own key set was written from, so
+                // the whole key pinned here is inside the range this batch writes and nothing is added to it.
+                builder.put(table, constructPredicatesOfBasePartitions(items, olapTable, colName));
+                continue;
+            }
+            // A partition of a base range table can end past the MV partition it is rolled up into, and the
+            // roll-up keeps such a partition: MTMVPartitionExprDateTrunc takes the last second off the base's
+            // upper bound before truncating it, so a DATETIME(3) partition ending at 2025-01-01 00:00:00.123
+            // is rolled up into the year 2024. This batch writes the year 2024 partition alone, and a row of
+            // that partition just past its upper bound -- 2025-01-01 00:00:00.100 -- is then read by a batch
+            // that has no partition to put it in: the sink counts it as filtered and `enable_insert_strict`,
+            // on by default, fails the refresh for it. So the mapped partitions' bounds are read together
+            // with the MV partitions' own ranges -- the term every other table is read through -- and what is
+            // read is the rows of the recorded partitions that these MV partitions hold.
+            Expression mvRange = ExpressionUtils.or(constructPredicates(mvItems, colName));
+            Set<Expression> scoped = Sets.newHashSet();
+            for (Expression partition : constructPredicatesOfBasePartitions(items, olapTable, colName)) {
+                scoped.add(ExpressionUtils.and(partition, mvRange));
+            }
+            builder.put(table, scoped);
         }
         return builder.build();
     }

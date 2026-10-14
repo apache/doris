@@ -131,6 +131,20 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "distributed by random buckets 1\n"
                 + "properties('replication_num' = '1')\n"
                 + "as select k1, sum(value) as total from test.pct_base group by k1;");
+        createTable("create table test.pct_ms_base (\n"
+                + "  k1 datetime(3),\n"
+                + "  value int\n"
+                + ") duplicate key(k1)\n"
+                + "partition by range(k1) (\n"
+                + "  partition p_2024 values [('2024-01-01 00:00:00.123'), ('2025-01-01 00:00:00.123'))\n"
+                + ")\ndistributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMvByNereids("create materialized view test.pct_ms_mv\n"
+                + "build immediate refresh complete on manual\n"
+                + "partition by (date_trunc(k1,'year'))\n"
+                + "distributed by random buckets 1\n"
+                + "properties('replication_num' = '1')\n"
+                + "as select k1, sum(value) as total from test.pct_ms_base group by k1;");
         createTable("create table test.compensate_base (\n"
                 + "  d date,\n"
                 + "  region varchar(10),\n"
@@ -420,6 +434,31 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         String sql = predicates.iterator().next().toSql();
         Assertions.assertTrue(sql.contains("2024-02-01"), sql);
         Assertions.assertTrue(sql.contains("2024-03-01"), sql);
+        // The month is read together with the year the batch writes: a partition of a base range table can
+        // end past the MV partition it is rolled up into, see the case below.
+        Assertions.assertTrue(sql.contains("2025-01-01"), sql);
+    }
+
+    @Test
+    void testAReadOfARangeBasePartitionEndsAtTheMvPartitionItRollsUpInto() throws Exception {
+        // The base partition ends at 2025-01-01 00:00:00.123, and the roll-up still reads it as the year
+        // 2024: it takes the last second off the upper bound before truncating it. A row the base table
+        // holds at 2025-01-01 00:00:00.100 therefore sits in that partition while belonging to no MV
+        // partition this batch writes -- and read, it has no destination among them, which the sink counts
+        // as filtered and `enable_insert_strict` then fails the refresh for. So the read ends where the MV
+        // partition does.
+        Map<TableIf, Set<Expression>> predicates = refreshPredicatesOfMsBase(Sets.newHashSet("p_2024"));
+        Assertions.assertEquals(1, predicates.size());
+        Set<Expression> scoped = predicates.values().iterator().next();
+        Assertions.assertEquals(1, scoped.size());
+        String sql = scoped.iterator().next().toSql();
+        // The base partition's own bounds, which the read is scoped to ...
+        Assertions.assertTrue(sql.contains("k1 >= '2024-01-01 00:00:00.123'"), sql);
+        Assertions.assertTrue(sql.contains("k1 < '2025-01-01 00:00:00.123'"), sql);
+        // ... and the MV partition's, which is where it has to stop: a millisecond below the base partition's
+        // upper bound, and that is what keeps the 2025-01-01 00:00:00.100 row out of the read.
+        Assertions.assertTrue(sql.contains("k1 >= '2024-01-01 00:00:00'"), sql);
+        Assertions.assertTrue(sql.contains("k1 < '2025-01-01 00:00:00'"), sql);
     }
 
     @Test
@@ -485,6 +524,17 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         OlapTable base = getOlapTable("pct_base");
         String mvPartitionName = mtmv.getPartitionNames().iterator().next();
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_mv");
+        UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
+                statementContext, ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions));
+        return statementContext.getMvRefreshPredicates().get();
+    }
+
+    private Map<TableIf, Set<Expression>> refreshPredicatesOfMsBase(Set<String> readableBasePartitions)
+            throws Exception {
+        MTMV mtmv = getMtmv("pct_ms_mv");
+        OlapTable base = getOlapTable("pct_ms_base");
+        String mvPartitionName = mtmv.getPartitionNames().iterator().next();
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_ms_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
                 statementContext, ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions));
         return statementContext.getMvRefreshPredicates().get();
