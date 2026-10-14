@@ -368,4 +368,32 @@ suite("test_mtmv_base_partition_read_scope") {
     sql """REFRESH MATERIALIZED VIEW range_ms_boundary_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("range_ms_boundary_mv")
     order_qt_range_ms_boundary "SELECT ts, total FROM range_ms_boundary_mv"
+
+    // The same partition under a DIRECT range MV -- one partitioned by the base table's own column -- where
+    // the MV partition's bounds ARE the base partition's, written with its milliseconds. The read writes the
+    // MV partition's own bound too, and a partition key carries only its primitive type: written from the key
+    // the upper bound comes out as the bare second, the read ends 123 milliseconds early, and the rows of
+    // that tail -- rows this refresh is to write -- are left out of the rebuilt partition. Nothing reports
+    // them: the snapshot records the partition either way.
+    sql """drop materialized view if exists range_ms_direct_mv"""
+    sql """drop table if exists range_ms_direct_base"""
+    sql """
+        CREATE TABLE range_ms_direct_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts)
+        PARTITION BY RANGE(ts) (
+            PARTITION p_frac VALUES [("2024-01-01 00:00:00.123"), ("2024-02-01 00:00:00.123"))
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO range_ms_direct_base VALUES
+        ("2024-01-01 00:00:00.123", 1), ("2024-02-01 00:00:00.100", 2)"""
+    sql """
+        CREATE MATERIALIZED VIEW range_ms_direct_mv
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL PARTITION BY (ts)
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT ts, SUM(amount) AS total FROM range_ms_direct_base GROUP BY ts
+    """
+    sql """REFRESH MATERIALIZED VIEW range_ms_direct_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("range_ms_direct_mv")
+    order_qt_range_ms_direct "SELECT ts, total FROM range_ms_direct_mv"
 }
