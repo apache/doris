@@ -50,6 +50,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 
 /**
  * Removes old snapshots from an iceberg table to free storage and improve metadata performance. Connector
@@ -69,6 +70,8 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     public static final String MAX_CONCURRENT_DELETES = "max_concurrent_deletes";
     public static final String SNAPSHOT_IDS = "snapshot_ids";
     public static final String CLEAN_EXPIRED_METADATA = "clean_expired_metadata";
+
+    private static final Pattern MANIFEST_FILE_NAME = Pattern.compile(".*-m\\d+\\.avro");
 
     // Test-only gate for the delete-manifest dedup: the number of DISTINCT delete manifests read by the most
     // recent buildFileKindMap call. Asserts each manifest is read once, not once per referencing snapshot.
@@ -230,6 +233,9 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
             // Set up delete callback to count files by type
             expireSnapshots.deleteWith(path -> {
                 FileKind fileKind = fileKindByPath.get(path);
+                if (fileKind == null) {
+                    fileKind = metadataFileKindByName(path);
+                }
                 if (fileKind == FileKind.POSITION_DELETES) {
                     deletedPositionDeleteFilesCount.incrementAndGet();
                 } else if (fileKind == FileKind.EQUALITY_DELETES) {
@@ -332,6 +338,30 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
         }
         lastDeleteManifestReadCount = reads;
         return fileKindByPath;
+    }
+
+    /**
+     * Tells a manifest or manifest list that {@link #buildFileKindMap} did not see apart by its file name. The
+     * expiration refreshes the table when it commits, so it also expires snapshots that another writer committed
+     * after the map was built. SnapshotProducer names a manifest list
+     * {@code snap-<snapshot id>-<attempt>-<commit UUID>.avro} and a manifest {@code <commit UUID>-m<N>.avro};
+     * Spark's {@code rewrite_manifests} names a manifest {@code optimized-m-<UUID>.avro}. Returns null for any
+     * other file. A delete file of such a snapshot still counts as a data file, as its name does not tell the
+     * two apart.
+     */
+    @VisibleForTesting
+    static FileKind metadataFileKindByName(String path) {
+        String fileName = path.substring(path.lastIndexOf('/') + 1);
+        if (!fileName.endsWith(".avro")) {
+            return null;
+        }
+        if (fileName.startsWith("snap-")) {
+            return FileKind.MANIFEST_LIST;
+        }
+        if (fileName.contains("-m-") || MANIFEST_FILE_NAME.matcher(fileName).matches()) {
+            return FileKind.MANIFEST;
+        }
+        return null;
     }
 
     @Override

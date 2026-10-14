@@ -147,6 +147,78 @@ public class IcebergExpireSnapshotsActionTest {
     }
 
     @Test
+    public void countsMetadataOfSnapshotsCommittedAfterTheTableWasLoaded() {
+        // The expiration refreshes the table when it commits (RemoveSnapshots.internalApply), so it also expires
+        // snapshots that another writer committed after the action loaded the table and built its file kind map.
+        // Their manifests and manifest lists are not in the map and must still count as such, not as deleted
+        // data files.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        ActionTestTables.appendSnapshot(catalog, "t", "f0.parquet", 1L);
+        Table loaded = catalog.loadTable(id);
+        // Another writer appends f1, deletes it and appends f2, which leaves f1 and the manifests that listed it
+        // unreferenced by the last snapshot.
+        ActionTestTables.appendSnapshot(catalog, "t", "f1.parquet", 1L);
+        catalog.loadTable(id).newDelete().deleteFile("s3://b/db1/f1.parquet").commit();
+        ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
+
+        Table current = catalog.loadTable(id);
+        Set<String> retained = new HashSet<>();
+        for (ManifestFile manifest : current.currentSnapshot().allManifests(current.io())) {
+            retained.add(manifest.path());
+        }
+        Set<String> expired = new HashSet<>();
+        for (Snapshot snapshot : current.snapshots()) {
+            for (ManifestFile manifest : snapshot.allManifests(current.io())) {
+                if (!retained.contains(manifest.path())) {
+                    expired.add(manifest.path());
+                }
+            }
+        }
+        // Sanity: manifests expire, and the map built from the loaded table knows none of them.
+        Map<String, IcebergExpireSnapshotsAction.FileKind> kindByPath =
+                action(ImmutableMap.of("retain_last", "1")).buildFileKindMap(loaded);
+        Assertions.assertFalse(expired.isEmpty(), "the last snapshot must not reference every manifest");
+        Assertions.assertTrue(expired.stream().noneMatch(kindByPath::containsKey), expired.toString());
+
+        // An older_than in 2100 expires every snapshot but the retained one, however fast the test runs.
+        IcebergExpireSnapshotsAction action =
+                action(ImmutableMap.of("older_than", "4102444800000", "retain_last", "1"));
+        action.validate();
+        List<String> row = action.execute(loaded, ActionTestTables.session("UTC")).getRows().get(0);
+        Assertions.assertEquals(ImmutableList.of("1", "0", "0", String.valueOf(expired.size()), "3", "0"), row,
+                "f1 is the only deleted data file; expired manifests " + expired
+                        + " and the manifest lists of the three expired snapshots count as such");
+        Assertions.assertEquals(1, Iterables.size(catalog.loadTable(id).snapshots()),
+                "retain_last=1 must leave exactly one snapshot");
+    }
+
+    @Test
+    public void classifiesUnmappedMetadataFilesByIcebergFileNames() {
+        String dir = "s3://b/db1/t/metadata/";
+        Assertions.assertEquals(IcebergExpireSnapshotsAction.FileKind.MANIFEST_LIST,
+                IcebergExpireSnapshotsAction.metadataFileKindByName(
+                        dir + "snap-1234-1-0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9.avro"));
+        Assertions.assertEquals(IcebergExpireSnapshotsAction.FileKind.MANIFEST,
+                IcebergExpireSnapshotsAction.metadataFileKindByName(
+                        dir + "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9-m12.avro"));
+        Assertions.assertEquals(IcebergExpireSnapshotsAction.FileKind.MANIFEST,
+                IcebergExpireSnapshotsAction.metadataFileKindByName(
+                        dir + "optimized-m-0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9.avro"));
+        // Data files, including Avro ones, and statistics files are left to the callback's other branches.
+        Assertions.assertNull(IcebergExpireSnapshotsAction.metadataFileKindByName(
+                "s3://b/db1/t/data/00000-0-0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9-00001.avro"));
+        Assertions.assertNull(IcebergExpireSnapshotsAction.metadataFileKindByName(
+                "s3://b/db1/t/data/00000-0-0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9-00001.parquet"));
+        Assertions.assertNull(IcebergExpireSnapshotsAction.metadataFileKindByName(
+                dir + "1234-0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9.stats"));
+        // Only the file name counts, not a directory that looks like a manifest list.
+        Assertions.assertNull(IcebergExpireSnapshotsAction.metadataFileKindByName(
+                "s3://b/snap-dir/00000-0-0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9-00001.avro"));
+    }
+
+    @Test
     public void resultSchemaIsSixBigintCounters() {
         List<ConnectorColumn> schema = action(ImmutableMap.of("retain_last", "1")).getResultSchema();
         String[] names = {"deleted_data_files_count", "deleted_position_delete_files_count",
