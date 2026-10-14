@@ -473,22 +473,25 @@ public class GroupStructInfo {
     }
 
     /**
-     * The expression which describes a group. The first logical expression is the one which is used, and
-     * the logical form is what the key of a group has to be made of: the read side looks an entry up
-     * while the plan is still being optimized, i.e. before any expression is chosen, and a physical plan
-     * may hold nodes the logical plan abstracts away (the two staged aggregation of a {@code count(*)},
-     * for instance), which would move the key of every such group and make a pinned entry miss. Only a
-     * group without any logical expression (an enforcer group, or a group a rule filled with physical
-     * expressions only) falls back to its physical expression.
+     * The expression which is described for a group. The first logical expression is used, and the logical
+     * form is what the key of a group has to be made of: the read side looks an entry up while the plan is
+     * still being optimized, i.e. before any expression is chosen, and a physical plan may hold nodes the
+     * logical plan abstracts away (the two staged aggregation of a {@code count(*)}, for instance), which
+     * would move the key of every such group and make a pinned entry miss. The expression the plan chooser
+     * picked is deliberately not consulted for the same reason - a key must not depend on when it is
+     * computed.
      */
-    private static GroupExpression representativeExpression(Group group) {
+    private static GroupExpression describedExpression(Group group) {
         GroupExpression logical = firstLogicalExpression(group);
         if (logical != null) {
             return logical;
         }
-        // a group whose chosen expression is an enforcer (enforcers are recorded outside the chosen id)
-        // or which a rule filled with physical expressions only has no logical expression to describe:
-        // its first physical one is the only alternative to giving the whole struct info up
+        // Some groups have no logical plan at all, for instance the group of a
+        // {@link PhysicalStorageLayerAggregate} (an aggregation answered from the storage layer is a
+        // catalog relation a rule inserts, there is no logical aggregation left to describe) or a group
+        // which only holds an enforcer. Such a group is described through the physical expression it
+        // holds: it is the only form it has, so both sides - the read side and the annotation - see the
+        // same one, and giving the whole struct info up would hide every node above it.
         List<GroupExpression> physical = group.getPhysicalExpressions();
         if (!physical.isEmpty()) {
             return physical.get(0);
@@ -517,7 +520,7 @@ public class GroupStructInfo {
         if (logical != null) {
             return describeExpression(group, logical, ctx);
         }
-        GroupExpression representative = representativeExpression(group);
+        GroupExpression representative = describedExpression(group);
         if (representative == null) {
             // a group without any expression (no logical one, no physical one, no enforcer): there is
             // nothing to describe
@@ -810,7 +813,7 @@ public class GroupStructInfo {
      * of its children, a transparent operator contributes the chain below it, anything else is a leaf.
      */
     private static ChainInfo buildChainInfo(Group group) {
-        GroupExpression ge = representativeExpression(group);
+        GroupExpression ge = describedExpression(group);
         if (ge == null) {
             return ChainInfo.failed("no logical expression in group " + describeGroupState(group));
         }
@@ -1406,13 +1409,9 @@ public class GroupStructInfo {
 
     /** The summary of a group, computed from the (memoized) summaries of its child groups. */
     public static HboStructSummary summaryOf(Group group) {
-        List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
-        if (logicalExpressions.isEmpty()) {
-            // a group which holds only physical expressions (e.g. the storage layer aggregate rule
-            // inserts one) has nothing to describe, and getFirstLogicalExpression would throw
-            return new HboStructSummary(0, Collections.emptyList());
-        }
-        GroupExpression ge = representativeExpression(group);
+        // the summary counts what the description renders, so it uses the same expression: for a group
+        // without a logical plan (see describedExpression) that is the physical one it holds
+        GroupExpression ge = describedExpression(group);
         if (ge == null) {
             return new HboStructSummary(0, Collections.emptyList());
         }
