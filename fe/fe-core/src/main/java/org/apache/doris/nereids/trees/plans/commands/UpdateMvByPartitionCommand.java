@@ -103,13 +103,19 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * @param partitionNames update partitions in mv and tables
      * @param tableWithPartKey the partitions key for different table
      * @param statementContext statementContext
+     * @param readableBasePartitions the base partitions each base table may be read from, by base table,
+     *                               named with the partition names of the base table. A base table named
+     *                               with an empty set is not read at all; a base table absent from the map,
+     *                               or a null map, keeps the MV partition's own key range. The tables named
+     *                               are olap ones, and the partitions are looked up on them
      * @return command
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<String> partitionNames,
-            Map<TableIf, String> tableWithPartKey, StatementContext statementContext) throws UserException {
+            Map<TableIf, String> tableWithPartKey, StatementContext statementContext,
+            Map<TableIf, Set<String>> readableBasePartitions) throws UserException {
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates =
-                constructTableWithPredicates(mv, partitionNames, tableWithPartKey);
+                constructTableWithPredicates(mv, partitionNames, tableWithPartKey, readableBasePartitions);
         List<String> parts = constructPartsForMv(partitionNames);
         Plan plan = parser.parseSingle(mv.getQuerySql());
         if (plan instanceof Sink) {
@@ -130,17 +136,54 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return Lists.newArrayList(partitionNames);
     }
 
+    /**
+     * The predicate every base table of the MV definition is read through.
+     *
+     * <p>A table the caller scopes is read from exactly the base partitions it named. Those are the ones
+     * the refresh is about to record as this MV partition's, and the read is what has to match the record:
+     * reading the MV partition's own key range instead also reads base partitions no snapshot describes,
+     * and a later silent change to one of them -- dropped, with the base partition set back to what it
+     * was -- leaves the rows it put in this MV partition behind while the partition is still judged
+     * synchronized, so the transparent rewrite serves them and no refresh plans it again.
+     *
+     * <p>Every other table keeps the MV partition's own key range, which is what the tables the caller
+     * does not scope were always read through. Scoped tables are olap ones; the partition names are
+     * looked up on one, see the caller.
+     */
     private static Map<TableIf, Set<Expression>> constructTableWithPredicates(MTMV mv,
-            Set<String> partitionNames, Map<TableIf, String> tableWithPartKey) throws AnalysisException {
-        Set<PartitionItem> items = Sets.newHashSet();
+            Set<String> partitionNames, Map<TableIf, String> tableWithPartKey,
+            Map<TableIf, Set<String>> readableBasePartitions) throws AnalysisException {
+        Set<PartitionItem> mvItems = Sets.newHashSet();
         for (String partitionName : partitionNames) {
-            PartitionItem partitionItem = mv.getPartitionItemOrAnalysisException(partitionName);
-            items.add(partitionItem);
+            mvItems.add(mv.getPartitionItemOrAnalysisException(partitionName));
         }
         ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
-        tableWithPartKey.forEach((table, colName) ->
-                builder.put(table, constructPredicates(items, colName))
-        );
+        for (Map.Entry<TableIf, String> entry : tableWithPartKey.entrySet()) {
+            TableIf table = entry.getKey();
+            String colName = entry.getValue();
+            Set<String> readable = readableBasePartitions == null ? null : readableBasePartitions.get(table);
+            if (readable == null) {
+                builder.put(table, constructPredicates(mvItems, colName));
+                continue;
+            }
+            if (readable.isEmpty()) {
+                // No partition of this table feeds the MV partitions being refreshed, which is "no row"
+                // rather than "every row": constructPredicates answers the other way for an empty set,
+                // and that answer would put every row of the table into each of them.
+                builder.put(table, Sets.newHashSet(BooleanLiteral.FALSE));
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) table;
+            Set<PartitionItem> items = Sets.newHashSet();
+            for (String partitionName : readable) {
+                items.add(olapTable.getPartitionItemOrAnalysisException(partitionName));
+            }
+            // Built from the key at the position the MV's partition column has in this table, which is
+            // what the mapping is keyed by; a partition of a list partitioned table can hold more than
+            // one key, and the MV's column is not necessarily the first of them.
+            builder.put(table, constructPredicates(items, new UnboundSlot(colName),
+                    mv.getMvPartitionInfo().getPctColPos(olapTable)));
+        }
         return builder.build();
     }
 

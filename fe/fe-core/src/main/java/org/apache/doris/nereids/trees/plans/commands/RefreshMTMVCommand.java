@@ -198,8 +198,11 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                     statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.fullExplain(mtmv)));
                 }
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
+                // Explained through the MV partitions' own key ranges: the read a refresh narrows to its
+                // partition mapping is decided by that refresh's context, which a plan built here has not.
                 return UpdateMvByPartitionCommand.from(
-                        mtmv, getCompleteRefreshPartitions(mtmv), getIncrementalTableMap(mtmv), statementContext);
+                        mtmv, getCompleteRefreshPartitions(mtmv), getIncrementalTableMap(mtmv), statementContext,
+                        null);
             default:
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "EXPLAIN REFRESH currently supports COMPLETE and INCREMENTAL only");
