@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -109,6 +111,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 public class TypeCoercionUtilsTest {
@@ -381,6 +384,57 @@ public class TypeCoercionUtilsTest {
                     new InPredicate(timestampTz, ImmutableList.of(exactTimestampNs)));
             timestampTzIn.children().forEach(child -> Assertions.assertEquals(
                     TimeStampTzType.MAX, child.getDataType()));
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testDecimalArithmeticWithWiderOperandInDecimal128Mode() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableDecimal256 = false;
+        connectContext.setThreadLocalInfo();
+        try {
+            // a decimal256 column, or a view output analyzed with enable_decimal256 on
+            SlotReference wide = new SlotReference("d256", DecimalV3Type.createDecimalV3TypeNoCheck(76, 10));
+            DecimalV3Literal narrow = new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(38, 10),
+                    new BigDecimal("1.0000000000"));
+            DecimalV3Type expected = DecimalV3Type.createDecimalV3Type(38, 10);
+
+            List<BinaryArithmetic> arithmetics = ImmutableList.of(new Add(wide, narrow), new Subtract(wide, narrow),
+                    new Mod(wide, narrow), new Add(narrow, wide), new Add(wide, new IntegerLiteral(1)));
+            for (BinaryArithmetic arithmetic : arithmetics) {
+                Expression coerced = TypeCoercionUtils.processBinaryArithmetic(arithmetic);
+                Assertions.assertEquals(expected, coerced.getDataType(), arithmetic.toSql());
+                Assertions.assertEquals(expected, coerced.child(0).getDataType(), arithmetic.toSql());
+                Assertions.assertEquals(expected, coerced.child(1).getDataType(), arithmetic.toSql());
+            }
+            Expression add = TypeCoercionUtils.processBinaryArithmetic(new Add(wide, narrow));
+            Assertions.assertInstanceOf(Cast.class, add.child(0));
+            Assertions.assertEquals(wide, add.child(0).child(0));
+
+            // an operand whose integral part fits in decimal128 keeps it, only the scale is reduced
+            SlotReference wideScale = new SlotReference("multi", DecimalV3Type.createDecimalV3TypeNoCheck(41, 11));
+            Expression addWideScale = TypeCoercionUtils.processBinaryArithmetic(
+                    new Add(wideScale, new IntegerLiteral(1)));
+            Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 8), addWideScale.getDataType());
+            Assertions.assertEquals(new Cast(wideScale, DecimalV3Type.createDecimalV3Type(38, 8)),
+                    addWideScale.child(0));
+
+            // multiply does not cast its children to the return type, so the wide operand is kept
+            Expression multiply = TypeCoercionUtils.processBinaryArithmetic(new Multiply(wide, narrow));
+            Assertions.assertEquals(wide, multiply.child(0));
+            Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 6), multiply.getDataType());
+
+            // decimal256 mode keeps the wide result type
+            connectContext.getSessionVariable().enableDecimal256 = true;
+            Expression add256 = TypeCoercionUtils.processBinaryArithmetic(new Add(wide, narrow));
+            Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(76, 10), add256.getDataType());
+            Assertions.assertEquals(wide, add256.child(0));
         } finally {
             ConnectContext.remove();
             if (previousContext != null) {
