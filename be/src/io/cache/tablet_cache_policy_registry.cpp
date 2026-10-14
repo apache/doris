@@ -145,17 +145,28 @@ std::optional<TabletCachePolicy> TabletCachePolicyRegistry::erase_locked(int64_t
 
 void TabletCachePolicyRegistry::bump_versions(const std::optional<TabletCachePolicy>& before,
                                               const std::optional<TabletCachePolicy>& after) {
-    // A block is protected while the deadline is ahead, so a later deadline can only make blocks
-    // protected and an earlier one only end their protection. An unknown tablet is judged by the
-    // deadline each block carries, which may be earlier or later, so learning or forgetting a
-    // tablet can move its blocks either way. The -1 is never compared: a missing side bumps both.
-    const int64_t old_deadline = before.has_value() ? before->deadline() : -1;
-    const int64_t new_deadline = after.has_value() ? after->deadline() : -1;
-    if (!before.has_value() || !after.has_value() || new_deadline > old_deadline) {
-        _protection_gained_version.fetch_add(1, std::memory_order_acq_rel);
+    auto bump = [](std::atomic<uint64_t>& version) {
+        version.fetch_add(1, std::memory_order_acq_rel);
+    };
+    // An unknown tablet is judged by the deadline each block carries, which may be earlier or
+    // later, so learning or forgetting a tablet can move its blocks either way.
+    if (!before.has_value() || !after.has_value()) {
+        bump(_protection_gained_version);
+        bump(_protection_lost_version);
+        return;
     }
-    if (!before.has_value() || !after.has_value() || new_deadline < old_deadline) {
-        _protection_lost_version.fetch_add(1, std::memory_order_acq_rel);
+    // A block is protected while the deadline is ahead, so only a change of that at this moment
+    // moves blocks now: a TTL rewritten from one deadline ahead to another moves none, and the
+    // new deadline starts a pass over the TTL queue when it passes (has_deadline_in()).
+    const int64_t now = UnixSeconds();
+    const int64_t old_deadline = before->deadline();
+    const int64_t new_deadline = after->deadline();
+    if (old_deadline <= now && new_deadline > now) {
+        bump(_protection_gained_version);
+    }
+    // Also when both have passed: the pass the old deadline was to start may not have run yet.
+    if (new_deadline < old_deadline && new_deadline <= now) {
+        bump(_protection_lost_version);
     }
 }
 

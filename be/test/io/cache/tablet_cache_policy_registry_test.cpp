@@ -106,12 +106,25 @@ TEST_F(TabletCachePolicyRegistryTest, versions_track_direction_of_change) {
     EXPECT_EQ(_registry.protection_gained_version(), gained);
     EXPECT_EQ(_registry.protection_lost_version(), lost);
 
+    // A deadline ahead rewritten to another one ahead protects the same blocks now; the new one
+    // is tracked for when it passes.
     _registry.upsert(1, {200, now});
+    _registry.upsert(1, {150, now});
+    EXPECT_EQ(_registry.protection_gained_version(), gained);
+    EXPECT_EQ(_registry.protection_lost_version(), lost);
+    EXPECT_TRUE(_registry.has_deadline_in(now + 149, now + 150));
+
+    _registry.upsert(1, {0, now});
+    EXPECT_EQ(_registry.protection_gained_version(), gained);
+    EXPECT_GT(_registry.protection_lost_version(), lost);
+
+    // A TTL extended past now, then shortened to a deadline already passed.
+    lost = _registry.protection_lost_version();
+    _registry.upsert(1, {2000, now - 1000});
     EXPECT_GT(_registry.protection_gained_version(), gained);
     EXPECT_EQ(_registry.protection_lost_version(), lost);
-
     gained = _registry.protection_gained_version();
-    _registry.upsert(1, {0, now});
+    _registry.upsert(1, {100, now - 1000});
     EXPECT_EQ(_registry.protection_gained_version(), gained);
     EXPECT_GT(_registry.protection_lost_version(), lost);
 

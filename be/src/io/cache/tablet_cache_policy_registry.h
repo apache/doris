@@ -153,13 +153,14 @@ private:
     // Deadlines (> 0) of the known tablets, to tell when one has passed.
     std::multiset<int64_t> _deadlines;
 
-    // Bumped by a change that may make blocks protected: a deadline moved later (a TTL added or
-    // extended), or a tablet learned or forgotten. A cache path that sees it change sweeps its
-    // class queues for blocks to move to the TTL queue.
+    // Bumped by a change that may make blocks protected now: a passed deadline moved ahead (a TTL
+    // added or extended past now), or a tablet learned or forgotten. A cache path that sees it
+    // change sweeps its class queues for blocks to move to the TTL queue.
     std::atomic<uint64_t> _protection_gained_version {0};
-    // Bumped by a change that may end the protection of blocks: a deadline moved earlier (a TTL
-    // removed or shortened), or a tablet learned or forgotten. A cache path that sees it change
-    // sweeps its TTL queue for blocks to move back to their class queues.
+    // Bumped by a change that may end the protection of blocks now: a deadline moved earlier to
+    // a time already passed (a TTL removed or shortened), or a tablet learned or forgotten. A
+    // deadline moved earlier but still ahead is left to has_deadline_in(). A cache path that sees
+    // it change sweeps its TTL queue for blocks to move back to their class queues.
     std::atomic<uint64_t> _protection_lost_version {0};
 
     // Guards the tablets waiting for a fetch. Never held across a fetch.
