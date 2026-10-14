@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
@@ -121,6 +122,16 @@ public class HboScanDescriptor {
         return new HboScanDescriptor(table.getNameWithFullQualifiers(), table.getVisibleVersion(),
                 rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
                 table.getPartitionNames().size());
+    }
+
+    /**
+     * The data state of a scan whose relation cannot be read before the scan runs (an external table):
+     * the token carries the table name only, so a pinned entry stays applicable and the drift guard
+     * reports that it cannot compare this scan instead of judging it stale.
+     */
+    public static HboScanDescriptor ofUnreadableState(TableIf table) {
+        return new HboScanDescriptor(table.getNameWithFullQualifiers(), UNKNOWN, UNKNOWN,
+                RowsKind.UNKNOWN, UNKNOWN, UNKNOWN);
     }
 
     /**

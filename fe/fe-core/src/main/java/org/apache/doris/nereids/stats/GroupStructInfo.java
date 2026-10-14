@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -47,11 +48,13 @@ import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
@@ -160,16 +163,7 @@ public class GroupStructInfo {
 
     /** Shared invalid instance: the group content is not supported by the simplified struct info. */
     public static final GroupStructInfo INVALID =
-            new GroupStructInfo(false, false, "", Collections.emptyList(), INVALID_SCANS);
-    /**
-     * Shared instance for a failure which is not a property of the plan: the table state could not be
-     * read (e.g. the visible version of a cloud table could not be fetched). Unlike
-     * {@link #INVALID} it is not cached by the memo (see {@code Group#getOrComputeHboStructInfo}), so
-     * the next lookup of the same group retries instead of disabling hbo struct info for the whole
-     * query.
-     */
-    public static final GroupStructInfo TRANSIENT_FAILURE =
-            new GroupStructInfo(false, true, "", Collections.emptyList(), INVALID_SCANS);
+            new GroupStructInfo(false, "", Collections.emptyList(), INVALID_SCANS);
 
     private static final String SEP = ";";
     private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
@@ -194,9 +188,28 @@ public class GroupStructInfo {
         NO_LITERAL
     }
 
+    /**
+     * Whether the description could be built. It is invalid - and the memo caches that answer, so every
+     * node above the sub tree gets no fingerprint for the whole query - when one of the following holds
+     * for the sub tree it covers:
+     * <ul>
+     *   <li>it contains an operator the canonical form does not describe, which the annotation prints as
+     *       {@code unsupported=<Operator>}: a table valued function relation ({@code numbers},
+     *       {@code s3}), an apply, a recursive union, a partition top-n, ...;</li>
+     *   <li>it reads more scans than {@code hbo_max_scans_per_group}:
+     *       {@code subtree scans=N > hbo_max_scans_per_group=M};</li>
+     *   <li>a table name carries a struct info delimiter ({@code ,} or {@code }}), so the printed token
+     *       could not be read back: {@code delimiter in table name <table>};</li>
+     *   <li>the memo does not look like a canonical form can express it: a unary operator whose group
+     *       expression has another arity, a CTE consumer which has no memo edge to its producer, a
+     *       reused sub tree whose description is not available;</li>
+     *   <li>the data state of a scan cannot be read (an external table whose metadata is not available,
+     *       a cloud rpc failure): {@code no data state for <table> (<cause>)}.</li>
+     * </ul>
+     * A node whose group cannot be resolved at all is not described either, which the annotation reports
+     * as {@code no group for <Operator>}.
+     */
     private final boolean valid;
-    /** Whether the failure was an environment problem which a later lookup may survive. */
-    private final boolean retryable;
     /**
      * The rope of this description: the text fragments of its own layer (in both literal modes) and
      * references to the descriptions of its child groups. A parent therefore records only its own
@@ -217,27 +230,22 @@ public class GroupStructInfo {
     private String fingerprintWithLiteral;
     private String fingerprintNoLiteral;
 
-    private GroupStructInfo(boolean valid, boolean retryable, String skipReason, List<Piece> pieces,
+    private GroupStructInfo(boolean valid, String skipReason, List<Piece> pieces,
             List<HboScanDescriptor> scans) {
         this.valid = valid;
-        this.retryable = retryable;
         this.skipReason = skipReason;
         this.pieces = pieces;
         this.scans = scans;
     }
 
     private static GroupStructInfo ofPieces(List<Piece> pieces, List<HboScanDescriptor> scans) {
-        return new GroupStructInfo(true, false, "", pieces, Collections.unmodifiableList(scans));
+        return new GroupStructInfo(true, "", pieces, Collections.unmodifiableList(scans));
     }
 
     private static GroupStructInfo invalidStructInfo(String skipReason) {
         return skipReason.isEmpty()
                 ? INVALID
-                : new GroupStructInfo(false, false, skipReason, Collections.emptyList(), INVALID_SCANS);
-    }
-
-    private static GroupStructInfo transientStructInfo() {
-        return TRANSIENT_FAILURE;
+                : new GroupStructInfo(false, skipReason, Collections.emptyList(), INVALID_SCANS);
     }
 
     /** The reason the struct info was refused by a limit, or empty. Only for diagnostics. */
@@ -247,14 +255,6 @@ public class GroupStructInfo {
 
     public boolean isValid() {
         return valid;
-    }
-
-    /**
-     * Whether the description failed on the environment (the data state of a table could not be read)
-     * rather than on the plan: such a failure is not memoized, so that a later lookup retries.
-     */
-    public boolean isRetryable() {
-        return retryable;
     }
 
     /**
@@ -449,10 +449,7 @@ public class GroupStructInfo {
             return memoized;
         }
         GroupStructInfo computed = build(group, ctx);
-        if (!computed.isRetryable()) {
-            // a catalog failure is retried by the next lookup instead of being cached
-            group.setHboStructInfo(computed);
-        }
+        group.setHboStructInfo(computed);
         return computed;
     }
 
@@ -521,7 +518,7 @@ public class GroupStructInfo {
         GroupExpression logical = firstLogicalExpression(group);
         if (logical != null) {
             GroupStructInfo described = describeExpression(group, logical, ctx);
-            if (described.isValid() || described.isRetryable()) {
+            if (described.isValid()) {
                 return described;
             }
             GroupExpression chosen = group.getChosenGroupExpression().orElse(null);
@@ -557,10 +554,10 @@ public class GroupStructInfo {
             // memo content not supported by the simplified struct info: treat as invalid and
             // fall back to legacy behavior instead of failing the optimizer on the hot path
             LOG.debug("failed to compute hbo struct info for group {}", group.getGroupId(), e);
-            return ctx.retryable ? transientStructInfo() : invalidStructInfo(ctx.reason);
+            return invalidStructInfo(ctx.reason);
         }
         if (!ctx.valid) {
-            return ctx.retryable ? transientStructInfo() : invalidStructInfo(ctx.reason);
+            return invalidStructInfo(ctx.reason);
         }
         return ofPieces(out.getPieces(), out.getScans());
     }
@@ -622,6 +619,12 @@ public class GroupStructInfo {
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
+        } else if (plan instanceof LogicalFileScan || plan instanceof PhysicalFileScan) {
+            // an external table (hive / iceberg / hudi) and a file table function are catalog relations
+            // whose data state the optimizer cannot read before the scan runs: they are described by the
+            // table they read, so a pinned row count stays applicable and the drift guard reports that it
+            // cannot compare their data state
+            appendFileScan(plan, out, ctx);
         } else if (plan instanceof PhysicalStorageLayerAggregate) {
             // the optimizer answers an aggregation over a scan from the storage layer itself: the node is
             // a catalog relation without children, and its identity is the aggregation together with the
@@ -699,13 +702,9 @@ public class GroupStructInfo {
         // walking its sub tree again (the grand children are never visited by this build)
         GroupStructInfo child = describeGroup(ge.child(index), ctx);
         if (!child.isValid()) {
-            if (child.isRetryable()) {
-                transientFailure(ctx);
-            } else {
-                // keep the reason of the child: a description which is invalid because of its child
-                // reports the cause of that child (the first reason wins)
-                invalid(ctx, child.getSkipReason());
-            }
+            // keep the reason of the child: a description which is invalid because of its child reports
+            // the cause of that child (the first reason wins)
+            invalid(ctx, child.getSkipReason());
             return;
         }
         out.append(child);
@@ -749,11 +748,7 @@ public class GroupStructInfo {
         for (int i = 0; i < ge.arity(); i++) {
             ChainInfo child = chainInfoOf(ge.child(i));
             if (!child.valid) {
-                if (child.retryable) {
-                    transientFailure(ctx);
-                } else {
-                    invalid(ctx, child.skipReason);
-                }
+                invalid(ctx, child.skipReason);
                 return;
             }
             conditions.addAll(child.conditions);
@@ -795,28 +790,26 @@ public class GroupStructInfo {
         /** the groups which are not flattened into the chain, in traversal order */
         private final List<Group> leaves;
         private final boolean valid;
-        private final boolean retryable;
         private final String skipReason;
 
         private ChainInfo(TreeSet<String> conditions, TreeSet<String> conditionsNoLiteral,
-                List<Group> members, List<Group> leaves, boolean valid, boolean retryable, String skipReason) {
+                List<Group> members, List<Group> leaves, boolean valid, String skipReason) {
             this.conditions = conditions;
             this.conditionsNoLiteral = conditionsNoLiteral;
             this.members = members;
             this.leaves = leaves;
             this.valid = valid;
-            this.retryable = retryable;
             this.skipReason = skipReason;
         }
 
         private static ChainInfo of(TreeSet<String> conditions, TreeSet<String> conditionsNoLiteral,
                 List<Group> members, List<Group> leaves) {
-            return new ChainInfo(conditions, conditionsNoLiteral, members, leaves, true, false, "");
+            return new ChainInfo(conditions, conditionsNoLiteral, members, leaves, true, "");
         }
 
-        private static ChainInfo failed(boolean retryable, String skipReason) {
+        private static ChainInfo failed(String skipReason) {
             return new ChainInfo(new TreeSet<>(), new TreeSet<>(), new ArrayList<>(), new ArrayList<>(),
-                    false, retryable, skipReason);
+                    false, skipReason);
         }
     }
 
@@ -838,7 +831,7 @@ public class GroupStructInfo {
     private static ChainInfo buildChainInfo(Group group) {
         GroupExpression ge = representativeExpression(group);
         if (ge == null) {
-            return ChainInfo.failed(false, "no logical expression in group " + describeGroupState(group));
+            return ChainInfo.failed("no logical expression in group " + describeGroupState(group));
         }
         Plan plan = ge.getPlan();
         if (plan instanceof Join && isFlattenableJoinType(((Join) plan).getJoinType())) {
@@ -851,7 +844,7 @@ public class GroupStructInfo {
             for (int i = 0; i < ge.arity(); i++) {
                 ChainInfo child = chainInfoOf(ge.child(i));
                 if (!child.valid) {
-                    return ChainInfo.failed(child.retryable, child.skipReason);
+                    return ChainInfo.failed(child.skipReason);
                 }
                 conditions.addAll(child.conditions);
                 conditionsNoLiteral.addAll(child.conditionsNoLiteral);
@@ -892,11 +885,7 @@ public class GroupStructInfo {
             boolean repeated = !firstUse || !ctx.visited.add(group);
             GroupStructInfo leaf = describeVisited(group, ctx);
             if (!leaf.isValid()) {
-                if (leaf.isRetryable()) {
-                    transientFailure(ctx);
-                } else {
-                    invalid(ctx, leaf.getSkipReason());
-                }
+                invalid(ctx, leaf.getSkipReason());
                 return false;
             }
             leaves.add(new Leaf(leaf, repeated));
@@ -956,20 +945,6 @@ public class GroupStructInfo {
     /** Mark the description invalid, remembering why (the first reason is the one reported). */
     private static void invalid(Ctx ctx, String reason) {
         ctx.valid = false;
-        if (ctx.reason.isEmpty()) {
-            ctx.reason = reason;
-        }
-    }
-
-    /** Mark the struct info invalid because the table state could not be read (retryable). */
-    private static void transientFailure(Ctx ctx) {
-        transientFailure(ctx, "");
-    }
-
-    /** A failure which the next lookup may survive, with the cause the annotation may show. */
-    private static void transientFailure(Ctx ctx, String reason) {
-        ctx.valid = false;
-        ctx.retryable = true;
         if (ctx.reason.isEmpty()) {
             ctx.reason = reason;
         }
@@ -1057,11 +1032,7 @@ public class GroupStructInfo {
         for (int i = 0; i < ge.arity(); i++) {
             GroupStructInfo branch = describeGroup(ge.child(i), ctx);
             if (!branch.isValid()) {
-                if (branch.isRetryable()) {
-                    transientFailure(ctx);
-                } else {
-                    invalid(ctx, branch.getSkipReason());
-                }
+                invalid(ctx, branch.getSkipReason());
                 return;
             }
             branches.add(branch);
@@ -1102,6 +1073,21 @@ public class GroupStructInfo {
         return withLiteral.toString();
     }
 
+    /** Describe a scan of an external table: its token carries the table name and no data state. */
+    private static void appendFileScan(Plan plan, Canonical out, Ctx ctx) {
+        TableIf table = plan instanceof LogicalFileScan
+                ? ((LogicalFileScan) plan).getTable()
+                : ((PhysicalFileScan) plan).getTable();
+        String name = table.getNameWithFullQualifiers();
+        if (name.indexOf(',') >= 0 || name.indexOf('}') >= 0) {
+            // the token delimiters cannot appear in a table name: the printed struct info could not be
+            // read back, and a pasted one could resolve to another table
+            invalid(ctx, "delimiter in table name " + name);
+            return;
+        }
+        out.scan(HboScanDescriptor.ofUnreadableState(table));
+    }
+
     private static void appendScan(OlapScan scan, Canonical out, Ctx ctx) {
         try {
             // the scan token is the table plus the data state of the scan (baseline). Its shape form
@@ -1119,10 +1105,12 @@ public class GroupStructInfo {
             }
             out.scan(descriptor);
         } catch (org.apache.doris.rpc.RpcException e) {
-            // the table version may not be readable (e.g. a cloud rpc failure): the group stays
-            // invalid for this lookup, but the failure is retried by the next one
+            // the data state of the table cannot be read (a cloud rpc failure, an external table whose
+            // metadata is not available): the sub tree is not described, and the entry of a node above it
+            // is not applied
             LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
-            transientFailure(ctx, "retryable=" + e.getMessage());
+            invalid(ctx, "no data state for " + scan.getTable().getNameWithFullQualifiers()
+                    + " (" + e.getMessage() + ")");
         }
     }
 
@@ -1537,8 +1525,6 @@ public class GroupStructInfo {
     /** The state of one build: it describes the sub tree of the group it was started at. */
     private static class Ctx {
         private boolean valid = true;
-        /** whether the failure was an environment problem which a later lookup may survive */
-        private boolean retryable = false;
         /** why the description was refused: the first reason wins, it is shown by EXPLAIN */
         private String reason = "";
         private final Set<Group> visited = new HashSet<>();
