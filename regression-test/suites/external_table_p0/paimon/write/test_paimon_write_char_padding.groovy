@@ -76,6 +76,26 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             'bucket' = '1',
             'rowkind.field' = 'rk'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_rowkind_part;
+        CREATE TABLE paimon.${dbName}.t_char_rowkind_part (
+            id INT, rk CHAR(3)
+        ) USING paimon
+        PARTITIONED BY (rk)
+        TBLPROPERTIES (
+            'primary-key' = 'id,rk',
+            'bucket' = '1',
+            'rowkind.field' = 'rk'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_char_merge;
+        CREATE TABLE paimon.${dbName}.t_char_merge (
+            c CHAR(3), v INT
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'c',
+            'bucket' = '1'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -92,6 +112,15 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
     """
     sql """switch ${catalogName}"""
     sql """use ${dbName}"""
+
+    sql """create database if not exists internal.${dbName}"""
+    sql """drop table if exists internal.${dbName}.char_merge_source"""
+    sql """
+        create table internal.${dbName}.char_merge_source (
+            c char(3), v int
+        ) duplicate key(c) distributed by hash(c) buckets 1
+        properties ('replication_num' = '1')
+    """
 
     try {
         // A primary key Doris writes is padded, and Spark's write of the same key replaces it.
@@ -155,6 +184,63 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
         order_qt_rowkind_field_not_padded """
             SELECT id, concat('[', rk, ']'), concat('[', code, ']') FROM t_char_rowkind
         """
+
+        // MERGE matches its source rows to the table, and checks the keys it inserts for duplicates, by the key as
+        // Doris holds it, unpadded. Padding a shorter key that MERGE inserts would change the key after those
+        // checks, so the MERGE fails and writes nothing. A MERGE that pads the key itself matches the padded
+        // row, and its duplicate check then sees 'm' and 'm ' as one key.
+        sql """INSERT INTO internal.${dbName}.char_merge_source VALUES ('k', 1)"""
+        test {
+            sql """
+                MERGE INTO t_char_merge t
+                USING internal.${dbName}.char_merge_source s ON t.c = s.c
+                WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+            """
+            exception "rpad(<key>, 3, ' ')"
+        }
+        order_qt_merge_short_key_fails """SELECT concat('[', c, ']'), v FROM t_char_merge"""
+        for (int i = 0; i < 2; i++) {
+            // The first MERGE inserts 'k  ', the second one matches it.
+            sql """
+                MERGE INTO t_char_merge t
+                USING internal.${dbName}.char_merge_source s ON t.c = rpad(s.c, 3, ' ')
+                WHEN MATCHED THEN UPDATE SET v = t.v + 10
+                WHEN NOT MATCHED THEN INSERT (c, v) VALUES (rpad(s.c, 3, ' '), s.v)
+            """
+        }
+        order_qt_merge_padded_key """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_merge"""
+        sql """TRUNCATE TABLE internal.${dbName}.char_merge_source"""
+        sql """INSERT INTO internal.${dbName}.char_merge_source VALUES ('m', 1), ('m ', 2)"""
+        test {
+            sql """
+                MERGE INTO t_char_merge t
+                USING internal.${dbName}.char_merge_source s ON t.c = rpad(s.c, 3, ' ')
+                WHEN NOT MATCHED THEN INSERT (c, v) VALUES (rpad(s.c, 3, ' '), s.v)
+            """
+            exception "Connector MERGE attempted to insert multiple rows with the same primary key"
+        }
+
+        // With padding off, MERGE writes the keys as they are, as before: 'm' and 'm ' are two rows.
+        sql """set enable_paimon_write_char_padding = false"""
+        sql """
+            MERGE INTO t_char_merge t
+            USING internal.${dbName}.char_merge_source s ON t.c = s.c
+            WHEN NOT MATCHED THEN INSERT (c, v) VALUES (s.c, s.v)
+        """
+        sql """set enable_paimon_write_char_padding = true"""
+        order_qt_merge_padding_off """SELECT concat('[', c, ']'), char_length(c), v FROM t_char_merge"""
+
+        // The static partition of an overwrite names a rowkind.field partition value as the rows carry it,
+        // unpadded: an overwrite of '+I' replaces that partition, and one whose source turns out empty at run
+        // time clears it.
+        sql """INSERT INTO t_char_rowkind_part VALUES (1, '+I'), (2, '+I')"""
+        sql """INSERT OVERWRITE TABLE t_char_rowkind_part PARTITION (rk = '+I') SELECT 3"""
+        order_qt_rowkind_partition_overwrite """SELECT id, concat('[', rk, ']') FROM t_char_rowkind_part"""
+        sql """
+            INSERT OVERWRITE TABLE t_char_rowkind_part PARTITION (rk = '+I')
+            SELECT v FROM internal.${dbName}.char_merge_source WHERE v < 0
+        """
+        order_qt_rowkind_partition_empty_overwrite """SELECT id, concat('[', rk, ']') FROM t_char_rowkind_part"""
     } finally {
         sql """set enable_paimon_write_char_padding = true"""
         sql """set parallel_pipeline_task_num = 0"""

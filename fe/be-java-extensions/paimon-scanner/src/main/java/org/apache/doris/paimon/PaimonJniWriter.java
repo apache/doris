@@ -184,7 +184,8 @@ public class PaimonJniWriter extends JniWriter {
 
                     CoreOptions coreOptions = CoreOptions.fromMap(table.options());
                     this.writeSchema = PaimonWriteSchema.create(table.rowType(), columnNames, changelogWrite,
-                            PaimonWriteSchema.charPadding(table.options()), coreOptions.rowkindField().orElse(null));
+                            PaimonWriteSchema.charPadding(table.options()), coreOptions.rowkindField().orElse(null),
+                            table.primaryKeys());
                     this.arrowAdapter = new PaimonArrowBatchAdapter(
                             writeSchema.inputType(), ZoneId.of(timeZone), allocator);
                     validateWriteColumnsForMergeEngine(

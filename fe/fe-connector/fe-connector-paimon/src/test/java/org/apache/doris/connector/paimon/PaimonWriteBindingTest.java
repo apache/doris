@@ -44,6 +44,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -251,6 +252,29 @@ public class PaimonWriteBindingTest {
                 write(true, "part", "abcd", "abcd"), true).get("part"));
         Assertions.assertEquals("a", PaimonWriteBinding.resolveStaticPartition(table,
                 write(true, "part", "a", "a"), false).get("part"));
+    }
+
+    @Test
+    public void staticRowKindFieldPartitionIsLeftUnpaddedAsTheRowsAre(@TempDir Path warehouse) {
+        // The BE writer does not pad the value of the table's rowkind.field, which Paimon reads as a row kind as it
+        // is, so the rows of a CHAR(3) rowkind.field partition column carry '+I'. A padded '+I ' would name
+        // another partition: a nonempty overwrite would fail and an empty one would clear nothing. The other CHAR
+        // partition column is padded as before. MUTATION: padding the rowkind.field value -> red.
+        List<DataField> fields = Arrays.asList(new DataField(0, "id", DataTypes.INT()),
+                new DataField(1, "kind", DataTypes.CHAR(3)), new DataField(2, "code", DataTypes.CHAR(3)));
+        TableSchema schema = new TableSchema(0L, fields, 2, Arrays.asList("kind", "code"),
+                Collections.emptyList(), Collections.singletonMap(CoreOptions.ROWKIND_FIELD.key(), "kind"), "");
+        FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/tbl"), schema);
+        Map<String, String> spec = new LinkedHashMap<>();
+        spec.put("kind", "+I");
+        spec.put("code", "a");
+
+        Map<String, String> partition = PaimonWriteBinding.resolveStaticPartition(table,
+                handle(true, spec, () -> spec, Collections.emptySet()), true);
+
+        Assertions.assertEquals("+I", partition.get("kind"));
+        Assertions.assertEquals("a  ", partition.get("code"));
     }
 
     @Test

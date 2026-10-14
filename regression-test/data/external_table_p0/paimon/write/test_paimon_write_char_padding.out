@@ -40,3 +40,18 @@
 -- !rowkind_field_not_padded --
 2	[+I]	[b  ]
 
+-- !merge_short_key_fails --
+
+-- !merge_padded_key --
+[k  ]	3	11
+
+-- !merge_padding_off --
+[k  ]	3	11
+[m ]	2	2
+[m]	1	1
+
+-- !rowkind_partition_overwrite --
+3	[+I]
+
+-- !rowkind_partition_empty_overwrite --
+

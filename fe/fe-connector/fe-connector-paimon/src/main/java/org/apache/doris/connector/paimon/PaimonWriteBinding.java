@@ -115,7 +115,8 @@ final class PaimonWriteBinding {
      * The static partition of an overwrite, as Paimon's static overwrite parses it: SQL NULL becomes the table's
      * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
      * column type, and padded as the BE writer pads the rows' CHAR values when {@code charPadding} is on: Paimon
-     * parses a partition value without padding it. A binary column can only be statically overwritten with NULL.
+     * parses a partition value without padding it. Like the writer, this leaves the table's {@code rowkind.field}
+     * unpadded. A binary column can only be statically overwritten with NULL.
      */
     static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle,
             boolean charPadding) {
@@ -141,7 +142,9 @@ final class PaimonWriteBinding {
             }
             requestedColumns.put(key, canonicalName);
         }
-        String defaultPartitionName = CoreOptions.fromMap(table.options()).partitionDefaultName();
+        CoreOptions options = CoreOptions.fromMap(table.options());
+        String defaultPartitionName = options.partitionDefaultName();
+        String rowKindField = options.rowkindField().orElse(null);
         Map<String, String> castValues = writeHandle.getCastStaticPartitionSpec();
         Map<String, String> result = new LinkedHashMap<>();
         for (Map.Entry<String, String> requested : requestedColumns.entrySet()) {
@@ -157,7 +160,7 @@ final class PaimonWriteBinding {
             if (type.getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
                 value = toSdkLocalTime(canonicalName, value);
             }
-            if (charPadding && type.getTypeRoot() == DataTypeRoot.CHAR) {
+            if (charPadding && type.getTypeRoot() == DataTypeRoot.CHAR && !canonicalName.equals(rowKindField)) {
                 value = padChar(value, ((CharType) type).getLength());
             }
             if (defaultPartitionName.equals(value)) {

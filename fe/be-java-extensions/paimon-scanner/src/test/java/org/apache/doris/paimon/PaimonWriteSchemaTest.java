@@ -356,6 +356,66 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
+    public void testMergeInsertOfAShortCharKeyFails() {
+        // MERGE matches its source rows to the table and checks the keys it inserts for duplicates by the key as
+        // Doris holds it, unpadded: 'k' and 'k ' are two keys there, and neither matches a stored 'k  '. Padding
+        // a shorter key afterwards would make them one key, or let a NOT MATCHED row replace the stored row it
+        // did not match, so such a row fails. Code points are counted, as padding counts them.
+        // MUTATION: no check, or counting bytes -> red; checking UPDATE / DELETE rows too -> red below.
+        PaimonWriteSchema schema = PaimonWriteSchema.create(charKeyTableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "code", "label"}, true, true, null,
+                Collections.singletonList("code"));
+
+        for (String shortKey : Arrays.asList("k", "k ", "中中")) {
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string(shortKey), string("x")));
+            Assertions.assertTrue(e.getMessage().contains("CHAR(3) primary key column 'code'"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("rpad(<key>, 3, ' ')"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("enable_paimon_write_char_padding"), e.getMessage());
+        }
+    }
+
+    @Test
+    public void testMergeInsertPadsTheRestOfAFullLengthKeyRow() {
+        // Padding does not change a key as long as the column, or a longer one Doris kept, so that row is written
+        // with the key as MERGE saw it, and its CHAR value columns are padded as in any inserted row.
+        PaimonWriteSchema schema = PaimonWriteSchema.create(charKeyTableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "code", "label"}, true, true, null,
+                Collections.singletonList("code"));
+
+        InternalRow tableRow = tableRow(schema, PaimonWriteSchema.INSERT_OPERATION, string("abc"), string("x"));
+        Assertions.assertEquals("abc", tableRow.getString(0).toString());
+        Assertions.assertEquals("x  ", tableRow.getString(1).toString());
+        Assertions.assertEquals("中中中", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION,
+                string("中中中"), null).getString(0).toString());
+        Assertions.assertEquals("abcd", tableRow(schema, PaimonWriteSchema.INSERT_OPERATION,
+                string("abcd"), null).getString(0).toString());
+    }
+
+    @Test
+    public void testShortCharKeysThatMergeDoesNotInsertAreWrittenAsBefore() {
+        // UPDATE and DELETE rows carry the stored key and are never padded; with padding off nothing is padded;
+        // and an INSERT statement is no changelog write, so its keys are padded and nothing fails.
+        PaimonWriteSchema merge = PaimonWriteSchema.create(charKeyTableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "code", "label"}, true, true, null,
+                Collections.singletonList("code"));
+        Assertions.assertEquals("k", tableRow(merge, PaimonWriteSchema.UPDATE_OPERATION, string("k"), string("x"))
+                .getString(0).toString());
+        Assertions.assertEquals("k", tableRow(merge, PaimonWriteSchema.DELETE_OPERATION, string("k"), string("x"))
+                .getString(0).toString());
+
+        PaimonWriteSchema unpadded = PaimonWriteSchema.create(charKeyTableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "code", "label"}, true, false, null,
+                Collections.singletonList("code"));
+        Assertions.assertEquals("k", tableRow(unpadded, PaimonWriteSchema.INSERT_OPERATION, string("k"),
+                string("x")).getString(0).toString());
+
+        PaimonWriteSchema insert = PaimonWriteSchema.create(charKeyTableType(),
+                new String[] {"code", "label"}, false, true, null, Collections.singletonList("code"));
+        Assertions.assertEquals("k  ", tableRow(insert, string("k"), string("x")).getString(0).toString());
+    }
+
+    @Test
     public void testCharPaddingIsReadFromTheTableOptionsTheFeSets() {
         // FE puts doris.write.char-padding on the table it serializes for the writer (PaimonWriteBinding). An FE
         // that predates the option leaves it out and does not pad its static partition values, so neither do we.
@@ -381,6 +441,12 @@ public class PaimonWriteSchemaTest {
                 new DataField(1, "name", new VarCharType()),
                 new DataField(2, "score", new DoubleType()),
                 new DataField(3, "region", new VarCharType())));
+    }
+
+    private static RowType charKeyTableType() {
+        return new RowType(Arrays.asList(
+                new DataField(0, "code", new CharType(false, 3)),
+                new DataField(1, "label", new CharType(3))));
     }
 
     private static RowType charTableType() {
