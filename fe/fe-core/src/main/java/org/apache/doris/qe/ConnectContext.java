@@ -1744,10 +1744,14 @@ public class ConnectContext {
             }
 
             row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            if (cloudCluster == null) {
+            String currentCloudCluster = sessionVariable.getCloudCluster();
+            if (Strings.isNullOrEmpty(currentCloudCluster)) {
+                currentCloudCluster = cloudCluster;
+            }
+            if (currentCloudCluster == null) {
                 row.add("NULL");
             } else {
-                row.add(cloudCluster);
+                row.add(currentCloudCluster);
             }
             return row;
         }
