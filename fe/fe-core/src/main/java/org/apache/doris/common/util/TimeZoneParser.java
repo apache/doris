@@ -40,7 +40,7 @@ public final class TimeZoneParser {
     static {
         Map<String, String> names = new HashMap<>();
         for (String region : ZoneId.getAvailableZoneIds()) {
-            names.put(region, region);
+            names.put(region.toLowerCase(Locale.ROOT), region);
         }
         REGION_NAMES = Collections.unmodifiableMap(names);
     }
@@ -56,7 +56,7 @@ public final class TimeZoneParser {
         if (name != null) {
             return name;
         }
-        String region = findRegion(value);
+        String region = findRegion(value, usage);
         if (region != null) {
             return region;
         }
@@ -104,8 +104,12 @@ public final class TimeZoneParser {
         return null;
     }
 
-    private static String findRegion(String value) {
-        return REGION_NAMES.get(value);
+    private static String findRegion(String value, Usage usage) {
+        String region = REGION_NAMES.get(value.toLowerCase(Locale.ROOT));
+        if (usage == Usage.SESSION && !value.equals(region)) {
+            return null;
+        }
+        return region;
     }
 
     public static ZoneId parse(String value, Usage usage) {

@@ -70,6 +70,12 @@ class TimeZoneParserTest {
         Assertions.assertEquals("UTC", TimeUtils.checkTimeZoneValidAndStandardize("utc"));
         Assertions.assertThrows(DdlException.class,
                 () -> TimeUtils.checkTimeZoneValidAndStandardize("asia/shanghai"));
+        for (TimeZoneParser.Usage usage : new TimeZoneParser.Usage[] {
+                TimeZoneParser.Usage.DATETIME, TimeZoneParser.Usage.TIMESTAMPTZ}) {
+            Assertions.assertEquals("Asia/Shanghai", TimeZoneParser.normalize("asia/shanghai", usage));
+            Assertions.assertEquals("America/Los_Angeles", TimeZoneParser.normalize("america/los_angeLES", usage));
+            Assertions.assertEquals("Europe/Paris", TimeZoneParser.normalize("Europe/pARIS", usage));
+        }
         for (String value : new String[] {"+8", "+08", "+0800", "+8:00"}) {
             Assertions.assertEquals("+08:00", TimeZoneParser.normalize(value, TimeZoneParser.Usage.DATETIME));
         }
