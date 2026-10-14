@@ -110,6 +110,16 @@ PhysicalResultSink
 ----------filter((scalar_agg_empty_mv.k = 1))
 ------------PhysicalOlapScan[scalar_agg_empty_mv]
 
+-- !having_mv_off_matched --
+20
+
+-- !having_mv_off_empty --
+
+-- !having_mv_on_matched --
+20
+
+-- !having_mv_on_empty --
+
 -- !uniform_off --
 1	1
 

@@ -130,6 +130,24 @@ suite("agg_scalar_empty_input") {
     order_qt_having_on_empty "${qHavingEmptyInput}"
     qt_shape_having """explain shape plan ${qHavingRejects}"""
 
+    // An mv with a having clause of its own stores only the groups which passed that clause, so the clause
+    // is a condition on the value the mv aggregated. A scalar query which repeats the very same condition
+    // does not ask for the same value: its aggregate is computed over the mv rows its own filter selects,
+    // and over nothing at all an aggregate rolls up to 0 while the query computed on the base table yields
+    // no row. The mv can not answer such a query, so it must not be used for it.
+    def havingMvSql = """select k, count(*) as cnt from scalar_agg_empty_base group by k having count(*) > 0"""
+    def qHavingMvMatched = """select count(*) from scalar_agg_empty_base where k = 1 having count(*) > 0"""
+    def qHavingMvEmpty = """select count(*) from scalar_agg_empty_base where k = 9999 having count(*) > 0"""
+    async_mv_rewrite_fail(db, havingMvSql, qHavingMvEmpty, "scalar_agg_having_mv")
+    sql """ANALYZE TABLE scalar_agg_having_mv WITH SYNC"""
+    mv_rewrite_fail(qHavingMvMatched, "scalar_agg_having_mv")
+    sql "set enable_materialized_view_rewrite=false"
+    order_qt_having_mv_off_matched "${qHavingMvMatched}"
+    order_qt_having_mv_off_empty "${qHavingMvEmpty}"
+    sql "set enable_materialized_view_rewrite=true"
+    order_qt_having_mv_on_matched "${qHavingMvMatched}"
+    order_qt_having_mv_on_empty "${qHavingMvEmpty}"
+
     // A query which keeps one of the mv dimensions may still drop the aggregate node: the equality
     // filter makes the remaining mv dimension uniform, so the mv holds exactly one row per group.
     def uniformMvSql = """select k, v, count(*) as cnt from scalar_agg_empty_base group by k, v"""

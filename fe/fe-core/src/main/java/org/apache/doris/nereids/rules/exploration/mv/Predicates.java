@@ -297,13 +297,14 @@ public class Predicates {
         }
         Set<Expression> queryBasedViewResidualPredicates = collectNonInferredQueryBasedExpressions(
                 viewStructInfo.getSplitPredicate().getResidualPredicateMap().keySet(), viewToQuerySlotMapping);
-        Set<Expression> exactCoveredPredicates = new LinkedHashSet<>();
-        exactCoveredPredicates.addAll(Sets.intersection(
-                compensationCandidates.getEquals().keySet(), queryBasedViewResidualPredicates));
-        exactCoveredPredicates.addAll(Sets.intersection(
-                compensationCandidates.getRanges().keySet(), queryBasedViewResidualPredicates));
-        exactCoveredPredicates.addAll(Sets.intersection(
-                compensationCandidates.getResiduals().keySet(), queryBasedViewResidualPredicates));
+        // Only a candidate the view enforces over the same value is redundant. A candidate which constrains
+        // an aggregate or window output is not, even when the view states the identical condition: the view
+        // enforced it over the rows it materialized, the query needs it over the value its own aggregate
+        // produces from those rows, and a roll up changes that value, an aggregate over no row at all. Keep
+        // such candidates, so that the check at the end refuses the rewrite instead of dropping the filter.
+        Set<Expression> prunableCandidates = collectPrunableCandidates(compensationCandidates);
+        Set<Expression> exactCoveredPredicates = new LinkedHashSet<>(
+                Sets.intersection(prunableCandidates, queryBasedViewResidualPredicates));
         Set<Expression> remainingQueryBasedViewResidualPredicates = new LinkedHashSet<>(
                 Sets.difference(queryBasedViewResidualPredicates, exactCoveredPredicates));
 
@@ -356,10 +357,26 @@ public class Predicates {
         return ImmutableMap.copyOf(residualCandidates);
     }
 
+    private static Set<Expression> collectPrunableCandidates(PredicateCompensation candidates) {
+        Set<Expression> prunableCandidates = new LinkedHashSet<>();
+        for (Map<Expression, ExpressionInfo> predicateMap : ImmutableList.of(
+                candidates.getEquals(), candidates.getRanges(), candidates.getResiduals())) {
+            for (Expression candidate : predicateMap.keySet()) {
+                if (!constrainsAggregateOrWindowOutput(candidate)) {
+                    prunableCandidates.add(candidate);
+                }
+            }
+        }
+        return prunableCandidates;
+    }
+
+    private static boolean constrainsAggregateOrWindowOutput(Expression expression) {
+        return expression.containsType(AggregateFunction.class, WindowExpression.class);
+    }
+
     private static PredicateCompensation rejectUnsafeResidualCompensation(PredicateCompensation compensation) {
         for (Expression expression : compensation.getResiduals().keySet()) {
-            if (expression.anyMatch(WindowExpression.class::isInstance)
-                    || expression.anyMatch(AggregateFunction.class::isInstance)) {
+            if (constrainsAggregateOrWindowOutput(expression)) {
                 // Aggregate and window residuals are not safe as detail-MV compensation predicates.
                 return null;
             }
@@ -403,8 +420,11 @@ public class Predicates {
         // Remove candidates already implied by the view residual predicate.
         Map<Expression, ExpressionInfo> remainingPredicates = new LinkedHashMap<>();
         for (Map.Entry<Expression, ExpressionInfo> entry : predicates.entrySet()) {
-            // If viewResidual => candidate, candidate is redundant and can be dropped.
-            if (!impliesByDnf(viewResidual, entry.getKey())) {
+            // A candidate which constrains an aggregate or window output stays: the view residual speaks
+            // about the value the view aggregated, not about the value the query aggregates from the view.
+            // Otherwise, if viewResidual => candidate, candidate is redundant and can be dropped.
+            if (constrainsAggregateOrWindowOutput(entry.getKey())
+                    || !impliesByDnf(viewResidual, entry.getKey())) {
                 remainingPredicates.put(entry.getKey(), entry.getValue());
             }
         }
