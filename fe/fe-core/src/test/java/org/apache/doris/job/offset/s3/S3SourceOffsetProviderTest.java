@@ -18,13 +18,17 @@
 package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.util.S3URI;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
+import org.apache.doris.thrift.TBrokerFileStatus;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -32,15 +36,21 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class S3SourceOffsetProviderTest {
     private static final Map<String, String> TVF_PROPS = ImmutableMap.of(
             "uri", "s3://bucket/data/*.csv", "s3.endpoint", "s3.us-east-1.amazonaws.com",
             "s3.region", "us-east-1", "s3.access_key", "ak", "s3.secret_key", "sk");
     private static final StreamingJobProperties ONCE_PROPS = new StreamingJobProperties(
-            ImmutableMap.of("s3.ingestion_mode", "ONCE", "s3.max_batch_files", "1"));
+            ImmutableMap.of("s3.ingestion_mode", "ONE_TIME", "s3.max_batch_files", "1"));
 
     @Test
     public void testOnceMarksLastBatchAndRecovers() throws Exception {
@@ -68,6 +78,10 @@ public class S3SourceOffsetProviderTest {
             Assertions.assertTrue(provider.hasMoreDataToConsume());
             S3Offset first = provider.getNextOffset(ONCE_PROPS, TVF_PROPS);
             Assertions.assertEquals("data/a.csv", first.getEndFile());
+            Assertions.assertEquals("s3://bucket/data/a.csv", first.getFileStatuses().get(0).getPath());
+            Assertions.assertFalse(first.toSerializedJson().contains("fileStatuses"));
+            Assertions.assertFalse(first.isEmpty());
+            Assertions.assertTrue(provider.deserializeOffset(first.toSerializedJson()).isEmpty());
             Assertions.assertFalse(first.isLastBatch());
             Assertions.assertEquals("data/a.csv", provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getEndFile());
             provider.updateOffset(provider.deserializeOffset(first.toSerializedJson()));
@@ -147,5 +161,56 @@ public class S3SourceOffsetProviderTest {
             files.add(new RemoteFile("s3://bucket/" + key, true, 10, 0));
             return new GlobListResult(Status.OK, maxFile, "bucket", "data/");
         };
+    }
+
+    @Test
+    void testOrdinaryFileListIsUnchanged() {
+        Assertions.assertEquals("s3://bucket/prefix/{001,normal.csv}",
+                S3SourceOffsetProvider.buildFileListUri(statuses("prefix/", Arrays.asList("001", "normal.csv"))));
+    }
+
+    @Test
+    void testFileListsAtBucketRootAndAcrossDirectories() {
+        Assertions.assertEquals("s3://bucket/{a.csv,b.csv}",
+                S3SourceOffsetProvider.buildFileListUri(statuses("", ImmutableList.of("a.csv", "b.csv"))));
+        Assertions.assertEquals("s3://bucket/logs/{a/1.csv,b/2.csv}",
+                S3SourceOffsetProvider.buildFileListUri(statuses("logs/", ImmutableList.of("a/1.csv", "b/2.csv"))));
+        Assertions.assertEquals("s3://bucket/logs/a/{1.csv}",
+                S3SourceOffsetProvider.buildFileListUri(statuses("logs/a/", ImmutableList.of("1.csv"))));
+    }
+
+    @Test
+    void testCommaFileDoesNotSelectOtherObjects() throws Exception {
+        assertLiteralFiles("prefix/", Arrays.asList("comma,a.csv", "normal.csv"),
+                Arrays.asList("prefix/comma", "prefix/a.csv", "prefix/comma,a.csv.bak"));
+        assertLiteralFiles("prefix/", Collections.singletonList("comma,a.csv"),
+                Arrays.asList("prefix/comma", "prefix/a.csv"));
+    }
+
+    @Test
+    void testLiteralGlobCharactersInDirectoriesAndFiles() throws Exception {
+        assertLiteralFiles("prefix/[dir],{part}/",
+                Arrays.asList("a[b].csv", "a{b,c}.csv", "a*.csv", "a\\b.csv", "$1.csv", "001"),
+                Arrays.asList("prefix/[dir],{part}/ab.csv", "prefix/[dir],{part}/other.csv",
+                        "prefix/[dir],{part}/1", "prefix/d,part/001"));
+    }
+
+    private static List<TBrokerFileStatus> statuses(String prefix, List<String> files) {
+        return files.stream().map(file -> new TBrokerFileStatus("s3://bucket/" + prefix + file, false, 10, true))
+                .collect(Collectors.toList());
+    }
+
+    private void assertLiteralFiles(String prefix, List<String> files, List<String> otherKeys) throws Exception {
+        // Check the audit URI with the LIST matcher; execution uses the original file statuses.
+        String uri = S3SourceOffsetProvider.buildFileListUri(statuses(prefix, files));
+        String keyPattern = S3URI.create(uri).getKey();
+        PathMatcher matcher = FileSystems.getDefault()
+                .getPathMatcher("glob:" + Paths.get(S3Util.extendGlobs(keyPattern)));
+        for (String file : files) {
+            Assertions.assertTrue(matcher.matches(Paths.get(prefix + file)), "Missing file: " + file);
+        }
+        for (String key : otherKeys) {
+            Assertions.assertFalse(matcher.matches(Paths.get(key)), "Unexpected file: " + key);
+        }
     }
 }
