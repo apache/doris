@@ -261,6 +261,11 @@ public class MTMVRewriteUtilTest {
             mtmvUtilStatic.when(() -> MTMVUtil.getTable(qualifier)).thenReturn(pctTable);
 
             Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+            // Written by a refresh, so grace would admit this partition on its own -- which is what makes the
+            // coverage check the thing that rejects it here. Without a written version the partition is
+            // compared rather than answered by grace, and the assertion below would hold whichever side of
+            // grace the coverage was read on, so the fixture would not test the ordering it is about.
+            Mockito.when(p1.getVisibleVersion()).thenReturn(2L);
             Map<List<String>, Set<String>> queryUsedPartitions = Maps.newHashMap();
             queryUsedPartitions.put(qualifier, Sets.newHashSet("p_expired"));
 
