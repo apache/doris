@@ -2875,6 +2875,49 @@ TEST_F(FunctionSearchTest, TestSniiNativeUnscoredQuerySkipsOptionalTerms) {
     expect_bitmap_eq(collect_docs(scorer), {1, 2});
 }
 
+// A Boolean left with one clause keeps that clause's index. Here the field has a keyword and an
+// analyzed index: EXACT reads the keyword one, and the optional terms, which bind the analyzed
+// one, are dropped because the query is not scored.
+TEST_F(FunctionSearchTest, TestCollapsedBooleanKeepsTheIndexOfItsClause) {
+    const std::map<std::string, std::string> analyzed_properties {
+            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}};
+    auto analyzed_meta = make_test_inverted_index(64, analyzed_properties);
+    auto keyword_meta = make_test_inverted_index(65);
+    auto file_reader = std::make_shared<RejectingCluceneIndexFileReader>(
+            InvertedIndexStorageFormatPB::SNII, "/tmp/search_dual_index_idx");
+    auto analyzed = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &analyzed_meta, file_reader, segment_v2::InvertedIndexReaderType::FULLTEXT);
+    auto keyword = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &keyword_meta, file_reader, segment_v2::InvertedIndexReaderType::STRING_TYPE);
+    analyzed->fake_source->add("foo", {0});
+    keyword->fake_source->add("Foo", {0});
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, analyzed);
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE, keyword);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
+    data_types.emplace("body",
+                       IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators {{"body", &iterator}};
+    TSearchFieldBinding binding;
+    binding.field_name = "body";
+    binding.index_properties = analyzed_properties;
+    binding.__isset.index_properties = true;
+    TSearchParam search_param;
+    search_param.original_dsl = "body:EXACT(Foo) AND body:baz OR body:bar";
+    search_param.root = make_compound_clause(
+            "OCCUR_BOOLEAN", {with_occur(make_leaf_clause("EXACT", "Foo"), TSearchOccur::MUST),
+                              with_occur(make_leaf_clause("TERM", "baz"), TSearchOccur::SHOULD),
+                              with_occur(make_leaf_clause("TERM", "bar"), TSearchOccur::SHOULD)});
+    search_param.field_bindings = {binding};
+
+    InvertedIndexResultBitmap result;
+    const auto status = function_search->evaluate_inverted_index_with_search_param(
+            search_param, data_types, iterators, 2, result, /*enable_cache=*/false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    expect_bitmap_eq(*result.get_data_bitmap(), {0});
+}
+
 // A lucene-style Boolean follows Elasticsearch: a clause on a NULL field does not match, so NOT
 // keeps the row and the SEARCH result has no NULL rows. Rows 0-3 have a title and a NULL content,
 // row 4 has a content and a NULL title, and row 5 has neither.

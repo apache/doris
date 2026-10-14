@@ -226,12 +226,13 @@ Clauses matching_clauses(const logical::Bool& boolean, bool scoring) {
 }
 
 // AND, OR and NOT ignore the per-clause occur; OCCUR keeps it and the threshold. A Boolean
-// left with one clause after dropping clauses that only score is that clause.
+// left with one clause after dropping clauses that only score is that clause, with its binding.
 Status compile_bool(const logical::Bool& boolean, const SearchLeafContext& ctx,
-                    FieldReaderResolver& resolver, query_v2::QueryPtr* out) {
+                    FieldReaderResolver& resolver, query_v2::QueryPtr* out,
+                    std::string* binding_key) {
     const Clauses clauses = matching_clauses(boolean, ctx.scoring);
     if (clauses.size() == 1 && boolean.clauses.size() > 1) {
-        return compile_node(*clauses.front().second, ctx, resolver, out, nullptr);
+        return compile_node(*clauses.front().second, ctx, resolver, out, binding_key);
     }
     std::vector<query_v2::QueryPtr> queries(clauses.size());
     std::vector<std::string> keys(clauses.size());
@@ -293,7 +294,7 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
         return Status::OK();
     }
     if (const auto* boolean = node.as<logical::Bool>()) {
-        return compile_bool(*boolean, ctx, resolver, out);
+        return compile_bool(*boolean, ctx, resolver, out, binding_key);
     }
     const logical::FieldRef* field = node.field();
     DCHECK(field != nullptr);
