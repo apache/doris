@@ -573,10 +573,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Statement-scoped reuse: within one statement the identical scan (same table, same
         // branch/options pin, same generation, same projection, same filter, same limit, same COUNT
         // pushdown) plans once and every duplicated relation shares the result. Session variables
-        // are constant within a statement and deliberately absent from the key.
+        // are constant within a statement and deliberately absent from the key. Every scan of a
+        // statement is planned within one plan, so the memo is dropped when planning ends.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
-                memoKey, () -> new ConcurrentHashMap<>());
+        Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         PaimonScanReuseKey reuseKey = new PaimonScanReuseKey(paimonHandle, request, generation);
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(planScanInternal(session,

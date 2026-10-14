@@ -210,15 +210,16 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // with generation-A schema_id values) could be paired with alias B's generation-B
         // history_schema_info dictionary, causing BE to map files through wrong field identities.
         // The scope is NONE for offline planning and tests, in which case the loader runs on every
-        // call. Session variables are constant within a statement and deliberately absent.
+        // call. Session variables are constant within a statement and deliberately absent. Every scan of a
+        // statement is planned within one plan, so the memo is dropped when planning ends.
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return doPlanScan(session, request);
         }
         HudiStatementTable statementTable = resolveHudiTable(
                 session, (HudiTableHandle) request.getTableHandle());
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-        Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
-                memoKey, () -> new ConcurrentHashMap<>());
+        Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
         HudiScanReuseKey reuseKey = hudiScanReuseKey(
                 (HudiTableHandle) request.getTableHandle(), statementTable.generation);
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();

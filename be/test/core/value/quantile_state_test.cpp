@@ -149,6 +149,66 @@ static long serialized_digest_weight(const QuantileState& state) {
     return digest.total_weight();
 }
 
+static void expect_digest_samples(const QuantileState& state, int count, double minimum,
+                                  double maximum) {
+    ASSERT_EQ(TDIGEST, state._type);
+    EXPECT_EQ(count, serialized_digest_weight(state));
+    EXPECT_EQ(minimum, state.get_value_by_percentile(0));
+    EXPECT_EQ(maximum, state.get_value_by_percentile(1));
+}
+
+TEST(QuantileStateTest, AddValueRetainsSampleAtExplicitLimit) {
+    for (float compression : {QUANTILE_STATE_COMPRESSION_MIN, QUANTILE_STATE_COMPRESSION_MAX}) {
+        for (double value : {-100.0, 100.0}) {
+            QuantileState state(compression);
+            for (int i = 0; i < QUANTILE_STATE_EXPLICIT_NUM - 1; ++i) {
+                state.add_value(0);
+            }
+            ASSERT_EQ(EXPLICIT, state._type);
+            EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM - 1, state._explicit_data.size());
+            state.add_value(0);
+            ASSERT_EQ(EXPLICIT, state._type);
+            EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM, state._explicit_data.size());
+
+            state.add_value(value);
+            EXPECT_TRUE(state._explicit_data.empty());
+            expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 1, std::min(0.0, value),
+                                  std::max(0.0, value));
+
+            state.add_value(0);
+            expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 2, std::min(0.0, value),
+                                  std::max(0.0, value));
+        }
+    }
+}
+
+TEST(QuantileStateTest, MergeSingletonAndExplicitRetainsBoundarySample) {
+    for (double value : {-100.0, 100.0}) {
+        auto explicit_state = constant_state(0, QUANTILE_STATE_EXPLICIT_NUM);
+        auto singleton = constant_state(value, 1);
+
+        auto explicit_first = explicit_state;
+        explicit_first.merge(singleton);
+        auto singleton_first = singleton;
+        singleton_first.merge(explicit_state);
+        expect_digest_samples(explicit_first, QUANTILE_STATE_EXPLICIT_NUM + 1, std::min(0.0, value),
+                              std::max(0.0, value));
+        expect_digest_samples(singleton_first, QUANTILE_STATE_EXPLICIT_NUM + 1,
+                              std::min(0.0, value), std::max(0.0, value));
+        EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM, explicit_state._explicit_data.size());
+        EXPECT_EQ(0, explicit_state.get_value_by_percentile(1));
+        EXPECT_EQ(value, singleton.get_value_by_percentile(1));
+    }
+}
+
+TEST(QuantileStateTest, ExplicitMergeGroupingRetainsAllSamples) {
+    auto state = constant_state(0, QUANTILE_STATE_EXPLICIT_NUM - 1);
+    auto other = constant_state(0, 1);
+    other.add_value(100);
+    state.merge(other);
+    expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 1, 0, 100);
+}
+
 TEST(QuantileStateTest, SelfMergeAndSharedSourceMerge) {
     for (int count : {2, 4096}) {
         auto state = constant_state(10, count);

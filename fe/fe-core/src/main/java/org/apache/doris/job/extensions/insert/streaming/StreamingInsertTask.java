@@ -30,6 +30,7 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -47,6 +48,7 @@ import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.transaction.TransactionException;
 
 import com.google.common.base.Preconditions;
 import lombok.Getter;
@@ -72,6 +74,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     private String cloudCluster;
+    private String commitOffsetJson;
     private String auditSql;
     private final boolean auditEnabled;
     SourceOffsetProvider offsetProvider;
@@ -98,6 +101,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
     @Override
     public void before() throws Exception {
+        commitOffsetJson = null;
         auditSql = null;
         if (getIsCanceled().get()) {
             log.info("streaming insert task has been canceled, task id is {}", getTaskId());
@@ -198,6 +202,18 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         return Collections.emptyList();
     }
 
+    public String getCommitOffsetJson() throws TransactionException {
+        // Reuse offsets across retries, but revalidate notification batch receipts on every attempt.
+        if (commitOffsetJson == null || offsetProvider instanceof S3EventSourceOffsetProvider) {
+            String offsetJson = offsetProvider.getCommitOffsetJson(runningOffset, getTaskId(), getScanBackendIds());
+            if (StringUtils.isBlank(offsetJson)) {
+                throw new TransactionException("Cannot find offset for attachment, load job id is " + getTaskId());
+            }
+            commitOffsetJson = offsetJson;
+        }
+        return commitOffsetJson;
+    }
+
     @Override
     public boolean onSuccess() throws JobException {
         if (getIsCanceled().get()) {
@@ -237,6 +253,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
     @Override
     public void closeOrReleaseResources() {
+        commitOffsetJson = null;
         if (null != stmtExecutor) {
             stmtExecutor = null;
         }
