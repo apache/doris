@@ -104,3 +104,16 @@ The same suite passed again on 2026-10-14 without code changes. The first launch
 | 10,000,000 | 196.2 | 189.8 | 11,276.6 | 5,855.4 |
 
 The broad-text advantage persists across all four sizes. At 1 million IDs, the selective-text scan filter was 11.6 ms slower than the default join in this run (6.5%), while the broad-text scan filter was 16.6 times faster. This reinforces the need for a plan choice that accounts for other predicate selectivity instead of enabling the filter universally. The 1-million-ID profiles again read 20 million target-org rows and all 18 row groups with either plan; `FileReadBytes` was 44.82 MB in both. The filter plan reported zero `FilteredRowsByLazyRead` and 40 million `ReaderReadRows`, so the rerun does not change the earlier Parquet I/O conclusion.
+
+## Go-produced candidate bitmap
+
+The [Go benchmark client](../../../samples/bitmap_candidate_filter/go/README.md) generates portable Roaring64 bytes outside Doris, Base64-encodes them, and sends each bitmap in a MySQL query using `bitmap_from_roaring_base64`. Its candidate IDs match the existing fixture but do not come from the Doris allowlist table. It checks every result's count and resource-ID sum against the fixture formula. The same 20-million-row target org and both text predicates were used. After one warm-up, each query was timed five times with SQL and query caches disabled. These are local client-to-result means in milliseconds, including SQL interpolation, transfer, parse, and execution; generation and encoding are separate.
+
+| Candidate IDs | Base64 bytes | Native selective | Native broad | Iceberg selective | Iceberg broad |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 250,000 | 669,960 | 33.6 | 60.4 | 112.7 | 158.0 |
+| 1,000,000 | 2,669,960 | 110.1 | 129.5 | 199.2 | 207.3 |
+| 5,000,000 | 3,342,384 | 96.6 | 100.6 | 182.2 | 198.0 |
+| 10,000,000 | 3,345,628 | 100.0 | 101.2 | 184.3 | 207.9 |
+
+For 1 million IDs, Go bitmap generation and encoding took 9.1 ms in the Iceberg run, making the measured generation-plus-query mean 216.4 ms for broad text. At 10 million IDs, generation took about 60 ms and encoding about 1.4 ms. The repeated IDs and regular spacing in this fixture compress well; bitmap size for arbitrary production candidate sets needs separate measurement. These timings exclude obtaining candidate IDs, opening the MySQL connection, and any remote client-to-cluster network. The Go Base64 constant predicate and the earlier subquery runtime filter use different query plans, so their timings should not be treated as a controlled filter-delivery comparison.
