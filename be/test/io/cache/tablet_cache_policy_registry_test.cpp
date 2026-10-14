@@ -154,10 +154,19 @@ TEST_F(TabletCachePolicyRegistryTest, refresh_fetches_noted_unknown_tablets) {
     EXPECT_TRUE(_registry.is_protected(1, 0, now));
     EXPECT_FALSE(_registry.deadline(2).has_value());
 
-    // A tablet that does not exist is not fetched again.
+    // A tablet that does not exist is not fetched again, even while its blocks keep it noted and
+    // reported, until the refresh interval has passed.
     _fetched.clear();
+    EXPECT_FALSE(_registry.is_protected(2, 0, now));
+    _registry.report_cached_tablets({2});
     _registry.refresh(100);
     EXPECT_TRUE(_fetched.empty());
+    EXPECT_GE(_registry._retry_at.at(2), now + config::file_cache_tablet_policy_refresh_interval_s);
+
+    _registry._retry_at[2] = now;
+    _registry.report_cached_tablets({2});
+    _registry.refresh(100);
+    EXPECT_EQ(_fetched, (std::vector<int64_t> {2}));
 }
 
 // A failed fetch most likely means the meta service is unavailable: the round ends there instead

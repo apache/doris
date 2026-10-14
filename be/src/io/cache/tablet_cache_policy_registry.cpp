@@ -339,7 +339,10 @@ void TabletCachePolicyRegistry::refresh(size_t budget) {
             continue;
         }
         if (st.is<ErrorCode::NOT_FOUND>()) {
-            _retry_at.erase(tablet_id);
+            // A dropped tablet. Nothing removes its cached blocks, which keep getting it noted and
+            // reported until they are evicted: it is only asked about again once per interval.
+            _retry_at[tablet_id] =
+                    UnixSeconds() + config::file_cache_tablet_policy_refresh_interval_s;
             erase(tablet_id);
             continue;
         }

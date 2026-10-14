@@ -90,7 +90,8 @@ public:
     // Fetches due policies, at most `budget` of them, and forgets the policies of tablets that
     // no cache path reported and nothing refreshed for twice the refresh interval. A fetch that
     // fails ends the round and puts that tablet off for a while, so that an unavailable meta
-    // service is not asked again and again. Run every second by the background refresh.
+    // service is not asked again and again; a tablet found dropped is put off for the refresh
+    // interval. Run every second by the background refresh.
     void refresh(size_t budget);
 
     // The background refresh runs while at least one cache is open, so that it never outlives
@@ -170,8 +171,8 @@ private:
     std::unordered_set<int64_t> _noted;
     // Held for a whole refresh, fetches included; only the refresh and the test hooks take it.
     std::mutex _refresh_mutex;
-    // Guarded by _refresh_mutex: when a tablet whose fetch failed may be fetched again, and when
-    // the record is next scanned for policies nobody needs any more.
+    // Guarded by _refresh_mutex: when a tablet whose fetch failed, or that was found dropped, may
+    // be fetched again, and when the record is next scanned for policies nobody needs any more.
     std::unordered_map<int64_t, int64_t> _retry_at;
     int64_t _next_prune_s = 0;
     Fetcher _fetcher;
