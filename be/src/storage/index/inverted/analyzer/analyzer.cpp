@@ -181,7 +181,7 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Index policy manager is not initialized");
     }
-    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name);
+    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name, config);
 }
 
 AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(

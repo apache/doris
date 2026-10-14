@@ -29,6 +29,9 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/exec_env.h"
+#include "runtime/index_policy/index_policy_mgr.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -295,6 +298,89 @@ TEST_F(FunctionTokenizeTest, ConstFirstArgParserNonePreservesRowCount) {
         StringRef row_i = result_column->get_data_at(i);
         EXPECT_EQ(std::string(row_i.data, row_i.size), expected);
     }
+}
+
+TEST_F(FunctionTokenizeTest, BuiltinAnalyzerNamesIgnoreCase) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->_index_policy_mgr;
+    exec_env->_index_policy_mgr = &policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    const std::vector<std::string> input = {"Apache Doris and databases"};
+    for (const std::string options : {"", ",lower_case='false',stopwords='none'"}) {
+        for (const std::string name : {"standard", "STANDARD", "StAnDaRd", "UNICODE", "UnIcOdE",
+                                       "ENGLISH", "EnGlIsH", "BASIC", "BaSiC"}) {
+            SCOPED_TRACE(name + options);
+            const auto expected = execute_tokenize(input, "parser='" + name + "'" + options);
+            ASSERT_EQ(expected.size(), 1);
+            Block block = create_test_block(input, "analyzer='" + name + "'" + options);
+            auto status = _function->execute(nullptr, block, {0, 1}, 2, input.size());
+            ASSERT_TRUE(status.ok()) << status.to_string();
+            EXPECT_EQ(block.get_by_position(2).column->get_data_at(0).to_string(), expected[0]);
+        }
+    }
+}
+
+TEST_F(FunctionTokenizeTest, ExactPolicyTakesPrecedenceOverBuiltinCaseVariant) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->_index_policy_mgr;
+    exec_env->_index_policy_mgr = &policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    TIndexPolicy policy;
+    policy.id = 1;
+    policy.name = "STANDARD";
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = "keyword";
+    policy_mgr.apply_policy_changes({policy}, {});
+
+    const std::vector<std::string> input = {"Apache Doris"};
+    const auto keyword_result = execute_tokenize(input, "parser='none'");
+    EXPECT_EQ(execute_tokenize(input, "analyzer='STANDARD'"), keyword_result);
+
+    const auto builtin_result = execute_tokenize(input, "parser='standard'");
+    EXPECT_NE(keyword_result, builtin_result);
+    EXPECT_EQ(execute_tokenize(input, "analyzer='standard'"), builtin_result);
+    EXPECT_EQ(execute_tokenize(input, "analyzer='StAnDaRd'"), builtin_result);
+
+    policy.type = TIndexPolicyType::TOKENIZER;
+    policy.properties = {{"type", "keyword"}};
+    policy_mgr.apply_policy_changes({policy}, {policy.id});
+    Block block = create_test_block(input, "analyzer='STANDARD'");
+    auto status = _function->execute(nullptr, block, {0, 1}, 2, input.size());
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Analyzer policy not found: STANDARD"), std::string::npos);
+
+    policy_mgr.apply_policy_changes({}, {policy.id});
+    EXPECT_EQ(execute_tokenize(input, "analyzer='STANDARD'"), builtin_result);
+}
+
+TEST_F(FunctionTokenizeTest, CustomAnalyzerNamesKeepPolicyLookup) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->_index_policy_mgr;
+    exec_env->_index_policy_mgr = &policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    TIndexPolicy policy;
+    policy.id = 1;
+    policy.name = "My_Analyzer";
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = "keyword";
+    policy_mgr.apply_policy_changes({policy}, {});
+
+    const std::vector<std::string> input = {"Apache Doris"};
+    const auto expected = execute_tokenize(input, "parser='none'");
+    EXPECT_EQ(execute_tokenize(input, "analyzer='My_Analyzer'"), expected);
+    EXPECT_EQ(execute_tokenize(input, "analyzer='MY_ANALYZER'"), expected);
+
+    Block block = create_test_block(input, "analyzer='missing_analyzer'");
+    auto status = _function->execute(nullptr, block, {0, 1}, 2, input.size());
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Policy not found with name: missing_analyzer"),
+              std::string::npos);
 }
 
 // Test error cases

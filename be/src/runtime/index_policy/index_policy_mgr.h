@@ -33,6 +33,8 @@
 
 namespace doris {
 
+struct InvertedIndexAnalyzerConfig;
+
 using Policys = std::unordered_map<int64_t, TIndexPolicy>;
 using AnalyzerPtr = std::shared_ptr<lucene::analysis::Analyzer>;
 using AnalyzerProviderPtr = segment_v2::inverted_index::AnalyzerProviderPtr;
@@ -47,7 +49,8 @@ public:
 
     Policys get_index_policys();
     AnalyzerPtr get_policy_by_name(const std::string& name);
-    AnalyzerPtr get_analyzer_by_name(const std::string& name);
+    AnalyzerPtr get_analyzer_by_name(const std::string& name,
+                                     const InvertedIndexAnalyzerConfig* builtin_config = nullptr);
     AnalyzerProviderPtr get_analyzer_provider_by_name(
             const std::string& name,
             const std::map<std::string, std::string>& outer_char_filter_map = {},

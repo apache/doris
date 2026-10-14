@@ -202,9 +202,18 @@ AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with type: " + name);
 }
 
-AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
+AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(
+        const std::string& name, const InvertedIndexAnalyzerConfig* builtin_config) {
     std::shared_lock lock(_mutex);
     const std::string normalized_name = normalize_name(name);
+    // Preserve exact policy bindings before resolving a case variant of a built-in analyzer.
+    if (builtin_config != nullptr && !_exact_name_to_id.contains(trim_name(name)) &&
+        segment_v2::inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(normalized_name)) {
+        return segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                get_inverted_index_parser_type_from_string(normalized_name),
+                builtin_config->parser_mode, builtin_config->lower_case,
+                builtin_config->stop_words);
+    }
     bool builtin_normalizer = false;
     const auto* index_policy = find_top_level_policy_locked(name, &builtin_normalizer);
     if (index_policy == nullptr) {
