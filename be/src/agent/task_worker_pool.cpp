@@ -870,6 +870,22 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     Status status;
     const auto& update_tablet_meta_req = req.update_tablet_meta_info_req;
     for (const auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
+        // Clone and disk migration can reload a header with the old TTL. Serialize the
+        // update with their transition guard, including lookup and persistence, before ACK.
+        if (tablet_meta_info.__isset.binlog_config) {
+            auto st = engine.tablet_manager()->register_transition_tablet(
+                    tablet_meta_info.tablet_id, "update binlog config");
+            if (!st.ok()) {
+                status = st;
+                continue;
+            }
+        }
+        Defer unregister_transition([&] {
+            if (tablet_meta_info.__isset.binlog_config) {
+                engine.tablet_manager()->unregister_transition_tablet(tablet_meta_info.tablet_id,
+                                                                      "update binlog config");
+            }
+        });
         auto tablet = engine.tablet_manager()->get_tablet(tablet_meta_info.tablet_id);
         if (tablet == nullptr) {
             status = Status::NotFound("tablet not found");

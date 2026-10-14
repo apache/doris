@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo.DiskState;
@@ -508,6 +509,7 @@ public class RowBinlogTabletSchedulerTest {
         tabletCtx.setVersionInfo(10L, 10L);
         tabletCtx.setSchemaHash(100);
         tabletCtx.setStorageMedium(TStorageMedium.SSD);
+        tabletCtx.setBinlogConfig(new BinlogConfig());
         return tabletCtx;
     }
 

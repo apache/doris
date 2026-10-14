@@ -21,14 +21,18 @@ import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -43,6 +47,10 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.CloneTask;
+import org.apache.doris.thrift.TBackend;
+import org.apache.doris.thrift.TCloneReq;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
@@ -51,6 +59,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -58,8 +67,10 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class RowBinlogConfigPublicationTest {
     private Database db;
@@ -68,6 +79,7 @@ public class RowBinlogConfigPublicationTest {
     private MockedStatic<Env> envMock;
     private final List<BinlogConfig> journal = new ArrayList<>();
     private final Map<String, BinlogConfig> applied = new HashMap<>();
+    private final List<Set<Long>> acknowledgedReplicaIds = new ArrayList<>();
     private RecordingHandler handler;
 
     @BeforeEach
@@ -138,8 +150,65 @@ public class RowBinlogConfigPublicationTest {
                 throw new DdlException("injected partition failure");
             }
             applied.put(Long.toString(partition.getId()), new BinlogConfig(config));
+            Set<Long> replicaIds = new HashSet<>();
+            for (MaterializedIndex index : partition.getMaterializedIndices(
+                    MaterializedIndex.IndexExtState.VISIBLE, true)) {
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replicaIds.add(replica.getId());
+                    }
+                }
+            }
+            acknowledgedReplicaIds.add(replicaIds);
             duringUpdate.run();
         }
+    }
+
+    private List<Replica> installTopology(long indexId, long tabletId, Replica replica) {
+        List<Replica> replicas = new ArrayList<>(Collections.singletonList(replica));
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        Mockito.when(index.getId()).thenReturn(indexId);
+        Tablet tablet = Mockito.mock(Tablet.class);
+        Mockito.when(tablet.getId()).thenReturn(tabletId);
+        Mockito.when(tablet.getReplicas()).thenReturn(replicas);
+        Mockito.when(index.getTablets()).thenReturn(Collections.singletonList(tablet));
+        Mockito.when(table.getPartition(3L).getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                .thenReturn(Collections.singletonList(index));
+        return replicas;
+    }
+
+    private Replica replica(long replicaId, long backendId, ReplicaState state) {
+        return new LocalReplica(replicaId, backendId, 10L, 100, 100L, 0L, 1L, state, -1L, 10L);
+    }
+
+    private void changeTopologyAfterFirstRound(Runnable change) {
+        int partitionsInRound = table.getAllPartitions().size();
+        handler.duringUpdate = () -> {
+            Assertions.assertEquals(60, table.getBinlogConfig().getTtlSeconds());
+            Assertions.assertEquals(3600, table.getBinlogConfig().getPendingTtlSeconds());
+            if (handler.calls == partitionsInRound) {
+                table.writeLock();
+                try {
+                    change.run();
+                } finally {
+                    table.writeUnlock();
+                }
+            }
+        };
+    }
+
+    private void replayConfig(BinlogConfig config) throws Exception {
+        Env replayEnv = Mockito.mock(Env.class);
+        Mockito.when(replayEnv.getSqlCacheManager()).thenReturn(Mockito.mock(NereidsSqlCacheManager.class));
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(replayEnv.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbOrMetaException(db.getId())).thenReturn(db);
+        Mockito.when(db.getTableOrMetaException(table.getId(), Table.TableType.OLAP)).thenReturn(table);
+        ModifyTablePropertyOperationLog log = new ModifyTablePropertyOperationLog(
+                db.getId(), table.getId(), table.getName(), config.toProperties());
+        Mockito.doCallRealMethod().when(replayEnv).replayModifyTableProperty(
+                OperationType.OP_UPDATE_BINLOG_CONFIG, log);
+        replayEnv.replayModifyTableProperty(OperationType.OP_UPDATE_BINLOG_CONFIG, log);
     }
 
     @Test
@@ -169,6 +238,151 @@ public class RowBinlogConfigPublicationTest {
         alter(handler, 3600);
         Assertions.assertEquals(3600, published().getTtlSeconds());
         applied.values().forEach(config -> Assertions.assertEquals(published(), config));
+    }
+
+    @Test
+    public void failedExtensionReplayPreservesCloneTargetAndCompletionClearsPending() throws Exception {
+        table.getBinlogConfig().setTtlSeconds(60);
+        BinlogConfig original = new BinlogConfig(table.getBinlogConfig());
+        handler.failAfter = 1;
+        Assertions.assertThrows(DdlException.class, () -> alter(handler, 3600));
+        BinlogConfig pending = new BinlogConfig(published());
+        Assertions.assertEquals(60, pending.getTtlSeconds());
+
+        table.setBinlogConfig(original);
+        replayConfig(pending);
+        Assertions.assertEquals(pending, table.getBinlogConfig());
+        TBackend backend = new TBackend("127.0.0.1", 9050, 8040);
+        CloneTask task = new CloneTask(backend, 10L, db.getId(), table.getId(), 3L, 4L, 5L, 6L,
+                100, Collections.singletonList(backend), TStorageMedium.HDD, 10L, 60, table.getBinlogConfig());
+        TCloneReq request = task.toThrift();
+        Assertions.assertEquals(3600, request.getBinlogConfig().getTtlSeconds());
+        Assertions.assertEquals(pending.getConfigVersion(), request.getBinlogConfig().getConfigVersion());
+        Assertions.assertEquals(60, table.getBinlogConfig().getTtlSeconds());
+
+        handler.failAfter = Integer.MAX_VALUE;
+        alter(handler, 3600);
+        BinlogConfig completed = new BinlogConfig(published());
+        Assertions.assertEquals(3600, completed.getTtlSeconds());
+        Assertions.assertEquals(0, completed.getPendingTtlSeconds());
+        table.setBinlogConfig(pending);
+        replayConfig(completed);
+        Assertions.assertEquals(completed, table.getBinlogConfig());
+        Assertions.assertEquals(completed, table.getTableProperty().buildBinlogConfig().getBinlogConfig());
+    }
+
+    @Test
+    public void cloneAddedDuringAlterReceivesAnotherAckBeforeLongerTtlIsPublished() throws Exception {
+        table.getBinlogConfig().setTtlSeconds(60);
+        List<Replica> replicas = installTopology(7L, 8L, replica(9L, 10L, ReplicaState.NORMAL));
+        changeTopologyAfterFirstRound(() -> replicas.add(replica(11L, 12L, ReplicaState.CLONE)));
+
+        alter(handler, 3600);
+
+        Assertions.assertEquals(4, handler.calls);
+        Assertions.assertTrue(acknowledgedReplicaIds.subList(0, 2).stream().noneMatch(ids -> ids.contains(11L)));
+        Assertions.assertTrue(acknowledgedReplicaIds.subList(2, 4).stream().anyMatch(ids -> ids.contains(11L)));
+        Assertions.assertEquals(2, journal.size());
+        Assertions.assertEquals(3600, published().getTtlSeconds());
+        Assertions.assertEquals(0, published().getPendingTtlSeconds());
+    }
+
+    @Test
+    public void replacementReplicaOnSameBackendReceivesAnotherAck() throws Exception {
+        table.getBinlogConfig().setTtlSeconds(60);
+        List<Replica> replicas = installTopology(7L, 8L, replica(9L, 10L, ReplicaState.NORMAL));
+        changeTopologyAfterFirstRound(() -> replicas.set(0, replica(11L, 10L, ReplicaState.CLONE)));
+
+        alter(handler, 3600);
+
+        Assertions.assertEquals(4, handler.calls);
+        Assertions.assertTrue(acknowledgedReplicaIds.subList(0, 2).stream().anyMatch(ids -> ids.contains(9L)));
+        Assertions.assertTrue(acknowledgedReplicaIds.subList(2, 4).stream().noneMatch(ids -> ids.contains(9L)));
+        Assertions.assertTrue(acknowledgedReplicaIds.subList(2, 4).stream().anyMatch(ids -> ids.contains(11L)));
+        Assertions.assertEquals(3600, published().getTtlSeconds());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void replacedIndexOrTabletReceivesAnotherAck(boolean replaceIndex) throws Exception {
+        table.getBinlogConfig().setTtlSeconds(60);
+        Replica replica = replica(9L, 10L, ReplicaState.NORMAL);
+        installTopology(7L, 8L, replica);
+        changeTopologyAfterFirstRound(() -> installTopology(replaceIndex ? 17L : 7L,
+                replaceIndex ? 8L : 18L, replica));
+
+        alter(handler, 3600);
+
+        Assertions.assertEquals(4, handler.calls);
+        Assertions.assertEquals(3600, published().getTtlSeconds());
+        Assertions.assertEquals(0, published().getPendingTtlSeconds());
+    }
+
+    @Test
+    public void topologyTimeoutDoesNotPublishAnUnacknowledgedExtension() {
+        table.getBinlogConfig().setTtlSeconds(60);
+        List<Replica> replicas = installTopology(7L, 8L, replica(9L, 10L, ReplicaState.NORMAL));
+        changeTopologyAfterFirstRound(() -> replicas.add(replica(11L, 12L, ReplicaState.CLONE)));
+        int previousTimeout = Config.max_create_table_timeout_second;
+        Config.max_create_table_timeout_second = 0;
+        try {
+            DdlException error = Assertions.assertThrows(DdlException.class, () -> alter(handler, 3600));
+            Assertions.assertTrue(error.getMessage().contains("Replicas changed"));
+            Assertions.assertEquals(2, handler.calls);
+            Assertions.assertEquals(1, journal.size());
+            Assertions.assertEquals(60, table.getBinlogConfig().getTtlSeconds());
+            Assertions.assertEquals(3600, published().getPendingTtlSeconds());
+        } finally {
+            Config.max_create_table_timeout_second = previousTimeout;
+        }
+    }
+
+    @Test
+    public void additionalAckFailureStillFailsAlterAndKeepsPendingTarget() {
+        table.getBinlogConfig().setTtlSeconds(60);
+        List<Replica> replicas = installTopology(7L, 8L, replica(9L, 10L, ReplicaState.NORMAL));
+        changeTopologyAfterFirstRound(() -> replicas.add(replica(11L, 12L, ReplicaState.CLONE)));
+        handler.failAfter = 2;
+
+        DdlException error = Assertions.assertThrows(DdlException.class, () -> alter(handler, 3600));
+
+        Assertions.assertEquals("injected partition failure", error.getDetailMessage());
+        Assertions.assertEquals(3, handler.calls);
+        Assertions.assertEquals(1, journal.size());
+        Assertions.assertEquals(60, table.getBinlogConfig().getTtlSeconds());
+        Assertions.assertEquals(3600, published().getPendingTtlSeconds());
+    }
+
+    @Test
+    public void newerJournaledGenerationDuringAdditionalAckCannotBeOverwritten() {
+        table.getBinlogConfig().setTtlSeconds(60);
+        List<Replica> replicas = installTopology(7L, 8L, replica(9L, 10L, ReplicaState.NORMAL));
+        handler.duringUpdate = () -> {
+            table.writeLock();
+            try {
+                if (handler.calls == 2) {
+                    replicas.add(replica(11L, 12L, ReplicaState.CLONE));
+                }
+                if (handler.calls == 4) {
+                    BinlogConfig newer = new BinlogConfig(table.getBinlogConfig());
+                    newer.setConfigVersion(newer.getConfigVersion() + 1);
+                    newer.setTtlSeconds(30);
+                    newer.setPendingTtlSeconds(0);
+                    Env.getCurrentEnv().updateBinlogConfig(db, table, newer);
+                }
+            } finally {
+                table.writeUnlock();
+            }
+        };
+
+        DdlException error = Assertions.assertThrows(DdlException.class, () -> alter(handler, 3600));
+
+        Assertions.assertTrue(error.getMessage().contains("changed concurrently"));
+        Assertions.assertEquals(4, handler.calls);
+        Assertions.assertEquals(2, journal.size());
+        Assertions.assertEquals(2, published().getConfigVersion());
+        Assertions.assertEquals(30, table.getBinlogConfig().getTtlSeconds());
+        Assertions.assertEquals(published(), table.getBinlogConfig());
     }
 
     @Test
@@ -249,6 +463,41 @@ public class RowBinlogConfigPublicationTest {
         alter(handler, 60);
         Assertions.assertEquals(3, applied.size());
         Assertions.assertEquals(published(), applied.get("5"));
+    }
+
+    @Test
+    public void cloudPublicationAcknowledgesLogicalReplicaWithoutChoosingQueryBackend() throws Exception {
+        table.getBinlogConfig().setTtlSeconds(60);
+        CloudReplica replica = Mockito.mock(CloudReplica.class);
+        Mockito.when(replica.getId()).thenReturn(9L);
+        Mockito.when(replica.getBackendId()).thenThrow(new AssertionError("must not choose a query backend"));
+        installTopology(7L, 8L, replica);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Cloud.UpdateTabletResponse ok = Cloud.UpdateTabletResponse.newBuilder().setStatus(
+                Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK)).build();
+        Mockito.when(proxy.updateTablet(Mockito.any())).thenAnswer(invocation -> {
+            Assertions.assertFalse(table.isWriteLockHeldByCurrentThread());
+            Assertions.assertEquals(60, table.getBinlogConfig().getTtlSeconds());
+            Assertions.assertEquals(3600, table.getBinlogConfig().getPendingTtlSeconds());
+            Cloud.UpdateTabletRequest request = invocation.getArgument(0);
+            Assertions.assertEquals(8L, request.getTabletMetaInfos(0).getTabletId());
+            Assertions.assertEquals(3600, request.getTabletMetaInfos(0).getBinlogConfig().getTtlSeconds());
+            return ok;
+        });
+        String previousCloudId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "row-binlog-publication-test";
+        try (MockedStatic<MetaServiceProxy> mock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mock.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+
+            alter(new CloudSchemaChangeHandler(), 3600);
+
+            Mockito.verify(proxy).updateTablet(Mockito.any());
+            Mockito.verify(replica, Mockito.never()).getBackendId();
+            Assertions.assertEquals(3600, published().getTtlSeconds());
+            Assertions.assertEquals(0, published().getPendingTtlSeconds());
+        } finally {
+            Config.cloud_unique_id = previousCloudId;
+        }
     }
 
     @ParameterizedTest

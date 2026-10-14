@@ -1657,6 +1657,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_schema_hash(_tablet_meta->schema_hash());
     tablet_info->__set_row_count(_tablet_meta->num_rows());
     tablet_info->__set_data_size(_tablet_meta->tablet_local_size());
+    tablet_info->__set_binlog_config_version(_tablet_meta->binlog_config().config_version());
+    tablet_info->__set_binlog_ttl_seconds(_tablet_meta->binlog_config().ttl_seconds());
 
     // Here we need to report to FE if there are any missing versions of tablet.
     // We start from the initial version and traverse backwards until we meet a discontinuous version.

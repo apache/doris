@@ -50,6 +50,74 @@ public class RowBinlogTtlConfigTest {
     }
 
     @Test
+    public void pendingRetentionSurvivesJournalImageAndPropertyRebuild() {
+        BinlogConfig config = new BinlogConfig(true, 60, 1024, 10, BinlogConfig.BinlogFormat.ROW, false);
+        config.setConfigVersion(42);
+        config.setPendingTtlSeconds(3600);
+
+        Assertions.assertEquals(config, new BinlogConfig(config));
+        Assertions.assertEquals(config, BinlogConfig.fromProperties(config.toProperties()));
+        Assertions.assertEquals(60, config.getTtlSeconds());
+        Assertions.assertEquals(3600, config.toThrift().getTtlSeconds());
+        Assertions.assertEquals(3600, config.toProtobuf().getTtlSeconds());
+        Assertions.assertEquals(42, config.toThrift().getConfigVersion());
+        Assertions.assertEquals(42, config.toProtobuf().getConfigVersion());
+
+        TableProperty properties = new TableProperty(new HashMap<>());
+        properties.setBinlogConfig(config);
+        TableProperty restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(properties), TableProperty.class);
+        Assertions.assertEquals(config, restored.getBinlogConfig());
+        Assertions.assertEquals(config, restored.buildBinlogConfig().getBinlogConfig());
+
+        Map<String, String> legacy = new HashMap<>(config.toProperties());
+        legacy.remove(BinlogConfig.PENDING_TTL_SECONDS);
+        BinlogConfig legacyConfig = BinlogConfig.fromProperties(legacy);
+        Assertions.assertEquals(0, legacyConfig.getPendingTtlSeconds());
+        Assertions.assertEquals(60, legacyConfig.toThrift().getTtlSeconds());
+    }
+
+    @Test
+    public void completedPublicationClearsPendingRetentionWhenPropertiesAreMerged() {
+        BinlogConfig pending = new BinlogConfig(true, 60, 1024, 10, BinlogConfig.BinlogFormat.ROW, false);
+        pending.setConfigVersion(42);
+        pending.setPendingTtlSeconds(3600);
+        TableProperty properties = new TableProperty(new HashMap<>(pending.toProperties()));
+        properties.buildBinlogConfig();
+
+        BinlogConfig completed = new BinlogConfig(pending);
+        completed.setTtlSeconds(3600);
+        completed.setPendingTtlSeconds(0);
+        Assertions.assertNotEquals(pending, completed);
+        Assertions.assertEquals("0", completed.toProperties().get(BinlogConfig.PENDING_TTL_SECONDS));
+
+        properties.modifyTableProperties(completed.toProperties());
+        Assertions.assertEquals(completed, properties.buildBinlogConfig().getBinlogConfig());
+        Assertions.assertEquals(0, properties.getBinlogConfig().getPendingTtlSeconds());
+        Assertions.assertEquals(3600, properties.getBinlogConfig().toThrift().getTtlSeconds());
+        Assertions.assertEquals(3600, properties.getBinlogConfig().toProtobuf().getTtlSeconds());
+        TableProperty restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(properties), TableProperty.class);
+        Assertions.assertEquals(completed, restored.buildBinlogConfig().getBinlogConfig());
+    }
+
+    @Test
+    public void statementsCannotSetOrClearPendingRetentionAndGeneration() {
+        Map<String, String> internalProperties = new HashMap<>();
+        internalProperties.put(BinlogConfig.CONFIG_VERSION, "99");
+        internalProperties.put(BinlogConfig.PENDING_TTL_SECONDS, "7200");
+        BinlogConfig config = new BinlogConfig();
+        Assertions.assertTrue(config.mergeFromProperties(internalProperties, false).first);
+        Assertions.assertEquals(0, config.getConfigVersion());
+        Assertions.assertEquals(0, config.getPendingTtlSeconds());
+
+        config.setConfigVersion(42);
+        config.setPendingTtlSeconds(3600);
+        internalProperties.put(BinlogConfig.PENDING_TTL_SECONDS, "0");
+        Assertions.assertTrue(config.mergeFromProperties(internalProperties, false).first);
+        Assertions.assertEquals(42, config.getConfigVersion());
+        Assertions.assertEquals(3600, config.getPendingTtlSeconds());
+    }
+
+    @Test
     public void propertiesSurviveCreateTableAnalysis() throws Exception {
         BinlogConfig config = new BinlogConfig();
         config.setEnable(true);
