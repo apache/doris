@@ -1025,6 +1025,46 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void statementReuseLastsOnlyWhilePlanning(@TempDir Path warehouse) throws Exception {
+        // Identical scans share their ranges only within one plan, so the range memo is kept for planning only:
+        // once the engine ends planning no range is held, and a later plan of the statement plans the scan again.
+        // The table resolved for the statement stays, so that plan still reads the same table generation.
+        // MUTATION: keeping the range memo for the whole statement (computeIfAbsent) -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "reuse_planning");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            commitRows(table, GenericRow.of(1));
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            TestStatementScope scope = new TestStatementScope();
+            ConnectorSession session = reuseSession(scope, 0L);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "reuse_planning", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorScanRange> planned = provider.planScan(session, scanOf(handle).build());
+
+            scope.endPlanning();
+
+            Assertions.assertFalse(scope.contains(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE + ":0:q"),
+                    "the planned ranges must not outlive planning");
+            Assertions.assertTrue(scope.contains(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE + ":tables:0:q"),
+                    "the table resolved for the statement stays");
+            List<ConnectorScanRange> replanned = provider.planScan(session, scanOf(handle).build());
+            Assertions.assertFalse(planned.isEmpty(), "one committed row must plan at least one split");
+            Assertions.assertNotSame(planned, replanned, "a scan planned after planning ended plans again");
+            Assertions.assertEquals(planned.size(), replanned.size());
+        }
+    }
+
+    @Test
     public void statementReuseNeverMemoizesSystemTables(@TempDir Path warehouse) throws Exception {
         // System tables resolve their snapshot on the BE and are never reused. MUTATION: dropping the
         // system-table bypass in planScan -> the statement scope gains the reuse memo -> red.
@@ -3227,11 +3267,25 @@ public class PaimonScanPlanProviderTest {
 
     private static final class TestStatementScope implements ConnectorStatementScope {
         private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+        private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
 
         @Override
         @SuppressWarnings("unchecked")
         public <T> T computeIfAbsent(String key, Supplier<T> loader) {
             return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
+
+        @Override
+        public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+            T value = computeIfAbsent(key, loader);
+            planningKeys.add(key);
+            return value;
+        }
+
+        @Override
+        public void endPlanning() {
+            planningKeys.forEach(cache::remove);
+            planningKeys.clear();
         }
 
         /** Whether something was memoized under {@code key}, e.g. the statement reuse map. */
@@ -3796,13 +3850,34 @@ public class PaimonScanPlanProviderTest {
     public void buildSchemaInfoCarriesTimestampSemantics() {
         List<DataField> fields = Arrays.asList(
                 new DataField(7, "ts", DataTypes.TIMESTAMP(9)),
-                new DataField(8, "ts_ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)));
+                new DataField(8, "ts_ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)),
+                new DataField(9, "nested", DataTypes.ROW(DataTypes.FIELD(10, "events",
+                        DataTypes.ARRAY(DataTypes.MAP(DataTypes.STRING(), DataTypes.ROW(
+                                DataTypes.FIELD(11, "at", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)))))))),
+                new DataField(12, "id", DataTypes.INT()));
 
         List<TFieldPtr> top = PaimonScanPlanProvider.buildSchemaInfo(3L, fields, false)
                 .getRootField().getFields();
 
-        Assertions.assertFalse(top.get(0).getFieldPtr().isTimestampIsAdjustedToUtc());
-        Assertions.assertTrue(top.get(1).getFieldPtr().isTimestampIsAdjustedToUtc());
+        // Paimon writes high-precision TIMESTAMP and TIMESTAMP_LTZ with the same unannotated INT96 encoding, so the
+        // flag must be set, false for the wall clock and true for the instant; a wall-clock check alone also passes
+        // when the flag is missing.
+        TField wallClock = top.get(0).getFieldPtr();
+        Assertions.assertTrue(wallClock.isSetTimestampIsAdjustedToUtc());
+        Assertions.assertFalse(wallClock.isTimestampIsAdjustedToUtc());
+        TField instant = top.get(1).getFieldPtr();
+        Assertions.assertTrue(instant.isSetTimestampIsAdjustedToUtc());
+        Assertions.assertTrue(instant.isTimestampIsAdjustedToUtc());
+        // The same holds for a timestamp nested in ROW, ARRAY, MAP and ROW (branch-4.x #68441).
+        TField nested = top.get(2).getFieldPtr().getNestedField().getStructField().getFields().get(0).getFieldPtr()
+                .getNestedField().getArrayField().getItemField().getFieldPtr()
+                .getNestedField().getMapField().getValueField().getFieldPtr()
+                .getNestedField().getStructField().getFields().get(0).getFieldPtr();
+        Assertions.assertEquals("at", nested.getName());
+        Assertions.assertTrue(nested.isSetTimestampIsAdjustedToUtc());
+        Assertions.assertTrue(nested.isTimestampIsAdjustedToUtc());
+        // Other columns carry no flag.
+        Assertions.assertFalse(top.get(3).getFieldPtr().isSetTimestampIsAdjustedToUtc());
     }
 
     @Test

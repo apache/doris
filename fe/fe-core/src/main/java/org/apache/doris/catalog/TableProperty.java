@@ -616,7 +616,7 @@ public class TableProperty implements GsonPostProcessable {
                     Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)));
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)) {
-            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.valueOf(
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.fromString(
                     properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)));
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {

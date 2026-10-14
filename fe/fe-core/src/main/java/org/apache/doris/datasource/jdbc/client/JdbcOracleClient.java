@@ -213,6 +213,9 @@ public class JdbcOracleClient extends JdbcClient {
                     precision = scale;
                 }
                 return createDecimalOrStringType(precision, scale);
+            case "BINARY_FLOAT":
+                return Type.FLOAT;
+            case "BINARY_DOUBLE":
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
@@ -232,8 +235,6 @@ public class JdbcOracleClient extends JdbcClient {
                 return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             case "NCLOB":
             case "BFILE":
-            case "BINARY_FLOAT":
-            case "BINARY_DOUBLE":
             default:
                 return Type.UNSUPPORTED;
         }

@@ -18,6 +18,7 @@
 
 import argparse
 import base64
+import gzip
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -1458,11 +1459,16 @@ def shrink_singleton_otlp_retry(
     return otlp_chunks(chunk, next_limit, trace_body)
 
 
-def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds):
+def post_payload_once(
+    endpoint, public_key, secret_key, payload, timeout_seconds, gzip_enabled=False
+):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
+    data = compact_json_bytes(payload)
+    if gzip_enabled:
+        data = gzip.compress(data, compresslevel=1, mtime=0)
     request = urllib.request.Request(
         endpoint,
-        data=compact_json_bytes(payload),
+        data=data,
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Basic {auth}",
@@ -1472,6 +1478,8 @@ def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds
         },
         method="POST",
     )
+    if gzip_enabled:
+        request.add_header("Content-Encoding", "gzip")
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
         body = response.read().decode()
         detail = json.loads(body) if body else {}
@@ -1493,6 +1501,7 @@ def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds
         return {
             "status": response.status,
             "success_count": otlp_span_count(payload),
+            "wire_bytes": len(data),
         }
 
 
@@ -1505,10 +1514,13 @@ def post_payload(
     timeout_seconds,
     retry_attempts,
     retry_sleep_seconds,
+    gzip_enabled=False,
 ):
+    upload_started = time.monotonic()
     statuses = []
     success_count = 0
     request_sizes = []
+    wire_request_sizes = []
     payload_too_large_retry_count = 0
     transport_retry_count = 0
     http_retry_count = 0
@@ -1522,7 +1534,8 @@ def post_payload(
         post_attempt_count += 1
         try:
             status = post_payload_once(
-                endpoint, public_key, secret_key, otlp_chunk, timeout_seconds
+                endpoint, public_key, secret_key, otlp_chunk, timeout_seconds,
+                gzip_enabled=gzip_enabled,
             )
         except urllib.error.HTTPError as exc:
             if exc.code in OTLP_RETRYABLE_HTTP_STATUS_CODES:
@@ -1597,11 +1610,16 @@ def post_payload(
         statuses.append(status["status"])
         success_count += int(status.get("success_count") or 0)
         request_sizes.append(request_size)
+        wire_request_sizes.append(status["wire_bytes"])
     return {
+        "compression": "gzip" if gzip_enabled else "none",
+        "upload_seconds": round(time.monotonic() - upload_started, 3),
         "statuses": statuses,
         "request_count": len(statuses),
         "post_attempt_count": post_attempt_count,
         "request_sizes": request_sizes,
+        # Like request_sizes, these sizes cover successful requests only.
+        "wire_request_sizes": wire_request_sizes,
         "max_request_size": max(request_sizes) if request_sizes else 0,
         "payload_too_large_retries": payload_too_large_retry_count,
         "transport_retries": transport_retry_count,
@@ -1787,44 +1805,15 @@ def observation_has_expected_io(observation, target):
     return all(observation.get(field) is not None for field in fields)
 
 
-def inspect_trace(args, public_key, secret_key, target, deadline):
+def inspect_observations(
+    args, target, observations, legacy_detail, read_source, legacy_trace_error
+):
     result = target["result"]
-    trace_id = result["trace_id"]
     subagent = target["subagent"]
     root_name = "codex.subagent.review" if subagent else "codex.review"
     required_observation_count = max(
         1 if subagent else args.min_observations, result["observation_count"]
     )
-    legacy_trace_error = ""
-    try:
-        legacy_detail = fetch_trace(
-            args.base_url, public_key, secret_key, trace_id, deadline=deadline
-        )
-    except Exception as exc:
-        legacy_detail = {}
-        legacy_trace_error = type(exc).__name__
-    try:
-        observations_payload = fetch_observations_legacy(
-            args.base_url, public_key, secret_key, trace_id,
-            max_pages=max(10, required_observation_count // 100 + 1),
-            deadline=deadline,
-        )
-        observations = observation_rows_from_v2(observations_payload)
-        read_source = "legacy_observations"
-    except Exception as exc:
-        try:
-            observations_payload = fetch_observations_v2(
-                args.base_url, public_key, secret_key, trace_id,
-                max_pages=max(10, required_observation_count // 1000 + 1),
-                deadline=deadline,
-                start_time=target.get("start_time"),
-                end_time=target.get("end_time"),
-            )
-            observations = observation_rows_from_v2(observations_payload)
-            read_source = "v2_observations"
-        except Exception:
-            observations = legacy_detail.get("observations") or []
-            read_source = f"legacy_trace_fallback:{type(exc).__name__}"
     observations_missing_io = [
         observation
         for observation in observations
@@ -1956,6 +1945,59 @@ def inspect_trace(args, public_key, secret_key, target, deadline):
     return ok, last_diagnostic
 
 
+def inspect_trace(args, public_key, secret_key, target, deadline):
+    result = target["result"]
+    trace_id = result["trace_id"]
+    required_observation_count = max(
+        1 if target["subagent"] else args.min_observations, result["observation_count"]
+    )
+    legacy_trace_error = ""
+    try:
+        legacy_detail = fetch_trace(
+            args.base_url, public_key, secret_key, trace_id, deadline=deadline
+        )
+    except Exception as exc:
+        legacy_detail = {}
+        legacy_trace_error = type(exc).__name__
+
+    # Some deployments return all observation IO in trace detail. Apply the
+    # same complete validation before downloading those observations again.
+    ok, detail_diagnostic = inspect_observations(
+        args, target, legacy_detail.get("observations") or [], legacy_detail,
+        "legacy_trace", legacy_trace_error,
+    )
+    if ok:
+        return ok, detail_diagnostic
+
+    try:
+        observations_payload = fetch_observations_legacy(
+            args.base_url, public_key, secret_key, trace_id,
+            max_pages=max(10, required_observation_count // 100 + 1),
+            deadline=deadline,
+        )
+        observations = observation_rows_from_v2(observations_payload)
+        read_source = "legacy_observations"
+    except Exception as exc:
+        try:
+            observations_payload = fetch_observations_v2(
+                args.base_url, public_key, secret_key, trace_id,
+                max_pages=max(10, required_observation_count // 1000 + 1),
+                deadline=deadline,
+                start_time=target.get("start_time"),
+                end_time=target.get("end_time"),
+            )
+            observations = observation_rows_from_v2(observations_payload)
+            read_source = "v2_observations"
+        except Exception:
+            return False, {
+                **detail_diagnostic,
+                "read_source": f"legacy_trace_fallback:{type(exc).__name__}",
+            }
+    return inspect_observations(
+        args, target, observations, legacy_detail, read_source, legacy_trace_error
+    )
+
+
 def verify_traces(args, public_key, secret_key, targets):
     # All exported traces share polling rounds and one elapsed-time budget.
     # Never restart the wait budget for each subagent.
@@ -2024,6 +2066,10 @@ def parse_args():
     parser.add_argument("--post-timeout-seconds", type=int, default=120)
     parser.add_argument("--post-retry-attempts", type=int, default=5)
     parser.add_argument("--post-retry-sleep-seconds", type=int, default=5)
+    parser.add_argument(
+        "--gzip", action="store_true",
+        help="Gzip OTLP uploads; payload size limits still apply before compression",
+    )
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify-attempts", type=int, default=24)
@@ -2113,6 +2159,7 @@ def main():
         args.post_timeout_seconds,
         args.post_retry_attempts,
         args.post_retry_sleep_seconds,
+        gzip_enabled=args.gzip,
     )
     result["subagent_traces"] = []
     for subagent_payload in subagent_payloads:
@@ -2125,6 +2172,7 @@ def main():
             args.post_timeout_seconds,
             args.post_retry_attempts,
             args.post_retry_sleep_seconds,
+            gzip_enabled=args.gzip,
         )
         result["subagent_traces"].append(
             {

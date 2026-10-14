@@ -209,13 +209,10 @@ public final class PaimonTypeMapping {
      * Convert a Doris {@link ConnectorType} (as produced by the CREATE TABLE request path)
      * to a Paimon {@link DataType}.
      *
-     * <p>This is the faithful reverse of the legacy fe-core
-     * {@code DorisToPaimonTypeVisitor}: the scalar set is intentionally narrow (it mirrors
-     * the visitor's {@code atomic} branches and NOT MaxCompute's richer set), CHAR/VARCHAR/STRING
-     * all collapse to {@code VarChar(MAX)} (declared length dropped), DATETIME/DATETIMEV2 map to a
-     * plain {@code TimestampType()} (scale dropped), and the MAP key is forced non-null. Types the
-     * legacy visitor did not handle (TINYINT, SMALLINT, LARGEINT, TIME, IPV4/6, JSON, ...) throw,
-     * preserving the legacy gap.</p>
+     * <p>This is the connector-SPI equivalent of the former fe-core
+     * {@code DorisToPaimonTypeVisitor}. It preserves declared CHAR/VARCHAR bounds and timestamp
+     * precision because Paimon uses them when applying casts and interpreting numeric timestamp
+     * values. The MAP key remains non-null, matching Paimon's type contract.</p>
      *
      * <p>The returned type carries Paimon's default (nullable) flag; column-level nullability is
      * applied by the caller via {@code .copy(nullable)} (mirroring legacy
@@ -243,10 +240,11 @@ public final class PaimonTypeMapping {
             case "DOUBLE":
                 return new DoubleType();
             case "CHAR":
+                // DDL must retain bounds: widening to STRING changes historical narrowing casts.
+                return new CharType(type.getPrecision());
             case "VARCHAR":
+                return new VarCharType(type.getPrecision());
             case "STRING":
-                // Legacy parity: all char-family types collapse to VarChar(MAX); declared
-                // length is intentionally dropped (DorisToPaimonTypeVisitor.atomic isCharFamily).
                 return new VarCharType(VarCharType.MAX_LENGTH);
             case "DATE":
             case "DATEV2":
@@ -259,9 +257,9 @@ public final class PaimonTypeMapping {
             case "DECIMAL256":
                 return new DecimalType(type.getPrecision(), type.getScale());
             case "DATETIME":
-                return new TimestampType();
             case "DATETIMEV2":
-                return new TimestampType(type.getPrecision());
+                // Paimon interprets numeric timestamp strings in units derived from this precision.
+                return new TimestampType("DATETIMEV2".equals(name) ? type.getPrecision() : 0);
             case "TIMESTAMPTZ":
                 // Preserve the instant contract when deriving an external schema.
                 return new LocalZonedTimestampType(type.getPrecision());

@@ -1359,11 +1359,11 @@ public class StmtExecutor {
                     // the plan would read nothing, or only what the failed attempt left, and succeed.
                     LOG.warn("not retrying query {} with the same plan: a scan node's ranges cannot be read"
                             + " again by the backend. stmt: {}",
-                            DebugUtil.printId(context.queryId()), parsedStmt.getOrigStmt().originStmt);
+                            DebugUtil.printId(context.queryId()), originStmt.originStmt);
                     throw e;
                 }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
-                    LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                    LOG.warn("retry {} times. stmt: {}", (i + 1), originStmt.originStmt);
                     willRetry = true;
                 } else {
                     throw e;

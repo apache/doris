@@ -93,7 +93,7 @@ Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& r
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
                 [this]() {
                     std::lock_guard lock(_mtx);
-                    return _is_cancelled;
+                    return _is_cancelled || !_get_load_cancel_status().ok();
                 },
                 table_id());
     }
@@ -115,6 +115,7 @@ Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& r
             return _memtable_writer->flush_running_count() >= effective_flush_running_count_limit;
         };
         while (need_backpressure()) {
+            RETURN_IF_ERROR(_get_load_cancel_status());
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -154,6 +155,7 @@ void CloudDeltaWriter::update_tablet_stats() {
 Status CloudDeltaWriter::commit_rowset() {
     g_cloud_commit_rowset_count << 1;
     std::lock_guard<bthread::Mutex> lock(_mtx);
+    RETURN_IF_ERROR(_get_load_cancel_status());
 
     // Handle empty rowset (no data written)
     if (!_is_init) {
@@ -173,6 +175,7 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
 
     RETURN_IF_ERROR(_rowset_builder->init());
     RETURN_IF_ERROR(_rowset_builder->build_rowset());
+    RETURN_IF_ERROR(_get_load_cancel_status());
 
     // If skip writing empty rowset metadata is enabled, we do not commit rowset to meta service.
     if (config::skip_writing_empty_rowset_metadata) {
@@ -183,6 +186,7 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
 }
 
 Status CloudDeltaWriter::set_txn_related_info() {
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return rowset_builder()->set_txn_related_info();
 }
 

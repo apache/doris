@@ -37,7 +37,6 @@
 #include "common/status.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_serde.h"
-#include "exec/common/variant_util.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -54,6 +53,7 @@
 #include "storage/row_cursor.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -101,7 +101,12 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     }
     const TabletColumn& target_rs_column = schema.column_by_uid(target_rs_column_id);
     DCHECK(target_rs_column.is_row_store_column());
-    // The full column group is considered a full match, thus no missing cids
+    // An empty row_columns_uids() means the row-store column contains the full row. Keep
+    // missing_cids empty so full-row point queries can be served entirely from the row store,
+    // including row-cache hits. Read-time-synthesized hidden columns are intentionally not
+    // supported on this fast path: for example, JSONB stores 0 for __DORIS_VERSION_COL__, while
+    // its published value must be obtained from the rowset. Resolving it would require bypassing
+    // the row cache and reading the column store with rowset context, defeating this optimization.
     if (schema.row_columns_uids().empty()) {
         missing_cids.clear();
         return;
@@ -611,18 +616,17 @@ Status PointQueryExecutor::_lookup_row_data() {
                     // default -- the same answer it gives once a load does bring the column in.
                     TabletColumn column_awaiting_a_load;
                     if (index < 0) {
-                        column_awaiting_a_load = variant_util::get_column_by_type(
-                                slot->type(), slot->col_name(),
-                                variant_util::ExtraInfo {.unique_id = slot->col_unique_id()});
-                        if (!slot->col_default_value().empty()) {
-                            column_awaiting_a_load.set_default_value(slot->col_default_value());
-                        }
+                        column_awaiting_a_load = ReadSchema::tablet_column_from_slot(*slot);
                     }
                     const TabletColumn& read_column =
                             index >= 0 ? tablet_schema->column(index) : column_awaiting_a_load;
-                    StorageReadOptions storage_read_options;
-                    storage_read_options.stats = &_read_stats;
+                    StorageReadOptions storage_read_options(_read_stats);
                     storage_read_options.io_ctx = io_ctx;
+                    // A point lookup bypasses TabletReader, so supply the rowset context here. For
+                    // example, reading __DORIS_VERSION_COL__ from rowset [7-7] must return 7
+                    // instead of its on-disk placeholder 0.
+                    storage_read_options.version = rowset->version();
+                    storage_read_options.commit_tso = rowset->commit_tso();
                     RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                             read_column, slot, row_ids, column, storage_read_options, iter));
                 }

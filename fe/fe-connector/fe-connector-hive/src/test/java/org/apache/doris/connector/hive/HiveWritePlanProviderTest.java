@@ -135,18 +135,24 @@ public class HiveWritePlanProviderTest {
 
     @Test
     public void parquetTimezoneDistinguishesExplicitWallClockFromOldCoordinator() {
-        for (String zone : Arrays.asList("", "8:00", "Asia/Shanghai")) {
+        // null leaves the property out of the catalog entirely.
+        for (String zone : Arrays.asList(null, "", "8:00", "UTC", "Asia/Shanghai", "+05:45")) {
             RecordingHmsClient client = new RecordingHmsClient();
             client.table = tableBuilder().inputFormat(PARQUET_INPUT_FORMAT).build();
             RecordingConnectorContext ctx = new RecordingConnectorContext();
             Map<String, String> properties = new HashMap<>(HiveTestProperties.minimal().getRaw());
-            properties.put("hive.parquet.time-zone", zone);
+            if (zone != null) {
+                properties.put("hive.parquet.time-zone", zone);
+            }
             HiveWritePlanProvider provider = new HiveWritePlanProvider(client, HiveCatalogProperties.of(properties), ctx);
             THiveTableSink sink = provider.planWrite(sessionFor(client, ctx,
                     Collections.singletonMap("time_zone", "America/Los_Angeles")), handle())
                     .getDataSink().getHiveTableSink();
-            Assertions.assertTrue(sink.isSetHiveParquetTimeZone());
-            Assertions.assertEquals(zone.equals("8:00") ? "+08:00" : zone, sink.getHiveParquetTimeZone());
+            // An absent property means wall clock exactly like an explicit "": the field must still be set, or
+            // a backend falls back to the session time zone that an older coordinator implied.
+            Assertions.assertTrue(sink.isSetHiveParquetTimeZone(), String.valueOf(zone));
+            String expected = zone == null ? "" : zone.equals("8:00") ? "+08:00" : zone;
+            Assertions.assertEquals(expected, sink.getHiveParquetTimeZone(), String.valueOf(zone));
             Assertions.assertTrue(sink.isSupportsDeferredAzureMultipart());
         }
     }

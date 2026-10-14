@@ -2,6 +2,9 @@
 -- !native_uuid_variant_type --
 uuid	00112233-4455-6677-8899-aabbccddeeff	\N
 
+-- !uuid_variant_to_string --
+00112233-4455-6677-8899-aabbccddeeff	00112233-4455-6677-8899-aabbccddeeff	["00112233-4455-6677-8899-aabbccddeeff"]	"00112233-4455-6677-8899-aabbccddeeff"	["00112233-4455-6677-8899-aabbccddeeff"]
+
 -- !persisted_uuid_variant_type --
 1	uuid	00112233-4455-6677-8899-aabbccddeeff
 2	\N	\N
