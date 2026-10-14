@@ -27,7 +27,10 @@ suite("test_mtmv_base_partition_read_scope") {
     // The MV partition is a year and the base table's are days, so the range it is read through is wider
     // than what it is recorded with. Days are taken relative to today, and the two sides are asserted
     // separately rather than as a total, so that where the window's edge falls does not decide the case.
-    def today = java.time.LocalDate.now()
+    // The days are taken in the FE's own calendar, which is the one partition_sync_limit cuts its window
+    // from: the runner's local date can be a day off it, and a fixture built in the wrong one leaves the
+    // retained day outside the window.
+    def today = java.time.LocalDate.parse(sql("select curdate()").get(0).get(0).toString())
     def expiredDay = today.minusDays(5)
     def keptDay = today.minusDays(1)
 
@@ -140,7 +143,13 @@ suite("test_mtmv_base_partition_read_scope") {
     // recorded with the partition they come from: a row inserted into it afterwards is a change the MV
     // compares, rather than one it calls itself synchronized through.
     sql """INSERT INTO list_default_base VALUES (\"2020-01-01\", 4, 7)"""
-    order_qt_list_default_tracked "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='list_default_mv'"
+    // A refresh of the MV has to read the rows of it that belong to this partition again: the partition is
+    // one of the ones this MV partition is recorded with, so the insert is a change it compares, and a
+    // refresh that judged the partition synchronized would leave the new row out. The MV's own sync flag is
+    // not the check -- the sentinel MV partition is out of sync either way -- so the row is.
+    sql """REFRESH MATERIALIZED VIEW list_default_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("list_default_mv")
+    order_qt_list_default_tracked "SELECT d, k, total FROM list_default_mv"
 
     // A table's default partition belongs to every MV partition that reads the table, not only to the one
     // its own key maps to: here the join's other table has a partition for key 2 and a default partition

@@ -265,11 +265,19 @@ public class MTMVRewriteUtilTest {
         partitionMappings.put("mv_p1",
                 ImmutableMap.of(t1, Sets.newHashSet("t1_p1", "t1_p2"), t2, Sets.newHashSet("t2_p1")));
         partitionMappings.put("mv_p2", ImmutableMap.of(t2, Sets.newHashSet("t2_p2")));
-        Map<Pair<MTMVRelatedTableIf, String>, String> pctToMv = MTMVRewriteUtil.getPctToMv(partitionMappings);
-        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p1")));
-        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t1, "t1_p2")));
-        Assertions.assertEquals("mv_p1", pctToMv.get(Pair.of(t2, "t2_p1")));
-        Assertions.assertEquals("mv_p2", pctToMv.get(Pair.of(t2, "t2_p2")));
+        Map<Pair<MTMVRelatedTableIf, String>, Set<String>> pctToMv = MTMVRewriteUtil.getPctToMv(partitionMappings);
+        Assertions.assertEquals(Sets.newHashSet("mv_p1"), pctToMv.get(Pair.of(t1, "t1_p1")));
+        Assertions.assertEquals(Sets.newHashSet("mv_p1"), pctToMv.get(Pair.of(t1, "t1_p2")));
+        Assertions.assertEquals(Sets.newHashSet("mv_p1"), pctToMv.get(Pair.of(t2, "t2_p1")));
+        Assertions.assertEquals(Sets.newHashSet("mv_p2"), pctToMv.get(Pair.of(t2, "t2_p2")));
+        // A base partition two MV partitions read -- a list table's default partition -- is answered with
+        // both of them, so a rewrite cannot stand on one while the rows are in the other.
+        partitionMappings.put("mv_p3", ImmutableMap.of(t1, Sets.newHashSet("t1_p3")));
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> shared = Maps.newHashMap();
+        shared.put("mv_a", ImmutableMap.of(t1, Sets.newHashSet("t1_default")));
+        shared.put("mv_b", ImmutableMap.of(t1, Sets.newHashSet("t1_default")));
+        Assertions.assertEquals(Sets.newHashSet("mv_a", "mv_b"),
+                MTMVRewriteUtil.getPctToMv(shared).get(Pair.of(t1, "t1_default")));
     }
 
     private static class TestMTMVRelatedTable implements MTMVRelatedTableIf {
