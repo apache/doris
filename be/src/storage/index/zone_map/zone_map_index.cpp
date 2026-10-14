@@ -39,7 +39,6 @@
 #include "storage/index/indexed_column_writer.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
-#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "storage/utils.h"
@@ -208,17 +207,8 @@ void TypedZoneMapIndexWriter<FT>::_materialize_page_minmax() {
     if (!_page_zone_map.has_not_null) {
         return;
     }
-    if constexpr (is_string_type(Type)) {
-        _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
-        _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
-    } else {
-        // Bound the stored values: a V1 value's TimeType is not stored, and an in-memory one
-        // can be invalid (DEFAULT_VALUE's writes "").
-        _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(
-                StorageLayout<FT>::to_storage(_page_min));
-        _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(
-                StorageLayout<FT>::to_storage(_page_max));
-    }
+    _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
+    _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
 }
 
 template <FieldType FT>

@@ -248,7 +248,6 @@ public:
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
     }
-    // Each row goes to the page builder and to every index the column carries.
     Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
 protected:

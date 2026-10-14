@@ -415,7 +415,7 @@ void fill_result(const BenchSegmentCollector& collector, Clock::duration elapsed
     result->index_bytes = collector.index_size;
 }
 
-// Writes `total_rows` rows through a SegmentCreator; only add_block and flush count.
+// Writes `total_rows` rows through a SegmentCreator; only add_block, flush and the closes count.
 Status flush_rows(const TabletSchemaSPtr& schema, const RowBuilder& rows,
                   const std::string& directory, int64_t total_rows, size_t rows_per_block,
                   FlushResult* result) {
@@ -446,7 +446,7 @@ Status flush_rows(const TabletSchemaSPtr& schema, const RowBuilder& rows,
 }
 
 // Writes `total_rows` rows as one segment per `rows_per_segment` rows through
-// SegmentFlusher::flush_single_block; only the flushes count.
+// SegmentFlusher::flush_single_block; only the flushes and the closes count.
 Status flush_segments(const TabletSchemaSPtr& schema, const Scenario& scenario,
                       const RowBuilder& rows, const std::string& directory, int64_t total_rows,
                       size_t rows_per_segment, FlushResult* result) {

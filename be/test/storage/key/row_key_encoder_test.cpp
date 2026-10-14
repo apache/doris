@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "common/consts.h"
+#include "common/exception.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -1253,6 +1254,56 @@ TEST_F(RowKeyEncoderTest, RowidSuffix) {
         }
         previous_sort_key = sort_key;
         previous_primary_index_key = primary_index_key;
+    }
+}
+
+// A block's CHAR value can be shorter than the column, while the keys hold the zero padded
+// value the segment stores: the full key all of it, the short key its first index_length bytes.
+TEST_F(RowKeyEncoderTest, CharKeyIsZeroPadded) {
+    struct CharKeyRow {
+        std::string_view value;
+        std::string_view full_key_hex;
+        std::string_view short_key_hex;
+    };
+    // One value shorter than the index length and one longer, both shorter than the column.
+    constexpr std::array<CharKeyRow, 2> kRows = {{
+            {"ab", "026162000000000000", "0261620000"},
+            {"abcdef", "026162636465660000", "0261626364"},
+    }};
+
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(*make_key_column(0, FieldType::OLAP_FIELD_TYPE_CHAR, 8, 4));
+    schema->_keys_type = UNIQUE_KEYS;
+    schema->_num_short_key_columns = 1;
+    build(schema, kRows.size(), [&](MutableColumns& columns) {
+        for (const auto& data : kRows) {
+            columns[0]->insert_data(data.value.data(), data.value.size());
+        }
+    });
+
+    RowKeyEncoder encoder(*_schema, /*mow=*/true);
+    std::vector<const IColumn*> key_columns {acc(0)};
+    for (size_t row = 0; row < kRows.size(); ++row) {
+        const auto& data = kRows[row];
+        SCOPED_TRACE(data.value);
+        EXPECT_EQ(to_hex(encoder.full_encode(key_columns, row)), data.full_key_hex);
+        EXPECT_EQ(to_hex(encoder.full_encode_primary_keys(key_columns, row)), data.full_key_hex);
+        EXPECT_EQ(to_hex(encoder.encode_short_keys(key_columns, row)), data.short_key_hex);
+    }
+}
+
+TEST_F(RowKeyEncoderTest, KeyColumnWithoutKeyCoderIsRejected) {
+    auto schema = std::make_shared<TabletSchema>();
+    schema->append_column(*make_key_column(0, FieldType::OLAP_FIELD_TYPE_JSONB, 16, 16));
+    schema->_keys_type = DUP_KEYS;
+    schema->_num_short_key_columns = 1;
+
+    try {
+        RowKeyEncoder encoder(*schema, /*mow=*/false);
+        FAIL() << "Expected doris::Exception";
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        EXPECT_NE(e.message().find("cannot be a key"), std::string::npos) << e.message();
     }
 }
 

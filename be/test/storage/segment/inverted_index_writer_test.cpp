@@ -48,6 +48,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/clucene_terms.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer_feed.h"
@@ -586,41 +587,6 @@ public:
         item_column.set_is_nullable(true);
         array_column.add_sub_column(item_column);
         return array_column;
-    }
-
-    // Every term of a CLucene index in term order, each with the documents holding it.
-    std::vector<std::pair<std::string, std::vector<int>>> clucene_terms(
-            const std::string& index_path_prefix, const TabletIndex* index_meta) {
-        std::vector<std::pair<std::string, std::vector<int>>> terms;
-        IndexFileReader reader(io::global_local_filesystem(), index_path_prefix,
-                               InvertedIndexStorageFormatPB::V2);
-        EXPECT_TRUE(reader.init().ok());
-        auto result = reader.open(index_meta);
-        EXPECT_TRUE(result.has_value()) << result.error();
-        if (!result.has_value()) {
-            return terms;
-        }
-        auto compound_reader = std::move(result.value());
-        lucene::index::IndexReader* index_reader =
-                lucene::index::IndexReader::open(compound_reader.get());
-        TermEnum* term_enum = index_reader->terms();
-        while (term_enum->next()) {
-            Term* term = term_enum->term(false);
-            std::vector<int> docs;
-            TermDocs* term_docs = index_reader->termDocs(term);
-            while (term_docs->next()) {
-                docs.push_back(term_docs->doc());
-            }
-            term_docs->close();
-            _CLLDELETE(term_docs);
-            terms.emplace_back(lucene_wcstoutf8string(term->text(), term->textLength()),
-                               std::move(docs));
-        }
-        term_enum->close();
-        _CLLDELETE(term_enum);
-        index_reader->close();
-        _CLLDELETE(index_reader);
-        return terms;
     }
 
     // Check if .nrm file exists in the inverted index
@@ -1766,7 +1732,7 @@ TEST_F(InvertedIndexWriterTest, StringArrayBatchStartsAtFirstItem) {
             &index_meta, &index_path_prefix);
 
     using Terms = std::vector<std::pair<std::string, std::vector<int>>>;
-    EXPECT_EQ(clucene_terms(index_path_prefix, &index_meta),
+    EXPECT_EQ(clucene_terms(index_path_prefix, InvertedIndexStorageFormatPB::V2, &index_meta),
               (Terms {{"a", {0}}, {"b", {0}}, {"c", {1}}}));
 }
 
@@ -2101,7 +2067,7 @@ TEST_F(InvertedIndexWriterTest, ColumnWriterIndexesCharPaddedToItsLength) {
                                                 &index_meta);
                 },
                 &index_meta, &index_path_prefix);
-        return clucene_terms(index_path_prefix, &index_meta);
+        return clucene_terms(index_path_prefix, InvertedIndexStorageFormatPB::V2, &index_meta);
     };
     EXPECT_EQ(terms(4), (Terms {{"ab", {0}}, {"cd", {2}}, {"efgh", {3}}}));
     EXPECT_EQ(terms(3), Terms {});
@@ -2144,7 +2110,7 @@ TEST_F(InvertedIndexWriterTest, ArrayColumnWriterIndexesCharItemsPaddedToTheirLe
                                                 index_file_writer, &index_meta);
                 },
                 &index_meta, &index_path_prefix);
-        return clucene_terms(index_path_prefix, &index_meta);
+        return clucene_terms(index_path_prefix, InvertedIndexStorageFormatPB::V2, &index_meta);
     };
     EXPECT_EQ(terms(4), (Terms {{"ab", {1}}, {"abcd", {2}}, {"x", {0}}}));
     EXPECT_EQ(terms(3), Terms {});

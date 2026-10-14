@@ -758,7 +758,7 @@ Status VerticalSegmentWriter::finalize_columns(uint64_t* index_size) {
     }
     uint64_t file_index_end = _file_writer->bytes_appended();
     _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
-    // reset all column writers and data_conveter
+    // reset all column writers
     clear();
 
     group_finalized = true;

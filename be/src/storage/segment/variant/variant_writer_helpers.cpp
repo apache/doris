@@ -224,9 +224,9 @@ namespace {
 Status append_sparse_array_column(ColumnWriter* writer, const ColumnPtr& values_column,
                                   std::span<const uint32_t> rowids, size_t total_rows) {
     // Example: values=[a,b], rowids=[1,4], total_rows=6 becomes
-    // [NULL,a,NULL,NULL,b,NULL]. An ARRAY column is offsets plus items, not cells of one stride,
-    // so materialize only this path while it is being written. Scalar paths never allocate the
-    // full N-row representation.
+    // [NULL,a,NULL,NULL,b,NULL]. The gaps cannot go through ArrayColumnWriter::append_nulls(),
+    // which feeds no index, so materialize only this path while it is being written. Scalar
+    // paths never allocate the full N-row representation.
     MutableColumnPtr full_column = values_column->clone_empty();
     full_column->reserve(total_rows);
     size_t next_row = 0;

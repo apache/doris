@@ -21,6 +21,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <memory>
@@ -74,8 +75,12 @@ std::unique_ptr<Builder> make_builder(const PageBuilderOptions& options) {
     return std::unique_ptr<Builder>(static_cast<Builder*>(raw));
 }
 
-// Drives a builder the way ScalarColumnWriter does: add until every row is
-// taken, finishing a page whenever the builder reports it full.
+// Drives a builder the way ScalarColumnWriter does over appends of up to kAppendRows rows: add
+// until every row is taken, finishing a page whenever the builder reports it full. The RLE and
+// FOR builders take every row offered, so only the appends make them start past row 0 and cut a
+// page between calls.
+constexpr size_t kAppendRows = 37;
+
 template <typename AddFn>
 Pages drain(PageBuilder& builder, size_t num_rows, AddFn add) {
     Pages pages;
@@ -88,7 +93,7 @@ Pages drain(PageBuilder& builder, size_t num_rows, AddFn add) {
     };
     size_t pos = 0;
     while (pos < num_rows) {
-        size_t taken = num_rows - pos;
+        size_t taken = std::min(num_rows - pos, kAppendRows);
         EXPECT_TRUE(add(pos, &taken).ok());
         pos += taken;
         if (builder.is_page_full()) {
@@ -257,7 +262,7 @@ TEST(PageBuilderColumnTest, RleBool) {
     for (size_t i = 0; i < 300; ++i) {
         column->insert_value((i / 17) % 2);
     }
-    expect_same_pages<FieldType::OLAP_FIELD_TYPE_BOOL, RlePageBuilder>(*column, small_pages(16));
+    expect_same_pages<FieldType::OLAP_FIELD_TYPE_BOOL, RlePageBuilder>(*column, small_pages(16), 2);
 }
 
 TEST(PageBuilderColumnTest, FrameOfReferenceBigIntAndDateV1) {
@@ -266,9 +271,9 @@ TEST(PageBuilderColumnTest, FrameOfReferenceBigIntAndDateV1) {
         bigints->insert_value(static_cast<int64_t>(i) * 1000 + 12345);
     }
     expect_same_pages<FieldType::OLAP_FIELD_TYPE_BIGINT, FrameOfReferencePageBuilder>(
-            *bigints, small_pages(64));
+            *bigints, small_pages(64), 2);
     expect_same_pages<FieldType::OLAP_FIELD_TYPE_DATE, FrameOfReferencePageBuilder>(
-            *date_column(300), small_pages(64));
+            *date_column(300), small_pages(64), 2);
 }
 
 TEST(PageBuilderColumnTest, BinaryPlainStrings) {

@@ -600,7 +600,7 @@ Status ScalarColumnWriter::append(const IColumn& column, size_t row_pos, size_t 
         return _append_rows(nested, row_pos, num_rows);
     }
     if (config::enable_rle_batch_put_optimization && _null_bitmap_builder != nullptr) {
-        // Size the null bitmap for the batch from the null density seen so far.
+        // Pre-allocate buffer based on estimated size
         const size_t non_null_count =
                 num_rows - std::count_if(null_map, null_map + num_rows,
                                          [](uint8_t is_null) { return is_null != 0; });

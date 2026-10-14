@@ -430,10 +430,10 @@ Status InvertedIndexColumnWriter<field_type>::add_array(const IColumn& items, si
         size_t start_off = 0;
         std::vector<ReaderPtr> keep_readers;
         for (size_t i = 0; i < num_rows; ++i) {
-            // The offsets are rebased to the segment (rebase_offsets), not to this
-            // batch, while the elements are numbered from this batch's first one,
-            // so only the per-row element count is read from them; walking every
-            // row also keeps _rid in step.
+            // The offsets start wherever the caller rebased them (at the item writer's
+            // next row id on load, at 0 in BUILD INDEX), while the elements are numbered
+            // from this batch's first one, so only the per-row element count is read
+            // from them; walking every row also keeps _rid in step.
             auto array_elem_size = offsets[i + 1] - offsets[i];
             // TODO(Amory).later we use object pool to avoid field creation
             std::unique_ptr<lucene::document::Field> new_field;

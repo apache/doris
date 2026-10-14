@@ -265,8 +265,8 @@ Status emit_binlog_block(const BinlogDeriveContext& c, const Block* after_src,
         const uint32_t source_cid = c.normal_source_cids[ordinal];
         ColumnPtr after_column = after_src->get_by_position(source_cid).column;
         // The binlog schema declares every AFTER value column nullable, so a NOT
-        // NULL source column has to be wrapped: the segment writer converts by
-        // the binlog schema. Keys keep their own nullability.
+        // NULL source column has to be wrapped: a nullable ARRAY, MAP or STRUCT
+        // writer refuses a column that is not Nullable. Keys keep their own nullability.
         if (!c.source_schema->column(source_cid).is_key()) {
             after_column = make_nullable(after_column);
         }

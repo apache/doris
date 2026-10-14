@@ -103,8 +103,8 @@ TEST(CharTypePaddingTest, CharTypePaddingNullableTest) {
             << "the source column is left alone";
 }
 
-// Already padded means every value, a NULL row's too, is `length` bytes; the nested column
-// itself then comes back.
+// When the values, a NULL row's included, already total rows * `length` bytes, the nested
+// column itself comes back.
 TEST(CharTypePaddingTest, CharTypePaddingNullablePaddedTest) {
     auto strings = ColumnString::create();
     auto nulls = ColumnUInt8::create();
@@ -117,6 +117,24 @@ TEST(CharTypePaddingTest, CharTypePaddingNullablePaddedTest) {
     const IColumn* nested = &input->get_nested_column();
 
     EXPECT_EQ(CharLayout::column_to_storage(*input, 5).get(), nested);
+}
+
+// The check is on the total: a value under a NULL row can make up for a short one, which then
+// stays unpadded.
+TEST(CharTypePaddingTest, CharTypePaddingNullRowMakesUpTheSum) {
+    auto strings = ColumnString::create();
+    auto nulls = ColumnUInt8::create();
+    for (const std::string value : {"ab", "abcdefgh"}) {
+        strings->insert_data(value.data(), value.size());
+    }
+    nulls->get_data().push_back(0);
+    nulls->get_data().push_back(1);
+    const auto input = ColumnNullable::create(std::move(strings), std::move(nulls));
+    const IColumn* nested = &input->get_nested_column();
+
+    const auto output = CharLayout::column_to_storage(*input, 5);
+    EXPECT_EQ(output.get(), nested);
+    EXPECT_EQ(output->get_data_at(0).to_string(), "ab");
 }
 
 } // namespace doris

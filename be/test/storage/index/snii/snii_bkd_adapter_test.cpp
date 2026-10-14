@@ -685,7 +685,7 @@ struct ArrayBlock {
 
 // `base` reproduces the rebase_offsets() behaviour the CLucene writer warns
 // about: offsets accumulate from a base that is NOT necessarily zero, while the
-// element and null arrays always start at zero. Indexing elements by offsets[i]
+// elements and their null map start at first_item. Indexing elements by offsets[i]
 // instead of by a running count silently reads the wrong elements.
 ArrayBlock make_array_block(const std::vector<std::vector<int64_t>>& rows, uint64_t base) {
     ArrayBlock block;

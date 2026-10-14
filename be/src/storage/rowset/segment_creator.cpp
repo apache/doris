@@ -194,7 +194,7 @@ Status SegmentFlusher::_flush_segment_writer(
     uint64_t segment_file_size;
     uint64_t common_index_size;
     segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
-    RETURN_IF_ERROR(writer->finalize_columns(&common_index_size));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->finalize_columns(&common_index_size));
     RETURN_IF_ERROR(writer->finalize_footer(&segment_file_size, &index_file_cache_info));
     finalize_timer.stop();
 
@@ -274,7 +274,7 @@ SegmentFlusher::Writer::~Writer() = default;
 
 Status SegmentFlusher::Writer::add_rows(const Block* block, size_t row_offset,
                                         size_t input_row_num) {
-    RETURN_IF_ERROR(_writer->append_block(block, row_offset, input_row_num));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_writer->append_block(block, row_offset, input_row_num));
     _flusher->_num_rows_written += input_row_num;
     return Status::OK();
 }

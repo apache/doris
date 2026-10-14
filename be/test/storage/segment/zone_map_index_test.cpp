@@ -820,42 +820,6 @@ TEST_F(ColumnZoneMapTest, DateTimeV1) {
     test_datetimev1(true);
 }
 
-// The TimeType a V1 value carries is not stored with it: insert_default() writes
-// VecDateTimeValue::DEFAULT_VALUE, whose TimeType is not a valid one (a partial update fills the
-// NOT NULL columns it does not mention that way), and a DATE converted from a DATETIME keeps its
-// time. The bounds are the stored values either way.
-TEST_F(ColumnZoneMapTest, V1BoundsAreTheStoredValues) {
-    auto segment_bounds = [&](const TabletColumnPtr& tablet_column, PrimitiveType type,
-                              const IColumn& column, const std::string& file_name) {
-        auto data_type = DataTypeFactory::instance().create_data_type(type, true);
-        std::unique_ptr<ZoneMapIndexWriter> writer;
-        EXPECT_TRUE(ZoneMapIndexWriter::create(data_type, tablet_column.get(), writer).ok());
-        writer->add(column, 0, column.size());
-        EXPECT_TRUE(writer->flush().ok());
-        io::FileWriterPtr file_writer;
-        EXPECT_TRUE(_fs->create_file(kTestDir + "/" + file_name, &file_writer).ok());
-        ColumnIndexMetaPB index_meta;
-        EXPECT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
-        EXPECT_TRUE(file_writer->close().ok());
-        const auto& zone_map = index_meta.zone_map_index().segment_zone_map();
-        return std::make_pair(zone_map.min(), zone_map.max());
-    };
-
-    auto dates = ColumnDate::create();
-    dates->insert_value(VecDateTimeValue(false, TIME_DATETIME, 12, 34, 56, 1960, 6, 15));
-    dates->insert_default();
-    EXPECT_EQ(segment_bounds(create_datev1_key(0, true), TYPE_DATE, *dates, "datev1_bounds"),
-              std::make_pair(std::string("1960-06-15"), std::string("1970-01-01")));
-
-    auto datetimes = ColumnDateTime::create();
-    datetimes->insert_value(VecDateTimeValue(false, TIME_DATE, 0, 0, 0, 1960, 6, 15));
-    datetimes->insert_default();
-    EXPECT_EQ(
-            segment_bounds(create_datetimev1_key(0, true), TYPE_DATETIME, *datetimes,
-                           "datetimev1_bounds"),
-            std::make_pair(std::string("1960-06-15 00:00:00"), std::string("1970-01-01 00:00:00")));
-}
-
 // Test for float/double
 template <FieldType T>
 TabletColumnPtr create_float_column(int32_t id, bool is_nullable) {

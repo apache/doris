@@ -47,9 +47,9 @@ const IColumn* value_column_at(const IColumn* column, size_t pos) {
     return nullable.is_null_at(pos) ? nullptr : &nullable.get_nested_column();
 }
 
-// A string key is encoded from the row's own bytes, which CHAR pads below. This and
-// encode_ascending run once per row and key column, so their casts skip the
-// release-build type check.
+// A string key is encoded from the row's own bytes, which CHAR pads below. The key columns'
+// types are fixed by the schema and this runs once per row and key column, so the casts here
+// and in encode_ascending skip the release-build type check.
 template <FieldType FT>
 void full_encode_ascending(const IColumn& column, size_t pos, size_t length, std::string* buf) {
     if constexpr (field_is_slice_type(FT)) {

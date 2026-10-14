@@ -997,12 +997,14 @@ Status IndexBuilder::_write_snii_index_data(
             continue;
         }
         const uint8_t* null_map = nullptr;
+        const IColumn* nested = nullptr;
         // SNII cuts a CHAR value at its first '\0', so CHAR is fed as it reads back.
-        const IColumn& nested = peel_nullable(*block->get_by_position(group).column, 0, &null_map);
+        RETURN_IF_CATCH_EXCEPTION(
+                { nested = &peel_nullable(*block->get_by_position(group).column, 0, &null_map); });
         // Every writer on the column reads the SAME block column, which is
         // exactly the shared-column-read guarantee.
         for (const auto& writer_sign : group_writer_signs[group]) {
-            RETURN_IF_ERROR(_add_column(writer_sign, nested, null_map, block->rows()));
+            RETURN_IF_ERROR(_add_column(writer_sign, *nested, null_map, block->rows()));
         }
     }
     return Status::OK();
@@ -1042,7 +1044,9 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
             continue;
         }
         const uint8_t* null_map = nullptr;
-        const IColumn& input = peel_nullable(*block->get_by_position(i).column, 0, &null_map);
+        const IColumn* input = nullptr;
+        RETURN_IF_CATCH_EXCEPTION(
+                { input = &peel_nullable(*block->get_by_position(i).column, 0, &null_map); });
         // CHAR reads back without its padding; the index is fed it padded to its length, as on
         // load.
         ColumnPtr stored_chars;
@@ -1052,7 +1056,7 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
                         *block->get_by_position(i).column, column.length());
             });
         }
-        const IColumn& nested = stored_chars ? *stored_chars : input;
+        const IColumn& nested = stored_chars ? *stored_chars : *input;
         RETURN_IF_ERROR(_add_column(writer_sign, nested, null_map, block->rows()));
     }
     return Status::OK();
@@ -1063,10 +1067,11 @@ Status IndexBuilder::_add_array(const std::vector<std::pair<int64_t, int64_t>>& 
                                 size_t num_rows) {
     DCHECK(column->get_subtype_count() == 1);
     const uint8_t* outer_null_map = nullptr;
-    const IColumn& nested = peel_nullable(array_column, 0, &outer_null_map);
-    const auto* col_array = assert_cast<const ColumnArray*>(&nested);
+    const ColumnArray* col_array = nullptr;
     auto offsets = ColumnOffset64::create();
     RETURN_IF_CATCH_EXCEPTION({
+        col_array =
+                assert_cast<const ColumnArray*>(&peel_nullable(array_column, 0, &outer_null_map));
         segment_v2::rebase_offsets(col_array->get_offsets(), 0, num_rows, 0, offsets.get());
     });
     const TabletColumn& item_column = column->get_sub_column(0);

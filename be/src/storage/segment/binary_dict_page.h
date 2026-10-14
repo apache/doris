@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -36,7 +35,6 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
-#include "storage/storage_layout.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 

@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable_test.h"
 #include "core/column/column_vector.h"
@@ -516,6 +517,24 @@ TEST(ColumnNullableTest, PeelNullableOffsetsTheNullBitsToTheBatch) {
     plain->insert_value(1);
     EXPECT_EQ(&peel_nullable(*plain, 0, &null_map), plain.get());
     EXPECT_EQ(null_map, nullptr);
+}
+
+// A Const over a Nullable is not a ColumnNullable, so without the check it would come back as
+// itself, with no null bits for its NULL row.
+TEST(ColumnNullableTest, PeelNullableRejectsAConstColumn) {
+    auto values = ColumnInt32::create();
+    values->insert_value(0);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(1);
+    const auto constant =
+            ColumnConst::create(ColumnNullable::create(std::move(values), std::move(nulls)), 3);
+
+    const uint8_t* null_map = nullptr;
+#ifndef NDEBUG
+    EXPECT_DEATH(peel_nullable(*constant, 0, &null_map), "Check failed: !is_column_const");
+#else
+    EXPECT_THROW(peel_nullable(*constant, 0, &null_map), doris::Exception);
+#endif
 }
 
 } // namespace doris

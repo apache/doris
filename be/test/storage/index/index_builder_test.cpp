@@ -17,9 +17,6 @@
 
 #include "storage/task/index_builder.h"
 
-#include <CLucene.h>
-#include <CLucene/config/repl_wchar.h>
-#include <CLucene/index/IndexReader.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -31,6 +28,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "storage/index/clucene_terms.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/snii/query/term_query.h"
@@ -49,6 +47,7 @@
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 using namespace testing;
@@ -500,7 +499,6 @@ protected:
     // with the documents holding it.
     static std::vector<std::pair<std::string, std::vector<int>>> clucene_terms(
             const RowsetSharedPtr& rowset, int32_t column_unique_id, int64_t index_id) {
-        std::vector<std::pair<std::string, std::vector<int>>> terms;
         const TabletIndex* index_meta = nullptr;
         for (const auto* candidate : rowset->tablet_schema()->inverted_indexs(column_unique_id)) {
             if (candidate->index_id() == index_id) {
@@ -511,39 +509,12 @@ protected:
         auto segment_path = rowset->segment_path(0);
         EXPECT_TRUE(segment_path.has_value()) << segment_path.error();
         if (index_meta == nullptr || !segment_path.has_value()) {
-            return terms;
+            return {};
         }
-        segment_v2::IndexFileReader reader(
-                io::global_local_filesystem(),
+        return segment_v2::clucene_terms(
                 std::string {segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
                         segment_path.value())},
-                rowset->tablet_schema()->get_inverted_index_storage_format());
-        EXPECT_TRUE(reader.init().ok());
-        auto directory = reader.open(index_meta);
-        EXPECT_TRUE(directory.has_value()) << directory.error();
-        if (!directory.has_value()) {
-            return terms;
-        }
-        lucene::index::IndexReader* index_reader =
-                lucene::index::IndexReader::open(directory.value().get());
-        lucene::index::TermEnum* term_enum = index_reader->terms();
-        while (term_enum->next()) {
-            lucene::index::Term* term = term_enum->term(false);
-            std::vector<int> docs;
-            lucene::index::TermDocs* term_docs = index_reader->termDocs(term);
-            while (term_docs->next()) {
-                docs.push_back(term_docs->doc());
-            }
-            term_docs->close();
-            _CLLDELETE(term_docs);
-            terms.emplace_back(lucene_wcstoutf8string(term->text(), term->textLength()),
-                               std::move(docs));
-        }
-        term_enum->close();
-        _CLLDELETE(term_enum);
-        index_reader->close();
-        _CLLDELETE(index_reader);
-        return terms;
+                rowset->tablet_schema()->get_inverted_index_storage_format(), index_meta);
     }
 
     static std::string snii_index_path_of(const RowsetSharedPtr& rowset) {
@@ -4355,6 +4326,73 @@ TEST_F(IndexBuilderTest, BuildArrayIndexAfterAllEmptyBlock) {
     EXPECT_EQ(clucene_terms(output_rowsets.front(), 2, 1),
               (std::vector<std::pair<std::string, std::vector<int>>> {{"a", {first, first + 1}},
                                                                       {"b", {first + 1}}}));
+}
+
+// A NOT NULL array read batch whose rows are all [] reaches an ANN index too, and a 0-element
+// row is no vector of the index's dim, so the build fails rather than skipping the batch and
+// sliding the vectors after it onto its row ids.
+TEST_F(IndexBuilderTest, BuildAnnIndexRejectsAllEmptyBlock) {
+    // The [] rows must fill exactly the first read batch, which the adaptive predictor could cut
+    // short of block_row_max.
+    const bool saved_adaptive = config::enable_adaptive_batch_size;
+    Defer restore_config {[&] { config::enable_adaptive_batch_size = saved_adaptive; }};
+    config::enable_adaptive_batch_size = false;
+
+    const auto tablet_path = _absolute_dir + "/15703";
+    auto tablet_schema = create_ann_tablet_schema();
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id.init(15703);
+    writer_context.tablet_id = tablet->tablet_id();
+    writer_context.tablet_schema_hash = tablet->schema_hash();
+    writer_context.partition_id = 10;
+    writer_context.rowset_type = BETA_ROWSET;
+    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_state = VISIBLE;
+    writer_context.tablet_schema = tablet_schema;
+    writer_context.version = Version(10, 10);
+    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    // No vector shares a read batch with a [] row, so only the all-[] batch can fail the build.
+    const auto empty_rows = static_cast<int32_t>(StorageReadOptions().block_row_max);
+    Block block = tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
+    for (int32_t i = 0; i < empty_rows; ++i) {
+        columns[0]->insert(Field::create_field<TYPE_ARRAY>(Array()));
+    }
+    for (const auto& row : {std::vector<float> {1.0F, 2.0F, 3.0F, 4.0F},
+                            std::vector<float> {5.0F, 6.0F, 7.0F, 8.0F}}) {
+        Array arr;
+        for (float value : row) {
+            arr.push_back(Field::create_field<TYPE_FLOAT>(value));
+        }
+        columns[0]->insert(Field::create_field<TYPE_ARRAY>(arr));
+    }
+    block = tablet_schema->create_storage_block();
+    block.set_columns(std::move(columns));
+    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(rowset_writer->flush().ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(rowset_writer->build(source_rowset).ok());
+    ASSERT_TRUE(tablet->add_rowset(source_rowset).ok());
+
+    TOlapTableIndex ann_index;
+    ann_index.__set_index_id(1);
+    ann_index.__set_columns({"arr1"});
+    ann_index.__set_index_name("arr1_ann_index");
+    ann_index.__set_index_type(TIndexType::ANN);
+    ann_index.__set_properties({{"index_type", "hnsw"},
+                                {"metric_type", "l2_distance"},
+                                {"dim", "4"},
+                                {"max_degree", "16"}});
+    std::vector<RowsetSharedPtr> output_rowsets;
+    const Status status = build_snii_index(tablet, {ann_index}, &output_rowsets);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_EQ(status.msg(), "Ann index expect array with 4 dim, got 0.");
 }
 
 } // namespace doris

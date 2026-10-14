@@ -326,7 +326,8 @@ struct StorageLayout<FieldType::OLAP_FIELD_TYPE_VARIANT> : storage_layout_detail
 template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR> : storage_layout_detail::Bytes {
     // `column`'s values, a nullable column's nested ones, zero padded to `length` bytes at their
-    // rows: the values themselves when every one already is.
+    // rows: the values themselves when they already total rows * `length` bytes, the values of
+    // NULL rows included.
     static ColumnPtr column_to_storage(const IColumn& column, size_t length);
 
     static void append_padded(StringRef value, size_t length, std::string* out) {

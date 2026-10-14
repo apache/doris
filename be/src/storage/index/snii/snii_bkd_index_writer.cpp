@@ -165,9 +165,12 @@ Status SniiBkdIndexColumnWriter::add_array(const IColumn& items, size_t first_it
                                    null_map == nullptr ? nullptr : null_map + element,
                                    [rid](size_t) { return rid; }));
         element += row_elements;
-        // A row that produced no point is NOT recorded as NULL here: an empty
-        // array and an all-NULL array are non-null rows that simply hold no
-        // point. Array-level nulls arrive through add_array_nulls.
+        // A row that produced no point is NOT recorded as NULL here. An empty
+        // array, and an array whose every element is NULL, are both non-null
+        // arrays that simply cannot match a comparison -- and the index already
+        // says so by holding no point for them. Marking them NULL would make
+        // `col IS NULL` true for a row holding []. Array-LEVEL nulls arrive
+        // separately through add_array_nulls, which is their only source.
         ++_rid;
     }
     return Status::OK();
