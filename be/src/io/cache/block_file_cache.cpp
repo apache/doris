@@ -2257,13 +2257,15 @@ void BlockFileCache::start_queue_sweeps(int64_t now) {
     const bool backstop_due =
             now - state.last_backstop_at >= config::file_cache_queue_sweep_backstop_interval_s;
     // A pass over the TTL queue picks up blocks whose tablet lost its TTL, or whose deadline
-    // passed, since the previous pass started.
+    // passed, since the previous pass started. A pass under way is never restarted; what
+    // changes meanwhile starts the next one.
     if (!is_active(FileCacheType::TTL)) {
         const uint64_t lost_version = _policy_registry->protection_lost_version();
         if (backstop_due || lost_version != state.ttl_pass_lost_version ||
             _policy_registry->has_deadline_in(state.ttl_pass_started_at, now) ||
             _next_legacy_deadline.load(std::memory_order_relaxed) <= now) {
             state.active[file_cache_type_index(FileCacheType::TTL)] = true;
+            // What the next pass is compared with.
             state.ttl_pass_lost_version = lost_version;
             state.ttl_pass_started_at = now;
             state.ttl_pass_legacy_bytes = 0;
@@ -2285,6 +2287,8 @@ void BlockFileCache::start_queue_sweeps(int64_t now) {
             state.class_pass_gained_version = gained_version;
         }
     }
+    // The backstop counts as done once every queue has a pass; a queue still busy with an older
+    // pass gets its own when that one ends.
     if (backstop_due &&
         std::all_of(state.active.begin(), state.active.end(), [](bool active) { return active; })) {
         state.last_backstop_at = now;
@@ -2306,15 +2310,18 @@ size_t BlockFileCache::sweep_queue(FileCacheType type, size_t budget, int64_t no
         queue.sweep_cursor = queue.begin();
         pass_left = queue.queue.size();
     }
+    // The cursor lives on the queue, so the pass resumes there after the cache lock was released.
     auto& cursor = *queue.sweep_cursor;
     size_t walked = 0;
     std::vector<std::pair<FileBlockCell*, FileCacheType>> moves;
     for (; walked < budget && pass_left > 0 && cursor != queue.end(); ++walked, --pass_left) {
         auto& entry = *cursor;
+        // Past the entry before it may move.
         ++cursor;
         auto* cell = get_cell(entry.hash, entry.offset, cache_lock);
         DCHECK(cell != nullptr);
         const auto& block = *cell->file_block;
+        // Where the block belongs now: the TTL queue while protected, else its class queue.
         const FileCacheType want =
                 is_protected(block, now) ? FileCacheType::TTL : block.cache_class();
         if (want != type) {
@@ -2323,9 +2330,11 @@ size_t BlockFileCache::sweep_queue(FileCacheType type, size_t budget, int64_t no
             _queue_sweep.ttl_pass_legacy_bytes += cell->size();
         }
     }
+    // Moved after the walk, all of them behind the cursor.
     for (auto& [cell, want] : moves) {
         move_cell_to_queue(*cell, want, cache_lock);
     }
+    // The pass is over; start_queue_sweeps() decides whether another one is due.
     if (pass_left == 0 || queue.sweep_cursor == queue.end()) {
         queue.sweep_cursor.reset();
         active = false;
@@ -2355,6 +2364,8 @@ void BlockFileCache::run_background_queue_sweep() {
             continue;
         }
         const int64_t now = UnixSeconds();
+        // Tells the registry which tablets this path holds blocks of, so that it fetches their
+        // policies when they are unknown or stale. It never waits for a fetch.
         if (now - _queue_sweep.last_report_at >= kReportCachedTabletsIntervalS) {
             std::vector<int64_t> tablet_ids;
             {
@@ -2368,6 +2379,9 @@ void BlockFileCache::run_background_queue_sweep() {
             _queue_sweep.last_report_at = now;
         }
         start_queue_sweeps(now);
+        // One budget for all queues bounds how long the cache lock is held. The TTL queue goes
+        // first: blocks that lost protection there hold its quota, while a protected block left
+        // in a class queue is moved by the first eviction scan that meets it.
         size_t budget = static_cast<size_t>(config::file_cache_queue_sweep_batch_blocks);
         SCOPED_CACHE_LOCK(_mutex, this);
         for (auto type : {FileCacheType::TTL, FileCacheType::INDEX, FileCacheType::NORMAL,

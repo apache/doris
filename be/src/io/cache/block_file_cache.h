@@ -508,6 +508,11 @@ private:
     void restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock);
     void run_background_evict_in_advance();
     void run_background_block_lru_update();
+    // Keeps queue membership in step with protection, which changes without the blocks being
+    // touched (ALTER, expiry, a tablet learned): every second it starts the passes that are due
+    // and walks a bounded batch of them under the cache lock. Also reports the cached tablets to
+    // the policy registry. Eviction judges every block itself, so this is about the queues'
+    // sizes, not about which block is protected.
     void run_background_queue_sweep();
 
     bool is_protected(int64_t tablet_id, int64_t legacy_deadline, int64_t now);
@@ -526,10 +531,13 @@ private:
     // neither the class nor the tablet), and puts it in the queue it belongs in.
     void complete_loaded_cell(FileBlockCell& cell, int64_t tablet_id, FileCacheType cache_class,
                               uint64_t legacy_deadline, std::lock_guard<std::mutex>& cache_lock);
-    // Starts a pass over each queue whose blocks may have changed protection since its last pass.
+    // Starts a pass over each queue whose blocks may have changed protection since its last pass:
+    // the TTL queue when some protection was lost or a deadline passed, the class queues when
+    // some was gained, all of them on the daily backstop. Only marks the passes active.
     void start_queue_sweeps(int64_t now);
-    // Walks at most `budget` blocks of an active pass over the queue, moving each block that is
-    // in the wrong queue. Returns how many blocks it walked.
+    // Walks at most `budget` blocks of an active pass over the queue, from where the previous
+    // call stopped, moving each block that is in the wrong queue. Returns how many blocks it
+    // walked.
     size_t sweep_queue(FileCacheType type, size_t budget, int64_t now,
                        std::lock_guard<std::mutex>& cache_lock);
 
@@ -629,15 +637,23 @@ private:
     // looks for blocks whose protection ended, a pass over the class queues for blocks that
     // became protected; each starts when the registry says that may have happened.
     struct QueueSweepState {
+        // Per queue, by file_cache_type_index(): whether a pass over it is under way.
         std::array<bool, 4> active {};
         // Blocks the active pass over each queue may still walk.
         std::array<size_t, 4> pass_left {};
+        // The registry's protection_lost_version() when the last TTL queue pass started; a
+        // newer one starts the next pass.
         uint64_t ttl_pass_lost_version = 0;
+        // When the last TTL queue pass started; a tablet deadline passed since starts the next.
         int64_t ttl_pass_started_at = 0;
         // Bytes the current pass over the TTL queue found protected only by a v2 cache file name.
         size_t ttl_pass_legacy_bytes = 0;
+        // The registry's protection_gained_version() when the last class queue pass started; a
+        // newer one starts the next pass.
         uint64_t class_pass_gained_version = 0;
+        // When every queue last got a pass from the daily backstop.
         int64_t last_backstop_at = 0;
+        // When the cached tablets were last reported to the registry.
         int64_t last_report_at = 0;
     };
     QueueSweepState _queue_sweep;
