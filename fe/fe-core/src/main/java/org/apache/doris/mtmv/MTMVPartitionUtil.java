@@ -344,10 +344,11 @@ public class MTMVPartitionUtil {
      * partition whose keys are the union of theirs. A desc whose keys meet nothing is answered with itself,
      * and so is every desc that is not a list of keys.
      *
-     * <p>The keys of a merged desc are written out the way
-     * {@link ListPartitionItem#toPartitionKeyDesc(int)} writes the same key set -- as a list of a hash set --
-     * because {@link PartitionKeyDesc#equals} compares that list: the same keys in another order are another
-     * desc, which would leave the MV partition an alignment computes unmatchable to the one it holds.
+     * <p>The keys of a merged desc are written out in the order
+     * {@link PartitionKeyDesc#sortedInValues} gives the same key set, which is the order
+     * {@link ListPartitionItem#toPartitionKeyDesc(int)} writes it in too, because
+     * {@link PartitionKeyDesc#equals} compares that list: the same keys in another order are another desc,
+     * which would leave the MV partition an alignment computes unmatchable to the one it holds.
      */
     public static Map<PartitionKeyDesc, PartitionKeyDesc> mergedListDescs(Collection<PartitionKeyDesc> descs) {
         // A union-find over the keys: two descs whose keys meet end up in one group, transitively, and each
@@ -392,7 +393,7 @@ public class MTMVPartitionUtil {
             List<PartitionValue> group = groupOfDesc.get(desc);
             res.put(desc, mergedDescOfGroup.computeIfAbsent(group, k -> descCountOfGroup.get(k) == 1
                     ? onlyDescOfGroup.get(k)
-                    : PartitionKeyDesc.createIn(Lists.newArrayList(keysOfGroup.get(k)))));
+                    : PartitionKeyDesc.createIn(PartitionKeyDesc.sortedInValues(keysOfGroup.get(k)))));
         }
         return res;
     }
