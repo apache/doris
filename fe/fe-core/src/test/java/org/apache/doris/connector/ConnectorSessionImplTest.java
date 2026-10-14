@@ -101,13 +101,41 @@ public class ConnectorSessionImplTest {
     }
 
     @Test
-    public void testBeExecVersionFollowsTheEngineConfig() {
-        // Connectors gate optimizer-time choices on it (an Iceberg partition-hash write needs exec version 18), so
-        // it must be the query-wide version the write handle later reports to planWrite.
+    public void testBeExecVersionIsTheVersionPinnedForTheStatement() {
+        // Connectors gate optimizer-time choices on it (an Iceberg partition-hash write needs exec version 18). The
+        // planner pins one version per statement, and the query options the backends receive and the write handle
+        // carry it, so the session must report it too: an ADMIN change of be_exec_version while the statement is
+        // planned must not put a version-18 partition function into a plan sent at version 17. MUTATION: reading
+        // Config.be_exec_version in getBeExecVersion() -> red.
+        int original = Config.be_exec_version;
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            StatementContext stmtCtx = new StatementContext();
+            ctx.setStatementContext(stmtCtx);
+            stmtCtx.initializeBeExecVersion(17);
+            Config.be_exec_version = 18;
+            Assertions.assertEquals(17, ConnectorSessionBuilder.from(ctx).build().getBeExecVersion());
+            Assertions.assertEquals(17, ConnectorSessionBuilder.create().build().getBeExecVersion(),
+                    "a session built on the statement's thread reads the thread-local statement context");
+        } finally {
+            Config.be_exec_version = original;
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testBeExecVersionFallsBackToTheEngineConfigOutsideAPlannedStatement() {
+        // Sessions built where no statement version is pinned (background loaders, commands that plan no query,
+        // tests) report the configured version.
         int original = Config.be_exec_version;
         try {
             Config.be_exec_version = 16;
             Assertions.assertEquals(16, ConnectorSessionBuilder.create().build().getBeExecVersion());
+            ConnectContext ctx = new ConnectContext();
+            ctx.setStatementContext(new StatementContext());
+            Assertions.assertEquals(16, ConnectorSessionBuilder.from(ctx).build().getBeExecVersion(),
+                    "a statement whose version is not pinned yet");
         } finally {
             Config.be_exec_version = original;
         }
