@@ -332,5 +332,11 @@ suite("test_mtmv_base_partition_read_scope") {
         (\"partition_sync_limit\" = \"2\", \"partition_sync_time_unit\" = \"YEAR\",
          \"partition_date_format\" = \"yyyy-MM-dd\")"""
     sql """set enable_materialized_view_rewrite = true"""
+    // The answer below is also what a plan over the base table alone returns, so the plan is what pins the
+    // path: the view's branch unioned with the base table's for the partition the window left out.
+    explain {
+        sql(" select d, region, sum(v) as s from sync_window_narrowed_base group by d, region")
+        check { result -> result.contains("UNION") && result.contains("sync_window_narrowed_mv") }
+    }
     order_qt_sync_window_narrowed "SELECT d, region, SUM(v) AS s FROM sync_window_narrowed_base GROUP BY d, region ORDER BY d, region"
 }
