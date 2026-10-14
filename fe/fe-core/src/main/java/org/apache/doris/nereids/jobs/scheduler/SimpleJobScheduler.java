@@ -36,6 +36,7 @@ public class SimpleJobScheduler implements JobScheduler {
         JobPool pool = scheduleContext.getJobPool();
         CascadesContext context = (CascadesContext) scheduleContext;
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
+        PlanningDiagnostics diagnostics = PlanningDiagnostics.current(context.getConnectContext());
         while (!pool.isEmpty()) {
             long elapsedS = context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) / 1000;
             if (sessionVariable.enableNereidsTimeout) {
@@ -49,7 +50,6 @@ public class SimpleJobScheduler implements JobScheduler {
                 }
             }
             Job job = pool.pop();
-            PlanningDiagnostics diagnostics = PlanningDiagnostics.current(context.getConnectContext());
             Class<?> previousJob = diagnostics == null ? null : diagnostics.setCurrentJob(job.getClass());
             try {
                 job.execute();

@@ -131,8 +131,10 @@ public class PlanningDiagnosticsTest {
         JsonObject audit = JsonParser.parseString(summary.getPlanTime()).getAsJsonObject();
         Assertions.assertEquals(12, audit.get("preload_external_metadata").getAsLong());
         Assertions.assertEquals(8, audit.get("pre_rewrite_mv").getAsLong());
-        Assertions.assertEquals(7, audit.get("planning_choose_plan").getAsLong());
-        Assertions.assertEquals(-1, audit.get("planning_analyze").getAsLong());
+        Assertions.assertEquals(1, audit.get("planning_passes").getAsLong());
+        Assertions.assertFalse(audit.has("planning_choose_plan"));
+        Assertions.assertFalse(audit.has("planning_analyze"));
+        Assertions.assertEquals(3, audit.keySet().stream().filter(key -> key.startsWith("planning_")).count());
         audit.entrySet().forEach(entry -> {
             Assertions.assertTrue(entry.getValue().isJsonPrimitive());
             Assertions.assertTrue(entry.getValue().getAsJsonPrimitive().isNumber());
@@ -223,7 +225,8 @@ public class PlanningDiagnosticsTest {
             Assertions.assertEquals(4, events(appender).size());
             assertDiagnosticIdentity(events(appender).get(2), "3-4");
             assertDiagnosticIdentity(events(appender).get(3), "1-2");
-            Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsInt());
+            Assertions.assertEquals(1, summary.getPlanningDetails().get("passes").getAsInt());
+            Assertions.assertEquals(1, summary.getPlanningDetails().get("nested_passes").getAsInt());
             Assertions.assertEquals("caller", ThreadContext.get(QUERY_ID_KEY));
         }
     }
@@ -275,9 +278,13 @@ public class PlanningDiagnosticsTest {
             advance(2);
         }));
         run(() -> PlanningDiagnostics.runPhase(context, Phase.CHOOSE_PLAN, () -> advance(8)));
-        Assertions.assertEquals(3, summary.getPlanningDetails().get("passes").getAsInt());
-        Assertions.assertEquals(13, summary.getPlanningDetails().getAsJsonObject("phase_time_ms")
+        Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsInt());
+        Assertions.assertEquals(1, summary.getPlanningDetails().get("nested_passes").getAsInt());
+        Assertions.assertEquals(15, summary.getPlanningDetails().get("elapsed_ms").getAsLong());
+        Assertions.assertEquals(8, summary.getPlanningDetails().getAsJsonObject("phase_time_ms")
                 .get("choose_plan").getAsLong());
+        Assertions.assertEquals(5, summary.getPlanningDetails().getAsJsonObject("last_nested_pass")
+                .getAsJsonObject("phases").getAsJsonObject("choose_plan").get("elapsed_ms").getAsLong());
         Assertions.assertEquals("not_run", phase("rewrite").get("status").getAsString());
         Assertions.assertNull(context.getPlanningDiagnostics());
     }
@@ -332,8 +339,12 @@ public class PlanningDiagnosticsTest {
             });
             Mockito.verify(table).readUnlock();
             Assertions.assertTrue(appender.contains(Level.WARN, "\"failed_step\":\"preprocess\""));
-            Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsInt());
-            Assertions.assertEquals(1, summary.getPlanningDetails().get("failed_passes").getAsInt());
+            Assertions.assertEquals(1, summary.getPlanningDetails().get("passes").getAsInt());
+            Assertions.assertEquals(0, summary.getPlanningDetails().get("failed_passes").getAsInt());
+            Assertions.assertEquals(1, summary.getPlanningDetails().get("nested_passes").getAsInt());
+            Assertions.assertEquals(1, summary.getPlanningDetails().get("nested_failed_passes").getAsInt());
+            Assertions.assertEquals("failed", summary.getPlanningDetails().getAsJsonObject("last_nested_pass")
+                    .get("status").getAsString());
             events(appender).forEach(event -> assertDiagnosticIdentity(event, "1-2"));
         }
         Assertions.assertNull(context.getPlanningDiagnostics());
@@ -346,7 +357,8 @@ public class PlanningDiagnosticsTest {
             Assertions.assertEquals(1, events(appender).size());
             assertDiagnosticIdentity(events(appender).get(0), "");
         }
-        Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsInt());
+        Assertions.assertEquals(1, summary.getPlanningDetails().get("passes").getAsInt());
+        Assertions.assertEquals(1, summary.getPlanningDetails().get("nested_failed_passes").getAsInt());
     }
 
     @Test
@@ -496,6 +508,7 @@ public class PlanningDiagnosticsTest {
             return true;
         });
         ExecutorService worker = Executors.newSingleThreadExecutor();
+        ExecutorService checker = Executors.newSingleThreadExecutor();
         try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
             CompletableFuture<Void> planning = CompletableFuture.runAsync(() -> run(() -> {
                 try {
@@ -508,7 +521,7 @@ public class PlanningDiagnosticsTest {
             try {
                 Assertions.assertTrue(waiting.await(10, TimeUnit.SECONDS));
                 advance(5000);
-                CompletableFuture.runAsync(() -> context.checkTimeout(0)).get(1, TimeUnit.SECONDS);
+                CompletableFuture.runAsync(() -> context.checkTimeout(0), checker).get(10, TimeUnit.SECONDS);
                 Assertions.assertTrue(appender.contains(Level.WARN, "\"target\":\"catalog.db.second\""));
                 Assertions.assertTrue(appender.contains(Level.WARN, "\"held_locks\":1"));
                 Assertions.assertTrue(appender.contains(Level.WARN, "\"operation_timeout_ms\":60000"));
@@ -523,7 +536,9 @@ public class PlanningDiagnosticsTest {
             Assertions.assertTrue(appender.contains(Level.WARN, "\"elapsed_ms\":7000"));
         } finally {
             worker.shutdownNow();
+            checker.shutdownNow();
             worker.awaitTermination(10, TimeUnit.SECONDS);
+            checker.awaitTermination(10, TimeUnit.SECONDS);
         }
     }
 
@@ -653,6 +668,7 @@ public class PlanningDiagnosticsTest {
             Assertions.assertTrue(appender.contains(Level.WARN, "\"operation\":\"load_partitions\""));
             Assertions.assertTrue(appender.contains(Level.WARN, "\"operation\":\"load_snapshot\""));
             Assertions.assertEquals(6000, phase("analyze").get("elapsed_ms").getAsLong());
+            Mockito.verify(table, Mockito.times(1)).getNameWithFullQualifiers();
         }
     }
 
@@ -738,9 +754,10 @@ public class PlanningDiagnosticsTest {
         }
         JsonObject audit = JsonParser.parseString(summary.getPlanTime()).getAsJsonObject();
         Assertions.assertEquals(1, audit.get("planning_failed_passes").getAsInt());
-        Assertions.assertEquals(1, audit.get("planning_analyze_failures").getAsInt());
-        Assertions.assertEquals(5000, audit.get("planning_analyze").getAsInt());
-        Assertions.assertEquals(-1, audit.get("planning_optimize").getAsInt());
+        Assertions.assertEquals(1, summary.getPlanningDetails().getAsJsonObject("phase_failures")
+                .get("analyze").getAsInt());
+        Assertions.assertEquals(5000, phase("analyze").get("elapsed_ms").getAsLong());
+        Assertions.assertFalse(audit.has("planning_optimize"));
         Assertions.assertNull(context.getPlanningDiagnostics());
     }
 
@@ -750,12 +767,13 @@ public class PlanningDiagnosticsTest {
         String json = org.apache.doris.persist.gson.GsonUtils.GSON.toJson(summary);
         SummaryProfile restored = org.apache.doris.persist.gson.GsonUtils.GSON.fromJson(json, SummaryProfile.class);
         Assertions.assertEquals(summary.getPlanTime(), restored.getPlanTime());
+        Assertions.assertEquals(summary.getPlanningDetails(), restored.getPlanningDetails());
         JsonObject oldProfile = JsonParser.parseString(json).getAsJsonObject();
         oldProfile.keySet().removeIf(key -> key.startsWith("planning") || key.equals("lastPlanningPass"));
         SummaryProfile old = org.apache.doris.persist.gson.GsonUtils.GSON.fromJson(oldProfile, SummaryProfile.class);
         JsonObject audit = JsonParser.parseString(old.getPlanTime()).getAsJsonObject();
-        Assertions.assertEquals(0, audit.get("planning_passes").getAsInt());
-        Assertions.assertEquals(-1, audit.get("planning_choose_plan").getAsInt());
+        Assertions.assertFalse(audit.has("planning_passes"));
+        Assertions.assertFalse(audit.has("planning_choose_plan"));
     }
 
     @Test
@@ -809,9 +827,11 @@ public class PlanningDiagnosticsTest {
             JsonObject finished = eventJson(events(appender).get(16));
             Assertions.assertEquals(5, finished.get("omitted_operations").getAsLong(),
                     "Four child operations and its completion event did not fit");
-            Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsLong(),
-                    "Bounded logs must not discard summary passes");
-            Assertions.assertEquals(40000, summary.getPlanningDetails().get("elapsed_ms").getAsLong());
+            Assertions.assertEquals(1, summary.getPlanningDetails().get("passes").getAsLong(),
+                    "Bounded logs must not discard the root summary");
+            Assertions.assertEquals(1, summary.getPlanningDetails().get("nested_passes").getAsLong(),
+                    "Bounded logs must not discard nested summaries");
+            Assertions.assertEquals(20000, summary.getPlanningDetails().get("elapsed_ms").getAsLong());
         }
     }
 
@@ -930,22 +950,99 @@ public class PlanningDiagnosticsTest {
         Assertions.assertEquals(2, audit.get("planning_passes").getAsInt());
         Assertions.assertEquals(1, audit.get("planning_failed_passes").getAsInt());
         Assertions.assertEquals(1, audit.get("planning_last_failed").getAsInt());
-        Assertions.assertEquals(7, audit.get("planning_rewrite").getAsInt());
-        Assertions.assertEquals(3, audit.get("planning_analyze").getAsInt());
-        Assertions.assertEquals(1, audit.get("planning_analyze_failures").getAsInt());
+        JsonObject details = summary.getPlanningDetails();
+        Assertions.assertEquals(7, details.getAsJsonObject("phase_time_ms").get("rewrite").getAsInt());
+        Assertions.assertEquals(3, details.getAsJsonObject("phase_time_ms").get("analyze").getAsInt());
+        Assertions.assertEquals(1, details.getAsJsonObject("phase_failures").get("analyze").getAsInt());
     }
 
     @Test
-    public void testAuditPlanningTimesSaturateWithoutLosingProfilePrecision() {
+    public void testAuditPlanningCountsSaturateWithoutLosingProfilePrecision() {
         Config.nereids_planning_log_threshold_ms = 0;
         long elapsed = (long) Integer.MAX_VALUE + 100;
         run(() -> PlanningDiagnostics.runPhase(context, Phase.OPTIMIZE, () -> advance(elapsed)));
         JsonObject audit = JsonParser.parseString(summary.getPlanTime()).getAsJsonObject();
-        Assertions.assertEquals(Integer.MAX_VALUE, audit.get("planning_optimize").getAsInt());
-        Assertions.assertEquals(-1, audit.get("planning_analyze").getAsInt());
+        Deencapsulation.setField(summary, "planningPassCount", elapsed);
+        audit = JsonParser.parseString(summary.getPlanTime()).getAsJsonObject();
+        Assertions.assertEquals(Integer.MAX_VALUE, audit.get("planning_passes").getAsInt());
+        Assertions.assertFalse(audit.has("planning_analyze"));
         Assertions.assertEquals(elapsed, summary.getPlanningDetails().getAsJsonObject("phase_time_ms")
                 .get("optimize").getAsLong());
         Assertions.assertEquals(elapsed, phase("optimize").get("elapsed_ms").getAsLong());
+    }
+
+    @Test
+    public void testNestedRewriteDoesNotInflateRootTotals() {
+        run(() -> PlanningDiagnostics.runPhase(context, Phase.REWRITE, () -> {
+            advance(70);
+            run(() -> PlanningDiagnostics.runPhase(context, Phase.REWRITE, () -> advance(30)));
+        }));
+        JsonObject details = summary.getPlanningDetails();
+        Assertions.assertEquals(100, details.get("elapsed_ms").getAsLong());
+        Assertions.assertEquals(100, details.getAsJsonObject("phase_time_ms").get("rewrite").getAsLong());
+        Assertions.assertEquals(1, details.get("passes").getAsInt());
+        Assertions.assertEquals(1, details.get("nested_passes").getAsInt());
+        Assertions.assertEquals(30, details.getAsJsonObject("last_nested_pass")
+                .getAsJsonObject("phases").getAsJsonObject("rewrite").get("elapsed_ms").getAsLong());
+    }
+
+    @Test
+    public void testRootSummariesAccumulateAcrossPlanRetries() {
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> run(() -> PlanningDiagnostics.runPhase(context, Phase.REWRITE, () -> {
+                    advance(3);
+                    throw new IllegalStateException("retryable failure");
+                })));
+        summary.clearPlanDetails();
+        run(() -> PlanningDiagnostics.runPhase(context, Phase.OPTIMIZE, () -> advance(7)));
+        JsonObject audit = JsonParser.parseString(summary.getPlanTime()).getAsJsonObject();
+        Assertions.assertEquals(2, audit.get("planning_passes").getAsInt());
+        Assertions.assertEquals(1, audit.get("planning_failed_passes").getAsInt());
+        Assertions.assertEquals(0, audit.get("planning_last_failed").getAsInt());
+        Assertions.assertEquals(10, summary.getPlanningDetails().get("elapsed_ms").getAsLong());
+    }
+
+    @Test
+    public void testFastFailureEmitsCompactAttribution() {
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> run(() -> PlanningDiagnostics.runPhase(context, Phase.ANALYZE, () -> {
+                        throw new IllegalArgumentException("unknown column");
+                    })));
+            JsonObject event = eventJson(events(appender).get(0));
+            Assertions.assertEquals("analyze", event.get("failed_step").getAsString());
+            Assertions.assertEquals("1-2", event.get("query_id").getAsString());
+            Assertions.assertFalse(event.has("phases"));
+            Assertions.assertEquals("failed", phase("analyze").get("status").getAsString());
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> run(() -> PlanningDiagnostics.runPhase(context, Phase.ANALYZE,
+                            () -> PlanningDiagnostics.operation(context, "load_schema", "catalog.db.table", -1,
+                                    () -> {
+                                        throw new IllegalStateException("metadata load failed");
+                                    }))));
+            Assertions.assertEquals(3, events(appender).size());
+            JsonObject operation = eventJson(events(appender).get(1));
+            Assertions.assertEquals("load_schema", operation.get("operation").getAsString());
+            Assertions.assertEquals("failed", operation.get("status").getAsString());
+            JsonObject metadataFailure = eventJson(events(appender).get(2));
+            Assertions.assertEquals("analyze/load_schema", metadataFailure.get("failed_step").getAsString());
+            Assertions.assertFalse(metadataFailure.has("phases"));
+            Assertions.assertEquals("failed", phase("analyze").get("status").getAsString());
+        }
+    }
+
+    @Test
+    public void testLegacyPlanningProfileObjectsRemainReadable() {
+        run(() -> PlanningDiagnostics.runPhase(context, Phase.REWRITE, () -> advance(7)));
+        JsonObject json = JsonParser.parseString(org.apache.doris.persist.gson.GsonUtils.GSON.toJson(summary))
+                .getAsJsonObject();
+        JsonObject phases = json.getAsJsonObject("lastPlanningPass").getAsJsonObject("phases");
+        phases.entrySet().forEach(entry -> entry.getValue().getAsJsonObject().remove("failures"));
+        SummaryProfile restored = org.apache.doris.persist.gson.GsonUtils.GSON.fromJson(json, SummaryProfile.class);
+        Assertions.assertEquals(7, restored.getPlanningDetails().getAsJsonObject("phase_time_ms")
+                .get("rewrite").getAsLong());
+        Assertions.assertEquals("completed", restored.getPlanningDetails().getAsJsonObject("last_pass")
+                .getAsJsonObject("phases").getAsJsonObject("rewrite").get("status").getAsString());
     }
 
     private TableIf table(long id, String name) {

@@ -111,7 +111,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
-
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
 // connect with its connection id.
@@ -1340,9 +1339,17 @@ public class ConnectContext {
 
     public void checkTimeout(long now) {
         PlanningDiagnostics diagnostics = planningDiagnostics;
-        if (diagnostics != null) {
-            diagnostics.reportIfSlow();
+        try {
+            checkTimeoutInternal(now);
+        } finally {
+            // Timeout handling takes precedence over diagnostic formatting and logging.
+            if (diagnostics != null) {
+                diagnostics.reportIfSlow();
+            }
         }
+    }
+
+    private void checkTimeoutInternal(long now) {
         if (startTime <= 0) {
             return;
         }

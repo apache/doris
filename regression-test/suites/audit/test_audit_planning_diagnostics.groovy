@@ -50,12 +50,10 @@ suite("test_audit_planning_diagnostics", "nonConcurrent") {
             select if(stmt like '%_failed%', 'failed', 'success'),
                    plan_times_ms['planning_passes'],
                    plan_times_ms['planning_last_failed'],
-                   plan_times_ms['planning_analyze'] >= 0,
-                   plan_times_ms['planning_choose_plan'] >= 0,
-                   plan_times_ms['planning_post_process'] >= 0,
+                   plan_times_ms['planning_failed_passes'],
                    plan_times_ms['preload_external_metadata'] is not null,
                    plan_times_ms['pre_rewrite_mv'] is not null,
-                   ifnull(plan_times_ms['planning_analyze_failures'], 0)
+                   map_size(map_filter((k, v) -> k like 'planning_%', plan_times_ms))
             from __internal_schema.audit_log where ${filter}
         """
     } finally {

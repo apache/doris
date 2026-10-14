@@ -23,15 +23,24 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
+import com.google.gson.annotations.JsonAdapter;
 import org.apache.logging.log4j.CloseableThreadContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
@@ -53,8 +62,10 @@ public final class PlanningDiagnostics {
         ANALYZE, REWRITE, PRE_REWRITE_MV, OPTIMIZE, CHOOSE_PLAN, POST_PROCESS,
         TRANSLATE, DISTRIBUTE, RELEASE_RESOURCES;
 
+        private final String key = name().toLowerCase(Locale.ROOT);
+
         public String key() {
-            return name().toLowerCase(Locale.ROOT);
+            return key;
         }
     }
 
@@ -72,6 +83,7 @@ public final class PlanningDiagnostics {
     private final long started;
     private final EnumMap<Phase, Timing> timings = new EnumMap<>(Phase.class);
     private final List<Event> slowOperations = new ArrayList<>();
+    private final Map<Object, String> targets = new IdentityHashMap<>();
     private final AtomicLong lastReport;
     private volatile Step current;
     private volatile Class<?> currentJob;
@@ -170,6 +182,19 @@ public final class PlanningDiagnostics {
         Step step = diagnostics.current;
         return diagnostics.measure(step == null ? Phase.PREPROCESS : step.phase,
                 operation, target.get(), budgetMs, action);
+    }
+
+    /** Cache an immutable target name within this pass, without changing the observed operation. */
+    public static <T> T operation(ConnectContext context, String operation, Object targetKey,
+            Supplier<String> target, long budgetMs, Supplier<T> action) {
+        PlanningDiagnostics diagnostics = current(context);
+        if (diagnostics == null) {
+            return action.get();
+        }
+        String name = diagnostics.targets.computeIfAbsent(targetKey, key -> target.get());
+        Step step = diagnostics.current;
+        return diagnostics.measure(step == null ? Phase.PREPROCESS : step.phase,
+                operation, name, budgetMs, action);
     }
 
     public static PlanningDiagnostics current(ConnectContext context) {
@@ -307,28 +332,16 @@ public final class PlanningDiagnostics {
     }
 
     private void finish(boolean success) {
-        JsonObject result = new JsonObject();
-        result.addProperty("pass_id", passId);
-        result.addProperty("status", success ? "completed" : "failed");
-        result.addProperty("elapsed_ms", millis(clock.getAsLong() - started));
-        result.addProperty("failed_step", success ? "" : failedStep);
-        JsonObject phases = new JsonObject();
-        for (Phase phase : Phase.values()) {
-            Timing timing = timings.get(phase);
-            JsonObject value = new JsonObject();
-            value.addProperty("status", timing == null ? "not_run" : timing.failures > 0 ? "failed" : "completed");
-            value.addProperty("elapsed_ms", timing == null ? 0 : millis(timing.nanos));
-            value.addProperty("calls", timing == null ? 0 : timing.calls);
-            phases.add(phase.key(), value);
-        }
-        result.add("phases", phases);
-        result.addProperty("omitted_operations", omittedOperations);
+        PassSnapshot snapshot = new PassSnapshot(passId, success, millis(clock.getAsLong() - started),
+                success ? "" : failedStep, timings, omittedOperations);
         if (summary != null) {
-            summary.addPlanningPass(result);
+            summary.addPlanningPass(snapshot, parent != null && parent.summary == summary);
         }
         long threshold = Config.nereids_planning_log_threshold_ms;
-        boolean report = !success || !slowOperations.isEmpty()
-                || (threshold > 0 && result.get("elapsed_ms").getAsLong() >= threshold);
+        boolean slow = threshold > 0 && snapshot.elapsedMs >= threshold;
+        boolean report = !success || !slowOperations.isEmpty() || slow;
+        // Fast failures retain attribution and the failed step without repeating a full phase tree.
+        JsonObject result = report ? snapshot.toJson(slow || (success && !slowOperations.isEmpty())) : null;
         // An enclosing MV planning pass may still hold locks. Defer its children's logs as well.
         if (parent != null) {
             for (Event event : slowOperations) {
@@ -376,6 +389,94 @@ public final class PlanningDiagnostics {
 
     private static String bounded(String text) {
         return text.substring(0, Math.min(text.length(), 256)).replace('\n', ' ').replace('\r', ' ');
+    }
+
+    /** Owns the completed pass's timers; they are never modified after finish(). */
+    @JsonAdapter(PassSnapshot.Adapter.class)
+    static final class PassSnapshot {
+        final long passId;
+        final boolean success;
+        final long elapsedMs;
+        final String failedStep;
+        private final EnumMap<Phase, Timing> timings;
+        private final long omittedOperations;
+
+        PassSnapshot(long passId, boolean success, long elapsedMs, String failedStep,
+                EnumMap<Phase, Timing> timings, long omittedOperations) {
+            this.passId = passId;
+            this.success = success;
+            this.elapsedMs = elapsedMs;
+            this.failedStep = failedStep;
+            this.timings = timings;
+            this.omittedOperations = omittedOperations;
+        }
+
+        long phaseMillis(Phase phase) {
+            Timing timing = timings.get(phase);
+            return timing == null ? -1 : millis(timing.nanos);
+        }
+
+        long phaseFailures(Phase phase) {
+            Timing timing = timings.get(phase);
+            return timing == null ? 0 : timing.failures;
+        }
+
+        JsonObject toJson(boolean includePhases) {
+            JsonObject result = new JsonObject();
+            result.addProperty("pass_id", passId);
+            result.addProperty("status", success ? "completed" : "failed");
+            result.addProperty("elapsed_ms", elapsedMs);
+            result.addProperty("failed_step", failedStep);
+            if (includePhases) {
+                JsonObject phases = new JsonObject();
+                for (Phase phase : Phase.values()) {
+                    Timing timing = timings.get(phase);
+                    JsonObject value = new JsonObject();
+                    value.addProperty("status", timing == null ? "not_run"
+                            : timing.failures > 0 ? "failed" : "completed");
+                    value.addProperty("elapsed_ms", timing == null ? 0 : millis(timing.nanos));
+                    value.addProperty("calls", timing == null ? 0 : timing.calls);
+                    value.addProperty("failures", timing == null ? 0 : timing.failures);
+                    phases.add(phase.key(), value);
+                }
+                result.add("phases", phases);
+            }
+            result.addProperty("omitted_operations", omittedOperations);
+            return result;
+        }
+
+        static final class Adapter implements JsonSerializer<PassSnapshot>, JsonDeserializer<PassSnapshot> {
+            @Override
+            public JsonElement serialize(PassSnapshot value, Type type, JsonSerializationContext context) {
+                return value.toJson(true);
+            }
+
+            @Override
+            public PassSnapshot deserialize(JsonElement json, Type type, JsonDeserializationContext context) {
+                JsonObject value = json.getAsJsonObject();
+                // Older profiles initialized lastPlanningPass to an empty object.
+                if (!value.has("status")) {
+                    return null;
+                }
+                EnumMap<Phase, Timing> timings = new EnumMap<>(Phase.class);
+                JsonObject phases = value.getAsJsonObject("phases");
+                for (Phase phase : Phase.values()) {
+                    JsonObject timing = phases.getAsJsonObject(phase.key());
+                    if (timing == null || "not_run".equals(timing.get("status").getAsString())) {
+                        continue;
+                    }
+                    Timing result = new Timing();
+                    result.nanos = TimeUnit.MILLISECONDS.toNanos(timing.get("elapsed_ms").getAsLong());
+                    result.calls = timing.get("calls").getAsLong();
+                    result.failures = timing.has("failures") ? timing.get("failures").getAsLong()
+                            : "failed".equals(timing.get("status").getAsString()) ? 1 : 0;
+                    timings.put(phase, result);
+                }
+                return new PassSnapshot(value.get("pass_id").getAsLong(),
+                        "completed".equals(value.get("status").getAsString()), value.get("elapsed_ms").getAsLong(),
+                        value.get("failed_step").getAsString(), timings, value.get("omitted_operations").getAsLong());
+            }
+        }
     }
 
     private static final class Event {

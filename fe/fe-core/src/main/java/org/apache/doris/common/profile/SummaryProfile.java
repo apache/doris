@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.profile.PlanningDiagnostics.PassSnapshot;
 import org.apache.doris.common.profile.PlanningDiagnostics.Phase;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
@@ -148,6 +149,7 @@ public class SummaryProfile {
     public static final String NEREIDS_PRE_REWRITE_BY_MV_TIME = "Nereids Pre Rewrite By Mv Time";
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
     public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
+    public static final String NEREIDS_PLANNING_DETAILS = "Nereids Planning Details";
     public static final String NEREIDS_DISTRIBUTE_TIME = "Nereids Distribute Time";
     public static final String NEREIDS_GARBAGE_COLLECT_TIME = "Garbage Collect During Plan Time";
     public static final String NEREIDS_BE_FOLD_CONST_TIME = "Nereids Fold Const By BE Time";
@@ -219,6 +221,7 @@ public class SummaryProfile {
             NEREIDS_PRE_REWRITE_BY_MV_TIME,
             NEREIDS_OPTIMIZE_TIME,
             NEREIDS_TRANSLATE_TIME,
+            NEREIDS_PLANNING_DETAILS,
             INIT_SCAN_NODE_TIME,
             FINALIZE_SCAN_NODE_TIME,
             GET_SPLITS_TIME,
@@ -277,6 +280,7 @@ public class SummaryProfile {
             .put(NEREIDS_COLLECT_TABLE_PARTITION_TIME, 1)
             .put(NEREIDS_OPTIMIZE_TIME, 1)
             .put(NEREIDS_TRANSLATE_TIME, 1)
+            .put(NEREIDS_PLANNING_DETAILS, 1)
             .put(INIT_SCAN_NODE_TIME, 2)
             .put(FINALIZE_SCAN_NODE_TIME, 2)
             .put(GET_SPLITS_TIME, 3)
@@ -589,13 +593,19 @@ public class SummaryProfile {
     @SerializedName("planningFailedPassCount")
     private long planningFailedPassCount;
     @SerializedName("planningPhaseFailures")
-    private JsonObject planningPhaseFailures = new JsonObject();
+    private PlanningPhaseCounters planningPhaseFailures = new PlanningPhaseCounters();
     @SerializedName("planningElapsedMs")
     private long planningElapsedMs;
     @SerializedName("planningPhaseTotals")
-    private JsonObject planningPhaseTotals = new JsonObject();
+    private PlanningPhaseCounters planningPhaseTotals = new PlanningPhaseCounters();
     @SerializedName("lastPlanningPass")
-    private JsonObject lastPlanningPass = new JsonObject();
+    private PassSnapshot lastPlanningPass;
+    @SerializedName("planningNestedPassCount")
+    private long planningNestedPassCount;
+    @SerializedName("planningNestedFailedPassCount")
+    private long planningNestedFailedPassCount;
+    @SerializedName("lastNestedPlanningPass")
+    private PassSnapshot lastNestedPlanningPass;
 
     private transient long planningPassSequence;
 
@@ -835,7 +845,7 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_PRE_REWRITE_BY_MV_TIME, getPrettyNereidsPreRewriteByMvTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
-        executionSummaryProfile.addInfoString("Nereids Planning Details", getPlanningDetails().toString());
+        executionSummaryProfile.addInfoString(NEREIDS_PLANNING_DETAILS, getPlanningDetails().toString());
         executionSummaryProfile.addInfoString(NEREIDS_DISTRIBUTE_TIME, getPrettyNereidsDistributeTime());
         executionSummaryProfile.addInfoString(NEREIDS_GARBAGE_COLLECT_TIME, getPrettyNereidsGarbageCollectionTime());
         executionSummaryProfile.addInfoString(NEREIDS_BE_FOLD_CONST_TIME, getPrettyNereidsBeFoldConstTime());
@@ -1615,22 +1625,26 @@ public class SummaryProfile {
         return ++planningPassSequence;
     }
 
-    /** Bounded across retries, CTAS passes and nested MV planning; existing timing fields keep their meaning. */
-    public synchronized void addPlanningPass(JsonObject pass) {
+    /** Root passes accumulate across retries/CTAS; nested times are already included in their parents. */
+    synchronized void addPlanningPass(PassSnapshot pass, boolean nested) {
+        if (nested) {
+            planningNestedPassCount++;
+            planningNestedFailedPassCount += pass.success ? 0 : 1;
+            lastNestedPlanningPass = pass;
+            return;
+        }
         planningPassCount++;
-        planningFailedPassCount += "failed".equals(pass.get("status").getAsString()) ? 1 : 0;
-        planningElapsedMs += pass.get("elapsed_ms").getAsLong();
-        lastPlanningPass = pass.deepCopy();
+        planningFailedPassCount += pass.success ? 0 : 1;
+        planningElapsedMs += pass.elapsedMs;
+        lastPlanningPass = pass;
         for (Phase phase : Phase.values()) {
-            String key = phase.key();
-            long total = planningPhaseTotals.has(key) ? planningPhaseTotals.get(key).getAsLong() : 0;
-            JsonObject phaseResult = pass.getAsJsonObject("phases").getAsJsonObject(key);
-            if (!"not_run".equals(phaseResult.get("status").getAsString())) {
-                planningPhaseTotals.addProperty(key, total + phaseResult.get("elapsed_ms").getAsLong());
+            long elapsed = pass.phaseMillis(phase);
+            if (elapsed >= 0) {
+                planningPhaseTotals.add(phase, elapsed);
             }
-            if ("failed".equals(phaseResult.get("status").getAsString())) {
-                long failures = planningPhaseFailures.has(key) ? planningPhaseFailures.get(key).getAsLong() : 0;
-                planningPhaseFailures.addProperty(key, failures + 1);
+            long failures = pass.phaseFailures(phase);
+            if (failures > 0) {
+                planningPhaseFailures.add(phase, failures);
             }
         }
     }
@@ -1639,27 +1653,25 @@ public class SummaryProfile {
         JsonObject result = new JsonObject();
         result.addProperty("passes", planningPassCount);
         result.addProperty("failed_passes", planningFailedPassCount);
+        result.addProperty("nested_passes", planningNestedPassCount);
+        result.addProperty("nested_failed_passes", planningNestedFailedPassCount);
         result.addProperty("elapsed_ms", planningElapsedMs);
-        result.add("phase_time_ms", planningPhaseTotals.deepCopy());
-        result.add("last_pass", lastPlanningPass.deepCopy());
+        result.add("phase_time_ms", planningPhaseTotals.toJson());
+        result.add("phase_failures", planningPhaseFailures.toJson());
+        result.add("last_pass", lastPlanningPass == null ? new JsonObject() : lastPlanningPass.toJson(true));
+        result.add("last_nested_pass", lastNestedPlanningPass == null
+                ? new JsonObject() : lastNestedPlanningPass.toJson(true));
         return result;
     }
 
-    /** plan_times_ms is MAP<STRING, INT>. Never add strings or nested objects to this audit field. */
+    /** Audit adds only root-pass summaries across all attempts; legacy timings retain last-attempt semantics. */
     private synchronized void addPlanningAuditTimes(JsonObject result) {
+        if (planningPassCount == 0) {
+            return;
+        }
         result.addProperty("planning_passes", Math.min(Integer.MAX_VALUE, planningPassCount));
         result.addProperty("planning_failed_passes", Math.min(Integer.MAX_VALUE, planningFailedPassCount));
-        result.addProperty("planning_last_failed", planningPassCount == 0 ? -1
-                : "failed".equals(lastPlanningPass.get("status").getAsString()) ? 1 : 0);
-        for (Phase phase : Phase.values()) {
-            String key = phase.key();
-            result.addProperty("planning_" + key, planningPhaseTotals.has(key)
-                    ? Math.min(Integer.MAX_VALUE, planningPhaseTotals.get(key).getAsLong()) : -1);
-            if (planningPhaseFailures.has(key)) {
-                result.addProperty("planning_" + key + "_failures",
-                        Math.min(Integer.MAX_VALUE, planningPhaseFailures.get(key).getAsLong()));
-            }
-        }
+        result.addProperty("planning_last_failed", lastPlanningPass.success ? 0 : 1);
     }
 
     public int getNereidsPreRewriteByMvTimeMs() {
