@@ -79,6 +79,8 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.probe_miss = multiplier * 53;
     stats.block_wait_success = multiplier * 54;
     stats.block_wait_timeout = multiplier * 55;
+    stats.async_copy_to_user_timer = multiplier * 56;
+    stats.async_submit_write_timer = multiplier * 57;
     return stats;
 }
 
@@ -139,6 +141,8 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
               expected.async_cache_write_buffer_alloc_fail);
     EXPECT_EQ(actual.async_cache_write_drop_stale_epoch,
               expected.async_cache_write_drop_stale_epoch);
+    EXPECT_EQ(actual.async_copy_to_user_timer, expected.async_copy_to_user_timer);
+    EXPECT_EQ(actual.async_submit_write_timer, expected.async_submit_write_timer);
     EXPECT_EQ(actual.inflight_write_buffer_index_hit, expected.inflight_write_buffer_index_hit);
     EXPECT_EQ(actual.inflight_write_buffer_index_miss, expected.inflight_write_buffer_index_miss);
     EXPECT_EQ(actual.probe_downloaded_hit, expected.probe_downloaded_hit);
@@ -222,6 +226,10 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
               after_second_report.async_cache_write_buffer_alloc_fail);
     EXPECT_EQ(profile->get_counter("AsyncCacheWriteDropStaleEpochCount")->value(),
               after_second_report.async_cache_write_drop_stale_epoch);
+    EXPECT_EQ(profile->get_counter("AsyncCopyToUserTimer")->value(),
+              after_second_report.async_copy_to_user_timer);
+    EXPECT_EQ(profile->get_counter("AsyncSubmitWriteTimer")->value(),
+              after_second_report.async_submit_write_timer);
     EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexHitCount")->value(),
               after_second_report.inflight_write_buffer_index_hit);
     EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexMissCount")->value(),
