@@ -380,6 +380,9 @@ public class MTMVPartitionUtil {
             descCountOfGroup.merge(group, 1, Integer::sum);
             onlyDescOfGroup.putIfAbsent(group, desc);
         }
+        // One merged desc per group, not one per desc that joined it: a group of N descs would otherwise
+        // allocate and hash its N+1 keys N times over.
+        Map<List<PartitionValue>, PartitionKeyDesc> mergedDescOfGroup = Maps.newHashMap();
         Map<PartitionKeyDesc, PartitionKeyDesc> res = Maps.newHashMap();
         for (PartitionKeyDesc desc : descs) {
             if (!desc.hasInValues()) {
@@ -387,9 +390,9 @@ public class MTMVPartitionUtil {
                 continue;
             }
             List<PartitionValue> group = groupOfDesc.get(desc);
-            res.put(desc, descCountOfGroup.get(group) == 1
-                    ? onlyDescOfGroup.get(group)
-                    : PartitionKeyDesc.createIn(Lists.newArrayList(keysOfGroup.get(group))));
+            res.put(desc, mergedDescOfGroup.computeIfAbsent(group, k -> descCountOfGroup.get(k) == 1
+                    ? onlyDescOfGroup.get(k)
+                    : PartitionKeyDesc.createIn(Lists.newArrayList(keysOfGroup.get(k)))));
         }
         return res;
     }

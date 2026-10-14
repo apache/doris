@@ -46,8 +46,29 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
             RelatedPartitionDescResult lastResult, List<Column> partitionColumns,
                       Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException {
-        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res =
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> merged =
                 mergeOverlappingListDescs(lastResult.getDescs());
+        // Now that the keys are grouped -- across the tables of the MV, and before any query filter -- the
+        // partitions the query does not read are dropped per table, and an MV partition no table of which
+        // feeds the query is dropped whole: what the query reads is what is left.
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
+        for (Entry<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> entry : merged.entrySet()) {
+            Map<MTMVRelatedTableIf, Set<String>> onePartition = Maps.newHashMap();
+            for (Entry<MTMVRelatedTableIf, Set<String>> tableEntry : entry.getValue().entrySet()) {
+                Set<String> names = Sets.newHashSet(tableEntry.getValue());
+                Set<String> queryUsed = queryUsedPartitionMap.get(tableEntry.getKey().getFullQualifiers());
+                if (queryUsed != null) {
+                    names.retainAll(queryUsed);
+                    if (names.isEmpty()) {
+                        continue;
+                    }
+                }
+                onePartition.put(tableEntry.getKey(), names);
+            }
+            if (!onePartition.isEmpty()) {
+                res.put(entry.getKey(), onePartition);
+            }
+        }
         if (mvPartitionInfo.getPctInfos().size() > 1) {
             checkIntersect(res.keySet(), partitionColumns);
         }
