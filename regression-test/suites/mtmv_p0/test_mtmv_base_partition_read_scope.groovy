@@ -302,4 +302,35 @@ suite("test_mtmv_base_partition_read_scope") {
     // And the query over the base table with the rewrite on is answered from the base table, whole.
     sql """set enable_materialized_view_rewrite = true"""
     order_qt_list_default_only_query "SELECT k, SUM(amount) AS total FROM list_default_only_base GROUP BY k"
+    // A base partition the sync window has since left out can already have been materialized in an MV partition
+    // the query uses: the mapping stops naming it, but the rows stay where an earlier refresh put them. The
+    // query has to be answered from the base table for it with that MV partition taken out, or the rows are
+    // counted twice -- which is what the union of the MV's own branch and the base's did before.
+    sql """drop materialized view if exists sync_window_narrowed_mv"""
+    sql """drop table if exists sync_window_narrowed_base"""
+    sql """
+        CREATE TABLE sync_window_narrowed_base (d DATE NOT NULL, region VARCHAR(10) NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, region)
+        PARTITION BY LIST(d, region) (
+            PARTITION p_old VALUES IN ((\"2020-01-01\", \"US\")),
+            PARTITION p_kept VALUES IN ((\"2020-01-01\", \"EU\"), (\"2120-01-01\", \"EU\")))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO sync_window_narrowed_base VALUES
+        (\"2020-01-01\", \"US\", 1), (\"2020-01-01\", \"EU\", 2), (\"2120-01-01\", \"EU\", 3)"""
+    // No window at all, so the refresh records both partitions of 2020-01-01.
+    sql """
+        CREATE MATERIALIZED VIEW sync_window_narrowed_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\", \"grace_period\" = \"31536000\")
+        AS SELECT d, region, SUM(v) AS s FROM sync_window_narrowed_base GROUP BY d, region
+    """
+    waitingMTMVTaskFinishedByMvName("sync_window_narrowed_mv")
+    // And then the window narrows past p_old: it is no longer named by any MV partition's mapping, while the
+    // MV partition still holds the rows the earlier refresh read from it.
+    sql """ALTER MATERIALIZED VIEW sync_window_narrowed_mv SET
+        (\"partition_sync_limit\" = \"2\", \"partition_sync_time_unit\" = \"YEAR\",
+         \"partition_date_format\" = \"yyyy-MM-dd\")"""
+    sql """set enable_materialized_view_rewrite = true"""
+    order_qt_sync_window_narrowed "SELECT d, region, SUM(v) AS s FROM sync_window_narrowed_base GROUP BY d, region ORDER BY d, region"
 }
