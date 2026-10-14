@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
@@ -129,18 +131,16 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
 // get_block() updates eos through this pointer; clang-tidy does not follow that call.
 // NOLINTNEXTLINE(readability-non-const-parameter)
 Status Scanner::_get_block_with_padding(RuntimeState* state, int64_t num_slots, bool* eos) {
-    const auto min_batch_size = std::max(state->batch_size() / 2, 1);
+    auto min_batch_size = std::max(state->batch_size() / 2, 1);
+    if (_shared_scan_limit) {
+        // Pending padding is not charged until it is returned. Bound this call's batch target by
+        // the shared remaining rows so a small LIMIT does not read on just to fill half a batch.
+        min_batch_size = cast_set<int>(std::clamp<int64_t>(
+                _shared_scan_limit->load(std::memory_order_acquire), 0, min_batch_size));
+    }
     const auto block_max_bytes = state->preferred_block_size_bytes();
     while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
            !*eos) {
-        // With LIMIT 1, a single surviving row can sit in padding below the half-batch target.
-        // Return it now instead of scanning a long filtered tail to fill the batch. The shared
-        // counter tracks only blocks produced by scanners, not held padding.
-        if (_shared_scan_limit && !_padding_block.empty() &&
-            cast_set<int64_t>(_padding_block.rows()) >=
-                    _shared_scan_limit->load(std::memory_order_acquire)) {
-            break;
-        }
         RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
         if (*eos) {
             // For the final block, merge any padding directly and return eos in this call.
