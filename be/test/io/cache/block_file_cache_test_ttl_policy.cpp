@@ -732,4 +732,38 @@ TEST_F(BlockFileCacheTest, ttl_policy_meta_store_clear_keeps_tablet_policies) {
     EXPECT_FALSE(store.get_all()->valid());
 }
 
+// A query over its quota evicts its own oldest blocks, protected or not; those protected count as
+// protected bytes evicted, as on the cache-wide path.
+TEST_F(BlockFileCacheTest, ttl_policy_counts_protected_bytes_evicted_over_query_quota) {
+    TtlPolicyTestGuard guard;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    const bool original_query_limit = config::enable_file_cache_query_limit;
+    Defer restore_query_limit {
+            [&] { config::enable_file_cache_query_limit = original_query_limit; }};
+    config::enable_file_cache_query_limit = true;
+    BlockFileCache cache(cache_base_path, ttl_policy_test_settings());
+    open_cache(cache);
+    auto* registry = TabletCachePolicyRegistry::instance();
+    const int64_t now = UnixSeconds();
+    registry->upsert(1, {3600, now});
+
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    // 30% of the 10 MB capacity: 30 blocks.
+    auto query_holder = cache.get_query_context_holder(query_id, 30);
+    ReadStatistics stats;
+    auto context = context_of(1, FileCacheType::NORMAL, 0, &stats);
+    context.query_id = query_id;
+    fill(cache, "t1", 30, context);
+    EXPECT_EQ(cache._ttl_protected_evicted_bytes->get_value(), 0);
+
+    fill(cache, "t1-more", 1, context);
+    EXPECT_FALSE(is_cached(cache, "t1", 0));
+    EXPECT_EQ(cache._ttl_protected_evicted_bytes->get_value(), kBlockSize);
+}
+
 } // namespace doris::io

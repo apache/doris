@@ -1509,6 +1509,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                                                     query_context->get_max_cache_size());
     };
 
+    const int64_t now = UnixSeconds();
     /// Select the cache from the LRU queue held by query for expulsion.
     for (auto iter = query_context->queue().begin(); iter != query_context->queue().end(); iter++) {
         if (!is_overflow()) {
@@ -1533,6 +1534,9 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                 DCHECK(file_block->_download_state == FileBlock::State::DOWNLOADED);
                 to_evict.push_back(cell);
                 removed_size += cell_size;
+                if (is_protected(*file_block, now)) {
+                    *_ttl_protected_evicted_bytes << cell_size;
+                }
             }
         }
     }
