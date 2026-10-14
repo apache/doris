@@ -30,6 +30,7 @@ import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3EventOffset;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.job.offset.s3.S3Offset;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
 import org.apache.doris.nereids.StatementContext;
@@ -103,6 +104,24 @@ public class StreamingInsertTaskAuditTest {
 
         Assertions.assertTrue(cdcTask.isNoRetry());
         Assertions.assertFalse(s3Task.isNoRetry());
+    }
+
+    @Test
+    public void testCommitRetryRevalidatesNotificationReceipts() throws Exception {
+        S3EventSourceOffsetProvider provider = Mockito.mock(S3EventSourceOffsetProvider.class);
+        Mockito.when(provider.getSourceType()).thenReturn("s3");
+        S3EventOffset offset = new S3EventOffset(Collections.singletonList("input/a.csv"));
+        String offsetJson = offset.toSerializedJson();
+        Mockito.when(provider.getCommitOffsetJson(offset, 2L, Collections.emptyList()))
+                .thenReturn(offsetJson)
+                .thenThrow(new IllegalStateException("S3 EVENT batch receipts expired before commit"));
+        StreamingInsertTask task = new StreamingInsertTask(1L, 2L, "", provider, "test_db", null,
+                Collections.emptyMap(), UserIdentity.ROOT, null);
+        Deencapsulation.setField(task, "runningOffset", offset);
+
+        Assertions.assertEquals(offsetJson, task.getCommitOffsetJson());
+        Assertions.assertThrows(IllegalStateException.class, task::getCommitOffsetJson);
+        Mockito.verify(provider, Mockito.times(2)).getCommitOffsetJson(offset, 2L, Collections.emptyList());
     }
 
     @Test

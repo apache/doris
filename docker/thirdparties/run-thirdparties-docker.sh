@@ -1499,7 +1499,8 @@ start_fluss() {
     # the host) can read the kv snapshots and remote log segments the servers
     # write, and the lake files the tiering service writes.
     export FLUSS_COMPOSE_DIR="${fluss_dir}"
-    envsubst <"${fluss_dir}/fluss.env.tpl" >"${fluss_dir}/fluss.env"
+    CONTAINER_UID="${CONTAINER_UID}" envsubst \
+        <"${fluss_dir}/fluss.env.tpl" >"${fluss_dir}/fluss.env"
     set -a
     # shellcheck source=/dev/null
     . "${fluss_dir}/fluss.env"

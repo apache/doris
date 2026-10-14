@@ -231,7 +231,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             variantCompatibilityDeferred = true;
             return;
         }
-        checkVariantBackendCompatibility(projectsVariant, backends);
+        checkVariantBackendCompatibility(projectsVariant, backends, scanContext.getBeExecVersion());
     }
 
     static boolean projectsComputeVariant(TupleDescriptor tuple) {
@@ -260,12 +260,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return false;
     }
 
-    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends)
+    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends,
+            int beExecVersion)
             throws UserException {
         if (!projectsVariant) {
             return;
         }
-        if (Config.be_exec_version < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
+        if (beExecVersion < SUPPORT_ICEBERG_VARIANT_EXEC_VERSION) {
             // The query-wide execution version covers every eligible backend, including ordinary
             // rolling-upgrade nodes that are not marked as cloud smooth-upgrade sources.
             throw new UserException("Iceberg Variant requires backend execution version "
@@ -1126,7 +1127,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         if ("true".equals(props.get(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV))) {
             // The optional wire field alone cannot fence old readers during a rolling upgrade.
-            if (Config.be_exec_version < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
+            if (scanContext.getBeExecVersion() < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
                 throw new UserException("Hive OpenCSVSerde requires backend execution version "
                         + Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION + " or newer during rolling upgrade");
             }
@@ -1742,7 +1743,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (variantCompatibilityDeferred) {
             checkVariantBackendCompatibility(
                     plannedScanDecodesVariant(projectsComputeVariant(desc), countPushdown, ranges),
-                    backendPolicy.getBackends());
+                    backendPolicy.getBackends(), scanContext.getBeExecVersion());
         }
 
         List<Split> splits = new ArrayList<>(ranges.size());

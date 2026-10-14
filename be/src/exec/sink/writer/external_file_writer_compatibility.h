@@ -22,12 +22,13 @@
 
 namespace doris {
 
-inline Status validate_iceberg_external_file_report_ack(const TQueryOptions& query_options) {
+inline Status validate_external_file_report_ack(const TQueryOptions& query_options) {
     if (!query_options.__isset.supports_external_file_report_ack ||
         !query_options.supports_external_file_report_ack) {
         // A pre-ACK coordinator cannot safely take ownership of files created by this sink.
         return Status::NotSupported(
-                "Iceberg writes require a coordinator that acknowledges external-file reports");
+                "External-file writes require a coordinator that acknowledges external-file "
+                "reports");
     }
     return Status::OK();
 }
