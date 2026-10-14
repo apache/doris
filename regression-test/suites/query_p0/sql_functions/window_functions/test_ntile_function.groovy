@@ -82,6 +82,16 @@ suite("test_ntile_function") {
     qt_select_const_alias_collision "select 2 as two, k1, k2, k3, ntile(2) over (partition by k1 order by k2,k3) as ntile " +
             "from ${tableName} order by ntile(2) over (partition by k1 order by k2,k3), k1, k2, k3;"
 
+    // the same collision with the window only in order by: the selected constant matches the bucket, and the
+    // repeatedly used volatile column `r` keeps the projection from being merged back, so a bucket rewritten
+    // to that column's slot would stay a slot; floor(rand()) is always 0, which keeps the result stable
+    qt_select_const_alias_collision "select 2 as two, k1, k2, k3, floor(rand()) as r from ${tableName} " +
+            "order by ntile(2) over (order by k1,k2,k3), r + r, k1, k2, k3;"
+    qt_select_const_alias_collision "select 1 + 1 as two, k1, k2, k3, floor(rand()) as r from ${tableName} " +
+            "order by ntile(1 + 1) over (order by k1,k2,k3), r + r, k1, k2, k3;"
+    qt_select_const_alias_collision "select cast(5 - 2 as bigint) as three, k1, k2, k3, floor(rand()) as r from ${tableName} " +
+            "order by ntile(cast(5 - 2 as bigint)) over (order by k1,k2,k3), r + r, k1, k2, k3;"
+
     test {
         sql "select k1, k2, k3, ntile(0) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
         exception "positive"

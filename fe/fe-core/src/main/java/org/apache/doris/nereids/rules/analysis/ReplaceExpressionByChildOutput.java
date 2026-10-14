@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -73,11 +72,11 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
         for (NamedExpression expr : output) {
             if (expr instanceof Alias) {
                 Alias alias = (Alias) expr;
-                // replacing a literal sub-expression anywhere it structurally recurs, e.g. inside
-                // a function argument that must stay a literal (NTILE's bucket, LAG/LEAD's offset),
-                // gives no benefit since a literal is already free to re-evaluate, and can only break
-                // such a position wherever the literal happens to also be an unrelated output value.
-                if (!(alias.child() instanceof Literal)) {
+                // replacing a constant sub-expression anywhere it structurally recurs, e.g. inside
+                // a function argument that must fold to a literal (NTILE's bucket, LAG/LEAD's offset),
+                // gives no benefit since a constant is folded once anyway, and can only break such a
+                // position wherever the constant happens to also be an unrelated output value.
+                if (!alias.child().isConstant()) {
                     sMap.put(alias.child(), alias.toSlot());
                 }
             }
