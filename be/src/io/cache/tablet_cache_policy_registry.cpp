@@ -226,7 +226,8 @@ void TabletCachePolicyRegistry::restore(int64_t tablet_id, const TabletCachePoli
 }
 
 void TabletCachePolicyRegistry::note_tablet(int64_t tablet_id) {
-    _noted_tablets.enqueue(tablet_id);
+    std::lock_guard pending_lock(_pending_mutex);
+    _noted.insert(tablet_id);
 }
 
 bool TabletCachePolicyRegistry::has_deadline_in(int64_t from, int64_t to) const {
@@ -257,20 +258,20 @@ void TabletCachePolicyRegistry::report_cached_tablets(const std::vector<int64_t>
             }
         }
     }
-    std::lock_guard due_lock(_due_mutex);
+    std::lock_guard pending_lock(_pending_mutex);
     _due.insert(due.begin(), due.end());
 }
 
 std::vector<int64_t> TabletCachePolicyRegistry::take_due(int64_t now, size_t budget) {
-    std::vector<int64_t> unknown;
-    int64_t tablet_id = 0;
-    while (_noted_tablets.try_dequeue(tablet_id)) {
-        if (!deadline(tablet_id).has_value()) {
-            unknown.push_back(tablet_id);
-        }
+    std::unordered_set<int64_t> noted;
+    {
+        std::lock_guard pending_lock(_pending_mutex);
+        noted.swap(_noted);
     }
-    std::lock_guard due_lock(_due_mutex);
-    _due.insert(unknown.begin(), unknown.end());
+    // A noted tablet may have been learned since.
+    std::erase_if(noted, [this](int64_t tablet_id) { return deadline(tablet_id).has_value(); });
+    std::lock_guard pending_lock(_pending_mutex);
+    _due.insert(noted.begin(), noted.end());
     std::vector<int64_t> batch;
     for (auto it = _due.begin(); it != _due.end() && batch.size() < budget; it = _due.erase(it)) {
         auto retry = _retry_at.find(*it);
@@ -347,7 +348,7 @@ void TabletCachePolicyRegistry::refresh(size_t budget) {
         LOG_EVERY_N(WARNING, 100) << "failed to fetch file cache ttl policy of tablet " << tablet_id
                                   << ": " << st;
         _retry_at[tablet_id] = UnixSeconds() + kFetchRetryIntervalS;
-        std::lock_guard due_lock(_due_mutex);
+        std::lock_guard pending_lock(_pending_mutex);
         _due.insert(batch.begin() + i + 1, batch.end());
         break;
     }
@@ -418,14 +419,12 @@ void TabletCachePolicyRegistry::clear() {
     _entries.clear();
     _deadlines.clear();
     {
-        std::lock_guard due_lock(_due_mutex);
+        std::lock_guard pending_lock(_pending_mutex);
         _due.clear();
+        _noted.clear();
     }
     _retry_at.clear();
     _next_prune_s = 0;
-    int64_t tablet_id = 0;
-    while (_noted_tablets.try_dequeue(tablet_id)) {
-    }
     _protection_gained_version.fetch_add(1, std::memory_order_acq_rel);
     _protection_lost_version.fetch_add(1, std::memory_order_acq_rel);
 }

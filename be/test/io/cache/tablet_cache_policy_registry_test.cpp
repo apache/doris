@@ -306,4 +306,19 @@ TEST_F(TabletCachePolicyRegistryTest, prune_keeps_policy_refreshed_meanwhile) {
     EXPECT_FALSE(_registry.deadline(2).has_value());
 }
 
+// Every block judged notes its unknown tablet: however many times, it is kept and fetched once.
+TEST_F(TabletCachePolicyRegistryTest, repeated_notes_are_kept_once) {
+    _remote[1] = TabletCachePolicy {0, 1000};
+    for (int i = 0; i < 10000; ++i) {
+        EXPECT_FALSE(_registry.is_protected(1, 0, 2000));
+        _registry.note_tablet(2);
+    }
+    EXPECT_EQ(_registry._noted.size(), 2);
+    _registry.refresh(100);
+    std::sort(_fetched.begin(), _fetched.end());
+    EXPECT_EQ(_fetched, (std::vector<int64_t> {1, 2}));
+    EXPECT_EQ(_registry.deadline(1), 0);
+    EXPECT_TRUE(_registry._noted.empty());
+}
+
 } // namespace doris::io

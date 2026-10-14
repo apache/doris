@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <concurrentqueue.h>
-
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -81,7 +79,8 @@ public:
     void restore(int64_t tablet_id, const TabletCachePolicy& policy);
 
     // Notes a tablet whose blocks are cached here, so that its policy gets fetched if it is not
-    // known yet. Called under the cache lock, so it only enqueues.
+    // known yet. Called under the cache lock for every block judged, so it only records the id
+    // once, under a lock never held across a fetch.
     void note_tablet(int64_t tablet_id);
     // Called periodically by each cache path with the tablets it holds blocks of. Their policy is
     // fetched when it is unknown, or when nothing confirmed it (a meta refresh of the loaded
@@ -154,10 +153,13 @@ private:
     std::atomic<uint64_t> _protection_gained_version {0};
     std::atomic<uint64_t> _protection_lost_version {0};
 
-    moodycamel::ConcurrentQueue<int64_t> _noted_tablets;
-    // Tablets waiting to be fetched. Its own lock, never held across a fetch.
-    std::mutex _due_mutex;
+    // Guards the tablets waiting for a fetch. Never held across a fetch.
+    std::mutex _pending_mutex;
+    // To be fetched by the next refreshes, at most the budget per refresh: tablets a cache path
+    // reported that are unknown or stale, and noted tablets still unknown.
     std::unordered_set<int64_t> _due;
+    // Noted by note_tablet() since the last refresh, which moves those still unknown to _due.
+    std::unordered_set<int64_t> _noted;
     // Held for a whole refresh, fetches included; only the refresh and the test hooks take it.
     std::mutex _refresh_mutex;
     // Guarded by _refresh_mutex: when a tablet whose fetch failed may be fetched again, and when
