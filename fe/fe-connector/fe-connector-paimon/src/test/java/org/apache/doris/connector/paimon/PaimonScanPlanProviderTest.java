@@ -1194,7 +1194,10 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertEquals("rust_reader_priority", payload.get("paimon.table_name"));
             TableSchema schema = JsonSerdeUtil.fromJson(payload.get("paimon.table_schema_json"), TableSchema.class);
             Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key()));
-            Assertions.assertEquals("17", schema.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+            int expectedParallelism = Math.min(17,
+                    PaimonReaderOptions.backendManifestParallelismCap(table).getAsInt());
+            Assertions.assertEquals(Integer.toString(expectedParallelism),
+                    schema.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
             Assertions.assertFalse(payload.containsKey("paimon.branch_name"), "main is the default Rust branch");
 
             Map<String, String> forceJniProperties = new HashMap<>(rustProperties);

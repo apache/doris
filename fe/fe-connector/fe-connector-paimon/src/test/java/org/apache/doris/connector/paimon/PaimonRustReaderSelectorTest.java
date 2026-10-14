@@ -22,7 +22,6 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
-import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
@@ -35,9 +34,6 @@ import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
-import org.apache.paimon.table.sink.BatchTableCommit;
-import org.apache.paimon.table.sink.BatchTableWrite;
-import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
@@ -228,19 +224,10 @@ public class PaimonRustReaderSelectorTest {
                 .option("deletion-vectors.enabled", "true")
                 .option("deletion-vectors.merge-on-read", "true").build());
         FileStoreTable table = FileStoreTableFactory.create(fileIO, location);
-        BatchWriteBuilder builder = table.newBatchWriteBuilder();
-        try (BatchTableWrite write = builder.newWrite(); BatchTableCommit commit = builder.newCommit()) {
-            write.write(GenericRow.of(1, 11));
-            commit.commit(write.prepareCommit());
-        }
-        List<org.apache.paimon.table.source.Split> splits = table.newScan().plan().splits();
-        Assertions.assertFalse(splits.isEmpty());
         PaimonRustReaderSelector selector = selector(enabledSession(), true, table,
                 Collections.singletonList(new PaimonColumnHandle("v", 1)), Collections.emptyMap(),
                 false, false, false);
-        for (org.apache.paimon.table.source.Split split : splits) {
-            Assertions.assertTrue(selector.canRead((DataSplit) split));
-        }
+        Assertions.assertTrue(selector.canRead(split(file("data.parquet", table.schema().id(), null))));
     }
 
     @Test

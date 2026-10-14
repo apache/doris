@@ -159,6 +159,9 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             createPk(name, "v STRING", "")
             sql "INSERT INTO ${name} VALUES (1,'42'), (2,NULL)"
             check("select id,v from ${name} order by id", [[1,"42"],[2,null]], true)
+            // Keep two uncompacted files in the same bucket so schema-evolution reads
+            // exercise the logical merge reader rather than the native raw-file shortcut.
+            sql "INSERT INTO ${name} VALUES (1,'42')"
             sql "ALTER TABLE ${name} MODIFY COLUMN v ${target} NULL"
             // The historical string is an epoch count in Java, not an Arrow calendar literal.
             check("select id,cast(v as string) from ${name} order by id",
@@ -169,6 +172,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                 def name = "integer_to_timestamp_${sourceType.toLowerCase()}_${precision}"
                 createPk(name, "v ${sourceType}", "")
                 sql "INSERT INTO ${name} VALUES (1,1700000000), (2,NULL)"
+                sql "INSERT INTO ${name} VALUES (1,1700000000)"
                 sql "ALTER TABLE ${name} MODIFY COLUMN v DATETIME(${precision}) NULL"
                 // All target precisions must interpret the source number as epoch seconds.
                 check("select id,date_format(v,'%Y-%m-%d %H:%i:%s') from ${name} order by id",
@@ -190,6 +194,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         createPk("narrow_values", "v BIGINT NULL", "")
         sql "INSERT INTO narrow_values VALUES (1,383), (2,-129), (3,NULL)"
         check("select id,v from narrow_values order by id", [[1,383],[2,-129],[3,null]], true)
+        sql "INSERT INTO narrow_values VALUES (1,383)"
         sql "ALTER TABLE narrow_values MODIFY COLUMN v TINYINT NULL"
         check("select id,v from narrow_values order by id", [[1,127],[2,127],[3,null]], false)
         // A narrowing predicate must also be evaluated after the Java-compatible cast.
