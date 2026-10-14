@@ -136,6 +136,20 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "distributed by random buckets 1\n"
                 + "properties('replication_num' = '1')\n"
                 + "as select k1, sum(value) as total from test.pct_ms_base group by k1;");
+        createTable("create table test.pct_ms_direct_base (\n"
+                + "  k1 datetime(3),\n"
+                + "  value int\n"
+                + ") duplicate key(k1)\n"
+                + "partition by range(k1) (\n"
+                + "  partition p_frac values [('2024-01-01 00:00:00.123'), ('2024-02-01 00:00:00.123'))\n"
+                + ")\ndistributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMvByNereids("create materialized view test.pct_ms_direct_mv\n"
+                + "build immediate refresh complete on manual\n"
+                + "partition by (k1)\n"
+                + "distributed by random buckets 1\n"
+                + "properties('replication_num' = '1')\n"
+                + "as select k1, sum(value) as total from test.pct_ms_direct_base group by k1;");
         createTable("create table test.compensate_base (\n"
                 + "  d date,\n"
                 + "  region varchar(10),\n"
@@ -423,6 +437,27 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     }
 
     @Test
+    void testADirectRangeMvKeepsItsOwnBoundAtTheColumnScale() throws Exception {
+        // The MV partition's own bound is written at the base column's type, and its key carries only its
+        // primitive type -- Type.fromPrimitiveType(DATETIMEV2) is scale 0. Written from the key, the bound of
+        // a partition whose bounds come from the base partitions (one partitioned by the base's own column)
+        // would end at 2024-02-01 00:00:00.000, and the rows of the last 123 milliseconds of the partition
+        // would be left out of the read: rows this batch writes, going missing from the rebuilt partition
+        // while the snapshot records it as refreshed.
+        Map<TableIf, Set<Expression>> predicates = refreshPredicatesOfMsDirect(Sets.newHashSet("p_frac"));
+        Assertions.assertEquals(1, predicates.size());
+        Set<Expression> scoped = predicates.values().iterator().next();
+        Assertions.assertEquals(1, scoped.size());
+        String sql = scoped.iterator().next().toSql();
+        // The bound at the column's own scale, and no second one written without its milliseconds: the MV
+        // partition's bound is the mapped partition's here, so the two sides of the read are one term -- and
+        // written from the key's own primitive type the MV side would come out as the bare second and the
+        // read would end 123 milliseconds early.
+        Assertions.assertTrue(sql.contains("k1 < '2024-02-01 00:00:00.123'"), sql);
+        Assertions.assertFalse(sql.contains("k1 < '2024-02-01 00:00:00'"), sql);
+    }
+
+    @Test
     void testAReadOfARangeBasePartitionEndsAtTheMvPartitionItRollsUpInto() throws Exception {
         // The base partition ends at 2025-01-01 00:00:00.123, and the roll-up still reads it as the year
         // 2024: it takes the last second off the upper bound before truncating it. A row the base table
@@ -439,9 +474,10 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         Assertions.assertTrue(sql.contains("k1 >= '2024-01-01 00:00:00.123'"), sql);
         Assertions.assertTrue(sql.contains("k1 < '2025-01-01 00:00:00.123'"), sql);
         // ... and the MV partition's, which is where it has to stop: a millisecond below the base partition's
-        // upper bound, and that is what keeps the 2025-01-01 00:00:00.100 row out of the read.
-        Assertions.assertTrue(sql.contains("k1 >= '2024-01-01 00:00:00'"), sql);
-        Assertions.assertTrue(sql.contains("k1 < '2025-01-01 00:00:00'"), sql);
+        // upper bound, and that is what keeps the 2025-01-01 00:00:00.100 row out of the read. Both are
+        // written at the base column's type, so the MV bound is a DATETIME(3) of the same instant.
+        Assertions.assertTrue(sql.contains("k1 >= '2024-01-01 00:00:00.000'"), sql);
+        Assertions.assertTrue(sql.contains("k1 < '2025-01-01 00:00:00.000'"), sql);
     }
 
     @Test
@@ -507,6 +543,17 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         OlapTable base = getOlapTable("pct_base");
         String mvPartitionName = mtmv.getPartitionNames().iterator().next();
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_mv");
+        UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
+                statementContext, ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions));
+        return statementContext.getMvRefreshPredicates().get();
+    }
+
+    private Map<TableIf, Set<Expression>> refreshPredicatesOfMsDirect(Set<String> readableBasePartitions)
+            throws Exception {
+        MTMV mtmv = getMtmv("pct_ms_direct_mv");
+        OlapTable base = getOlapTable("pct_ms_direct_base");
+        String mvPartitionName = mtmv.getPartitionNames().iterator().next();
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_ms_direct_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
                 statementContext, ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions));
         return statementContext.getMvRefreshPredicates().get();

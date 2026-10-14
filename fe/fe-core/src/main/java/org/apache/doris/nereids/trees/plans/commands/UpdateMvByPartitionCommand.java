@@ -223,9 +223,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             // the MV side is written once: this predicate is injected before the plan is bound, and an
             // analyzer rebinds each disjunct, so a batch of N partitions would otherwise rewrite the same
             // MV range N times, giving a predicate of size O(N^2) to build for the same read.
+            // Both sides are written at the base partition column's type. The MV partition's own key carries
+            // only its primitive type, and Type.fromPrimitiveType(DATETIMEV2) is scale 0: an MV partition
+            // whose bounds come from the base partitions -- one partitioned by the base's own column -- would
+            // have its upper bound written as .000, and the rows of the last fraction of it would be left
+            // out of the read. They are rows this batch does write, so they go missing from the rebuilt
+            // partition while the snapshot records it, and nothing reports them.
             builder.put(table, Sets.newHashSet(ExpressionUtils.and(
                     ExpressionUtils.or(constructPredicatesOfBasePartitions(items, olapTable, colName)),
-                    ExpressionUtils.or(constructPredicates(mvItems, colName)))));
+                    ExpressionUtils.or(constructPredicates(mvItems, colName,
+                            Optional.of(partitionColumnType(olapTable, colName)))))));
         }
         return builder.build();
     }
