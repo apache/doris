@@ -224,6 +224,26 @@ public class MTMVRewriteUtilTest {
     }
 
     @Test
+    public void testGetMTMVCanRewritePartitionsOverADefaultListPartitionTable() throws AnalysisException {
+        // A base table whose list partitions have a default one cannot be held completely by the MV: a key
+        // only that partition holds has no MV partition to be read into, so the MV is not offered as an answer
+        // to any query over it. Measured on the shape: `LIST(k)` with p1=(1) and p_default, a committed k=2
+        // row, an MV partitioned by k -- the MV holds key 1 alone, and a query over the base table used to be
+        // rewritten to it and lose the k=2 row. The control is the same MV with a table that has none.
+        MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
+        Mockito.when(mvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(pctTable));
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.hasDefaultListPartition(Mockito.any()))
+                .thenReturn(true);
+        Assertions.assertEquals(0, MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null).size());
+
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.hasDefaultListPartition(Mockito.any()))
+                .thenReturn(false);
+        Assertions.assertEquals(1, MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null).size());
+    }
+
+    @Test
     public void testGetMTMVCanRewritePartitionsNotInGracePeriod() throws AnalysisException {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(1L);
 
