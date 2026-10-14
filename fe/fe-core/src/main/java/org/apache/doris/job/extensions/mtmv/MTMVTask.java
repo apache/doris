@@ -1505,24 +1505,6 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * The base partitions the mapping of these MV partitions keeps, per base table: the set this batch may
-     * read from each of them, and the set the snapshots taken next to the read describe.
-     *
-     * <p>A base table with an empty set is one no partition of it feeds these MV partitions, and it is read
-     * as nothing rather than in full; a table left out of the map is read through the MV partitions' own key
-     * ranges, as it always was. Only olap tables are scoped, because the changes that need this are olap
-     * DDL: DROP, TRUNCATE, REPLACE and RECOVER PARTITION are the silent base partition changes this reads
-     * for, and they exist for olap tables.
-     *
-     * <p>An IVM MV is not scoped. A silent base table change invalidates its baseline instead, which reaches
-     * every MV partition that reads the changed one, and the partitions its delta may read are scoped by the
-     * IVM rewrite.
-     *
-     * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
-     * by the tables the MV's partition info holds and this reads them by the name it is given, so what
-     * identifies a table here is the table it names, not which of the two objects it was read from.
-     */
-    /**
      * Whether each MV partition of this batch is one the mapping describes, i.e. one that some base partition's
      * keys name. A partition nothing describes is one the alignment has not caught up with: a base `ADD
      * PARTITION` widens the keys an MV partition covers, which replaces it with an empty partition of the new
@@ -1532,6 +1514,15 @@ public class MTMVTask extends AbstractTask {
      */
     private void requireDescribedPartitions(MTMVRefreshContext context, Set<String> execPartitionNames)
             throws AnalysisException {
+        // Only when every table the MV is partitioned on is an olap one: those are the tables a refresh is
+        // scoped to, and the ones whose descriptors are read from the tables themselves. An external table's
+        // are read from a snapshot, and a refresh that cannot resolve one would look like a partition nothing
+        // describes -- which is a state this guard has nothing to say about.
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+            if (!(pctTable instanceof OlapTable)) {
+                return;
+            }
+        }
         for (String mvPartitionName : execPartitionNames) {
             if (context.getUndescribedMvPartitions().contains(mvPartitionName)) {
                 throw new AnalysisException("MV partition " + mvPartitionName + " of " + mtmv.getName()
