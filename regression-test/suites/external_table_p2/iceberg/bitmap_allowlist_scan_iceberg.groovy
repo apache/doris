@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("bitmap_allowlist_scan_iceberg", "p2,external,iceberg,external_docker,external_docker_iceberg,nonConcurrent") {
     if (!context.config.otherConfigs.get("enableIcebergTest")?.toString()?.equalsIgnoreCase("true")) {
         return
@@ -94,6 +96,20 @@ suite("bitmap_allowlist_scan_iceberg", "p2,external,iceberg,external_docker,exte
         contains "partition=1/2"
     }
 
+    def logSubqueryProfile = { long size, String shape, String query ->
+        sql "SET enable_profile = true"
+        sql "SET profile_level = 2"
+        String token = "iceberg_bitmap_subquery_${shape}_${size}_${UUID.randomUUID()}"
+        sql "/* ${token} */ ${query}"
+        String profile = new ProfileAction(context).getProfileBySql(token, ["RowsRead"])
+        logger.info("Iceberg bitmap subquery size ${size} ${shape} profile:\n" + profile.readLines()
+                .findAll { line -> ["RawRowsRead:", "RowsRead:", "RowsFilteredByConjunct:",
+                        "RowsBitmapAllowlistFiltered:", "WaitForRuntimeFilter:",
+                        "UncompressedBytesRead:", "RuntimeFilterInfo:"].any { line.contains(it) } }
+                .take(45).join("\n"))
+        sql "SET enable_profile = false"
+    }
+
     for (long size : [250000L, 1000000L, 5000000L, 10000000L]) {
         test {
             sql """
@@ -136,5 +152,51 @@ suite("bitmap_allowlist_scan_iceberg", "p2,external,iceberg,external_docker,exte
             skipFailure false
             sqls([bitmapQuery, joinQuery, joinQuery, bitmapQuery])
         }
+
+        String subqueryBitmap = """
+            SELECT COUNT(*) AS n, SUM(resource_id) AS s FROM ${factTable}
+            WHERE org_id = 101
+              AND resource_id IN (
+                  SELECT bitmap_agg(resource_id) FROM ${allowlistTable}
+                  WHERE first_size <= ${size})
+              AND payload LIKE '%needle%'
+        """
+        test {
+            sql """
+                SELECT b.n FROM (${subqueryBitmap}) b, (${joinQuery}) j
+                WHERE b.n <> j.n OR b.s <> j.s
+            """
+            rowNum 0
+        }
+        logger.info("Iceberg bitmap subquery size ${size}: default compressed join")
+        benchmark {
+            warmUp true
+            executeTimes 5
+            skipFailure false
+            sqls([subqueryBitmap])
+        }
+        if (size == 250000L || size == 10000000L) {
+            logSubqueryProfile(size, "default", subqueryBitmap)
+        }
+
+        sql "SET enable_bitmap_subquery_runtime_filter = true"
+        test {
+            sql """
+                SELECT b.n FROM (${subqueryBitmap}) b, (${joinQuery}) j
+                WHERE b.n <> j.n OR b.s <> j.s
+            """
+            rowNum 0
+        }
+        logger.info("Iceberg bitmap subquery size ${size}: compressed bitmap runtime filter")
+        benchmark {
+            warmUp true
+            executeTimes 5
+            skipFailure false
+            sqls([subqueryBitmap])
+        }
+        if (size == 250000L || size == 10000000L) {
+            logSubqueryProfile(size, "compressed_rf", subqueryBitmap)
+        }
+        sql "SET enable_bitmap_subquery_runtime_filter = false"
     }
 }
