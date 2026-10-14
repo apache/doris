@@ -77,6 +77,18 @@ suite("test_mc_write_large_data", "p2,external") {
     sql """use ${db}"""
 
     try {
+        // Explain prints a parent before its child, so a VSORT index that precedes the VEXCHANGE index
+        // means the exchange feeds the sort: rows are shuffled by the partition columns and then sorted
+        // inside each final writer stream. A VMERGING-EXCHANGE would be the extra global sort that
+        // MaxCompute dynamic-partition writes must not have -- its merging receiver can deadlock against
+        // local-channel backpressure and hang the INSERT until the client-side socket times out.
+        def checkPartitionShuffleThenSort = { String explainString ->
+            int sortIndex = explainString.indexOf(":VSORT")
+            int exchangeIndex = explainString.indexOf(":VEXCHANGE")
+            sortIndex >= 0 && exchangeIndex > sortIndex
+                    && !explainString.contains("VMERGING-EXCHANGE")
+        }
+
         // Non-partition table
         String tb1 = "large_no_part_${uuid}"
         sql """DROP TABLE IF EXISTS ${tb1}"""
@@ -104,6 +116,10 @@ suite("test_mc_write_large_data", "p2,external") {
 
         // Step 3: Insert from internal table
         sql """INSERT INTO ${tb1} SELECT * FROM internal.${internal_db}.${internal_tb}"""
+        explain {
+            sql("INSERT INTO ${tb2} SELECT * FROM internal.${internal_db}.${internal_tb}")
+            check { explainString -> checkPartitionShuffleThenSort(explainString) }
+        }
         sql """INSERT INTO ${tb2} SELECT * FROM internal.${internal_db}.${internal_tb}"""
 
         // Step 4: Verify results
@@ -126,6 +142,15 @@ suite("test_mc_write_large_data", "p2,external") {
         PARTITION BY (ds, region)()
         """
 
+        explain {
+            sql("""
+                INSERT INTO ${tb3}
+                SELECT id, name, val, ds,
+                    concat('r', cast((id % 3 + 1) AS STRING)) AS region
+                FROM internal.${internal_db}.${internal_tb}
+            """)
+            check { explainString -> checkPartitionShuffleThenSort(explainString) }
+        }
         sql """
         INSERT INTO ${tb3}
         SELECT id, name, val, ds,
