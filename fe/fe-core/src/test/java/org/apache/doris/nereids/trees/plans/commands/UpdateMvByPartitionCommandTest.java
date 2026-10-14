@@ -425,7 +425,14 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         // is one no snapshot describes, and its rows would stay in the MV partition unaccounted for.
         Map<TableIf, Set<Expression>> all = refreshPredicates(Sets.newHashSet("p1", "p2", "p3"));
         Assertions.assertEquals(1, all.size());
-        Assertions.assertEquals(3, all.values().iterator().next().size());
+        Set<Expression> allPredicates = all.values().iterator().next();
+        // One term, the months read as one disjunction: the term is written once however many months there
+        // are, rather than one conjunction of the MV range per month.
+        Assertions.assertEquals(1, allPredicates.size());
+        String allSql = allPredicates.iterator().next().toSql();
+        Assertions.assertTrue(allSql.contains("2024-02-01"), allSql);
+        Assertions.assertTrue(allSql.contains("2024-03-01"), allSql);
+        Assertions.assertTrue(allSql.contains("2024-04-01"), allSql);
 
         Map<TableIf, Set<Expression>> windowed = refreshPredicates(Sets.newHashSet("p2"));
         Assertions.assertEquals(1, windowed.size());
