@@ -53,6 +53,8 @@ import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateCeilFloorMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -83,8 +85,13 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.Limit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
@@ -132,6 +139,16 @@ public class ExpressionUtils {
     // (worst case 4 * 4 * 3^3 = 432 for N = MAX_MARK_SLOT_COUNT = 4, each pass rebuilding and
     // folding the conjunct). We restrict MAX_MARK_SLOT_COUNT to 4 to bound this cost.
     private static final int MAX_MARK_SLOT_COUNT = 4;
+
+    /**
+     * Preserve date arithmetic's evaluation domain above a lower condition or limit.
+     * A CTE consumer may also push a predicate into a producer whose conditions are outside this input tree.
+     */
+    public static boolean requiresDateArithmeticProtection(Expression expression, Plan input) {
+        return expression.containsType(DateAddSubMonotonic.class, DateCeilFloorMonotonic.class)
+                && input.anyMatch(plan -> plan instanceof Filter || plan instanceof Join || plan instanceof Limit
+                        || plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer);
+    }
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);

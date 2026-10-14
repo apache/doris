@@ -82,7 +82,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
         // splitConjuncts.first -> conjuncts having outer query slots which should NOT be pushed down
         // splitConjuncts.second -> conjuncts without any outer query slots which should be pushed down
         Pair<Set<Expression>, Set<Expression>> splitConjuncts =
-                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs, childAlias);
+                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs, childAlias, project.child());
         Set<Expression> remainPredicates = splitConjuncts.first;
         Set<Expression> pushDownPredicates = splitConjuncts.second;
         if (pushDownPredicates.isEmpty()) {
@@ -101,7 +101,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
         Map<Slot, Expression> childAlias = project.getAliasToProducer();
         // split the conjuncts by child's output
         Pair<Set<Expression>, Set<Expression>> splitConjuncts =
-                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs, childAlias);
+                splitConjunctsByChildOutput(filter.getConjuncts(), childOutputs, childAlias, limit);
         Set<Expression> remainPredicates = splitConjuncts.first;
         Set<Expression> pushDownPredicates = splitConjuncts.second;
         if (pushDownPredicates.isEmpty()) {
@@ -113,7 +113,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
     }
 
     private static Pair<Set<Expression>, Set<Expression>> splitConjunctsByChildOutput(
-            Set<Expression> conjuncts, Set<Slot> childOutputs, Map<Slot, Expression> childAlias) {
+            Set<Expression> conjuncts, Set<Slot> childOutputs, Map<Slot, Expression> childAlias, Plan input) {
         Set<Expression> pushDownPredicates = Sets.newLinkedHashSet();
         Set<Expression> remainPredicates = Sets.newLinkedHashSet();
         for (Expression conjunct : conjuncts) {
@@ -123,9 +123,12 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             // If filter slot is alias and its expression contains non-foldable expression, it can't push down, example:
             // `filter(a > 1) -> project(b + random(1, 10) as a)`, if push down filter, it got
             // `project(b + random(1, 10) as a) -> filter(b + random(1, 10) > 1)`, it contains two distinct RANDOM.
+            // Expanding a date arithmetic alias can evaluate it before a lower filter, join, or limit
+            // has rejected out-of-range rows. Without such a boundary, retain normal pushdown.
             if (childOutputs.containsAll(conjunctSlots)
                     && conjunctSlots.stream().map(childAlias::get).filter(Objects::nonNull)
-                            .noneMatch(Expression::containsVolatileExpression)) {
+                            .noneMatch(expression -> expression.containsVolatileExpression()
+                                    || ExpressionUtils.requiresDateArithmeticProtection(expression, input))) {
                 pushDownPredicates.add(conjunct);
             } else {
                 remainPredicates.add(conjunct);
