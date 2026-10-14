@@ -79,7 +79,7 @@ inline OwnedSlice build_page(const std::vector<std::string>& corpus) {
     std::unique_ptr<PageBuilder> builder(raw);
 
     size_t count = slices.size();
-    st = static_cast<StringPageBuilder*>(builder.get())->add_slices(slices.data(), &count);
+    st = builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count);
     CHECK(st.ok()) << st;
     CHECK_EQ(count, slices.size());
 
@@ -241,7 +241,7 @@ BENCHMARK(BM_BinaryPlainPageV3_PreDecode_256KiB)->Apply(V2V3PreDecodeFixedPageAr
 // effect of the V3 layout (contiguous data + contiguous varint lengths) on ZSTD's ratio.
 // Two corpora:
 //   - VARCHAR (variable length, no padding).
-//   - CHAR (fixed length, '\0'-padded as ScalarColumnWriter does): both V2 and V3
+//   - CHAR (fixed length, '\0'-padded as OlapColumnDataConvertorChar does): both V2 and V3
 //     keep the padding on disk, so this measures the layout effect on highly compressible
 //     padded data.
 // ===========================================================================
@@ -277,7 +277,7 @@ inline OwnedSlice build_page_typed(const std::vector<Slice>& slices) {
     std::unique_ptr<PageBuilder> builder(raw);
 
     size_t count = slices.size();
-    st = static_cast<StringPageBuilder*>(builder.get())->add_slices(slices.data(), &count);
+    st = builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count);
     CHECK(st.ok()) << st;
     CHECK_EQ(count, slices.size());
 
