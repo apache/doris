@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <concurrentqueue.h>
 #include <gen_cpp/file_cache.pb.h>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
@@ -25,6 +24,7 @@
 #include <rocksdb/status.h>
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -87,7 +87,7 @@ public:
 
 class CacheBlockMetaStore {
 public:
-    CacheBlockMetaStore(const std::string& db_path, size_t queue_size = 1000);
+    explicit CacheBlockMetaStore(const std::string& db_path);
     ~CacheBlockMetaStore();
 
     Status init();
@@ -143,11 +143,16 @@ private:
         // A tablet policy, which lives in the default column family.
         bool tablet_policy = false;
     };
+    void enqueue(WriteOperation op);
+    // Applies every pending write, in the order they were made.
+    void apply_pending_writes();
     rocksdb::Status apply_write(const WriteOperation& op);
-    moodycamel::ConcurrentQueue<WriteOperation> _write_queue;
+    // The writes not applied yet, in the order they were made, whichever threads made them: a
+    // put and a later delete of the same key must reach rocksdb in that order.
+    mutable std::mutex _queue_mutex;
+    std::deque<WriteOperation> _write_queue;
     std::atomic<bool> _stop_worker {false};
     std::thread _write_thread;
-    std::mutex _queue_mutex;
 
     std::unique_ptr<ThreadPool> _thread_pool;
 };

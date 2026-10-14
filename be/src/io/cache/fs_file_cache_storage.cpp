@@ -155,7 +155,7 @@ Status FSFileCacheStorage::init(BlockFileCache* mgr) {
             metrics_prefix, "file_cache_leak_removed_files_cnt");
     _cache_base_path = mgr->_cache_base_path;
     _mgr = mgr;
-    _meta_store = std::make_unique<CacheBlockMetaStore>(_cache_base_path + "/meta", 10000);
+    _meta_store = std::make_unique<CacheBlockMetaStore>(_cache_base_path + "/meta");
     // The policies known before the restart, so the blocks below are judged by them as they load.
     auto* policy_registry = TabletCachePolicyRegistry::instance();
     _meta_store->for_each_tablet_policy(

@@ -45,8 +45,7 @@ const std::string FILE_CACHE_META_COLUMN_FAMILY = "file_cache_meta";
 bvar::Adder<uint64_t> g_rocksdb_write_failed_num("file_cache_meta_rocksdb_write_failed_num");
 bvar::Adder<uint64_t> g_rocksdb_delete_failed_num("file_cache_meta_rocksdb_delete_failed_num");
 
-CacheBlockMetaStore::CacheBlockMetaStore(const std::string& db_path, size_t queue_size)
-        : _db_path(db_path), _write_queue(queue_size) {
+CacheBlockMetaStore::CacheBlockMetaStore(const std::string& db_path) : _db_path(db_path) {
     auto status = init();
     if (!status.ok()) {
         LOG(ERROR) << "Failed to initialize CacheBlockMetaStore: " << status.to_string();
@@ -71,7 +70,13 @@ CacheBlockMetaStore::~CacheBlockMetaStore() {
 }
 
 size_t CacheBlockMetaStore::get_write_queue_size() const {
-    return _write_queue.size_approx();
+    std::lock_guard lock(_queue_mutex);
+    return _write_queue.size();
+}
+
+void CacheBlockMetaStore::enqueue(WriteOperation op) {
+    std::lock_guard lock(_queue_mutex);
+    _write_queue.push_back(std::move(op));
 }
 
 Status CacheBlockMetaStore::init() {
@@ -138,7 +143,7 @@ void CacheBlockMetaStore::put(const BlockMetaKey& key, const BlockMeta& meta) {
     op.type = OperationType::PUT;
     op.key = key_str;
     op.value = value_str;
-    _write_queue.enqueue(op);
+    enqueue(std::move(op));
 }
 
 std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
@@ -367,7 +372,7 @@ void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {
     WriteOperation op;
     op.type = OperationType::DELETE;
     op.key = key_str;
-    _write_queue.enqueue(op);
+    enqueue(std::move(op));
 }
 
 void CacheBlockMetaStore::clear() {
@@ -377,10 +382,10 @@ void CacheBlockMetaStore::clear() {
         _write_thread.join();
     }
 
-    // Clear the write queue to remove any pending operations
-    WriteOperation op;
-    while (_write_queue.try_dequeue(op)) {
-        // Just discard all pending operations
+    // Discard the pending block metadata writes; the pending tablet policy writes are kept.
+    {
+        std::lock_guard lock(_queue_mutex);
+        std::erase_if(_write_queue, [](const WriteOperation& op) { return !op.tablet_policy; });
     }
 
     // Delete all records from rocksdb
@@ -424,7 +429,7 @@ void CacheBlockMetaStore::put_tablet_policy(int64_t tablet_id, const TabletCache
     op.key = tablet_policy_key(tablet_id);
     pb.SerializeToString(&op.value);
     op.tablet_policy = true;
-    _write_queue.enqueue(std::move(op));
+    enqueue(std::move(op));
 }
 
 void CacheBlockMetaStore::delete_tablet_policy(int64_t tablet_id) {
@@ -432,7 +437,7 @@ void CacheBlockMetaStore::delete_tablet_policy(int64_t tablet_id) {
     op.type = OperationType::DELETE;
     op.key = tablet_policy_key(tablet_id);
     op.tablet_policy = true;
-    _write_queue.enqueue(std::move(op));
+    enqueue(std::move(op));
 }
 
 void CacheBlockMetaStore::for_each_tablet_policy(
@@ -468,49 +473,41 @@ rocksdb::Status CacheBlockMetaStore::apply_write(const WriteOperation& op) {
     return _db->Delete(rocksdb::WriteOptions(), cf, op.key);
 }
 
-void CacheBlockMetaStore::async_write_worker() {
-    Thread::set_self_name("cache_block_meta_store_async_write_worker");
-    while (!_stop_worker.load(std::memory_order_acquire)) {
-        WriteOperation op;
-
-        if (_write_queue.try_dequeue(op)) {
-            if (!_db) {
-                LOG(WARNING) << "Database not initialized, skipping operation";
-                continue;
-            }
-
-            rocksdb::Status status = apply_write(op);
-
-            if (!status.ok()) {
-                LOG(WARNING) << "Failed to " << (op.type == OperationType::PUT ? "write" : "delete")
-                             << " to rocksdb: " << status.ToString();
-                if (op.type == OperationType::PUT) {
-                    g_rocksdb_write_failed_num << 1;
-                } else {
-                    g_rocksdb_delete_failed_num << 1;
-                }
-            }
-        } else {
-            // Queue is empty, sleep briefly
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+void CacheBlockMetaStore::apply_pending_writes() {
+    // Takes everything pending at once, so the lock is only held to swap the queue, never
+    // across a rocksdb write.
+    std::deque<WriteOperation> writes;
+    {
+        std::lock_guard lock(_queue_mutex);
+        writes.swap(_write_queue);
     }
-
-    // Process remaining tasks in the queue
-    WriteOperation op;
-    while (_write_queue.try_dequeue(op)) {
-        if (!_db) {
-            LOG(WARNING) << "Database not initialized, skipping operation";
-            continue;
-        }
-
+    if (!writes.empty() && !_db) {
+        LOG(WARNING) << "Database not initialized, skipping " << writes.size() << " operations";
+        return;
+    }
+    for (const auto& op : writes) {
         rocksdb::Status status = apply_write(op);
-
         if (!status.ok()) {
             LOG(WARNING) << "Failed to " << (op.type == OperationType::PUT ? "write" : "delete")
                          << " to rocksdb: " << status.ToString();
+            if (op.type == OperationType::PUT) {
+                g_rocksdb_write_failed_num << 1;
+            } else {
+                g_rocksdb_delete_failed_num << 1;
+            }
         }
     }
+}
+
+void CacheBlockMetaStore::async_write_worker() {
+    Thread::set_self_name("cache_block_meta_store_async_write_worker");
+    while (!_stop_worker.load(std::memory_order_acquire)) {
+        apply_pending_writes();
+        // What arrives meanwhile is applied by the next round, all at once.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    // Process remaining tasks in the queue
+    apply_pending_writes();
 }
 
 std::string serialize_key(const BlockMetaKey& key) {

@@ -661,4 +661,75 @@ TEST_F(BlockFileCacheTest, ttl_policy_meta_store_keeps_tablet_policies) {
     EXPECT_EQ(blocks, 1);
 }
 
+// The copy of a tablet's policy ends with the last change, whichever threads made the changes.
+TEST_F(BlockFileCacheTest, ttl_policy_meta_store_keeps_last_policy_change) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    const std::string db_path = cache_base_path + "/meta";
+    constexpr int64_t kChanges = 1000;
+    {
+        CacheBlockMetaStore store(db_path);
+        TabletCachePolicyRegistry registry;
+        registry.add_store(&store);
+        // Two threads take turns changing the policies.
+        std::mutex mutex;
+        std::condition_variable turn_changed;
+        int64_t turn = 1;
+        auto take_turns = [&](int64_t parity) {
+            std::unique_lock lock(mutex);
+            while (true) {
+                turn_changed.wait(lock, [&] { return turn > kChanges || turn % 2 == parity; });
+                if (turn > kChanges) {
+                    return;
+                }
+                registry.upsert(1, {turn, 1000});
+                if (parity == 1) {
+                    registry.upsert(2, {turn, 1000});
+                } else {
+                    registry.erase(2);
+                }
+                ++turn;
+                turn_changed.notify_all();
+            }
+        };
+        std::thread odd(take_turns, 1);
+        std::thread even(take_turns, 0);
+        odd.join();
+        even.join();
+        registry.remove_store(&store);
+    }
+    CacheBlockMetaStore store(db_path);
+    std::map<int64_t, TabletCachePolicy> policies;
+    store.for_each_tablet_policy([&](int64_t tablet_id, const TabletCachePolicy& policy) {
+        policies.emplace(tablet_id, policy);
+    });
+    ASSERT_EQ(policies.size(), 1);
+    EXPECT_EQ(policies[1], (TabletCachePolicy {kChanges, 1000}));
+}
+
+// Clearing the block metadata leaves the tablet policies, written or still pending, alone.
+TEST_F(BlockFileCacheTest, ttl_policy_meta_store_clear_keeps_tablet_policies) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    const std::string db_path = cache_base_path + "/meta";
+    {
+        CacheBlockMetaStore store(db_path);
+        for (int64_t tablet_id = 1; tablet_id <= 100; ++tablet_id) {
+            store.put(BlockMetaKey(tablet_id, BlockFileCache::hash("key"), 0),
+                      BlockMeta(FileCacheType::NORMAL, 100, 0));
+            store.put_tablet_policy(tablet_id, {3600, 1000});
+        }
+        store.clear();
+    }
+    CacheBlockMetaStore store(db_path);
+    size_t policies = 0;
+    store.for_each_tablet_policy([&](int64_t, const TabletCachePolicy&) { ++policies; });
+    EXPECT_EQ(policies, 100);
+    EXPECT_FALSE(store.get_all()->valid());
+}
+
 } // namespace doris::io
