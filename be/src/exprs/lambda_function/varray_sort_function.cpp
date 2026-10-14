@@ -34,6 +34,7 @@
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/primitive_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/lambda_function/lambda_function.h"
@@ -84,6 +85,13 @@ public:
         const std::vector<std::string>* argument_names =
                 lambda_expr->has_argument_names() ? &lambda_expr->argument_names() : nullptr;
         RETURN_IF_ERROR(_set_comparator_argument_gap(children[0]->get_child(0), argument_names));
+        // A SQL comparator can return any integer width (y - x can be SMALLINT),
+        // but a string result has no ordering-sign meaning and must fail validation.
+        const auto& comparator_type = children[0]->data_type();
+        if (!is_int(comparator_type->get_primitive_type())) {
+            return Status::InvalidArgument("array_sort comparator must return an integer, got {}",
+                                           comparator_type->get_name());
+        }
         return Status::OK();
     }
 
@@ -157,6 +165,11 @@ public:
             lambda_block.insert(ColumnWithTypeAndName(nested_nullable_column.clone_empty(),
                                                       col_type.get_nested_type(), "temp"));
         }
+        // Compare against a zero of the comparator's actual type, preserving the sign
+        // even for LARGEINT values such as -(1 << 100) that would truncate to zero in INT64.
+        auto comparator_zero =
+                remove_nullable(children[0]->execute_type(&lambda_block))->create_column();
+        comparator_zero->insert_default();
 
         MutableColumnPtr temp_data[2];
         NullMap* temp_nullmap_data[2] = {nullptr, nullptr};
@@ -218,13 +231,21 @@ public:
                                     status.to_string()));
                         }
 
-                        // raw_res_col maybe columnVector or ColumnConst
+                        // Arithmetic comparators such as (x, y) -> y - x return nullable
+                        // integers, possibly wrapped in ColumnConst. A NULL result cannot
+                        // determine an order and must fail the query before reading its payload.
                         ColumnPtr raw_res_col = lambda_block.get_by_position(lambda_res_id).column;
                         ColumnPtr full_res_col = raw_res_col->convert_to_full_column_if_const();
+                        if (const auto* nullable_res_col =
+                                    check_and_get_column<ColumnNullable>(full_res_col.get())) {
+                            if (nullable_res_col->is_null_at(0)) [[unlikely]] {
+                                throw Exception(Status::InvalidArgument(
+                                        "array_sort comparator returned NULL"));
+                            }
+                            full_res_col = nullable_res_col->get_nested_column_ptr();
+                        }
 
-                        // only -1, 0, 1
-                        long cmp =
-                                assert_cast<const ColumnInt8*>(full_res_col.get())->get_data()[0];
+                        auto cmp = full_res_col->compare_at(0, 0, *comparator_zero, 1);
                         lambda_block.erase_tail(lambda_result_base);
 
                         return cmp < 0;

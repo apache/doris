@@ -1658,6 +1658,109 @@ TEST(ArrayMapFunctionTest, NamedLambdaWithFewerArgumentsThanArraysUsesDeclaredBi
     EXPECT_EQ(values.get_element(2), 30);
 }
 
+TEST(ArrayMapFunctionTest, ArraySortNullableComparator) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto lambda = VLambdaFunctionExpr::create_shared(
+            make_lambda_expr_node(nullable_int_type, {"x", "y"}));
+    auto compare = std::make_shared<MockSubtractExpr>(nullable_int_type);
+    compare->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    compare->add_child(VColumnRef::create_shared(make_column_ref_node(1, "y", int_type)));
+    lambda->add_child(compare);
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_int_array_column({{1, 3, 2}, {}, {4}, {2, 1, 2}}), array_int_type, "input"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    ColumnPtr result;
+    ASSERT_TRUE(root->execute_column(&context, &block, nullptr, 4, result).ok());
+    auto expected = make_int_array_column({{1, 2, 3}, {}, {4}, {1, 2, 2}});
+    ASSERT_EQ(result->size(), expected->size());
+    for (size_t i = 0; i < expected->size(); ++i) {
+        EXPECT_EQ(result->compare_at(i, i, *expected, 1), 0);
+    }
+}
+
+TEST(ArrayMapFunctionTest, ArraySortLargeIntComparatorPreservesSign) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto comparator_type = make_nullable(std::make_shared<DataTypeInt128>());
+    for (Int128 comparator_value : {Int128(1) << 100, -(Int128(1) << 100)}) {
+        auto root = VLambdaFunctionCallExpr::create_shared(
+                make_lambda_call_node(array_int_type, 2, "array_sort"));
+        auto lambda = VLambdaFunctionExpr::create_shared(
+                make_lambda_expr_node(comparator_type, {"x", "y"}));
+        auto value = ColumnNullable::create(ColumnInt128::create(1, comparator_value),
+                                            ColumnUInt8::create(1, 0));
+        lambda->add_child(std::make_shared<MockConstColumnExpr>(std::move(value), comparator_type,
+                                                                "compare"));
+        root->add_child(lambda);
+        root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{1, 2}}),
+                                                         array_int_type, "input"));
+        VExprContext context(root);
+        open_expr(root, &context);
+        Block block;
+        ColumnPtr result;
+        ASSERT_TRUE(root->execute_column(&context, &block, nullptr, 1, result).ok());
+        auto expected = make_int_array_column(comparator_value < 0
+                                                      ? std::vector<std::vector<int32_t>> {{2, 1}}
+                                                      : std::vector<std::vector<int32_t>> {{1, 2}});
+        EXPECT_EQ(result->compare_at(0, 0, *expected, 1), 0);
+    }
+}
+
+TEST(ArrayMapFunctionTest, ArraySortConstantNullableComparator) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int8_type = make_nullable(std::make_shared<DataTypeInt8>());
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+
+    for (uint8_t is_null : {0, 1}) {
+        for (bool is_const : {false, true}) {
+            auto root = VLambdaFunctionCallExpr::create_shared(
+                    make_lambda_call_node(array_int_type, 2, "array_sort"));
+            auto lambda = VLambdaFunctionExpr::create_shared(
+                    make_lambda_expr_node(nullable_int8_type, {"x", "y"}));
+            // A negative payload under a NULL must be rejected, never used for ordering.
+            auto comparator_column = ColumnNullable::create(ColumnInt8::create(1, is_null ? -1 : 0),
+                                                            ColumnUInt8::create(1, is_null));
+            if (is_const) {
+                lambda->add_child(std::make_shared<MockConstColumnExpr>(
+                        std::move(comparator_column), nullable_int8_type, "compare"));
+            } else {
+                lambda->add_child(std::make_shared<MockColumnExpr>(std::move(comparator_column),
+                                                                   nullable_int8_type, "compare"));
+            }
+            root->add_child(lambda);
+            auto input = make_int_array_column({{1, 3, 2}});
+            root->add_child(std::make_shared<MockConstColumnExpr>(input, array_int_type, "input"));
+
+            VExprContext context(root);
+            open_expr(root, &context);
+            Block block;
+            block.insert({make_int_column({1, 2}), int_type, "rows"});
+            ColumnPtr result;
+            auto status = context.execute(&block, result);
+            if (is_null) {
+                EXPECT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("array_sort comparator returned NULL"),
+                          std::string::npos);
+            } else {
+                ASSERT_TRUE(status.ok()) << status.to_string();
+                ASSERT_EQ(result->size(), 2);
+                EXPECT_EQ(result->compare_at(0, 0, *input, 1), 0);
+                EXPECT_EQ(result->compare_at(1, 0, *input, 1), 0);
+            }
+        }
+    }
+}
+
 TEST(ArrayMapFunctionTest, ArraySortSkipsComparatorForOuterNullRow) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto int8_type = std::make_shared<DataTypeInt8>();
@@ -1868,7 +1971,7 @@ TEST(ArrayMapFunctionTest, NestedArraySortComparatorNestedLambdaCanShadowCompara
     auto inner_lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
 
     // This mirrors:
-    //   array_sort((x, y) -> array_map(x -> x, [1, 2]), arr)
+    //   array_sort((x, y) -> cardinality(array_map(x -> x, [1, 2])), arr)
     // The inner array_map argument named x shadows the array_sort comparator argument x.
     auto inner_x = VColumnRef::create_shared(make_column_ref_node(0, "x", int_type));
 
@@ -1876,7 +1979,10 @@ TEST(ArrayMapFunctionTest, NestedArraySortComparatorNestedLambdaCanShadowCompara
     inner_call->add_child(inner_lambda);
     inner_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{1, 2}}),
                                                                 array_int_type, "inner_array"));
-    sort_lambda->add_child(inner_call);
+    auto cardinality =
+            std::make_shared<MockBodyExpr>(std::make_shared<DataTypeInt64>(), "mock_cardinality");
+    cardinality->add_child(inner_call);
+    sort_lambda->add_child(cardinality);
     root->add_child(sort_lambda);
     root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{2, 1}, {4, 3}}),
                                                      array_int_type, "arr"));
@@ -2032,7 +2138,7 @@ TEST(ArrayMapFunctionTest,
     auto add = std::make_shared<MockAddExpr>(int_type);
 
     // This mirrors:
-    //   array_sort((x, y) -> array_map(z -> array_map(q -> q + z, [1, 2]), [3, 4]), arr)
+    //   array_sort((x, y) -> cardinality(array_map(z -> array_map(q -> q + z, [1, 2]), [3, 4])), arr)
     // q is local to the inner array_map, while z is declared by the enclosing nested array_map.
     auto inner_q = VColumnRef::create_shared(make_column_ref_node(0, "q", int_type));
     auto outer_z = VColumnRef::create_shared(make_column_ref_node(0, "z", int_type));
@@ -2047,7 +2153,10 @@ TEST(ArrayMapFunctionTest,
     outer_call->add_child(outer_lambda);
     outer_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{3, 4}}),
                                                                 array_int_type, "outer_array"));
-    sort_lambda->add_child(outer_call);
+    auto cardinality =
+            std::make_shared<MockBodyExpr>(std::make_shared<DataTypeInt64>(), "mock_cardinality");
+    cardinality->add_child(outer_call);
+    sort_lambda->add_child(cardinality);
     root->add_child(sort_lambda);
     root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{2, 1}, {4, 3}}),
                                                      array_int_type, "arr"));

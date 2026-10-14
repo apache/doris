@@ -16,6 +16,50 @@
 // under the License.
 
 suite("test_array_sort_lambda_comparator") {
+    // Arithmetic and explicit nullable comparators return nullable integers, even
+    // when this comparison produces a non-NULL value.
+    order_qt_arithmetic_desc """
+        SELECT ARRAY_SORT((x, y) -> y - x, ARRAY(1, 3, 2)) AS sorted_desc
+    """
+    order_qt_arithmetic_asc """
+        SELECT array_sort((x, y) -> x - y, [3, 1, 2, 1])
+    """
+    order_qt_integer_comparator_types """
+        SELECT array_sort((x, y) -> CAST(y - x AS TINYINT), [1, 3, 2]),
+               array_sort((x, y) -> CAST(y - x AS SMALLINT), [1, 3, 2]),
+               array_sort((x, y) -> CAST(y - x AS INT), [1, 3, 2]),
+               array_sort((x, y) -> CAST(y - x AS BIGINT), [1, 3, 2]),
+               array_sort((x, y) -> CAST(y - x AS LARGEINT), [1, 3, 2])
+    """
+    order_qt_largeint_comparator_sign """
+        SELECT array_sort((x, y) -> IF(x < y, CAST('-1267650600228229401496703205376' AS LARGEINT),
+                                       IF(x = y, CAST(0 AS LARGEINT),
+                                          CAST('1267650600228229401496703205376' AS LARGEINT))),
+                          [3, 1, 2])
+    """
+    test {
+        sql "SELECT array_sort((x, y) -> 'invalid', [1, 3, 2])"
+        exception "array_sort comparator must return an integer"
+    }
+    order_qt_nullable_comparator """
+        SELECT array_sort((x, y) -> IF(x IS NULL OR y IS NULL, NULL, y - x), [1, 3, 2])
+    """
+    order_qt_const_nullable_comparator """
+        SELECT array_sort((x, y) -> nullable(CAST(0 AS TINYINT)), [1, 3, 2])
+    """
+    order_qt_nullable_comparator_empty_singleton """
+        SELECT array_sort((x, y) -> CAST(NULL AS TINYINT), CAST([] AS ARRAY<INT>)),
+               array_sort((x, y) -> CAST(NULL AS TINYINT), [1])
+    """
+    test {
+        sql "SELECT array_sort((x, y) -> CAST(NULL AS TINYINT), [1, 3, 2])"
+        exception "array_sort comparator returned NULL"
+    }
+    test {
+        sql "SELECT array_sort((x, y) -> y - x, [1, NULL, 2])"
+        exception "array_sort comparator returned NULL"
+    }
+
     // A comparator that is not a strict weak ordering must not crash BE. Every pair of values
     // above 100 compares as "less" in both directions, and there are far more than the
     // insertion-sort threshold of such values. Only the cardinality is asserted because the
@@ -85,4 +129,19 @@ suite("test_array_sort_lambda_comparator") {
         SELECT id, array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), arr)
         FROM test_array_sort_lambda_comparator_tbl
     """
+    order_qt_arithmetic_comparator_table """
+        SELECT id, array_sort((x, y) -> y - x, arr)
+        FROM test_array_sort_lambda_comparator_tbl WHERE id >= 2
+    """
+    order_qt_nullable_comparator_uncompared_table """
+        SELECT id, array_sort((x, y) -> CAST(NULL AS TINYINT), arr)
+        FROM test_array_sort_lambda_comparator_tbl WHERE id IN (3, 4)
+    """
+    test {
+        sql """
+            SELECT array_sort((x, y) -> CAST(NULL AS TINYINT), arr)
+            FROM test_array_sort_lambda_comparator_tbl WHERE id = 2
+        """
+        exception "array_sort comparator returned NULL"
+    }
 }
