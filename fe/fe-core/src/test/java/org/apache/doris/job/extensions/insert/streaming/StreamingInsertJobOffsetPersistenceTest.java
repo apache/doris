@@ -48,9 +48,9 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -58,7 +58,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
     @Test
     public void testAlterValidatesServerIdAgainstMergedParallelismBeforeMutation() {
-        for (Map<String, String> update : List.of(
+        for (Map<String, String> update : Arrays.asList(
                 Collections.singletonMap(DataSourceConfigKeys.SERVER_ID, "5400-5401"),
                 Collections.singletonMap(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "5"))) {
             TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1017L);

@@ -548,14 +548,20 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             throw new AnalysisException("ALTER JOB offset kind must be SPECIFIC when specified");
         }
 
-        boolean valid = switch (sourceType) {
-            case POSTGRES -> isNonNegativeLong(offsetNode.get("lsn"));
-            case MYSQL, OCEANBASE -> offsetNode.has("file") && offsetNode.has("pos")
-                    ? hasText(offsetNode.path("file")) && isNonNegativeLong(offsetNode.get("pos"))
-                    : hasText(offsetNode.path("gtids"));
-            default -> throw new AnalysisException(
-                    "Unsupported CDC source type for ALTER JOB offset: " + sourceType);
-        };
+        boolean valid;
+        switch (sourceType) {
+            case POSTGRES:
+                valid = isNonNegativeLong(offsetNode.get("lsn"));
+                break;
+            case MYSQL:
+            case OCEANBASE:
+                valid = offsetNode.has("file") && offsetNode.has("pos")
+                        ? hasText(offsetNode.path("file")) && isNonNegativeLong(offsetNode.get("pos"))
+                        : hasText(offsetNode.path("gtids"));
+                break;
+            default:
+                throw new AnalysisException("Unsupported CDC source type for ALTER JOB offset: " + sourceType);
+        }
         if (!valid) {
             throw new AnalysisException("Invalid offset for " + sourceType);
         }

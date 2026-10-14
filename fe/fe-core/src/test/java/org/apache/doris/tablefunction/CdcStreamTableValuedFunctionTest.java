@@ -35,6 +35,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -105,9 +106,9 @@ public class CdcStreamTableValuedFunctionTest {
 
     @Test
     public void testInvalidSnapshotPropertiesAreRejected() {
-        for (String key : List.of(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
+        for (String key : Arrays.asList(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
                 DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
-            for (String value : List.of("oops", "0", "-1", "2147483648")) {
+            for (String value : Arrays.asList("oops", "0", "-1", "2147483648")) {
                 Map<String, String> properties = baseProperties();
                 properties.put(key, value);
                 AnalysisException exception = Assert.assertThrows(AnalysisException.class,

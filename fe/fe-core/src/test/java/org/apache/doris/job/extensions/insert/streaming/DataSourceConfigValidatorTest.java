@@ -31,6 +31,7 @@ import org.mockito.Mockito;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -43,7 +44,7 @@ public class DataSourceConfigValidatorTest {
         for (DataSourceType source : new DataSourceType[] {DataSourceType.MYSQL, DataSourceType.POSTGRES}) {
             for (String value : new String[] {"evolve", "ignore", "EvOlVe", "IgNoRe"}) {
                 DataSourceConfigValidator.validateSource(
-                        Map.of(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR, value), source.name());
+                        Collections.singletonMap(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR, value), source.name());
             }
         }
     }
@@ -54,7 +55,8 @@ public class DataSourceConfigValidatorTest {
             for (String value : new String[] {"invalid", "", " "}) {
                 IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
                         () -> DataSourceConfigValidator.validateSource(
-                                Map.of(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR, value), source.name()));
+                                Collections.singletonMap(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR, value),
+                                source.name()));
                 Assert.assertTrue(exception.getMessage().contains(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR));
             }
         }
