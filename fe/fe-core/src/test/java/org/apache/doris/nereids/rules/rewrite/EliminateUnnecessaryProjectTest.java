@@ -17,11 +17,17 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -33,6 +39,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 /**
  * test ELIMINATE_UNNECESSARY_PROJECT rule.
@@ -64,6 +72,24 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
                 .customRewrite(new EliminateUnnecessaryProject())
                 .matchesFromRoot(logicalFilter(logicalOlapScan()));
+    }
+
+    @Test
+    void testKeepProjectThatReplacesSlotsWithLiterals() {
+        // ConstantPropagation replaces a slot with a literal but keeps the exprId of the replaced slot
+        // (see ConstantPropagation#visitLogicalAggregate), so such a project outputs the same exprIds as
+        // its child while its slots describe not nullable literals. It must not be treated as an
+        // unnecessary project, otherwise the not null attribute of the replaced slot is lost, e.g.
+        // `AdjustNullable convert slot ... from not-nullable to nullable`.
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        List<NamedExpression> shadowProjects = ImmutableList.of(
+                new Alias(scan.getOutput().get(0).getExprId(), new IntegerLiteral(5), "id"),
+                new Alias(scan.getOutput().get(1).getExprId(), new StringLiteral("name"), "name"));
+        LogicalPlan shadowProject = new LogicalProject<>(shadowProjects, scan);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), shadowProject)
+                .customRewrite(new EliminateUnnecessaryProject())
+                .matchesFromRoot(logicalProject());
     }
 
     @Test
