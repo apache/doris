@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
@@ -81,11 +82,38 @@ public class MTMVRewriteUtil {
             LOG.warn("can not read the partition info of {}, no partition is offered", mtmv.getName(), e);
             return res;
         }
+        // check gracePeriod
+        long gracePeriodMills = mtmv.getGracePeriod();
+        // Which of the partitions grace may answer for a refresh has written, by the partition's own version:
+        // one a refresh left empty is still written, one alignment has just added is not. The versions are read
+        // in one bulk call, because on cloud a single partition's version is a GetVersion RPC of its own and a
+        // query against a view of many partitions would otherwise issue one per partition in grace.
+        Set<String> writtenPartitionsInGrace = Sets.newHashSet();
+        if (gracePeriodMills > 0 && !forceConsistent) {
+            List<Partition> graceCandidates = Lists.newArrayList();
+            for (Partition partition : allPartitions) {
+                if (currentTimeMills <= partition.getVisibleVersionTime() + gracePeriodMills) {
+                    graceCandidates.add(partition);
+                }
+            }
+            if (!graceCandidates.isEmpty()) {
+                try {
+                    List<Long> versions = Partition.getVisibleVersions(graceCandidates);
+                    for (int i = 0; i < graceCandidates.size(); i++) {
+                        if (versions.get(i) > Partition.PARTITION_INIT_VERSION) {
+                            writtenPartitionsInGrace.add(graceCandidates.get(i).getName());
+                        }
+                    }
+                } catch (RpcException e) {
+                    // Their versions cannot be read, so grace answers for none of them: they fall through to
+                    // the sync check, which compares them instead.
+                    LOG.warn("can not read the versions of the partitions in grace", e);
+                }
+            }
+        }
         Set<String> mtmvNeedComparePartitions = null;
         MTMVRefreshContext refreshContext = null;
         PreparedPartitionSnapshots partitionSnapshots = null;
-        // check gracePeriod
-        long gracePeriodMills = mtmv.getGracePeriod();
         for (Partition partition : allPartitions) {
             // Which MV partitions the query's base partitions are mapped from is a fact about the query, not
             // about this MV partition, and a base partition the query reads that no MV partition is mapped
@@ -125,15 +153,14 @@ public class MTMVRewriteUtil {
             // widen the keys an MV partition covers, which drops the populated one and adds an empty
             // replacement, and its creation time would let the grace period admit it before any refresh has
             // read it -- a query rewritten to it then reads no rows at all, including the ones the base
-            // partitions it is to hold carry. Grace answers for a partition a refresh has written, which is
-            // what its version says: the version of a written partition, even one a refresh left empty, is not
-            // the one it started at, while a replacement keeps that one and its creation time. Neither the
-            // refresh snapshot nor `hasData` can be asked -- the snapshot is keyed by the partition's name, and
-            // distinct keys can generate the same name, while on cloud `hasData` answers true for a session
-            // that turned empty-partition pruning off, whatever the partition's version is.
+            // partitions it is to hold carry. Grace answers for a partition a refresh has written, which the
+            // version read above says, and for no other: neither the refresh snapshot nor `hasData` can be
+            // asked -- the snapshot is keyed by the partition's name, and distinct keys can generate the same
+            // name, while on cloud `hasData` answers true for a session that turned empty-partition pruning
+            // off, whatever the partition's version is.
             if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
                     + gracePeriodMills) && !forceConsistent
-                    && partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
+                    && writtenPartitionsInGrace.contains(partition.getName())) {
                 res.add(partition);
                 continue;
             }
