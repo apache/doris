@@ -123,10 +123,15 @@ public class HboStatsCalculator extends StatsCalculator {
         if (expansionStats != null) {
             return expansionStats;
         }
-        // 3) learned (join / aggregation keys never carry literals)
-        Statistics learnedStats = applyLearnedStats(
-                joinNode, GroupStructInfo.LiteralMode.NO_LITERAL, legacyStats);
-        return learnedStats == null ? legacyStats : learnedStats;
+        // 3) learned: the same modes as the pinned lookup, most specific first, so a learned entry
+        //    which was injected for the printed literal carrying key is honored as well
+        for (GroupStructInfo.LiteralMode mode : JOIN_AGG_LOOKUP_MODES) {
+            Statistics learnedStats = applyLearnedStats(joinNode, mode, legacyStats);
+            if (learnedStats != null) {
+                return learnedStats;
+            }
+        }
+        return legacyStats;
     }
 
     /**
@@ -235,8 +240,14 @@ public class HboStatsCalculator extends StatsCalculator {
         // e.g, logical one likes "count(*) AS `count(*)`#4"
         //      local physical one likes "partial_count(*) AS `partial_count(*)`#5"
         //      global physical one likes "count(partial_count(*)#5) AS `count(*)`#4"
-        return getStatsFromHboPlanStats((AbstractPlan) aggregate, legacyStats,
-                GroupStructInfo.LiteralMode.NO_LITERAL, null);
+        for (GroupStructInfo.LiteralMode mode : JOIN_AGG_LOOKUP_MODES) {
+            Statistics learnedStats = getStatsFromHboPlanStats((AbstractPlan) aggregate, legacyStats,
+                    mode, null);
+            if (learnedStats != null) {
+                return learnedStats;
+            }
+        }
+        return null;
     }
 
     /**

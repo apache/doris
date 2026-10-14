@@ -66,11 +66,23 @@ public interface MutableState {
 
     MutableState set(String key, Object value);
 
+    /**
+     * A holder with the same entries as this one. {@code set} of a multi state mutates the holder it is
+     * called on, so a holder must not be shared between two plans: they would observe each other's later
+     * writes (a rebuilt node and the node it replaces, for instance).
+     */
+    MutableState copy();
+
     /** EmptyMutableState */
     class EmptyMutableState implements MutableState {
         public static final EmptyMutableState INSTANCE = new EmptyMutableState();
 
         private EmptyMutableState() {}
+
+        @Override
+        public MutableState copy() {
+            return this;
+        }
 
         @Override
         public <T> Optional<T> get(String key) {
@@ -103,6 +115,13 @@ public interface MutableState {
         public MutableState set(String key, Object value) {
             states.put(key, value);
             return this;
+        }
+
+        @Override
+        public MutableState copy() {
+            MultiMutableState copied = new MultiMutableState();
+            copied.states.putAll(states);
+            return copied;
         }
 
         @Override

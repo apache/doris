@@ -110,7 +110,9 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
      * {@code resetLogicalProperties}) keeps the states it was given, e.g. the group it was chosen for.
      */
     public void copyMutableStatesFrom(AbstractTreeNode<?> from) {
-        this.mutableState = from.mutableState;
+        // a copy, not the holder itself: MutableState.set mutates the holder it is called on, so two
+        // plans sharing one would observe each other's later writes
+        this.mutableState = from.mutableState.copy();
     }
 
     @Override

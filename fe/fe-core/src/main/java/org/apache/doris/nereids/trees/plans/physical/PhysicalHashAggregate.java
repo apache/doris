@@ -264,9 +264,10 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHashAggregate<>(groupByExpressions, newOutput,
-                partitionExpressions, aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                physicalProperties, statistics, hasSourceRepeat, child()));
+        return AbstractPlan.rebuildKeepingStates(this, AbstractPlan.copyWithSameId(this,
+                () -> new PhysicalHashAggregate<>(groupByExpressions, newOutput,
+                        partitionExpressions, aggregateParam, maybeUsingStream, getGroupExpression(),
+                        getLogicalProperties(), physicalProperties, statistics, hasSourceRepeat, child())));
     }
 
     @Override

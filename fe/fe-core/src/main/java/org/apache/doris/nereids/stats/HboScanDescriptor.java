@@ -333,7 +333,7 @@ public class HboScanDescriptor {
         return rowsKind != RowsKind.UNKNOWN;
     }
 
-    /** Whether two row counts may be compared with each other. */
+    /** Whether two row counts may be compared with each other. Used by the freshness guard. */
     public static boolean isRowCountComparable(HboScanDescriptor left, HboScanDescriptor right) {
         return left.hasScanRows() && right.hasScanRows() && left.getRowsKind() == right.getRowsKind();
     }

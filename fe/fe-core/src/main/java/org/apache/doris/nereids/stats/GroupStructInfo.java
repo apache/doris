@@ -409,11 +409,7 @@ public class GroupStructInfo {
      * children instead of describing their sub trees again.
      */
     public static GroupStructInfo of(Group group) {
-        if (group.getLogicalExpressions().isEmpty()) {
-            // physical only group: nothing to describe
-            return INVALID;
-        }
-        return group.getOrComputeHboStructInfo();
+        return describeGroup(group);
     }
 
     public static GroupStructInfo describeGroup(Group group) {
@@ -597,9 +593,11 @@ public class GroupStructInfo {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
         } else if (plan instanceof LogicalCTEAnchor || plan instanceof PhysicalCTEAnchor) {
-            // the value of an anchor is its consumer side, which is its first child
-            if (ge.arity() >= 1) {
-                appendChild(ge, 0, out, ctx);
+            // the value of an anchor is its consumer side: the producer is the first child and the plan
+            // which consumes it is the second one (LogicalCTEAnchor.computeOutput is right().getOutput(),
+            // and the translator executes child(0) and returns child(1))
+            if (ge.arity() >= 2) {
+                appendChild(ge, 1, out, ctx);
             } else {
                 invalid(ctx, "arity=" + ge.arity() + " of " + plan.getClass().getSimpleName());
             }
@@ -1172,6 +1170,12 @@ public class GroupStructInfo {
         for (Expression conjunct : join.getOtherJoinConjuncts()) {
             addCondition(conjunct, conditions, conditionsNoLiteral);
         }
+        // a mark join carries its correlation condition in the mark conjuncts, and the translator turns
+        // them into the hash condition of the executed null aware join: they decide which rows the node
+        // keeps, so two mark joins which differ only in that condition must not share a key
+        for (Expression conjunct : join.getMarkJoinConjuncts()) {
+            addCondition(conjunct, conditions, conditionsNoLiteral);
+        }
     }
 
     private static void addCondition(Expression conjunct,
@@ -1468,7 +1472,7 @@ public class GroupStructInfo {
     public static Optional<String> skipReasonOfPlanNode(AbstractPlan planNode,
             Map<Integer, Group> groupsById) {
         Group group = resolveGroup(planNode, groupsById);
-        if (group == null || group.getLogicalExpressions().isEmpty()) {
+        if (group == null) {
             return Optional.empty();
         }
         GroupStructInfo structInfo = group.getOrComputeHboStructInfo();

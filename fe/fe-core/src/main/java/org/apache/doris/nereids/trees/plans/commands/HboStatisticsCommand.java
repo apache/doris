@@ -300,11 +300,6 @@ public class HboStatisticsCommand extends Command {
                     + " its STRUCT must be the group canonical: STRUCT='J{...}(...)'. A JE{...}"
                     + " condition canonical is only read by TYPE=JOIN_EXPANSION");
         }
-        if (keyedEntry && type != PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL
-                && (structCanonical.startsWith("J{") || structCanonical.startsWith("A{"))) {
-            throw new AnalysisException("a join / aggregation entry has no literal carrying form"
-                    + " (their canonical is always constant agnostic), use LITERAL_MODE=NO_LITERAL");
-        }
         if (keyedEntry && type == PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL) {
             throw new AnalysisException("a join expansion entry is keyed by the constant agnostic"
                     + " condition canonical, use LITERAL_MODE=NO_LITERAL");
