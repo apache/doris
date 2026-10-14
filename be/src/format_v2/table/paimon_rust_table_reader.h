@@ -121,11 +121,13 @@ private:
     // apply it to the read builder. Best effort: non-convertible conjuncts are
     // dropped silently and re-applied by the scanner row-level filter.
     Status _apply_predicate();
-    // Fill the output block from one arrow record batch: arrow columns are
-    // matched by name (exact then lower-case, v1 semantics) onto fixed projected
-    // positions, then _fill_non_arrow_columns back-fills the rest.
+    // Fill the output block from [start, start + rows) of one arrow record batch:
+    // arrow columns are matched by name (exact then lower-case, v1 semantics)
+    // onto fixed projected positions, then _fill_non_arrow_columns back-fills
+    // the rest. Keeping the original batch avoids non-zero Arrow array offsets,
+    // which Doris' Arrow SerDes intentionally reject.
     Status _fill_block_from_record_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                         Block* block, size_t rows);
+                                         Block* block, size_t start, size_t rows);
     // Materialize projected columns the arrow batch did not contain: partition
     // constants, default expressions, or a default/NULL fill as a last resort.
     Status _fill_non_arrow_columns(Block* block, size_t rows,

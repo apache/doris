@@ -23,12 +23,11 @@
 // `a <=> NULL` -> `a IS NULL`), and this suite also disables that rewrite to
 // verify the BE converter preserves a non-null literal as equality.
 //
-// Both differential legs run with force_jni_scanner=true: these parquet
-// append tables convert to raw native splits, which getSplits() would
-// otherwise prefer — both legs would silently use the native reader and
-// never reach the JNI / rust converters. The actual reader path is verified
-// per leg through the query profile (the rust reader's PaimonRustReader
-// timer group), and the join leg forces an IN runtime filter
+// The baseline explicitly forces JNI. The Rust leg clears that escape hatch
+// and enables the Rust reader, which is preferred over native raw-file reads
+// when compatible. The actual reader path is verified per leg through the
+// query profile (the Rust reader's PaimonRustReader timer group), and the join
+// leg forces an IN runtime filter
 // (runtime_filter_type=1 + runtime_filter_wait_infinitely) that must be
 // planned onto the probe scan and arrive before the split opens.
 import org.apache.doris.regression.action.ProfileAction
@@ -199,6 +198,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     def originalRfPrune = sql("select @@enable_runtime_filter_prune")[0][0]
     def originalRfMaxIn = sql("select @@runtime_filter_max_in_num")[0][0]
     def originalDisabledRules = sql("select @@disable_nereids_expression_rules")[0][0]
+    def originalTruncate = sql("select @@truncate_char_or_varchar_columns")[0][0]
 
     try {
         sql """switch ${catalogName}"""
@@ -208,11 +208,16 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         sql "ALTER TABLE t_narrowed MODIFY COLUMN v VARCHAR(3) NULL"
         sql "ALTER TABLE t_narrowed MODIFY COLUMN amount DECIMAL(10,2) NULL"
         sql """set enable_file_scanner_v2=true"""
-        // These tables are parquet append tables, whose DataSplits convert to
-        // raw native splits; without forcing, getSplits() would hand both legs
-        // to the native reader and bypass the JNI / rust converters entirely.
-        sql """set force_jni_scanner=true"""
-        sql "set enable_paimon_rust_reader=false"
+        def useJniReader = {
+            sql "set force_jni_scanner=true"
+            sql "set enable_paimon_rust_reader=false"
+        }
+        def useRustReader = {
+            sql "set force_jni_scanner=false"
+            sql "set enable_paimon_rust_reader=true"
+        }
+        useJniReader()
+        sql "set truncate_char_or_varchar_columns=true"
         // Verify the DDL really narrows historical values before testing filter pushdown.
         assertEquals([[1, "abc", "1.23"], [2, "xyz", "2.35"]].toString(),
                 sql("select id,v,cast(amount as string) from t_narrowed order by id").toString())
@@ -249,9 +254,9 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         String nonRewrittenEqForNull = "select * from t_eq_null where a <=> 1 order by a, b"
         sql "set disable_nereids_expression_rules='NULL_SAFE_EQUAL_TO_EQUAL'"
         try {
-            sql "set enable_paimon_rust_reader=false"
+            useJniReader()
             def expected = sql(nonRewrittenEqForNull)
-            sql "set enable_paimon_rust_reader=true"
+            useRustReader()
             def actual = sql(nonRewrittenEqForNull)
             assertEquals([[1, 1], [1, 2]].toString(), actual.toString())
             assertEquals(expected.toString(), actual.toString())
@@ -373,14 +378,14 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         // Representative converter query reused for the reader-path checks.
         String pushdownQuery = "select * from t_eq_null where a = 1 order by a, b"
 
-        sql """set enable_paimon_rust_reader=false"""
+        useJniReader()
         def jniResults = testQueries.collect { query -> sql(query) }
         // The JNI leg must ride the logical-split JNI reader: the profile of a
         // representative query must not contain the rust reader's timer.
         def jniProfile = profileTextOf(pushdownQuery, false)
         assertFalse(jniProfile.contains("PaimonRustReader"), "JNI leg must not use the rust reader")
 
-        sql """set enable_paimon_rust_reader=true"""
+        useRustReader()
         def rustResults = testQueries.collect { query -> sql(query) }
         // The rust leg must actually run the rust reader: its profile carries
         // the PaimonRustReader timer group, which only the rust reader creates.
@@ -461,13 +466,13 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         lossyJoins.eachWithIndex { String query, int index ->
             def plan = sql("explain verbose " + query).flatten().join("\n")
             assertTrue(plan.contains("runtime filters") && plan.contains("[in]"))
-            sql "set enable_paimon_rust_reader=false"
+            useJniReader()
             def expected = sql(query)
             assertFalse(expected.isEmpty(), query)
             if (index < 2) {
                 assertEquals([[1]].toString(), expected.toString(), query)
             }
-            sql "set enable_paimon_rust_reader=true"
+            useRustReader()
             assertEquals(expected.toString(), sql(query).toString())
             if (index == 2) {
                 def profile = profileTextOf(query)
@@ -496,9 +501,9 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
             def plan = sql("explain verbose " + query).flatten().join("\n")
             assertTrue(plan.contains("runtime filters") && plan.contains("[in]"))
             def expected = [[keyCount, keyCount - 1]].toString()
-            sql "set enable_paimon_rust_reader=false"
+            useJniReader()
             assertEquals(expected, sql(query).toString())
-            sql "set enable_paimon_rust_reader=true"
+            useRustReader()
             assertEquals(expected, sql(query).toString())
             def profile = profileTextOf(query)
             assertTrue(profile.contains("PaimonRustReader"))
@@ -523,10 +528,10 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
             ["parquet", "orc"].each { format ->
                 String query = """select id, cast(ts_tz as string)
                     from t_ltz_${format} order by id"""
-                sql "set enable_paimon_rust_reader=false"
+                useJniReader()
                 def baseline = sql(query)
                 assertEquals(expected.toString(), baseline.toString(), "JNI ${format} ${zone}")
-                sql "set enable_paimon_rust_reader=true"
+                useRustReader()
                 def actual = sql(query)
                 assertEquals(expected.toString(), actual.toString(), "Rust-enabled ${format} ${zone}")
                 assertEquals(baseline.toString(), actual.toString())
@@ -545,9 +550,9 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         // above) stays exact.
         for (tz in ['+00:00', '+08:00']) {
             sql """set time_zone='${tz}'"""
-            sql """set enable_paimon_rust_reader=false"""
+            useJniReader()
             def jniNtz = sql """select id from t_frac_ts where ts = '2024-01-01 00:00:00.123' order by id"""
-            sql """set enable_paimon_rust_reader=true"""
+            useRustReader()
             def rustNtz = sql """select id from t_frac_ts where ts = '2024-01-01 00:00:00.123' order by id"""
             assertEquals(jniNtz.toString(), rustNtz.toString())
             assertEquals("[[2]]", rustNtz.toString())
@@ -568,6 +573,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         sql "set runtime_filter_max_in_num=${originalRfMaxIn}"
         sql "set enable_runtime_filter_prune=${originalRfPrune}"
         sql "set disable_nereids_expression_rules='${originalDisabledRules}'"
+        sql "set truncate_char_or_varchar_columns=${originalTruncate}"
         sql """unset variable time_zone;"""
         sql """drop catalog if exists ${catalogName}"""
     }

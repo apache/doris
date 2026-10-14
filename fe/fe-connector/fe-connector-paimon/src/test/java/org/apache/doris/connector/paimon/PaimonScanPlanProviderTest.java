@@ -1111,6 +1111,56 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void explicitlyEnabledRustReaderPrecedesNativeAndForceJniStillWins(
+            @TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "rust_reader_priority");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .option("file.format", "parquet")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            commitRows(table, GenericRow.of(1));
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "rust_reader_priority", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> columns = Collections.singletonList(
+                    new PaimonColumnHandle("id", 0));
+
+            Map<String, String> rustProperties = new HashMap<>();
+            rustProperties.put("enable_paimon_rust_reader", "true");
+            rustProperties.put("enable_file_scanner_v2", "true");
+            rustProperties.put("force_jni_scanner", "false");
+            ConnectorScanRequest rustRequest = ConnectorScanRequest.builder(handle, columns)
+                    .backendCapabilities(Collections.singleton(
+                            PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                    .build();
+            List<ConnectorScanRange> rustRanges = provider.planScan(
+                    sessionWithProps(rustProperties), rustRequest);
+            Assertions.assertFalse(rustRanges.isEmpty());
+            Assertions.assertTrue(rustRanges.stream().allMatch(range -> "PAIMON_RUST".equals(
+                            range.getProperties().get("paimon.reader_type"))),
+                    "explicitly enabled compatible Rust reads must precede native raw-file routing");
+
+            Map<String, String> forceJniProperties = new HashMap<>(rustProperties);
+            forceJniProperties.put("force_jni_scanner", "true");
+            List<ConnectorScanRange> jniRanges = provider.planScan(
+                    sessionWithProps(forceJniProperties), rustRequest);
+            Assertions.assertFalse(jniRanges.isEmpty());
+            Assertions.assertTrue(jniRanges.stream().allMatch(range -> "PAIMON_JNI".equals(
+                            range.getProperties().get("paimon.reader_type"))),
+                    "force_jni_scanner must override an explicitly enabled Rust reader");
+        }
+    }
+
     private static void commitRows(Table table, GenericRow... rows) throws Exception {
         BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
         try (BatchTableWrite write = writeBuilder.newWrite()) {
@@ -3045,6 +3095,19 @@ public class PaimonScanPlanProviderTest {
                     ConnectorScanRequest.builder(handle, metadataProjection).build());
             Assertions.assertFalse(nativeRanges.isEmpty());
             Assertions.assertTrue(nativeRanges.stream().allMatch(range -> range.getPath().isPresent()));
+
+            Map<String, String> rustProperties = new HashMap<>();
+            rustProperties.put("enable_paimon_rust_reader", "true");
+            rustProperties.put("enable_file_scanner_v2", "true");
+            List<ConnectorScanRange> rustEnabledMetadataRanges = provider.planScan(
+                    sessionWithProps(rustProperties),
+                    ConnectorScanRequest.builder(handle, metadataProjection)
+                            .backendCapabilities(Collections.singleton(
+                                    PaimonRustReaderSelector.BACKEND_CAPABILITY))
+                            .build());
+            Assertions.assertTrue(rustEnabledMetadataRanges.stream()
+                            .allMatch(range -> range.getPath().isPresent()),
+                    "metadata columns must remain on the native reader when Rust is enabled");
 
             List<ConnectorScanRange> timestampRanges = provider.planScan(session,
                     ConnectorScanRequest.builder(handle,

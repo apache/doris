@@ -2970,7 +2970,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_PAIMON_RUST_READER,
             fuzzy = true,
-            description = "Use paimon-rust for eligible non-native Paimon reads")
+            description = "Prefer paimon-rust for eligible Paimon reads")
     private boolean enablePaimonRustReader = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,

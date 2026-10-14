@@ -68,12 +68,6 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
             PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
         sql "INSERT INTO ${fixtureDatabase}.rust_scan VALUES (1,11), (2,22), (3,NULL)"
         sql """use db1"""
-        // Force the logical (JNI / rust) reader path: the append parquet tables
-        // below (all_table, all_table_with_parquet, append_table, ...) convert
-        // to raw native splits, which getSplits() would otherwise prefer —
-        // both differential legs would silently use the native reader and
-        // never reach the JNI / rust converters.
-        sql """set force_jni_scanner=true"""
         // FileScannerV2 is the default; make the intent of this suite explicit.
         sql """set enable_file_scanner_v2=true"""
 
@@ -107,11 +101,14 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
                 """select * from deletion_vector_parquet order by id"""
         ]
 
-        // Default path is JNI when enable_paimon_rust_reader=false.
+        // Pin the baseline to JNI even for raw-convertible splits.
+        sql """set force_jni_scanner=true"""
         sql """set enable_paimon_rust_reader=false"""
         def jniResults = testQueries.collect { query -> sql(query) }
         assertFalse(profileTextOf(testQueries[0]).contains("PaimonRustReader"))
 
+        // Rust is preferred over the native raw-file reader only when explicitly enabled.
+        sql """set force_jni_scanner=false"""
         sql """set enable_paimon_rust_reader=true"""
         def rustResults = testQueries.collect { query -> sql(query) }
         // Equal rows are insufficient: an eligibility fallback can run JNI in both legs.
@@ -129,6 +126,7 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         // encodes PAIMON_RUST requests when enable_file_scanner_v2 is on (the V1
         // FileScanner rejects them), so with v2 disabled it selects JNI.
         sql """set enable_file_scanner_v2=false"""
+        sql """set force_jni_scanner=true"""
         def v1RustResults = testQueries.collect { query -> sql(query) }
         for (int i = 0; i < testQueries.size(); i++) {
             assertEquals(jniResults[i].toString(), v1RustResults[i].toString())

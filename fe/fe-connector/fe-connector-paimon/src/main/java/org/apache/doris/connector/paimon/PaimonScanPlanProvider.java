@@ -910,6 +910,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         boolean incrementalRead = pinnedOptions.containsKey("incremental-between")
                 || pinnedOptions.containsKey("incremental-between-timestamp");
         PaimonRustReaderSelector rustReaderSelector = table instanceof FileStoreTable
+                && !requiresMetadataColumns
                 ? new PaimonRustReaderSelector(session, backendsSupportRust,
                         (FileStoreTable) table, columns, backendStorageProperties(),
                         usesFallbackRead(table, paimonHandle), incrementalRead, hasVariantProjection)
@@ -987,6 +988,19 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> partitionValues = getPartitionInfoMap(
                     table, dataSplit.partition(), session.getTimeZone());
 
+            // Explicitly enabling Rust makes it the preferred implementation for a compatible
+            // split. force_jni_scanner is part of the selector gate, so the documented JNI escape
+            // hatch still wins. With Rust disabled or rejected, native/JNI routing is unchanged.
+            boolean rustEligible = rustReaderSelector != null && rustReaderSelector.canRead(dataSplit);
+            if (rustEligible) {
+                if (rustScanMetadata == null) {
+                    rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
+                }
+                ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
+                        defaultFileFormat, partitionValues, weightDenominator));
+                continue;
+            }
+
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
@@ -1029,7 +1043,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             dataSplit.bucket()));
                 }
             } else {
-                // Logical reader path: use paimon-rust only for the compatibility-checked subset.
+                // Logical fallback after Rust/native eligibility checks.
                 if (ignoreJni) {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
@@ -1040,16 +1054,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         legacyOrcSchemaTable.get(), dataSplit))) {
                     validateMetadataColumnReader(true, false);
                 }
-                if (rustReaderSelector != null && rustReaderSelector.canRead(dataSplit)) {
-                    if (rustScanMetadata == null) {
-                        rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
-                    }
-                    ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
-                            defaultFileFormat, partitionValues, weightDenominator));
-                } else {
-                    ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
-                            partitionValues, true, weightDenominator));
-                }
+                ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
+                        partitionValues, true, weightDenominator));
             }
         }
 

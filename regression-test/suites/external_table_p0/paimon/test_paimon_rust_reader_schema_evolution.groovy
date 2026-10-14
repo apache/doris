@@ -88,11 +88,6 @@ suite("test_paimon_rust_reader_schema_evolution", "p0,external,paimon") {
         sql """ALTER TABLE `${tableName}` ADD COLUMN added_after STRING NULL AFTER name"""
 
         sql """SET enable_file_scanner_v2=true"""
-        // The table's DataSplits stay logical either way, but pin the JNI/rust
-        // reader path explicitly so the differential cannot silently fall back
-        // to the native converter.
-        sql """SET force_jni_scanner=true"""
-
         def testQueries = [
                 // The added column must project and read back NULL-filled for
                 // the historical rows.
@@ -104,10 +99,12 @@ suite("test_paimon_rust_reader_schema_evolution", "p0,external,paimon") {
         ]
 
         // Baseline through the JNI reader, which keeps the resolved schema.
+        sql """SET force_jni_scanner=true"""
         sql """SET enable_paimon_rust_reader=false"""
         def jniResults = testQueries.collect { query -> sql(query) }
         assertFalse(profileTextOf(testQueries[0]).contains("PaimonRustReader"))
 
+        sql """SET force_jni_scanner=false"""
         sql """SET enable_paimon_rust_reader=true"""
         def rustResults = testQueries.collect { query -> sql(query) }
         // Equal rows are insufficient: an eligibility fallback can run JNI in both legs.

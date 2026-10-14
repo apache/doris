@@ -116,29 +116,29 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             assertFalse(values.isEmpty(), "missing Parquet RawRowsRead counter")
             values
         }
-        // Rust only replaces logical JNI splits. Native raw-file splits must retain footer
-        // aggregation with Rust enabled; result equality alone would hide a full-scan regression.
+        // With Rust disabled, the default native raw-file path must retain footer aggregation;
+        // result equality alone would hide a full-scan regression. Explicitly enabling Rust is
+        // intentionally tested by the positive Rust-reader cases above and below.
         sql "set force_jni_scanner=false"
+        sql "set enable_paimon_rust_reader=false"
         aggregateQueries.each { entry ->
-            [false, true].each { rustEnabled ->
-                sql "set enable_paimon_rust_reader=${rustEnabled}"
-                [false, true].each { pushdown ->
-                    sql "set enable_push_down_no_group_agg=${pushdown}"
-                    explain {
-                        sql(entry[0])
-                        contains "pushdown agg=${pushdown ? entry[2] : 'NONE'}"
-                        contains "paimonNativeReadSplits="
-                    }
-                    assertEquals(entry[1].toString(), sql(entry[0]).toString())
-                    def queryId = sql("select last_query_id()")[0][0].toString()
-                    def profile = profiles.getProfile(queryId, ["FileScannerV2", "ParquetReader", "Profile Completion State: COMPLETE"])
-                    assertFalse(profile.contains("PaimonRustReader"))
-                    def rows = rawRows(profile)
-                    if (pushdown) {
-                        assertTrue(rows.every { it == 0 }, "footer aggregate must not read data rows")
-                    } else {
-                        assertTrue(rows.any { it > 0 }, "full-scan control must read data rows")
-                    }
+            [false, true].each { pushdown ->
+                sql "set enable_push_down_no_group_agg=${pushdown}"
+                explain {
+                    sql(entry[0])
+                    contains "pushdown agg=${pushdown ? entry[2] : 'NONE'}"
+                    contains "paimonNativeReadSplits="
+                }
+                assertEquals(entry[1].toString(), sql(entry[0]).toString())
+                def queryId = sql("select last_query_id()")[0][0].toString()
+                def profile = profiles.getProfile(queryId,
+                        ["FileScannerV2", "ParquetReader", "Profile Completion State: COMPLETE"])
+                assertFalse(profile.contains("PaimonRustReader"))
+                def rows = rawRows(profile)
+                if (pushdown) {
+                    assertTrue(rows.every { it == 0 }, "footer aggregate must not read data rows")
+                } else {
+                    assertTrue(rows.any { it > 0 }, "full-scan control must read data rows")
                 }
             }
         }

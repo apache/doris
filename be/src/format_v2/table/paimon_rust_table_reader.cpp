@@ -297,8 +297,8 @@ Status PaimonRustTableReader::get_block(Block* block, bool* eos) {
         const size_t remaining = static_cast<size_t>(_pending_record_batch->num_rows()) -
                                  _pending_record_batch_offset;
         const size_t rows = std::min(batch_size, remaining);
-        auto record_batch = _pending_record_batch->Slice(_pending_record_batch_offset, rows);
-        RETURN_IF_ERROR(_fill_block_from_record_batch(record_batch, block, rows));
+        RETURN_IF_ERROR(_fill_block_from_record_batch(_pending_record_batch, block,
+                                                      _pending_record_batch_offset, rows));
         _pending_record_batch_offset += rows;
         if (_pending_record_batch_offset ==
             static_cast<size_t>(_pending_record_batch->num_rows())) {
@@ -595,10 +595,13 @@ Status PaimonRustTableReader::_apply_predicate() {
 }
 
 Status PaimonRustTableReader::_fill_block_from_record_batch(
-        const std::shared_ptr<arrow::RecordBatch>& batch, Block* block, size_t rows) {
+        const std::shared_ptr<arrow::RecordBatch>& batch, Block* block, size_t start, size_t rows) {
     SCOPED_TIMER(_rust_arrow_to_block_time);
     DORIS_CHECK(batch != nullptr);
     DORIS_CHECK(block != nullptr);
+    DORIS_CHECK_LE(start + rows, static_cast<size_t>(batch->num_rows()));
+    const auto arrow_start = static_cast<int64_t>(start);
+    const auto arrow_end = static_cast<int64_t>(start + rows);
     std::unordered_set<size_t> materialized_indices;
     materialized_indices.reserve(_projected_columns.size());
     {
@@ -631,8 +634,8 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
                 RETURN_IF_ERROR(columns_guard.get_datatype_by_position(output_idx)
                                         ->get_serde()
                                         ->read_column_from_arrow(*columns[output_idx],
-                                                                 batch->column(c).get(), 0, rows,
-                                                                 _ctz));
+                                                                 batch->column(c).get(),
+                                                                 arrow_start, arrow_end, _ctz));
             } catch (Exception& e) {
                 return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
             }

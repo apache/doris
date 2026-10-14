@@ -25,12 +25,10 @@
 // them; the rust reader must match. Cast-induced NULL semantics
 // (`CAST(s AS INT) IS NULL`) are covered the same way.
 //
-// Both differential legs run with force_jni_scanner=true: these parquet
-// append tables convert to raw native splits, which getSplits() would
-// otherwise prefer — both legs would silently use the native reader and
-// never reach the JNI / rust converters. The actual reader path is verified
-// per leg through the query profile (the rust reader's PaimonRustReader
-// timer group).
+// The baseline explicitly forces JNI. The Rust leg clears that escape hatch
+// and enables the Rust reader, which is preferred over native raw-file reads
+// when compatible. The actual reader path is verified per leg through the
+// query profile (the Rust reader's PaimonRustReader timer group).
 import org.apache.doris.regression.action.ProfileAction
 
 suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
@@ -95,10 +93,6 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
         sql """set enable_file_scanner_v2=true"""
-        // These are parquet append tables whose DataSplits convert to raw
-        // native splits; force the logical (JNI / rust) reader path so the
-        // differential actually exercises both converters.
-        sql """set force_jni_scanner=true"""
         sql """set enable_profile=true"""
         sql "set truncate_char_or_varchar_columns=true"
 
@@ -156,6 +150,7 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
         // Representative scale-cast query reused for the reader-path checks.
         String scaleCastQuery = testQueries[0]
 
+        sql """set force_jni_scanner=true"""
         sql """set enable_paimon_rust_reader=false"""
         def jniResults = testQueries.collect { query -> sql(query) }
         // The JNI leg must ride the logical-split JNI reader: the profile of
@@ -163,6 +158,7 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
         def jniProfile = profileTextOf(scaleCastQuery, false)
         assertFalse(jniProfile.contains("PaimonRustReader"), "JNI leg must not use the rust reader")
 
+        sql """set force_jni_scanner=false"""
         sql """set enable_paimon_rust_reader=true"""
         def rustResults = testQueries.collect { query -> sql(query) }
         // The rust leg must actually run the rust reader: its profile carries
