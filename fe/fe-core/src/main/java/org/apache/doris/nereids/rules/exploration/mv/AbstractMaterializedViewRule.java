@@ -390,7 +390,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 if (needBaseTableUnion) {
                     Pair<Plan, Boolean> planAndNeedAddFilterPair =
-                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(), cascadesContext);
+                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(),
+                                    invalidPartitions.key(), cascadesContext);
                     if (planAndNeedAddFilterPair == null) {
                         materializationContext.recordFailReason(queryStructInfo,
                                 "Add filter to base table fail when union rewrite",
