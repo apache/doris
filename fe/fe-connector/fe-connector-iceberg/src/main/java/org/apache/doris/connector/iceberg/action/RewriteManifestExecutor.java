@@ -23,15 +23,18 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.RewriteManifests;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.events.CreateSnapshotEvent;
 import org.apache.iceberg.util.PropertyUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -90,29 +93,24 @@ public class RewriteManifestExecutor {
             }
 
             // Without a cluster function Iceberg rewrites nothing (BaseRewriteManifests.requiresRewrite) and only
-            // commits a snapshot that keeps every manifest. Optionally restrict the rewrite to one spec.
-            RewriteManifests rm = table.rewriteManifests().clusterBy(RewriteManifestExecutor::clusterKey);
-
-            if (specId != null) {
-                final int targetSpecId = specId;
-                rm.rewriteIf(manifest -> manifest.partitionSpecId() == targetSpecId);
-            }
-
-            // Commit manifest rewrite
+            // commits a snapshot that keeps every manifest. Only the targeted manifests are rewritten: a manifest
+            // that another writer commits before the rewrite applies is kept as it is. Such a manifest can be of a
+            // partition spec added after the table was loaded, which the rewrite cannot write, because it takes
+            // the specs of the table it is created from.
+            Set<String> targetedPaths = manifestsBeforeTargeted.stream()
+                    .map(ManifestFile::path)
+                    .collect(Collectors.toSet());
+            RewriteManifests rm = table.rewriteManifests()
+                    .clusterBy(RewriteManifestExecutor::clusterKey)
+                    .rewriteIf(manifest -> targetedPaths.contains(manifest.path()));
             rm.commit();
 
-            // Count the targeted manifests the rewrite replaced and the manifests it wrote in their place
-            Set<String> beforePaths = manifestsBeforeTargeted.stream()
-                    .map(ManifestFile::path)
-                    .collect(Collectors.toSet());
-            Set<String> afterPaths = filterBySpecId(table.currentSnapshot().dataManifests(table.io()), specId)
-                    .stream()
-                    .map(ManifestFile::path)
-                    .collect(Collectors.toSet());
-            int rewrittenCount = (int) beforePaths.stream().filter(path -> !afterPaths.contains(path)).count();
-            int addedCount = (int) afterPaths.stream().filter(path -> !beforePaths.contains(path)).count();
-
-            return new Result(rewrittenCount, addedCount);
+            // Count the manifests replaced and written by the snapshot this rewrite committed. Iceberg builds the
+            // event of that snapshot after the commit (SnapshotProducer.notifyListeners), while the table's current
+            // snapshot can already be another one.
+            Map<String, String> summary = ((CreateSnapshotEvent) rm.updateEvent()).summary();
+            return new Result(Integer.parseInt(summary.get(SnapshotSummary.REPLACED_MANIFESTS_COUNT)),
+                    Integer.parseInt(summary.get(SnapshotSummary.CREATED_MANIFESTS_COUNT)));
         } catch (Exception e) {
             LOG.warn("Failed to execute manifest rewrite for table: {}", table.name(), e);
             throw new DorisConnectorException("Failed to rewrite manifests: " + e.getMessage(), e);

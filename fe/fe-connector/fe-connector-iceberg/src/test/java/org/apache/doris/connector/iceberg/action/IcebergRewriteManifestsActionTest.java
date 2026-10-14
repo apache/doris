@@ -195,10 +195,77 @@ public class IcebergRewriteManifestsActionTest {
                 "no snapshot is committed");
     }
 
+    @Test
+    public void keepsAManifestCommittedAfterTheTableWasLoaded() {
+        // The rewrite targets the manifests of the snapshot the table was loaded with. A manifest that another
+        // writer commits before the rewrite applies is kept as it is, and the counts are those of the snapshot
+        // the rewrite committed, which the table's manifests before and after it would not give.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        ActionTestTables.appendSnapshot(catalog, "t", "f1.parquet", 1L);
+        ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
+        Table loaded = catalog.loadTable(id);
+        ActionTestTables.appendSnapshot(catalog, "t", "f3.parquet", 3L);
+        Set<String> concurrentManifests = manifestPaths(catalog.loadTable(id));
+        concurrentManifests.removeAll(manifestPaths(loaded));
+        Assertions.assertEquals(1, concurrentManifests.size());
+
+        ConnectorProcedureResult result = rewrite(loaded);
+
+        Assertions.assertEquals(ImmutableList.of("2", "1"), result.getRows().get(0));
+        Table after = catalog.loadTable(id);
+        Set<String> manifestsAfter = manifestPaths(after);
+        Assertions.assertEquals(2, manifestsAfter.size(), manifestsAfter.toString());
+        Assertions.assertTrue(manifestsAfter.containsAll(concurrentManifests), manifestsAfter.toString());
+        Assertions.assertEquals(3, Iterables.size(after.newScan().planFiles()), "every data file is kept");
+    }
+
+    @Test
+    public void keepsAManifestOfAPartitionSpecAddedAfterTheTableWasLoaded() {
+        // Iceberg's RewriteManifests takes the partition specs of the table it is created from, so it cannot
+        // rewrite a manifest of a spec that another writer adds after the table was loaded: a rewrite that
+        // reached it failed with a NullPointerException. That manifest is kept as it is. The other writer fast
+        // appends, because a merge append would also merge the manifests of the old spec.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        ActionTestTables.appendSnapshot(catalog, "t", "f1.parquet", 1L);
+        ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
+        Table loaded = catalog.loadTable(id);
+        catalog.loadTable(id).updateSpec().addField("id").commit();
+        Table evolved = catalog.loadTable(id);
+        evolved.newFastAppend().appendFile(partitionedFile(evolved.spec(), "f3.parquet", 3)).commit();
+
+        ConnectorProcedureResult result = rewrite(loaded);
+
+        Assertions.assertEquals(ImmutableList.of("2", "1"), result.getRows().get(0));
+        Table after = catalog.loadTable(id);
+        List<Integer> specIds = new ArrayList<>();
+        for (ManifestFile manifest : after.currentSnapshot().dataManifests(after.io())) {
+            specIds.add(manifest.partitionSpecId());
+        }
+        Collections.sort(specIds);
+        Assertions.assertEquals(Arrays.asList(0, 1), specIds);
+        Assertions.assertEquals(3, Iterables.size(after.newScan().planFiles()), "every data file is kept");
+    }
+
     private static ConnectorProcedureResult rewriteAll(InMemoryCatalog catalog) {
+        return rewrite(catalog.loadTable(ActionTestTables.id("t")));
+    }
+
+    private static ConnectorProcedureResult rewrite(Table table) {
         IcebergRewriteManifestsAction action = action(Collections.emptyMap());
         action.validate();
-        return action.execute(catalog.loadTable(ActionTestTables.id("t")), ActionTestTables.session("UTC"));
+        return action.execute(table, ActionTestTables.session("UTC"));
+    }
+
+    private static Set<String> manifestPaths(Table table) {
+        Set<String> paths = new HashSet<>();
+        for (ManifestFile manifest : table.currentSnapshot().dataManifests(table.io())) {
+            paths.add(manifest.path());
+        }
+        return paths;
     }
 
     private static DataFile partitionedFile(PartitionSpec spec, String fileName, Object... partitionValues) {
