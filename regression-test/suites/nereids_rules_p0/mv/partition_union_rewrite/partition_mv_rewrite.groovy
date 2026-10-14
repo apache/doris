@@ -386,20 +386,9 @@ suite("partition_mv_rewrite") {
 
     // test when mv is partition roll up
     sql "SET enable_materialized_view_rewrite=true"
-    // The mv's partition_sync_limit window is a window of now, and this fixture's base partitions are fixed
-    // dates: none of them is inside it, so the mv partition is recorded with none of the partitions the
-    // query reads and is not offered as an answer to it -- the grace period used to answer for it before the
-    // coverage was read, which is the hole this fixes. A query over partitions the window keeps still
-    // rewrites.
-    // Not even a candidate: the memo carries no rewrite step for it, neither chosen nor failed. The mv's
-    // partition_sync_limit window is a window of now and this fixture's base partitions are fixed dates, so
-    // none of them is inside it, and the mv partition is recorded with none of the partitions the query
-    // reads -- the grace period used to answer for it before the coverage was read, which is the hole this
-    // fixes. A query over partitions the window keeps still rewrites.
-    explain {
-        sql(" memo plan ${query_ttl_all_partition_sql}")
-        check { result -> !result.contains(".${ttl_mv_name}") }
-    }
+    // should rewrite successful when union rewrite enable and mv is ttl, query the partition which is in mv
+    mv_rewrite_success(query_ttl_all_partition_sql, ttl_mv_name,
+            is_partition_statistics_ready(db, ["lineitem_static", "orders", ttl_mv_name]))
 
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_16_0_before "${query_ttl_partition_sql}"
