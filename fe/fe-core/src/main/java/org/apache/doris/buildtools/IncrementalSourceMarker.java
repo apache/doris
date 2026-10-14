@@ -21,10 +21,11 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -40,6 +41,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Stream;
 
 /**
  * Computes the set of sources which must be recompiled after a local edit and marks them for the
@@ -72,11 +74,15 @@ import java.util.TreeSet;
  */
 public class IncrementalSourceMarker {
     /** Bump it whenever the cached facts change, then the index is rebuilt from scratch. */
-    private static final int FORMAT_VERSION = 1;
+    private static final int FORMAT_VERSION = 2;
 
     /** The java keywords which introduce a type name. {@code interface} also covers {@code @interface}. */
     private static final Set<String> DECLARATION_KEYWORDS = new HashSet<>(
             Arrays.asList("class", "interface", "enum", "record"));
+
+    /** The keywords which introduce the supertypes of a type, i.e. what it inherits from. */
+    private static final Set<String> SUPERTYPE_KEYWORDS = new HashSet<>(
+            Arrays.asList("extends", "implements"));
 
     /**
      * The reserved java keywords, which can never be a type name. They are dropped from the mentioned
@@ -96,23 +102,27 @@ public class IncrementalSourceMarker {
     public static void main(String[] args) throws Exception {
         long startNanos = System.nanoTime();
         Map<String, String> options = parseOptions(args);
-        List<File> sourceRoots = splitPaths(requireOption(options, "sources"));
-        File touchRoot = new File(requireOption(options, "touch-root")).getCanonicalFile();
-        File cacheFile = new File(requireOption(options, "cache"));
-        File classesDir = options.containsKey("classes")
-                ? new File(options.get("classes")).getCanonicalFile() : null;
+        List<Path> sourceRoots = canonicalRoots(requireOption(options, "sources"));
+        // Every path is derived from these canonical roots, so that a checkout reached through a
+        // symlink (mktemp gives /var/... on macOS, whose canonical form is /private/var/...) yields
+        // the same absolute paths here and in the index of the next run.
+        Path touchRoot = canonical(Paths.get(requireOption(options, "touch-root")));
+        Path cacheFile = Paths.get(requireOption(options, "cache"));
+        Path classesDir = options.containsKey("classes")
+                ? canonical(Paths.get(options.get("classes"))) : null;
 
-        List<File> sourceFiles = findJavaFiles(sourceRoots);
+        List<Path> sourceFiles = findJavaFiles(sourceRoots);
         SourceIndex index = SourceIndex.load(cacheFile);
 
         Map<String, Facts> factsByPath = new LinkedHashMap<>();
         List<Facts> derivedSources = new ArrayList<>();
         Map<String, List<String>> declaredBy = new TreeMap<>();
         Map<String, List<String>> referrersBy = new TreeMap<>();
+        Map<String, List<String>> subtypesBySuperType = new TreeMap<>();
         Set<String> changed = new TreeSet<>();
         int scanned = 0;
-        for (File sourceFile : sourceFiles) {
-            String path = sourceFile.getAbsolutePath();
+        for (Path sourceFile : sourceFiles) {
+            String path = sourceFile.toString();
             byte[] contentHash = contentHash(sourceFile);
             Facts facts = index.get(path, contentHash);
             if (facts == null) {
@@ -122,7 +132,7 @@ public class IncrementalSourceMarker {
                 scanned++;
             }
             factsByPath.put(path, facts);
-            if (!isUnder(sourceFile, touchRoot)) {
+            if (!sourceFile.startsWith(touchRoot)) {
                 derivedSources.add(facts);
             }
             for (String declaredName : facts.declaredNames) {
@@ -130,6 +140,14 @@ public class IncrementalSourceMarker {
             }
             for (String identifier : facts.identifiers) {
                 referrersBy.computeIfAbsent(identifier, name -> new ArrayList<>()).add(path);
+            }
+            // A class inherits the members of its supertypes, so a change to a supertype reaches the
+            // files which name one of its subtypes even though they never name the supertype itself
+            // (B extends A, C uses B.VALUE: changing A.VALUE must recompile C as well, its class file
+            // holds the inlined constant).
+            for (String superTypeName : facts.superTypeNames) {
+                subtypesBySuperType.computeIfAbsent(superTypeName, name -> new ArrayList<>())
+                        .addAll(facts.declaredNames);
             }
         }
 
@@ -142,30 +160,34 @@ public class IncrementalSourceMarker {
         for (String staleName : index.replaceDeclaredNames(declaredBy)) {
             addReferrers(affected, referrersBy, staleName);
         }
-        for (String removedPath : index.removeMissing(sourceFiles)) {
-            removeClasses(new File(removedPath), touchRoot, classesDir);
+        for (Map.Entry<String, Facts> removed : index.removeMissing(sourceFiles).entrySet()) {
+            removeClasses(Paths.get(removed.getKey()), touchRoot, classesDir, removed.getValue().topLevelNames);
         }
         affected.addAll(changed);
 
-        // Propagate one hop only: the files which mention a type declared by a changed file. A file
-        // which is recompiled without being edited keeps its own api, so there is no reason to go
-        // further, and a transitive closure would quickly reach the whole module.
+        // Propagate over the types a changed file declares, plus every subtype of them: a source
+        // which is recompiled without being edited keeps its own declarations, but its effective api
+        // still changes when one of its supertypes changes.
         //
-        // The exception is a source derived from another one, such as the Immutables output of an
-        // annotated class: it is regenerated when its input changes, so its api may change too, and
+        // The other exception is a source derived from another one, such as the Immutables output of
+        // an annotated class: it is regenerated when its input changes, so its api may change too, and
         // the files which use it need a recompilation as well.
+        Set<String> seedNames = new TreeSet<>();
         for (String path : changed) {
             Facts facts = factsByPath.get(path);
             if (facts == null) {
                 continue;
             }
             for (String declaredName : facts.declaredNames) {
-                addReferrers(affected, referrersBy, declaredName);
-                for (Facts derived : derivedSources) {
-                    if (derived.identifiers.contains(declaredName)) {
-                        for (String derivedName : derived.declaredNames) {
-                            addReferrers(affected, referrersBy, derivedName);
-                        }
+                collectSubtypes(declaredName, subtypesBySuperType, seedNames);
+            }
+        }
+        for (String seedName : seedNames) {
+            addReferrers(affected, referrersBy, seedName);
+            for (Facts derived : derivedSources) {
+                if (derived.identifiers.contains(seedName)) {
+                    for (String derivedName : derived.declaredNames) {
+                        addReferrers(affected, referrersBy, derivedName);
                     }
                 }
             }
@@ -174,9 +196,9 @@ public class IncrementalSourceMarker {
         int marked = 0;
         FileTime now = FileTime.fromMillis(System.currentTimeMillis());
         for (String path : affected) {
-            File file = new File(path);
-            if (isUnder(file, touchRoot)) {
-                Files.setLastModifiedTime(file.toPath(), now);
+            Path file = Paths.get(path);
+            if (file.startsWith(touchRoot)) {
+                Files.setLastModifiedTime(file, now);
                 marked++;
             }
         }
@@ -195,79 +217,111 @@ public class IncrementalSourceMarker {
         }
     }
 
-    /** delete the classes of a source file which does not exist anymore. */
-    private static void removeClasses(File removedSource, File touchRoot, File classesDir) throws IOException {
-        if (classesDir == null || !isUnder(removedSource, touchRoot)) {
+    /** add {@code name} and every transitive subtype of it to {@code names}. */
+    private static void collectSubtypes(String name, Map<String, List<String>> subtypesBySuperType,
+            Set<String> names) {
+        if (!names.add(name)) {
             return;
         }
-        String relative = touchRoot.toPath().relativize(removedSource.getCanonicalFile().toPath()).toString();
-        String prefix = relative.substring(0, relative.length() - ".java".length());
-        File parent = new File(classesDir, prefix).getParentFile();
-        if (parent == null || !parent.isDirectory()) {
+        List<String> subtypes = subtypesBySuperType.get(name);
+        if (subtypes == null) {
             return;
         }
-        String simpleName = new File(prefix).getName();
-        File[] candidates = parent.listFiles((dir, name) -> name.endsWith(".class")
-                && (name.equals(simpleName + ".class") || name.startsWith(simpleName + "$")));
-        if (candidates != null) {
-            for (File candidate : candidates) {
-                Files.deleteIfExists(candidate.toPath());
+        for (String subtype : subtypes) {
+            collectSubtypes(subtype, subtypesBySuperType, names);
+        }
+    }
+
+    /**
+     * Delete the classes of a source file which does not exist anymore.
+     *
+     * <p>A single source file may declare several top level types (only one of them may be public and
+     * carry the file name), so the classes to remove are derived from the declared names, not from the
+     * file name: {@code Removed.java} with {@code class Removed} and package-private {@code class
+     * Extra} produces {@code Removed.class} and {@code Extra.class}, and each type's nested classes
+     * live under {@code <Type>$...class}.
+     */
+    private static void removeClasses(Path removedSource, Path touchRoot, Path classesDir,
+            Collection<String> topLevelNames) throws IOException {
+        if (classesDir == null || !removedSource.startsWith(touchRoot)) {
+            return;
+        }
+        Path relative = touchRoot.relativize(removedSource);
+        Path classDir = classesDir.resolve(relative).getParent();
+        if (classDir == null || !Files.isDirectory(classDir)) {
+            return;
+        }
+        Set<String> names = new TreeSet<>(topLevelNames);
+        names.add(stripExtension(removedSource.getFileName().toString()));
+        try (Stream<Path> candidates = Files.list(classDir)) {
+            for (Path candidate : (Iterable<Path>) candidates::iterator) {
+                String fileName = candidate.getFileName().toString();
+                if (!fileName.endsWith(".class")) {
+                    continue;
+                }
+                String simpleName = fileName.substring(0, fileName.length() - ".class".length());
+                int nestedSeparator = simpleName.indexOf('$');
+                String outerName = nestedSeparator < 0 ? simpleName : simpleName.substring(0, nestedSeparator);
+                if (names.contains(outerName)) {
+                    Files.deleteIfExists(candidate);
+                }
             }
         }
     }
 
-    private static boolean isUnder(File file, File directory) {
-        return file.getAbsolutePath().startsWith(directory.getAbsolutePath() + File.separator);
+    private static Path canonical(Path path) throws IOException {
+        return path.toRealPath();
     }
 
-    private static List<File> findJavaFiles(List<File> roots) {
-        List<File> files = new ArrayList<>();
-        for (File root : roots) {
-            collectJavaFiles(root, files);
+    private static List<Path> findJavaFiles(List<Path> roots) throws IOException {
+        List<Path> files = new ArrayList<>();
+        for (Path root : roots) {
+            if (!Files.isDirectory(root)) {
+                continue;
+            }
+            try (Stream<Path> walk = Files.walk(root)) {
+                for (Path file : (Iterable<Path>) walk::iterator) {
+                    if (Files.isRegularFile(file) && file.getFileName().toString().endsWith(".java")) {
+                        files.add(file);
+                    }
+                }
+            }
         }
         // sorted, so that the reported results and the persisted index are reproducible
-        files.sort(Comparator.comparing(File::getAbsolutePath));
+        files.sort(Comparator.comparing(Path::toString));
         return files;
     }
 
-    private static void collectJavaFiles(File directory, List<File> files) {
-        File[] children = directory.listFiles();
-        if (children == null) {
-            return;
-        }
-        for (File child : children) {
-            if (child.isDirectory()) {
-                collectJavaFiles(child, files);
-            } else if (child.getName().endsWith(".java")) {
-                files.add(child);
-            }
-        }
-    }
-
-    private static byte[] contentHash(File file) throws IOException {
+    private static byte[] contentHash(Path file) throws IOException {
         MessageDigest messageDigest;
         try {
             messageDigest = MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is not supported", e);
         }
-        return messageDigest.digest(Files.readAllBytes(file.toPath()));
+        return messageDigest.digest(Files.readAllBytes(file));
     }
 
     /**
-     * Collect the identifiers a file mentions and the type names it declares.
+     * Collect the identifiers a file mentions, the type names it declares, the top level ones among
+     * them, and the supertypes it extends or implements.
      *
      * <p>Comments, string literals, character literals and text blocks are skipped so that prose and
      * data cannot look like a dependency. Mentioning every identifier over-approximates the real
      * dependency set, which keeps the result safe: an identifier which is not a type name simply
      * never matches a declared name.
      */
-    private static Facts scan(File file, byte[] contentHash) throws IOException {
-        char[] text = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).toCharArray();
+    private static Facts scan(Path file, byte[] contentHash) throws IOException {
+        char[] text = new String(Files.readAllBytes(file), StandardCharsets.UTF_8).toCharArray();
         Set<String> identifiers = new HashSet<>();
         Set<String> declaredNames = new HashSet<>();
-        declaredNames.add(stripExtension(file.getName()));
+        Set<String> topLevelNames = new HashSet<>();
+        Set<String> superTypeNames = new HashSet<>();
+        declaredNames.add(stripExtension(file.getFileName().toString()));
         boolean expectDeclaredName = false;
+        boolean inTypeHeader = false;
+        boolean inSuperTypeClause = false;
+        int braceDepth = 0;
         char lastSignificant = 0;
         int position = 0;
         int length = text.length;
@@ -323,10 +377,19 @@ public class IncrementalSourceMarker {
                 String identifier = new String(text, start, position - start);
                 if (expectDeclaredName) {
                     declaredNames.add(identifier);
+                    if (braceDepth == 0) {
+                        topLevelNames.add(identifier);
+                    }
                     expectDeclaredName = false;
                 } else if (DECLARATION_KEYWORDS.contains(identifier) && lastSignificant != '.') {
                     // "Foo.class" is a class literal, not a declaration
                     expectDeclaredName = true;
+                    inTypeHeader = true;
+                    inSuperTypeClause = false;
+                } else if (inTypeHeader && SUPERTYPE_KEYWORDS.contains(identifier)) {
+                    inSuperTypeClause = true;
+                } else if (inSuperTypeClause) {
+                    superTypeNames.add(identifier);
                 }
                 if (!RESERVED_KEYWORDS.contains(identifier)) {
                     identifiers.add(identifier);
@@ -334,12 +397,22 @@ public class IncrementalSourceMarker {
                 lastSignificant = 'a';
                 continue;
             }
+            if (current == '{') {
+                braceDepth++;
+                inTypeHeader = false;
+                inSuperTypeClause = false;
+            } else if (current == '}') {
+                braceDepth--;
+            } else if (current == ';') {
+                inTypeHeader = false;
+                inSuperTypeClause = false;
+            }
             if (!Character.isWhitespace(current)) {
                 lastSignificant = current;
             }
             position++;
         }
-        return new Facts(contentHash, identifiers, declaredNames);
+        return new Facts(contentHash, identifiers, declaredNames, topLevelNames, superTypeNames);
     }
 
     private static String stripExtension(String name) {
@@ -366,12 +439,12 @@ public class IncrementalSourceMarker {
         return value;
     }
 
-    private static List<File> splitPaths(String paths) {
-        List<File> roots = new ArrayList<>();
+    private static List<Path> splitPaths(String paths) {
+        List<Path> roots = new ArrayList<>();
         for (String path : paths.split(",")) {
             String trimmed = path.trim();
             if (!trimmed.isEmpty()) {
-                roots.add(new File(trimmed));
+                roots.add(Paths.get(trimmed));
             }
         }
         if (roots.isEmpty()) {
@@ -380,16 +453,40 @@ public class IncrementalSourceMarker {
         return roots;
     }
 
+    /**
+     * Split and canonicalize the source roots. Canonicalizing here (and not per file) keeps the walk
+     * cheap while making every derived path stable across runs, which matters when the checkout is
+     * reached through a symlink.
+     */
+    private static List<Path> canonicalRoots(String paths) throws IOException {
+        List<Path> roots = new ArrayList<>();
+        for (Path root : splitPaths(paths)) {
+            if (Files.isDirectory(root)) {
+                roots.add(canonical(root));
+            }
+        }
+        return roots;
+    }
+
     /** the cached facts of one source file. */
     private static class Facts {
         private final byte[] contentHash;
+        /** every identifier the file mentions, an over-approximation of the types it depends on. */
         private final Set<String> identifiers;
+        /** every type name the file declares, nested ones included. */
         private final Set<String> declaredNames;
+        /** the types the file declares at the top level, which own the class files to clean up. */
+        private final Set<String> topLevelNames;
+        /** the types the file extends or implements. */
+        private final Set<String> superTypeNames;
 
-        Facts(byte[] contentHash, Set<String> identifiers, Set<String> declaredNames) {
+        Facts(byte[] contentHash, Set<String> identifiers, Set<String> declaredNames,
+                Set<String> topLevelNames, Set<String> superTypeNames) {
             this.contentHash = contentHash;
             this.identifiers = identifiers;
             this.declaredNames = declaredNames;
+            this.topLevelNames = topLevelNames;
+            this.superTypeNames = superTypeNames;
         }
     }
 
@@ -415,12 +512,12 @@ public class IncrementalSourceMarker {
             this.declaredBy = declaredBy;
         }
 
-        static SourceIndex load(File cacheFile) {
-            if (!cacheFile.isFile()) {
+        static SourceIndex load(Path cacheFile) {
+            if (!Files.isRegularFile(cacheFile)) {
                 return empty();
             }
             try (DataInputStream in = new DataInputStream(
-                    new BufferedInputStream(Files.newInputStream(cacheFile.toPath())))) {
+                    new BufferedInputStream(Files.newInputStream(cacheFile)))) {
                 if (in.readInt() != FORMAT_VERSION) {
                     return empty();
                 }
@@ -451,7 +548,10 @@ public class IncrementalSourceMarker {
                     in.readFully(contentHash);
                     Set<String> identifiers = readStrings(in, strings);
                     Set<String> declaredNames = readStrings(in, strings);
-                    entries.put(path, new Facts(contentHash, identifiers, declaredNames));
+                    Set<String> topLevelNames = readStrings(in, strings);
+                    Set<String> superTypeNames = readStrings(in, strings);
+                    entries.put(path, new Facts(contentHash, identifiers, declaredNames, topLevelNames,
+                            superTypeNames));
                 }
                 return new SourceIndex(entries, stringIds, strings, declaredBy);
             } catch (IOException | RuntimeException e) {
@@ -489,6 +589,12 @@ public class IncrementalSourceMarker {
             for (String value : facts.declaredNames) {
                 intern(value);
             }
+            for (String value : facts.topLevelNames) {
+                intern(value);
+            }
+            for (String value : facts.superTypeNames) {
+                intern(value);
+            }
             dirty = true;
         }
 
@@ -518,31 +624,38 @@ public class IncrementalSourceMarker {
             return changedNames;
         }
 
-        /** drop the entries of the files which do not exist anymore and return their paths. */
-        Set<String> removeMissing(Collection<File> existingFiles) {
+        /**
+         * Drop the entries of the files which do not exist anymore and return them, keyed by path, with
+         * the facts recorded by the previous run so that their classes can be cleaned up.
+         */
+        Map<String, Facts> removeMissing(Collection<Path> existingFiles) {
             Set<String> existingPaths = new TreeSet<>();
-            for (File file : existingFiles) {
-                existingPaths.add(file.getAbsolutePath());
+            for (Path file : existingFiles) {
+                existingPaths.add(file.toString());
             }
-            Set<String> removed = new TreeSet<>(entries.keySet());
-            removed.removeAll(existingPaths);
+            Map<String, Facts> removed = new TreeMap<>();
+            for (String path : entries.keySet()) {
+                if (!existingPaths.contains(path)) {
+                    removed.put(path, entries.get(path));
+                }
+            }
             if (!removed.isEmpty()) {
-                entries.keySet().removeAll(removed);
+                entries.keySet().removeAll(removed.keySet());
                 dirty = true;
             }
             return removed;
         }
 
-        void save(File cacheFile) throws IOException {
+        void save(Path cacheFile) throws IOException {
             if (!dirty) {
                 return;
             }
-            File parent = cacheFile.getParentFile();
-            if (parent != null && !parent.exists() && !parent.mkdirs() && !parent.exists()) {
-                throw new IOException("Can not create directory " + parent);
+            Path parent = cacheFile.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
             }
             try (DataOutputStream out = new DataOutputStream(
-                    new BufferedOutputStream(Files.newOutputStream(cacheFile.toPath())))) {
+                    new BufferedOutputStream(Files.newOutputStream(cacheFile)))) {
                 out.writeInt(FORMAT_VERSION);
                 out.writeInt(strings.size());
                 for (String value : strings) {
@@ -563,6 +676,8 @@ public class IncrementalSourceMarker {
                     out.write(entry.getValue().contentHash);
                     writeStrings(out, entry.getValue().identifiers);
                     writeStrings(out, entry.getValue().declaredNames);
+                    writeStrings(out, entry.getValue().topLevelNames);
+                    writeStrings(out, entry.getValue().superTypeNames);
                 }
             }
         }

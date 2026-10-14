@@ -67,23 +67,32 @@ write() {
     printf '%s\n' "$2" > "$1"
 }
 
-run() {
+run_roots() {
     "${JAVA_BIN}" -cp "${TOOL_CLASSES}" org.apache.doris.buildtools.IncrementalSourceMarker \
-        --sources="${SRC}" --touch-root="${SRC}" --cache="${CACHE}" --classes="${CLASSES}" > /dev/null
+        --sources="$1" --classes="${CLASSES}" --touch-root="$2" --cache="$3" > /dev/null
 }
 
-# the sources the tool marked, i.e. the ones it made newer than the stamp
-marked() {
+run() {
+    run_roots "${SRC}" "${SRC}" "${CACHE}"
+}
+
+# the sources under a directory which the given runner made newer than the stamp
+marked_with() {
+    local runner="$1" directory="$2"
     touch "${STAMP}"
     sleep 0.05
-    run
-    find "${SRC}" -name '*.java' -newer "${STAMP}" | sed "s|${SRC}/||" | sort | tr '\n' ' '
+    "${runner}"
+    find "${directory}" -name '*.java' -newer "${STAMP}" | sed "s|${directory}/||" | sort | tr '\n' ' '
+}
+
+marked() {
+    marked_with run "${SRC}"
 }
 
 class_states() {
     local result=""
     local name state
-    for name in 'Removed.class' 'Removed$Inner.class' 'Removedish.class'; do
+    for name in 'Removed.class' 'Removed$Inner.class' 'Extra.class' 'Removedish.class'; do
         state="kept"
         if [[ ! -e "${CLASSES}/demo/${name}" ]]; then
             state="gone"
@@ -117,14 +126,45 @@ check "a comment or string literal alone does not mark Gamma" \
 write "${SRC}/demo/Delta.java" 'package demo; public class Delta extends Alpha { }'
 check "adding Delta marks only Delta" "demo/Delta.java " "$(marked)"
 
-# A removed source drops its classes, and only its own.
-write "${SRC}/demo/Removed.java" 'package demo; public class Removed { }'
+# A class inherits the members of its supertypes, so a file may depend on a changed type it never
+# names: Holder.VALUE below resolves to Base.VALUE, and javac inlines the constant into Uses.class.
+# Marking only Holder would leave the stale inlined value in Uses.class.
+write "${SRC}/demo/Base.java"  'package demo; public class Base { public static final int VALUE = 2; }'
+write "${SRC}/demo/Holder.java" 'package demo; public class Holder extends Base { }'
+write "${SRC}/demo/Uses.java"  'package demo; public class Uses { public int f() { return Holder.VALUE; } }'
 run > /dev/null
-touch "${CLASSES}/demo/Removed.class" "${CLASSES}/demo/Removed\$Inner.class" "${CLASSES}/demo/Removedish.class"
+write "${SRC}/demo/Base.java" 'package demo; public class Base { public static final int VALUE = 3; }'
+check "editing a supertype marks the files which name its subtype" \
+    "demo/Base.java demo/Holder.java demo/Uses.java " "$(marked)"
+
+# A single source file may declare several top level types, and only one of them may be named after
+# the file, so the classes to clean up come from the declarations and not from the file name.
+write "${SRC}/demo/Removed.java" 'package demo; public class Removed { static class Inner {} } class Extra {}'
+run > /dev/null
+touch "${CLASSES}/demo/Removed.class" "${CLASSES}/demo/Removed\$Inner.class" \
+      "${CLASSES}/demo/Extra.class" "${CLASSES}/demo/Removedish.class"
 rm "${SRC}/demo/Removed.java"
 run > /dev/null
-check "removing a source deletes its classes, inner classes included" \
-    "Removed.class=gone Removed\$Inner.class=gone Removedish.class=kept" "$(class_states)"
+check "removing a source deletes every class it declared, and no other" \
+    "Removed.class=gone Removed\$Inner.class=gone Extra.class=gone Removedish.class=kept" "$(class_states)"
+
+# A checkout reached through a symlink must behave the same: the roots are canonicalized and compared
+# as paths, not as string prefixes. On macOS mktemp returns /var/... whose canonical form is
+# /private/var/..., which used to make every scanned source look "outside" the touch root.
+REAL="${WORK}/real"
+ln -s "${REAL}" "${WORK}/link"
+LINK_SRC="${WORK}/link/src/main/java"
+write "${REAL}/src/main/java/demo/Host.java" 'package demo; public class Host { }'
+write "${REAL}/src/main/java/demo/User.java" 'package demo; public class User { Host h; }'
+LINK_CACHE="${WORK}/link-index.bin"
+run_link() {
+    run_roots "${LINK_SRC}" "${LINK_SRC}" "${LINK_CACHE}"
+}
+run_link
+run_link
+write "${REAL}/src/main/java/demo/Host.java" 'package demo; public class Host { int probe; }'
+check "a symlinked source root still marks the referrers" \
+    "demo/Host.java demo/User.java " "$(marked_with run_link "${REAL}/src/main/java")"
 
 if [[ "${failures}" -ne 0 ]]; then
     echo "test-incremental-source-marker: ${failures} failure(s)"
