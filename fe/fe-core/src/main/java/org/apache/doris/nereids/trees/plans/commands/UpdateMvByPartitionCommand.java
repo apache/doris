@@ -46,6 +46,8 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -179,19 +181,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 items.add(olapTable.getPartitionItemOrAnalysisException(partitionName));
             }
             if (items.stream().anyMatch(PartitionItem::isDefaultPartition)) {
-                // One of the partitions this MV partition is recorded with is a list partitioned table's
-                // default partition, which takes the rows no other partition of it claims. Those rows are
-                // the ones the MV partition's own key range names, wherever the base table put them, and a
-                // partition of the MV takes them by that key rather than by the partition they were placed
-                // in. So a table whose mapped partitions include one is read the way an unscoped one is:
-                // the MV partition's key range, at the partition column's own type. That read can be seen to
-                // be too wide -- it is the one this scope exists to narrow, and with partition_sync_limit it
-                // reaches an explicit partition the window left out and the mapping therefore does not name
-                // -- rather than one that drops rows belonging to the MV partition being refreshed. The
-                // mapping names the default partition in every MV partition that reads the table, so this is
-                // reached for each of them and not only for the one the sentinel key maps to.
-                builder.put(table, constructPredicates(mvItems, colName,
-                        Optional.of(partitionColumnType(olapTable, colName))));
+                builder.put(table, constructPredicatesOfADefaultPartitionTable(
+                        mvItems, items, readable, olapTable, colName));
                 continue;
             }
             if (readable.isEmpty()) {
@@ -296,6 +287,92 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             predicates.add(convertListPartitionToKey(item, partitionSlots, partitionColumnTypes));
         }
         return predicates;
+    }
+
+    /**
+     * The predicate for a table whose mapped partitions include a list partition's default one.
+     *
+     * <p>That partition takes the rows no other partition of the table claims, and an MV partition takes the
+     * rows whose own key falls in it wherever the base table placed them -- so those rows are the ones the MV
+     * partition's own key range names, and no predicate on the partition columns picks them out on its own: a
+     * test on those columns reaches the rows an explicit partition holds as readily as it reaches theirs.
+     * The read is therefore written the other way round, as the record's own partitions plus what the key
+     * range holds beyond them:
+     *
+     * <ul>
+     *   <li>the partitions this MV partition is recorded with, pinned by their whole key, and</li>
+     *   <li>the rows of the MV partitions' key range that no explicit partition the mapping does not name
+     *       holds, which is the default partition's rows in that range and nothing else.</li>
+     * </ul>
+     *
+     * <p>An explicit partition the window left out shares the MV partition's key range with a retained one --
+     * the shape this scope is about, a list partitioned table's partitions holding several keys of the MV's
+     * partition column -- and reading it back would put its rows in the MV partition while no snapshot names
+     * it, leaving them there through a later drop of it. Subtracting the partitions the mapping does not name
+     * is what keeps the read to the record; the partitions it does name are added back by the first part
+     * whether or not their keys fall in the range, the way every other scoped read pins them.
+     */
+    private static Set<Expression> constructPredicatesOfADefaultPartitionTable(Set<PartitionItem> mvItems,
+            Set<PartitionItem> mappedItems, Set<String> readable, OlapTable baseTable, String colName)
+            throws AnalysisException {
+        List<Column> partitionColumns = baseTable.getPartitionColumns();
+        List<Type> partitionColumnTypes = Lists.transform(partitionColumns, Column::getType);
+        List<Slot> partitionSlots = Lists.newArrayList();
+        for (Column partitionColumn : partitionColumns) {
+            partitionSlots.add(new UnboundSlot(partitionColumn.getName()));
+        }
+        Set<PartitionItem> notMapped = Sets.newHashSet();
+        for (String partitionName : baseTable.getPartitionNames()) {
+            if (readable.contains(partitionName)) {
+                continue;
+            }
+            PartitionItem item = baseTable.getPartitionItemOrAnalysisException(partitionName);
+            if (!item.isDefaultPartition()) {
+                notMapped.add(item);
+            }
+        }
+        Expression inRange = ExpressionUtils.or(constructPredicates(mvItems, colName,
+                Optional.of(partitionColumnType(baseTable, colName))));
+        if (!notMapped.isEmpty()) {
+            inRange = ExpressionUtils.and(inRange, new Not(ExpressionUtils.or(
+                    convertListPartitionsToKeysNullSafe(notMapped, partitionSlots, partitionColumnTypes))));
+        }
+        Set<Expression> res = Sets.newHashSet();
+        res.add(inRange);
+        Set<PartitionItem> mappedExplicit = Sets.newHashSet();
+        for (PartitionItem item : mappedItems) {
+            if (!item.isDefaultPartition()) {
+                mappedExplicit.add(item);
+            }
+        }
+        if (!mappedExplicit.isEmpty()) {
+            res.addAll(constructPredicatesOfBasePartitions(mappedExplicit, baseTable, colName));
+        }
+        return res;
+    }
+
+    /**
+     * The same keys as {@code convertListPartitionToKey}, compared with {@code <=>} so that the test answers
+     * for a value a row does not have as well. It is the form that gets negated to subtract these partitions,
+     * and {@code NOT (k = v)} is UNKNOWN rather than true for a NULL k -- which would drop the rows of the
+     * default partition whose key is NULL along with the ones it is meant to drop.
+     */
+    private static Set<Expression> convertListPartitionsToKeysNullSafe(Set<PartitionItem> partitions,
+            List<Slot> partitionSlots, List<Type> partitionColumnTypes) {
+        Set<Expression> res = Sets.newHashSet();
+        for (PartitionItem item : partitions) {
+            List<Expression> keys = Lists.newArrayList();
+            for (PartitionKey key : ((ListPartitionItem) item).getItems()) {
+                List<Expression> oneKey = Lists.newArrayList();
+                for (int pos = 0; pos < partitionSlots.size(); pos++) {
+                    oneKey.add(new NullSafeEqual(partitionSlots.get(pos), convertPartitionKeyToLiteral(key, pos,
+                            Optional.of(partitionColumnTypes.get(pos)))));
+                }
+                keys.add(ExpressionUtils.and(oneKey));
+            }
+            res.add(ExpressionUtils.or(keys));
+        }
+        return res;
     }
 
     /** The type of the partition column of this table the MV partition is named by. */
