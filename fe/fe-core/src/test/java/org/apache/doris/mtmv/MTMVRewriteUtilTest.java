@@ -66,6 +66,7 @@ public class MTMVRewriteUtilTest {
     private MTMVRelation relation = Mockito.mock(MTMVRelation.class);
     private MTMVStatus status = Mockito.mock(MTMVStatus.class);
     private MTMVPartitionInfo mvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+    private MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
     private MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic;
     private MockedStatic<MTMVUtil> mtmvUtilStatic;
     private long currentTimeMills = 3L;
@@ -107,6 +108,8 @@ public class MTMVRewriteUtilTest {
 
         mtmvUtilStatic.when(() -> MTMVUtil.mtmvContainsExternalTable(
                 Mockito.any(MTMV.class))).thenReturn(false);
+
+        Mockito.when(mtmv.getRefreshSnapshot()).thenReturn(refreshSnapshot);
 
         Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPartitionInfo);
 
@@ -151,6 +154,10 @@ public class MTMVRewriteUtilTest {
     @Test
     public void testGetMTMVCanRewritePartitionsInGracePeriod() throws AnalysisException {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+        // Grace answers for a partition a refresh has recorded; this one has been.
+        Map<String, MTMVRefreshPartitionSnapshot> snapshots = Maps.newHashMap();
+        snapshots.put("p1", Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Mockito.when(refreshSnapshot.getPartitionSnapshots()).thenReturn(snapshots);
 
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
                 Mockito.any(MTMVRefreshContext.class),
@@ -162,6 +169,25 @@ public class MTMVRewriteUtilTest {
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
         Assertions.assertEquals(1, mtmvCanRewritePartitions.size());
+    }
+
+    @Test
+    public void testGetMTMVCanRewritePartitionsInGracePeriodWithoutASnapshot() throws AnalysisException {
+        // A partition alignment has just added is empty and no refresh has read it, so its creation time says
+        // nothing about what it holds: grace must not answer for it, or a query rewritten to it reads no rows
+        // at all. It falls through to the sync check, which has nothing to compare it with.
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+        Mockito.when(refreshSnapshot.getPartitionSnapshots()).thenReturn(Maps.newHashMap());
+
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(false);
+
+        Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false, null);
+        Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
     }
 
     @Test
