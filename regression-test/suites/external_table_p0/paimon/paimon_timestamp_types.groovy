@@ -260,29 +260,36 @@ suite("paimon_timestamp_types", "p0,external") {
         for (def zone : ["UTC", "Asia/Shanghai"]) {
             sql "set time_zone = '${zone}'"
             def zoneTag = zone.replace('/', '_')
-            "order_qt_cross_family_${zoneTag}_projection" """
-                select id,
-                    ntz_to_ltz = date_trunc(ntz_to_ltz_control, 'second'),
-                    ltz_to_ntz = date_trunc(ltz_to_ntz_control, 'second'),
-                    microsecond(ntz_to_ltz), microsecond(ltz_to_ntz)
-                from timestamp_cross_family_evolution_parquet order by id
-            """
-            for (def direction : ["ntz_to_ltz", "ltz_to_ntz"]) {
-                // Controls are unaffected by narrowing. Their SDK-converted civil values
-                // provide literals for FE file pruning and the Doris post-repair residual.
-                def literals = sql """select id,
-                    cast(date_trunc(${direction}_control, 'second') as string)
+            for (def forceJni : [true, false]) {
+                sql "set force_jni_scanner = ${forceJni}"
+                def modeTag = forceJni ? "" : "_automatic"
+                "order_qt_cross_family_${zoneTag}${modeTag}_projection" """
+                    select id,
+                        ntz_to_ltz = date_trunc(ntz_to_ltz_control, 'second'),
+                        ltz_to_ntz = date_trunc(ltz_to_ntz_control, 'second'),
+                        microsecond(ntz_to_ltz), microsecond(ltz_to_ntz)
                     from timestamp_cross_family_evolution_parquet order by id
                 """
-                for (def row : literals) {
-                    "order_qt_cross_family_${zoneTag}_${direction}_eq_${row[0]}" """
-                        select id from timestamp_cross_family_evolution_parquet
-                        where ${direction} = '${row[1]}' order by id
+                for (def direction : ["ntz_to_ltz", "ltz_to_ntz"]) {
+                    // Use SDK-converted controls for literals even when automatic routing is tested;
+                    // unchanged cross-family native casts have their own session-zone semantics.
+                    sql "set force_jni_scanner = true"
+                    def literals = sql """select id,
+                        cast(date_trunc(${direction}_control, 'second') as string)
+                        from timestamp_cross_family_evolution_parquet order by id
                     """
+                    sql "set force_jni_scanner = ${forceJni}"
+                    for (def row : literals) {
+                        "order_qt_cross_family_${zoneTag}${modeTag}_${direction}_eq_${row[0]}" """
+                            select id from timestamp_cross_family_evolution_parquet
+                            where ${direction} = '${row[1]}' order by id
+                        """
+                    }
                 }
             }
         }
         sql """set time_zone = 'Asia/Shanghai'"""
+        sql """set force_jni_scanner=true"""
         test_scale("2024-01-02 10:04:05.123456")
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")

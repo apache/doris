@@ -208,6 +208,10 @@ public class PaimonColumnValue implements ColumnValue {
             return timestamp;
         }
         int precision = dorisType.getPrecision();
+        return truncateTimestampPrecision(timestamp, precision);
+    }
+
+    static Timestamp truncateTimestampPrecision(Timestamp timestamp, int precision) {
         long divisor = 1;
         for (int i = precision; i < 9; ++i) {
             divisor *= 10;

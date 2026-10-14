@@ -217,6 +217,10 @@ public class PaimonScanPlanProviderTest {
                 List<Predicate> predicates = InstantiationUtil.deserializeObject(
                         Base64.getDecoder().decode(props.get("paimon.predicate")), getClass().getClassLoader());
                 Assertions.assertTrue(predicates.isEmpty(), "cross-family timestamp equality must remain residual");
+                Assertions.assertTrue(provider.planScan(sessionWithProps(Collections.emptyMap()),
+                        ConnectorScanRequest.builder(handle, columns).build()).stream()
+                        .allMatch(range -> !range.getPath().isPresent()),
+                        "native cross-family narrowing must use the SDK instead of a rounding SQL cast");
             }
         }
     }
@@ -245,7 +249,8 @@ public class PaimonScanPlanProviderTest {
             catalog.createTable(mainId, Schema.newBuilder().column("id", DataTypes.INT())
                     .column("ts", DataTypes.TIMESTAMP(4)).partitionKeys("id").build(), false);
             catalog.createTable(fallbackId, Schema.newBuilder().column("id", DataTypes.INT())
-                    .column("ts", DataTypes.TIMESTAMP(6)).partitionKeys("id").build(), false);
+                    .column("ts", DataTypes.TIMESTAMP(6)).partitionKeys("id")
+                    .option("row-tracking.enabled", "true").build(), false);
             FileStoreTable fallback = (FileStoreTable) catalog.getTable(fallbackId);
             BatchWriteBuilder writer = fallback.newBatchWriteBuilder();
             try (BatchTableWrite write = writer.newWrite()) {
@@ -298,6 +303,25 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertTrue(provider.requiresTimestampPrecisionRepair(
                     sessionWithProps(Collections.emptyMap()), readOptimized, ro),
                     "$ro history reads must also stay inside the plugin authentication scope");
+            for (String kind : Arrays.asList("audit_log", "binlog", "row_tracking")) {
+                PaimonTableHandle system = PaimonTableHandle.forSystemTable("db", "fallback", kind, true);
+                system.setSysBaseTable(fallback);
+                system.setSystemTableSource(fallback);
+                Table wrapper = org.apache.paimon.table.system.SystemTableLoader.load(kind, fallback);
+                system.setPaimonTable(wrapper);
+                Assertions.assertTrue(provider.requiresTimestampPrecisionRepair(
+                        sessionWithProps(Collections.emptyMap()), wrapper, system), kind);
+            }
+            FileStoreTable authorized = fallback.copy(Collections.singletonMap("query-auth.enabled", "true"));
+            PaimonTableHandle authHandle = new PaimonTableHandle(
+                    "db", "fallback", Collections.singletonList("id"), Collections.emptyList());
+            authHandle.setPaimonTable(authorized);
+            Map<String, String> authProps = provider.getScanNodeProperties(
+                    sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")), authHandle,
+                    Collections.singletonList(new PaimonColumnHandle("id", 0)), Optional.empty());
+            Assertions.assertTrue(authProps.get("paimon.options_json").contains(
+                    "\"doris.timestamp-precision-repair\":\"true\""),
+                    "a catalog policy can read timestamps absent from the SQL projection");
             context.failAuth = true;
             Assertions.assertThrows(RuntimeException.class, () -> new PaimonScanPlanProvider(
                     PaimonCatalogProperties.of(Collections.emptyMap()), ops, context)

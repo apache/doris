@@ -90,6 +90,22 @@
 -- !cross_family_UTC_ltz_to_ntz_eq_2 --
 2
 
+-- !cross_family_UTC_automatic_projection --
+1	true	true	0	0
+2	true	true	0	0
+
+-- !cross_family_UTC_automatic_ntz_to_ltz_eq_1 --
+1
+
+-- !cross_family_UTC_automatic_ntz_to_ltz_eq_2 --
+2
+
+-- !cross_family_UTC_automatic_ltz_to_ntz_eq_1 --
+1
+
+-- !cross_family_UTC_automatic_ltz_to_ntz_eq_2 --
+2
+
 -- !cross_family_Asia_Shanghai_projection --
 1	true	true	0	0
 2	true	true	0	0
@@ -104,6 +120,22 @@
 1
 
 -- !cross_family_Asia_Shanghai_ltz_to_ntz_eq_2 --
+2
+
+-- !cross_family_Asia_Shanghai_automatic_projection --
+1	true	true	0	0
+2	true	true	0	0
+
+-- !cross_family_Asia_Shanghai_automatic_ntz_to_ltz_eq_1 --
+1
+
+-- !cross_family_Asia_Shanghai_automatic_ntz_to_ltz_eq_2 --
+2
+
+-- !cross_family_Asia_Shanghai_automatic_ltz_to_ntz_eq_1 --
+1
+
+-- !cross_family_Asia_Shanghai_automatic_ltz_to_ntz_eq_2 --
 2
 
 -- !c1 --

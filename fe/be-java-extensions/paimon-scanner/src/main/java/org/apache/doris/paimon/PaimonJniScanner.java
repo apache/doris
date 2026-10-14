@@ -30,12 +30,15 @@ import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.predicate.PredicateBuilder;
+import org.apache.paimon.predicate.PredicateVisitor;
 import org.apache.paimon.reader.FileRecordIterator;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.QueryAuthSplit;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
@@ -200,6 +203,16 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initReader() throws IOException {
+        Split split = getSplit();
+        QueryAuthSplit authSplit = split instanceof QueryAuthSplit ? (QueryAuthSplit) split : null;
+        if (authSplit != null && authSplit.authResult() != null
+                && Boolean.parseBoolean(params.getOrDefault(
+                        PAIMON_OPTION_PREFIX + DORIS_TIMESTAMP_PRECISION_REPAIR, "true"))
+                && PaimonTimestampQueryAuth.readsTimestamp(authSplit.authResult(), table.rowType(),
+                        Arrays.stream(fields).filter(field -> !isFileMetadataField(field))
+                                .collect(Collectors.toList()))) {
+            requiresDatetimeV2PrecisionRepair = true;
+        }
         ReadBuilder readBuilder = table.newReadBuilder();
         if (Arrays.stream(fields).filter(field -> !isFileMetadataField(field)).count() > paimonAllFieldNames.size()) {
             throw new IOException(
@@ -210,6 +223,7 @@ public class PaimonJniScanner extends JniScanner {
         }
         int[] projected = getProjected();
         List<DataField> readFields = new ArrayList<>(projected.length);
+        List<DataField> currentFields = new ArrayList<>(projected.length);
         variantProjections = new ArrayList<>(projected.length);
         boolean hasReadTypeProjection = false;
         outputToReadIndex = new int[fields.length];
@@ -229,6 +243,7 @@ public class PaimonJniScanner extends JniScanner {
             if (variantProjection == null) {
                 DataType projectedType =
                         PaimonReadTypeProjection.project(tableField.type(), types[outputIndex]);
+                currentFields.add(tableField.newType(projectedType));
                 if (requiresDatetimeV2PrecisionRepair) {
                     projectedType = createSafeTimestampReadType(projectedType);
                 }
@@ -240,8 +255,20 @@ public class PaimonJniScanner extends JniScanner {
                 hasReadTypeProjection = true;
                 readFields.add(tableField.newType(
                         variantProjection.readType().copy(tableField.type().isNullable())));
+                currentFields.add(readFields.get(readFields.size() - 1));
             }
             outputIndex++;
+        }
+        boolean repairPolicy = requiresDatetimeV2PrecisionRepair && authSplit != null
+                && authSplit.authResult() != null;
+        List<DataField> outputReadFields = new ArrayList<>(readFields);
+        RowType outputType = new RowType(currentFields);
+        if (repairPolicy) {
+            PaimonTimestampQueryAuth.addPolicyFields(
+                    authSplit.authResult(), table.rowType(), readFields, currentFields);
+            split = new QueryAuthSplit(authSplit.split(),
+                    new PaimonTimestampQueryAuth(authSplit.authResult(), new RowType(currentFields)));
+            hasReadTypeProjection = true;
         }
         if (hasReadTypeProjection) {
             readBuilder.withReadType(new RowType(readFields));
@@ -251,10 +278,13 @@ public class PaimonJniScanner extends JniScanner {
         // FE removes only predicates that depend on timestamp values being repaired. Safe
         // non-timestamp predicates remain useful for Paimon file and row pruning.
         readBuilder.withFilter(getPredicates());
-        reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
+        reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(split);
+        if (repairPolicy) {
+            reader = PaimonTimestampQueryAuth.projectOutput(reader, new RowType(currentFields), outputType);
+        }
         // Decode with the types that were REQUESTED, not the table's: a pruned nested column comes back
         // narrow, and taking table.rowType() here would misalign every one of them.
-        paimonDataTypeList = readFields.stream().map(DataField::type).collect(Collectors.toList());
+        paimonDataTypeList = outputReadFields.stream().map(DataField::type).collect(Collectors.toList());
     }
 
     static RowType createSafeTimestampReadType(RowType tableType) {
@@ -264,7 +294,7 @@ public class PaimonJniScanner extends JniScanner {
         return tableType.copy(fields);
     }
 
-    private static DataType createSafeTimestampReadType(DataType dataType) {
+    static DataType createSafeTimestampReadType(DataType dataType) {
         if (dataType instanceof TimestampType) {
             return new TimestampType(dataType.isNullable(), TimestampType.MAX_PRECISION);
         }
@@ -406,6 +436,18 @@ public class PaimonJniScanner extends JniScanner {
             return Collections.emptyList();
         }
         List<Predicate> predicates = PaimonUtils.deserialize(paimonPredicate);
+        if (requiresDatetimeV2PrecisionRepair
+                && !params.containsKey(PAIMON_OPTION_PREFIX + DORIS_TIMESTAMP_PRECISION_REPAIR)) {
+            // Legacy FE did not classify its predicate list. Preserve independent AND siblings,
+            // but keep timestamp-dependent subtrees (including mixed OR) for the Doris residual.
+            java.util.Set<String> timestamps = table.rowType().getFields().stream()
+                    .filter(field -> containsTimestampType(field.type()))
+                    .map(DataField::name).collect(Collectors.toSet());
+            predicates = predicates.stream().flatMap(predicate -> PredicateBuilder.splitAnd(predicate).stream())
+                    .filter(predicate -> PredicateVisitor.collectFieldNames(predicate).stream()
+                            .noneMatch(timestamps::contains))
+                    .collect(Collectors.toList());
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("predicates:{}", predicates);
         }
@@ -450,6 +492,23 @@ public class PaimonJniScanner extends JniScanner {
         }
         List<ColumnType> children = type.getChildTypes();
         return children != null && children.stream().anyMatch(PaimonJniScanner::containsTimestampType);
+    }
+
+    static boolean containsTimestampType(DataType type) {
+        if (type instanceof TimestampType || type instanceof LocalZonedTimestampType) {
+            return true;
+        }
+        if (type instanceof RowType) {
+            return ((RowType) type).getFields().stream().anyMatch(field -> containsTimestampType(field.type()));
+        }
+        if (type instanceof ArrayType) {
+            return containsTimestampType(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return containsTimestampType(map.getKeyType()) || containsTimestampType(map.getValueType());
+        }
+        return false;
     }
 
     @Override
