@@ -170,13 +170,6 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 if (sourcePropModified) {
                     DataSourceConfigValidator.validateSource(this.getSourceProperties(),
                             streamingJob.getDataSourceType().name());
-                    if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)
-                            || sourceProperties.containsKey(DataSourceConfigKeys.SERVER_ID)) {
-                        Map<String, String> mergedSourceProperties = new HashMap<>(
-                                streamingJob.getSourceProperties());
-                        mergedSourceProperties.putAll(sourceProperties);
-                        DataSourceConfigValidator.validateServerIdConfig(mergedSourceProperties);
-                    }
                     checkUnmodifiableSourceProperties(streamingJob.getSourceProperties());
                 }
 
@@ -276,8 +269,12 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         mergedProperties.putAll(properties);
         StreamingJobProperties updatedJobProperties = new StreamingJobProperties(mergedProperties);
         updatedJobProperties.validate();
-        if (!originJobProperties.getS3IngestionMode().equals(updatedJobProperties.getS3IngestionMode())) {
-            throw new AnalysisException("s3.ingestion_mode cannot be altered");
+        if (!originJobProperties.getS3IngestionMode().equals(updatedJobProperties.getS3IngestionMode())
+                || !StringUtils.equalsIgnoreCase(originJobProperties.getS3EventSource(),
+                        updatedJobProperties.getS3EventSource())
+                || !Objects.equals(originJobProperties.getS3SqsQueueUrl(),
+                        updatedJobProperties.getS3SqsQueueUrl())) {
+            throw new AnalysisException("s3.ingestion_mode, s3.event.source and s3.sqs.queue_url cannot be altered");
         }
         String offset = properties.get(StreamingJobProperties.OFFSET_PROPERTY);
         if (offset != null) {

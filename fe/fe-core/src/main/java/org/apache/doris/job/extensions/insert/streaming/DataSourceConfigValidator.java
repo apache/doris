@@ -137,6 +137,7 @@ public class DataSourceConfigValidator {
 
         validateOceanBaseSource(input, dataSourceType);
         validateSslVerifyCaPair(input);
+        validateServerIdConfig(input);
     }
 
     private static void validateOceanBaseSource(Map<String, String> input, String dataSourceType) {
@@ -200,8 +201,6 @@ public class DataSourceConfigValidator {
                     "ssl_mode '" + DataSourceConfigKeys.SSL_MODE_VERIFY_CA
                             + "' requires ssl_rootcert to be set");
         }
-
-        validateServerIdConfig(input);
     }
 
     // Shared by validateSource and the cdc_stream TVF entrypoint so both reject malformed

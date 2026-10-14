@@ -1370,6 +1370,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private UserIdentity resolveForwardedAuthUserIdentity(String fullUserName, String passwd, String clientIp,
             ForwardedCertificateInfo certInfo) throws AuthenticationException {
+
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(fullUserName, clientIp) != null) {
+            throw new AuthenticationException("Authentication-bound users must authenticate through their integration");
+        }
         CertificateAuthDecision certDecision = StreamLoadCertificateAuthHelper.authenticateForwarded(
                 CERT_RUNTIME_AUTH_SERVICE, fullUserName, clientIp, certInfo);
         if (certDecision.isReject()) {
@@ -1377,7 +1381,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     ? "TLS certificate verification failed"
                     : certDecision.getErrorMessage());
         }
-        if (certDecision.shouldSkipPasswordVerification()) {
+        if (certDecision.shouldSkipPasswordVerification()
+                && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
             return certDecision.getUserIdentity();
         }
 

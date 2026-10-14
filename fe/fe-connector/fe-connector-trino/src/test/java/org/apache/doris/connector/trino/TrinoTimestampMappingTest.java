@@ -63,6 +63,46 @@ class TrinoTimestampMappingTest {
     }
 
     @Test
+    void domainsEncodeUtcMicrosAndMillisecondAlignedZonedBounds() {
+        for (java.time.LocalDateTime utc : java.util.Arrays.asList(
+                java.time.LocalDateTime.of(2020, 1, 2, 4, 1, 0, 111333000),
+                java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000))) {
+            long millis = utc.toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+            // TIMESTAMPTZ(6) keeps the sub-millisecond part as picoseconds of the UTC millisecond.
+            Assertions.assertEquals(io.trino.spi.type.LongTimestampWithTimeZone.fromEpochMillisAndFraction(
+                    millis, (utc.getNano() % 1_000_000) * 1000, io.trino.spi.type.TimeZoneKey.UTC_KEY),
+                    singleDomainValue(io.trino.spi.type.TimestampWithTimeZoneType.createTimestampWithTimeZoneType(6),
+                            "TIMESTAMPTZ", 6, utc));
+            // TIMESTAMPTZ(3) accepts a millisecond-aligned bound as a packed UTC value.
+            java.time.LocalDateTime aligned = utc.withNano(utc.getNano() / 1_000_000 * 1_000_000);
+            long packed = (long) singleDomainValue(
+                    io.trino.spi.type.TimestampWithTimeZoneType.createTimestampWithTimeZoneType(3),
+                    "TIMESTAMPTZ", 3, aligned);
+            Assertions.assertEquals(aligned.toInstant(java.time.ZoneOffset.UTC).toEpochMilli(),
+                    io.trino.spi.type.DateTimeEncoding.unpackMillisUtc(packed));
+            // TIMESTAMP(6) carries the wall-clock fields as epoch microseconds without double counting millis.
+            Assertions.assertEquals(utc.toEpochSecond(java.time.ZoneOffset.UTC) * 1_000_000L + utc.getNano() / 1000,
+                    singleDomainValue(io.trino.spi.type.TimestampType.createTimestampType(6), "DATETIMEV2", 6, utc));
+        }
+    }
+
+    private static Object singleDomainValue(io.trino.spi.type.Type trinoType, String dorisTypeName, int precision,
+            java.time.LocalDateTime value) {
+        io.trino.spi.connector.ColumnHandle handle = new io.trino.spi.connector.ColumnHandle() { };
+        org.apache.doris.connector.spi.ConnectorType dorisType =
+                org.apache.doris.connector.spi.ConnectorType.of(dorisTypeName, precision, 0);
+        org.apache.doris.connector.spi.pushdown.ConnectorExpression filter =
+                new org.apache.doris.connector.spi.pushdown.ConnectorComparison(
+                        org.apache.doris.connector.spi.pushdown.ConnectorComparison.Operator.EQ,
+                        new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("ts", dorisType),
+                        new org.apache.doris.connector.spi.pushdown.ConnectorLiteral(dorisType, value));
+        TrinoPredicateConverter converter = new TrinoPredicateConverter(
+                java.util.Collections.singletonMap("ts", handle),
+                java.util.Collections.singletonMap("ts", new io.trino.spi.connector.ColumnMetadata("ts", trinoType)));
+        return converter.convert(filter).getDomains().orElseThrow(AssertionError::new).get(handle).getSingleValue();
+    }
+
+    @Test
     void subMicrosecondLocalTimestampDomainStaysLocal() {
         io.trino.spi.connector.ColumnHandle handle = new io.trino.spi.connector.ColumnHandle() { };
         org.apache.doris.connector.spi.ConnectorType dorisType =

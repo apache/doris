@@ -170,6 +170,10 @@ public class StreamLoadHandler {
     }
 
     private UserIdentity resolveCloudLoadUserIdentity(String userName) throws UserException {
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(userName, request.getUserIp()) != null) {
+            throw new UserException("Authentication-bound users must authenticate through their integration");
+        }
+
         CertificateAuthDecision certDecision = StreamLoadCertificateAuthHelper.authenticateForwarded(
                 CERT_RUNTIME_AUTH_SERVICE,
                 userName,
@@ -183,7 +187,8 @@ public class StreamLoadHandler {
 
         List<UserIdentity> currentUser = Lists.newArrayList();
         try {
-            if (certDecision.shouldSkipPasswordVerification()) {
+            if (certDecision.shouldSkipPasswordVerification()
+                    && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
                 return certDecision.getUserIdentity();
             }
             if (certDecision.isVerified()) {

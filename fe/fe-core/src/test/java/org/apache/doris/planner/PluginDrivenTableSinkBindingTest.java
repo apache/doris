@@ -19,11 +19,13 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
@@ -109,7 +111,8 @@ public class PluginDrivenTableSinkBindingTest {
                 connectorSnapshot, Collections.emptyMap(), Collections.emptyMap());
         Mockito.when(metadata.applySnapshot(session, baseHandle, connectorSnapshot)).thenReturn(pinnedHandle);
         PluginDrivenTableSink sink = new PluginDrivenTableSink(table, provider, session, baseHandle,
-                Collections.emptyList(), null, null, false, metadata);
+                Collections.emptyList(), Collections.emptyList(), null, WriteOperation.INSERT,
+                true, false, null, metadata, Config.max_be_exec_version);
         PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
         ctx.setBranchName(Optional.of("audit"));
 
@@ -135,7 +138,9 @@ public class PluginDrivenTableSinkBindingTest {
         ConnectorTableHandle tableHandle = new ConnectorTableHandle() { };
         // targetTable is unused on the plan-provider bind path; pass null to avoid building a
         // full PluginDrivenExternalTable (which would require a catalog + database).
-        return new PluginDrivenTableSink(null, provider, session, tableHandle, Collections.emptyList());
+        return new PluginDrivenTableSink(null, provider, session, tableHandle,
+                Collections.emptyList(), Collections.emptyList(), null, WriteOperation.INSERT,
+                true, false, null, null, Config.max_be_exec_version);
     }
 
     /** Records the bound {@link ConnectorWriteHandle} that the sink hands to {@code planWrite}. */

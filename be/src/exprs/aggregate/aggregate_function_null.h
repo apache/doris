@@ -244,13 +244,15 @@ public:
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
         if (nested_function->is_trivial()) {
-            BufferReadable buf({column->get_data_at(0).data, 0});
+            // Selected rows need independent readers: skipping a destination must not leave
+            // a shared reader pointing at that row's serialized state for the next destination.
             size_t size_of_data = this->size_of_data();
             if constexpr (result_is_nullable) {
                 for (int i = 0; i != num_rows; ++i) {
                     if (!places[i]) {
                         continue;
                     }
+                    BufferReadable buf(column->get_data_at(i));
                     buf.read_binary(*(bool*)(rhs + size_of_data * i));
                     if (get_flag(rhs + size_of_data * i)) {
                         nested_function->deserialize(nested_place(rhs + size_of_data * i), buf,
@@ -267,6 +269,7 @@ public:
             } else {
                 for (size_t i = 0; i != num_rows; ++i) {
                     if (places[i]) {
+                        BufferReadable buf(column->get_data_at(i));
                         nested_function->deserialize(rhs + size_of_data * i, buf, arena);
                     }
                 }
@@ -711,6 +714,11 @@ public:
 
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (requires(NestFuction& function, const IColumn** input_columns) {
+                          function.check_nullable_input_columns(input_columns);
+                      }) {
+            this->nested_function->check_nullable_input_columns(columns);
+        }
         std::vector<const IColumn*> nested_columns(number_of_arguments);
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {

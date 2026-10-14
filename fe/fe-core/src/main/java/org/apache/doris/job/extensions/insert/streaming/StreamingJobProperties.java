@@ -26,6 +26,7 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Strings;
 import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 import org.json.simple.JSONObject;
 
 import java.util.ArrayList;
@@ -43,15 +44,19 @@ public class StreamingJobProperties implements JobProperties {
     public static final String S3_MAX_BATCH_FILES_PROPERTY = "s3.max_batch_files";
     public static final String S3_MAX_BATCH_BYTES_PROPERTY = "s3.max_batch_bytes";
     public static final String S3_INGESTION_MODE_PROPERTY = "s3.ingestion_mode";
-    public static final String S3_INGESTION_MODE_LEXICAL = "LEXICAL";
-    public static final String S3_INGESTION_MODE_ONCE = "ONCE";
+    public static final String S3_EVENT_SOURCE_PROPERTY = "s3.event.source";
+    public static final String S3_SQS_QUEUE_URL_PROPERTY = "s3.sqs.queue_url";
+    public static final String S3_INGESTION_MODE_ORDERED_LIST = "ORDERED_LIST";
+    public static final String S3_INGESTION_MODE_NOTIFICATION = "NOTIFICATION";
+    public static final String S3_INGESTION_MODE_ONE_TIME = "ONE_TIME";
+    public static final String S3_EVENT_SOURCE_SQS = "SQS";
     public static final String SESSION_VAR_PREFIX = "session.";
     public static final String INTERNAL_KEY_PREFIX = "__";
     public static final String OFFSET_PROPERTY = "offset";
     public static final String COMPUTE_GROUP_PROPERTY = "compute_group";
     public static final List<String> SUPPORT_STREAM_JOB_PROPS = Arrays.asList(MAX_INTERVAL_SECOND_PROPERTY,
             S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, S3_INGESTION_MODE_PROPERTY,
-            OFFSET_PROPERTY, COMPUTE_GROUP_PROPERTY);
+            S3_EVENT_SOURCE_PROPERTY, S3_SQS_QUEUE_URL_PROPERTY, OFFSET_PROPERTY, COMPUTE_GROUP_PROPERTY);
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
@@ -129,12 +134,31 @@ public class StreamingJobProperties implements JobProperties {
                         + properties.get(StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY));
 
         String ingestionMode = getS3IngestionMode();
-        if (!S3_INGESTION_MODE_LEXICAL.equals(ingestionMode)
-                && !S3_INGESTION_MODE_ONCE.equals(ingestionMode)) {
+        if (!S3_INGESTION_MODE_ORDERED_LIST.equals(ingestionMode)
+                && !S3_INGESTION_MODE_ONE_TIME.equals(ingestionMode)
+                && !S3_INGESTION_MODE_NOTIFICATION.equals(ingestionMode)) {
             throw new AnalysisException("Unsupported s3.ingestion_mode: " + ingestionMode);
         }
-        if (S3_INGESTION_MODE_ONCE.equals(ingestionMode) && properties.containsKey(OFFSET_PROPERTY)) {
-            throw new AnalysisException("offset is not supported when s3.ingestion_mode is ONCE");
+        if (S3_INGESTION_MODE_ONE_TIME.equals(ingestionMode) && properties.containsKey(OFFSET_PROPERTY)) {
+            throw new AnalysisException("offset is not supported when s3.ingestion_mode is ONE_TIME");
+        }
+
+        if (S3_INGESTION_MODE_NOTIFICATION.equals(ingestionMode)) {
+            if (!S3_EVENT_SOURCE_SQS.equalsIgnoreCase(getS3EventSource())) {
+                throw new AnalysisException("s3.event.source must be SQS when s3.ingestion_mode is NOTIFICATION");
+            }
+            if (StringUtils.isBlank(getS3SqsQueueUrl())) {
+                throw new AnalysisException("s3.sqs.queue_url is required when s3.ingestion_mode is NOTIFICATION");
+            }
+            if (properties.containsKey(OFFSET_PROPERTY)) {
+                throw new AnalysisException("offset is not supported when s3.ingestion_mode is NOTIFICATION");
+            }
+            if (maxIntervalSecond >= 7200) {
+                throw new AnalysisException("max_interval must be less than 7200 seconds for NOTIFICATION mode");
+            }
+        } else if (properties.containsKey(S3_EVENT_SOURCE_PROPERTY)
+                || properties.containsKey(S3_SQS_QUEUE_URL_PROPERTY)) {
+            throw new AnalysisException("s3.event.source and s3.sqs.queue_url require s3.ingestion_mode=NOTIFICATION");
         }
 
         // validate session variables
@@ -220,11 +244,23 @@ public class StreamingJobProperties implements JobProperties {
     }
 
     public String getS3IngestionMode() {
-        return properties.getOrDefault(S3_INGESTION_MODE_PROPERTY, S3_INGESTION_MODE_LEXICAL)
+        return properties.getOrDefault(S3_INGESTION_MODE_PROPERTY, S3_INGESTION_MODE_ORDERED_LIST)
                 .trim().toUpperCase(Locale.ROOT);
     }
 
-    public boolean isS3OnceMode() {
-        return S3_INGESTION_MODE_ONCE.equals(getS3IngestionMode());
+    public boolean isS3OneTimeMode() {
+        return S3_INGESTION_MODE_ONE_TIME.equals(getS3IngestionMode());
+    }
+
+    public boolean isS3NotificationMode() {
+        return S3_INGESTION_MODE_NOTIFICATION.equals(getS3IngestionMode());
+    }
+
+    public String getS3EventSource() {
+        return properties.get(S3_EVENT_SOURCE_PROPERTY);
+    }
+
+    public String getS3SqsQueueUrl() {
+        return properties.get(S3_SQS_QUEUE_URL_PROPERTY);
     }
 }

@@ -103,6 +103,27 @@ suite("test_paimon_write_variant", "p0,external,paimon,nonConcurrent") {
             ORDER BY id
         """
 
+        // A UUID reaches a Variant column without an explicit cast, as a scalar and as array
+        // elements, in both cast modes, and reads back as the UUID it holds.
+        sql """
+            INSERT INTO t_variant_basic VALUES
+                (30, CAST('6ba7b810-9dad-11d1-80b4-00c04fd430c8' AS UUID),
+                     ARRAY(CAST('6ba7b811-9dad-11d1-80b4-00c04fd430c8' AS UUID), NULL))
+        """
+        sql """SET enable_strict_cast = true"""
+        sql """
+            INSERT INTO t_variant_basic
+            SELECT 31, CAST('6ba7b812-9dad-11d1-80b4-00c04fd430c8' AS UUID),
+                   ARRAY(CAST('6ba7b813-9dad-11d1-80b4-00c04fd430c8' AS UUID))
+        """
+        sql """SET enable_strict_cast = false"""
+        order_qt_variant_uuid """
+            SELECT id, payload, secondary, variant_type(payload), variant_type(secondary[1])
+            FROM t_variant_basic
+            WHERE id IN (30, 31)
+            ORDER BY id
+        """
+
         order_qt_variant_object """
             SELECT
                 CAST(payload['object']['name'] AS STRING),

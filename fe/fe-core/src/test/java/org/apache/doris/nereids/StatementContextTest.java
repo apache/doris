@@ -64,6 +64,21 @@ public class StatementContextTest {
     }
 
     @Test
+    public void testExecutionVersionIsFreshForEachPreparedExecution() {
+        StatementContext firstExecution = new StatementContext();
+        firstExecution.initializeBeExecVersion(13);
+
+        StatementContext secondExecution = firstExecution.createNextExecuteContext();
+        org.junit.jupiter.api.Assertions.assertFalse(secondExecution.hasBeExecVersion());
+        secondExecution.initializeBeExecVersion(16);
+
+        org.junit.jupiter.api.Assertions.assertEquals(13, firstExecution.getBeExecVersion());
+        org.junit.jupiter.api.Assertions.assertEquals(16, secondExecution.getBeExecVersion());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> secondExecution.initializeBeExecVersion(15));
+    }
+
+    @Test
     public void testSkipPreloadWhenSessionVariableDisabled() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
