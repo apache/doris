@@ -959,9 +959,7 @@ TEST_F(CollectionStatisticsTest, LegacyV3RejectsSegmentWrittenWithoutNorms) {
     expect_no_collected_tokens(L"1");
 }
 
-// An index that is not analyzed never writes norms, and its scoring statistics are collected as
-// before.
-TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsIsStillCollected) {
+TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsRejectsScoring) {
     auto tablet_schema = create_legacy_v3_schema({});
     const std::string segment_path = test_dir_ + "/legacy_v3_keyword_0.dat";
     ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path).ok());
@@ -973,12 +971,16 @@ TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsIsStillCollecte
     auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
     std::vector<RowSetSplits> splits {RowSetSplits(reader)};
 
-    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
-                                          create_search_contexts("TERM", "alpha beta"), nullptr);
+    for (const auto* clause_type : {"TERM", "PHRASE", "EXACT"}) {
+        const Status status =
+                stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                create_search_contexts(clause_type, "alpha beta"), nullptr);
 
-    ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 1, 0);
-    expect_collected_term(L"1", L"alpha beta", 1);
+        EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+        EXPECT_NE(status.to_string().find("requires an analyzed inverted index"), std::string::npos)
+                << status;
+        expect_no_collected_tokens(L"1");
+    }
 }
 
 TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
@@ -2326,7 +2328,7 @@ TEST_F(CollectionStatisticsTest, SearchArrayStringSelectsFulltextLeafIndex) {
     EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 20);
 }
 
-TEST_F(CollectionStatisticsTest, SearchExactIgnoresAnalyzedBindingHint) {
+TEST_F(CollectionStatisticsTest, SearchExactRejectsKeywordIndexWithAnalyzedBindingHint) {
     auto tablet_schema = create_tablet_schema_with_keyword_and_fulltext_indexes();
     TSearchClause clause;
     clause.clause_type = "EXACT";
@@ -2346,12 +2348,10 @@ TEST_F(CollectionStatisticsTest, SearchExactIgnoresAnalyzedBindingHint) {
             runtime_state_.get(), create_search_contexts(std::move(clause), {std::move(binding)}),
             tablet_schema, &collect_infos);
 
-    ASSERT_TRUE(status.ok()) << status.msg();
-    ASSERT_EQ(collect_infos.size(), 1u);
-    ASSERT_NE(collect_infos.begin()->second.index_meta, nullptr);
-    EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 10);
-    EXPECT_EQ(collect_infos.begin()->second.unique_terms,
-              std::vector<std::string>({"running quickly"}));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+    EXPECT_NE(status.to_string().find("requires an analyzed inverted index"), std::string::npos)
+            << status;
+    EXPECT_TRUE(collect_infos.empty());
 }
 
 TEST_F(CollectionStatisticsTest, SearchScoringRejectsMissingField) {

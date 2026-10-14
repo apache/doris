@@ -270,6 +270,24 @@ Status validate_scoring_leaf_type(const ScoringIndexCandidates& candidates,
     return Status::OK();
 }
 
+Status validate_search_bm25_index(FieldType field_type, const TabletIndex& index_meta,
+                                  std::string_view field_name) {
+    if (infer_inverted_index_reader_type(field_type, index_meta.properties()) ==
+        InvertedIndexReaderType::BKD) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Index statistics collection failed: BM25 scoring does not support numeric BKD "
+                "search field={}",
+                field_name);
+    }
+    if (!InvertedIndexAnalyzer::should_analyzer(index_meta.properties())) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Index statistics collection failed: BM25 scoring requires an analyzed inverted "
+                "index for search field={}",
+                field_name);
+    }
+    return Status::OK();
+}
+
 void preserve_selected_index_metadata(const ScoringIndexCandidates& candidates,
                                       const TabletIndex* selected_index,
                                       CollectInfo* collect_info) {
@@ -532,40 +550,16 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
                 field_name, selected_index.error().to_string());
     }
     const auto* index_meta = *selected_index;
-    if (infer_inverted_index_reader_type(candidates.field_type, index_meta->properties()) ==
-        InvertedIndexReaderType::BKD) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "Index statistics collection failed: BM25 scoring does not support numeric BKD "
-                "search field={}",
-                field_name);
-    }
+    RETURN_IF_ERROR(validate_search_bm25_index(candidates.field_type, *index_meta, field_name));
 
     const auto& analysis_properties = index_meta->properties();
-
+    auto analyzer_ctx = DORIS_TRY(analyzer_context_from_properties(analysis_properties));
     std::vector<TermInfo> term_infos;
-    std::optional<InvertedIndexAnalyzerCtx> analyzer_ctx;
-    if (InvertedIndexAnalyzer::should_analyzer(analysis_properties)) {
-        auto built_ctx = analyzer_context_from_properties(analysis_properties);
-        if (!built_ctx.has_value()) {
-            return built_ctx.error();
-        }
-        analyzer_ctx.emplace(std::move(built_ctx.value()));
-    }
-
-    if (clause_type == "MATCH") {
+    if (clause_type == "MATCH" ||
+        (category == ClauseTypeCategory::NON_TOKENIZED && clause_type != "TERM")) {
         term_infos.emplace_back(value);
-    } else if (category == ClauseTypeCategory::TOKENIZED) {
-        if (analyzer_ctx.has_value()) {
-            term_infos = DORIS_TRY(analyze_plain_query(value, *analyzer_ctx));
-        } else {
-            term_infos.emplace_back(value);
-        }
-    } else if (category == ClauseTypeCategory::NON_TOKENIZED) {
-        if (clause_type == "TERM" && analyzer_ctx.has_value()) {
-            term_infos = DORIS_TRY(analyze_plain_query(value, *analyzer_ctx));
-        } else {
-            term_infos.emplace_back(value);
-        }
+    } else {
+        term_infos = DORIS_TRY(analyze_plain_query(value, analyzer_ctx));
     }
 
     std::string lucene_field_name =
