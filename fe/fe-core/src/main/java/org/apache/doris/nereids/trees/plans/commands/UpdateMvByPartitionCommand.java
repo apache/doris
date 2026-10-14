@@ -112,7 +112,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<String> partitionNames,
             Map<TableIf, String> tableWithPartKey, StatementContext statementContext,
-            Map<TableIf, Set<String>> readableBasePartitions) throws UserException {
+            Map<BaseTableInfo, Set<String>> readableBasePartitions) throws UserException {
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates =
                 constructTableWithPredicates(mv, partitionNames, tableWithPartKey, readableBasePartitions);
@@ -152,7 +152,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     private static Map<TableIf, Set<Expression>> constructTableWithPredicates(MTMV mv,
             Set<String> partitionNames, Map<TableIf, String> tableWithPartKey,
-            Map<TableIf, Set<String>> readableBasePartitions) throws AnalysisException {
+            Map<BaseTableInfo, Set<String>> readableBasePartitions) throws AnalysisException {
         Set<PartitionItem> mvItems = Sets.newHashSet();
         for (String partitionName : partitionNames) {
             mvItems.add(mv.getPartitionItemOrAnalysisException(partitionName));
@@ -161,7 +161,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         for (Map.Entry<TableIf, String> entry : tableWithPartKey.entrySet()) {
             TableIf table = entry.getKey();
             String colName = entry.getValue();
-            Set<String> readable = readableBasePartitions == null ? null : readableBasePartitions.get(table);
+            Set<String> readable = readableBasePartitions == null ? null
+                    : readableBasePartitions.get(new BaseTableInfo(table));
             if (readable == null) {
                 builder.put(table, constructPredicates(mvItems, colName));
                 continue;
