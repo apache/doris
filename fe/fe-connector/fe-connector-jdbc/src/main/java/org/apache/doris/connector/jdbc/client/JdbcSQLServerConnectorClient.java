@@ -124,6 +124,9 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
                 int scale = fieldInfo.requiredDecimalDigits();
                 return createDecimalOrString(precision, scale);
             }
+            case "datetimeoffset":
+                return ConnectorType.of("TIMESTAMPTZ",
+                        Math.min(fieldInfo.getDecimalDigits().orElse(0), JDBC_DATETIME_SCALE), -1);
             case "date":
                 return ConnectorType.of("DATEV2");
             case "datetime":
@@ -133,6 +136,8 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
                 scale = Math.min(scale, JDBC_DATETIME_SCALE);
                 return ConnectorType.of("DATETIMEV2", scale, -1);
             }
+            case "uniqueidentifier":
+                return ConnectorType.of("UUID");
             case "char":
             case "nchar":
             case "varchar":
@@ -140,8 +145,6 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
             case "text":
             case "ntext":
             case "time":
-            case "datetimeoffset":
-            case "uniqueidentifier":
             case "timestamp":
                 return ConnectorType.of("STRING");
             case "binary":

@@ -91,7 +91,7 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     const auto& row_descriptor = _local_state->_parent->operator_row_desc_before_projection();
     if (_has_projection) {
-        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+        _origin_block.clear_column_data(row_descriptor.num_slots());
         if (!_can_merge_padding_blocks(_padding_block, _origin_block)) {
             DORIS_CHECK(_padding_block.empty())
                     << "padding policy must remain stable for one scanner";
@@ -111,7 +111,7 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
                 // The merged tail can be larger than the target batch, but each source block is
                 // already bounded by the lower scanner.
                 RETURN_IF_ERROR(_merge_padding_block());
-                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                _origin_block.clear_column_data(row_descriptor.num_slots());
                 break;
             }
             if (_origin_block.rows() >= min_batch_size) {
@@ -121,7 +121,7 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
             if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
                 _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
                 RETURN_IF_ERROR(_merge_padding_block());
-                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                _origin_block.clear_column_data(row_descriptor.num_slots());
             } else {
                 if (_origin_block.rows() < _padding_block.rows()) {
                     _padding_block.swap(_origin_block);
@@ -267,7 +267,7 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     }
 
     origin_block->clear_column_data(
-            _local_state->_parent->operator_row_desc_before_projection().num_materialized_slots());
+            _local_state->_parent->operator_row_desc_before_projection().num_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();

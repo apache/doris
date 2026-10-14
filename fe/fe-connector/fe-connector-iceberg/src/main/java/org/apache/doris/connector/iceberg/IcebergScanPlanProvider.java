@@ -463,10 +463,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // outer entry). The scope loader only constructs the memo map; planning then runs on that
             // separate map, so every scope call from planScanInternal is top-level again. The memo
             // key is catalog-scoped, which also isolates same-named tables across a cross-catalog
-            // statement.
+            // statement. Every scan of a statement is planned within one plan, so the memo is dropped
+            // when planning ends.
             String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
-            Map<IcebergScanReuseKey, List<ConnectorScanRange>> scanReuse =
-                    session.getStatementScope().computeIfAbsent(memoKey, () -> new ConcurrentHashMap<>());
+            Map<IcebergScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope()
+                    .computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
             IcebergScanReuseKey reuseKey = new IcebergScanReuseKey(icebergHandle, request);
             return scanReuse.computeIfAbsent(reuseKey,
                     k -> Collections.unmodifiableList(planScanInternal(session,
@@ -3193,9 +3194,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (auth == null) {
             return table;
         }
-        TableOperations rawOps = ((BaseTable) table).operations();
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations rawOps = baseTable.operations();
+        // Keep the table's metrics reporter: every scan of a Kerberos catalog runs on this wrapper.
         return new BaseTable(new IcebergAuthenticatedTableOperations(
-                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name());
+                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name(), baseTable.reporter());
     }
 
     /**

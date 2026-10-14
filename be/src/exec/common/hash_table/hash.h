@@ -94,6 +94,11 @@ struct DefaultHash<T> {
 };
 
 template <>
+struct DefaultHash<unsigned __int128> {
+    size_t operator()(unsigned __int128 key) const { return doris::UInt128HashCRC32()(key); }
+};
+
+template <>
 struct DefaultHash<doris::VecDateTimeValue> {
     size_t operator()(doris::VecDateTimeValue key) const { return int_hash64(*(int64_t*)&key); }
 };

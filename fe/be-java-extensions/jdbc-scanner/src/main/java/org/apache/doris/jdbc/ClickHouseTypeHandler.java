@@ -31,6 +31,7 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -47,6 +48,12 @@ public class ClickHouseTypeHandler extends DefaultTypeHandler {
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
         switch (type.getType()) {
+            case TIMESTAMPTZ: {
+                // The projection preserves epoch microseconds before JDBC v1 can lose a DST-fold offset.
+                long micros = rs.getLong(columnIndex);
+                return rs.wasNull() ? null : LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000),
+                        (int) Math.floorMod(micros, 1_000_000) * 1000, ZoneOffset.UTC);
+            }
             case BOOLEAN:
                 return rs.getObject(columnIndex, Boolean.class);
             case TINYINT:
@@ -125,6 +132,20 @@ public class ClickHouseTypeHandler extends DefaultTypeHandler {
             return null;
         }
         switch (type.getType()) {
+            case TIMESTAMPTZ: {
+                List<LocalDateTime> result = Lists.newArrayList();
+                // The scan projection sends epoch microseconds, avoiding zone-less JDBC array values.
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else {
+                        long micros = ((Number) element).longValue();
+                        result.add(LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000),
+                                (int) Math.floorMod(micros, 1_000_000) * 1000, ZoneOffset.UTC));
+                    }
+                }
+                return result;
+            }
             case SMALLINT: {
                 List<Short> result = Lists.newArrayList();
                 for (Object element : array) {
@@ -200,8 +221,10 @@ public class ClickHouseTypeHandler extends DefaultTypeHandler {
                     if (element == null) {
                         resultArray.add(null);
                     } else {
-                        resultArray.add(
-                                Lists.newArrayList(convertArray((List<?>) element, type.getChildTypes().get(0))));
+                        // Drivers may return nested Java arrays rather than Lists.
+                        List<?> elements = element instanceof List
+                                ? (List<?>) element : convertArrayToList(element);
+                        resultArray.add(Lists.newArrayList(convertArray(elements, type.getChildTypes().get(0))));
                     }
                 }
                 return resultArray;
@@ -210,4 +233,12 @@ public class ClickHouseTypeHandler extends DefaultTypeHandler {
                 return array;
         }
     }
+
+    @Override
+    public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // ClickHouse JDBC v2 encodes Timestamp as local fields, but OffsetDateTime as an epoch-based instant.
+        statement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC));
+    }
+
 }

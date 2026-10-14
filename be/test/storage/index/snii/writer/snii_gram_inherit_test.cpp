@@ -51,6 +51,7 @@
 #include "storage/index/snii/snii_index_reader.h"
 #include "storage/index/snii/snii_index_writer.h"
 #include "storage/olap_common.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
@@ -218,7 +219,8 @@ protected:
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> index_status;
         segment_v2::ColumnIteratorOptions column_options;
         auto index_context = std::make_shared<IndexExecContext>(
-                iterators, storage_types, index_status, nullptr, nullptr, column_options);
+                iterators, storage_types, index_status, nullptr, nullptr, column_options,
+                std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
         VExprContext context(expression);
         context.set_index_context(index_context);
         RETURN_IF_ERROR(context.prepare(&_runtime_state, RowDescriptor {}));

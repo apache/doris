@@ -291,7 +291,7 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_cli
     VLOG_DEBUG << "uri:" << uri << ", normalized_uri:" << normalized_uri;
     std::string tls_debug_context = build_azure_tls_debug_context(ca_cert_file_path);
 
-    auto built = AzureAuthFactory::create(uri,
+    auto built = AzureAuthFactory::create(normalized_uri,
                                           {
                                                   .type = AzureCredentialType::SHARED_KEY,
                                                   .account_name = s3_conf.ak,

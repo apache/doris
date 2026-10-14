@@ -20,7 +20,6 @@ x-kerberos-image: &kerberos-image
   build:
     context: .
     dockerfile: Dockerfile
-    network: host
 
 x-kerberos-service: &kerberos-service
   <<: *kerberos-image

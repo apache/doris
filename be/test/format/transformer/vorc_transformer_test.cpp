@@ -415,6 +415,48 @@ TEST_F(VOrcTransformerTest, PreservesVarbinaryUuidCarrierBeforeOrcWrite) {
     EXPECT_EQ(0, std::memcmp(uuid_batch.data[0], expected_uuid.data(), expected_uuid.size()));
 }
 
+TEST_F(VOrcTransformerTest, PreservesNativeUuidCarrierBeforeIcebergOrcWrite) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {"id": 1, "name": "uuid_col", "required": true, "type": "uuid"}
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+    auto uuid_type = std::make_shared<DataTypeUUID>();
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {uuid_type});
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    VOrcTransformer transformer(&state, file_writer.get(), output_exprs, "", {"uuid_col"}, false,
+                                TFileCompressType::PLAIN, schema.get(), _fs);
+    ASSERT_TRUE(transformer.open().ok());
+
+    const std::array<uint8_t, 16> expected_uuid = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                                   0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    auto uuid_column = ColumnUUID::create();
+    uuid_column->get_data().push_back(UUIDValue::from_big_endian(expected_uuid.data()));
+    Block block;
+    block.insert({std::move(uuid_column), uuid_type, "uuid_col"});
+    ASSERT_TRUE(transformer.write(block).ok());
+    ASSERT_TRUE(transformer.close().ok());
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
+    auto input_stream = std::make_unique<ORCFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
+    auto row_reader = reader->createRowReader();
+    auto row_batch = row_reader->createRowBatch(1);
+    ASSERT_TRUE(row_reader->next(*row_batch));
+    const auto& root = assert_cast<const orc::StructVectorBatch&>(*row_batch);
+    const auto& uuid_batch = assert_cast<const orc::StringVectorBatch&>(*root.fields[0]);
+    EXPECT_EQ(uuid_batch.length[0], expected_uuid.size());
+    EXPECT_EQ(0, std::memcmp(uuid_batch.data[0], expected_uuid.data(), expected_uuid.size()));
+}
+
 TEST_F(VOrcTransformerTest, RejectsInvalidLegacyUuidAndFixedValues) {
     const std::string schema_json = R"({
         "type": "struct",
