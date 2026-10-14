@@ -43,8 +43,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -346,20 +344,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // aggregate: its constructor forces a NullableAggregateFunction of an aggregate without group by
         // to nullable, since a scalar aggregate over an empty input returns NULL, and a slot built from
         // the expression before that adjustment keeps the old nullability, which AdjustNullable rejects.
-        // If the query aggregate guarantees a non-null result (e.g. count returns 0 for an empty input)
-        // while its roll up does not (e.g. sum returns NULL), restore the guarantee with a nvl so that
-        // the project above the aggregate computes it. A roll up which keeps the guarantee (e.g. count
-        // distinct -> bitmap_union_count) needs no compensation.
         List<NamedExpression> rewrittenAggregateOutputs = rewrittenAggregate.getOutputExpressions();
         for (int i = 0; i < queryAggregateOutputs.size(); i++) {
             NamedExpression rewrittenOutput = rewrittenAggregateOutputs.get(i);
-            Expression aggOutputRef = rewrittenOutput.toSlot();
-            NotNullableAggregateFunction notNullableAgg = extractNotNullableAggregateFunction(
-                    queryAggregateOutputs.get(i));
-            if (notNullableAgg != null && !(unwrapAlias(rewrittenOutput) instanceof NotNullableAggregateFunction)) {
-                aggOutputRef = new Nvl(aggOutputRef, notNullableAgg.resultForEmptyInput());
-            }
-            bottomAggOutputToNewExprMap.put(shuttledBottomAggOutputs.get(i), aggOutputRef);
+            bottomAggOutputToNewExprMap.put(shuttledBottomAggOutputs.get(i), rewrittenOutput.toSlot());
         }
 
         // rewrite the query top plan output expressions to reference the rewritten aggregate output,
@@ -753,22 +741,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             }
         }
         return null;
-    }
-
-    /**
-     * Extract the not-nullable aggregate function from a query aggregate output expression, or null if
-     * the output is not a not-nullable function. Handles both a bare function and an alias wrapping it.
-     * A LogicalAggregate output expression is exactly one aggregate function (aggregates cannot nest),
-     * which is also the invariant the roll up rewriter relies on (see visitAggregateFunction), so only
-     * the top level needs to be inspected.
-     */
-    private static NotNullableAggregateFunction extractNotNullableAggregateFunction(NamedExpression expression) {
-        Expression child = unwrapAlias(expression);
-        return child instanceof NotNullableAggregateFunction ? (NotNullableAggregateFunction) child : null;
-    }
-
-    private static Expression unwrapAlias(NamedExpression expression) {
-        return expression instanceof Alias ? ((Alias) expression).child() : expression;
     }
 
     protected Pair<Set<? extends Expression>, Set<? extends Expression>> topPlanSplitToGroupAndFunction(

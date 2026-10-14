@@ -109,8 +109,26 @@ suite("agg_scalar_empty_input") {
     // the shape assertion about the aggregate itself independent of the cluster it runs on.
     sql "set agg_phase=1"
     qt_shape_count_on """explain shape plan ${qCountEmpty}"""
-    // MIN rolls up to MIN, which is nullable already, so no empty-input compensation is needed here.
     qt_shape_min_on """explain shape plan ${qMinEmpty}"""
+
+    // A having clause filters the rows the top aggregate produces. Keeping the aggregate is what makes the
+    // roll up possible, and the filter then stays above it and is evaluated on the rolled up value, so the
+    // mv is still used and a having which the single rolled up row does not pass yields no row at all.
+    def qHavingPasses = """select count(*) from scalar_agg_empty_base where k = 1 having count(*) > 0"""
+    def qHavingRejects = """select count(*) from scalar_agg_empty_base where k = 1 having count(*) > 100000"""
+    def qHavingEmptyInput = """select count(*) from scalar_agg_empty_base where k = 9999 having count(*) > 0"""
+    sql "set enable_materialized_view_rewrite=false"
+    order_qt_having_off_passes "${qHavingPasses}"
+    order_qt_having_off_rejects "${qHavingRejects}"
+    order_qt_having_off_empty "${qHavingEmptyInput}"
+    sql "set enable_materialized_view_rewrite=true"
+    mv_rewrite_success(qHavingPasses, "scalar_agg_empty_mv")
+    mv_rewrite_success(qHavingRejects, "scalar_agg_empty_mv")
+    mv_rewrite_success(qHavingEmptyInput, "scalar_agg_empty_mv")
+    order_qt_having_on_passes "${qHavingPasses}"
+    order_qt_having_on_rejects "${qHavingRejects}"
+    order_qt_having_on_empty "${qHavingEmptyInput}"
+    qt_shape_having """explain shape plan ${qHavingRejects}"""
 
     // A query which keeps one of the mv dimensions may still drop the aggregate node: the equality
     // filter makes the remaining mv dimension uniform, so the mv holds exactly one row per group.
