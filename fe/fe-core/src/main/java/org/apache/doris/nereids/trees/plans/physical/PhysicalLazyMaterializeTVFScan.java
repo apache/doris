@@ -88,7 +88,7 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalTVFRelation(this, context);
+        return visitor.visitPhysicalLazyMaterializeTVFScan(this, context);
     }
 
     @Override
