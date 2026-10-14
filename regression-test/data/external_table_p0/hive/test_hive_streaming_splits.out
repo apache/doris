@@ -189,3 +189,12 @@
 -- !streaming_128_32_empty_partitions --
 0	\N
 
+-- !ctas --
+120	7140	120	660
+
+-- !statement_hint --
+120	7140	1	1
+
+-- !settings_after_hint --
+128	32
+

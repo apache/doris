@@ -43,8 +43,12 @@ suite("test_hive_streaming_splits", "p0,external") {
         if (!sql("show tables like 'streaming_partitioned'").isEmpty()) {
             sql "truncate table streaming_partitioned"
         }
+        if (!sql("show tables like 'streaming_ctas'").isEmpty()) {
+            sql "truncate table streaming_ctas"
+        }
         sql "drop table if exists streaming_unpartitioned"
         sql "drop table if exists streaming_partitioned"
+        sql "drop table if exists streaming_ctas"
         sql """create table streaming_unpartitioned (id bigint, file_id int)
             engine=hive properties ('file_format'='parquet')"""
         sql """create table streaming_partitioned (id bigint, file_id int, p int)
@@ -101,6 +105,14 @@ suite("test_hive_streaming_splits", "p0,external") {
             }
             checkResults("streaming_${limits[0]}_${limits[1]}")
         }
+        // CTAS probes an absent target before creating and resolving it in the same statement.
+        sql """create table streaming_ctas properties ('file_format'='parquet')
+            as select id, file_id from streaming_unpartitioned"""
+        qt_ctas "select count(*), sum(id), count(distinct id), sum(file_id) from streaming_ctas"
+        qt_statement_hint """select /*+ SET_VAR(split_batch_size=1, split_queue_capacity=1) */
+            count(*), sum(id), max(@@split_batch_size), max(@@split_queue_capacity)
+            from streaming_unpartitioned"""
+        qt_settings_after_hint "select @@split_batch_size, @@split_queue_capacity"
         test {
             sql "set split_batch_size=0"
             exception "Split batch size and queue capacity must be positive"
