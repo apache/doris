@@ -127,11 +127,13 @@ public class MTMVRewriteUtil {
             // read it -- a query rewritten to it then reads no rows at all, including the ones the base
             // partitions it is to hold carry. Grace answers for a partition a refresh has written, which is
             // what its version says: the version of a written partition, even one a refresh left empty, is not
-            // the one it started at, while a replacement keeps that one and its creation time. The refresh
-            // snapshot cannot tell them apart -- it is keyed by the partition's name, and distinct keys can
-            // generate the same name -- so the version is what this reads.
+            // the one it started at, while a replacement keeps that one and its creation time. Neither the
+            // refresh snapshot nor `hasData` can be asked -- the snapshot is keyed by the partition's name, and
+            // distinct keys can generate the same name, while on cloud `hasData` answers true for a session
+            // that turned empty-partition pruning off, whatever the partition's version is.
             if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills) && !forceConsistent && partition.hasData()) {
+                    + gracePeriodMills) && !forceConsistent
+                    && partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
                 res.add(partition);
                 continue;
             }
