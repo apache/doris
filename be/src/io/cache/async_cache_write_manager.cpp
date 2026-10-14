@@ -17,6 +17,8 @@
 
 #include "io/cache/async_cache_write_manager.h"
 
+#include <butil/iobuf.h>
+
 #include <algorithm>
 #include <array>
 #include <exception>
@@ -338,10 +340,43 @@ AsyncCacheWriteBuffer::AsyncCacheWriteBuffer(size_t size,
     _data = reinterpret_cast<char*>(allocator.alloc(_size));
 }
 
+AsyncCacheWriteBuffer::AsyncCacheWriteBuffer(size_t capacity, butil::IOBuf&& payload,
+                                             std::shared_ptr<MemTrackerLimiter> tracker)
+        : _size(capacity),
+          _iobuf(std::make_unique<butil::IOBuf>(std::move(payload))),
+          _tracker(std::move(tracker)) {
+    DORIS_CHECK(!_iobuf->empty());
+    DORIS_CHECK(_iobuf->length() <= _size);
+    _tracker->consume(static_cast<int64_t>(_iobuf->length()));
+}
+
 AsyncCacheWriteBuffer::~AsyncCacheWriteBuffer() {
+    if (_iobuf != nullptr) {
+        _tracker->release(static_cast<int64_t>(_iobuf->length()));
+        return;
+    }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_tracker);
     AsyncCacheWriteAllocator allocator;
     allocator.free(_data, _size);
+}
+
+void AsyncCacheWriteBuffer::copy_to(size_t pos, size_t n, char* dst) const {
+    if (_iobuf == nullptr) {
+        memcpy(dst, _data + pos, n);
+        return;
+    }
+    const size_t copied = _iobuf->copy_to(dst, n, pos);
+    DORIS_CHECK(copied == n);
+}
+
+Status AsyncCacheWriteBuffer::append_to(FileBlock& block, size_t pos, size_t n) const {
+    if (_iobuf == nullptr) {
+        return block.append(Slice(_data + pos, n));
+    }
+    butil::IOBuf slice;
+    const size_t sliced = _iobuf->append_to(&slice, n, pos); // shares blocks, no copy
+    DORIS_CHECK(sliced == n);
+    return block.append_iobuf(slice);
 }
 
 AsyncCacheWriteManager::AsyncCacheWriteManager(BlockFileCache* cache,
@@ -524,6 +559,11 @@ Status AsyncCacheWriteManager::allocate_tracked_buffer(size_t size,
     return status;
 }
 
+AsyncCacheWriteBufferPtr AsyncCacheWriteManager::wrap_iobuf(size_t capacity, butil::IOBuf payload) {
+    return AsyncCacheWriteBufferPtr(
+            new AsyncCacheWriteBuffer(capacity, std::move(payload), _mem_tracker));
+}
+
 void AsyncCacheWriteManager::_process_task(AsyncCacheWriteTask task) {
     Defer complete {[&]() { _complete_active_task(std::move(task)); }};
 
@@ -631,7 +671,7 @@ Status AsyncCacheWriteManager::_persist_task(const AsyncCacheWriteTask& task) {
             ScopedActiveCounter active_append(_active_append_count);
             TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::_persist_task:before_append", &task);
             const int64_t start_us = MonotonicMicros();
-            status = block->append(Slice(task.buffer->data() + buffer_offset, append_size));
+            status = task.buffer->append_to(*block, buffer_offset, append_size);
             _metrics->record_block_operation_latency(Metrics::BlockOperation::APPEND,
                                                      MonotonicMicros() - start_us);
         }

@@ -127,8 +127,8 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.get_timer != 0 || stats.set_timer != 0 || stats.async_cache_write_submitted != 0 ||
            stats.async_cache_write_rejected != 0 ||
            stats.async_cache_write_buffer_alloc_fail != 0 ||
-           stats.async_cache_write_drop_stale_epoch != 0 ||
-           stats.inflight_write_buffer_index_hit != 0 ||
+           stats.async_cache_write_drop_stale_epoch != 0 || stats.async_copy_to_user_timer != 0 ||
+           stats.async_submit_write_timer != 0 || stats.inflight_write_buffer_index_hit != 0 ||
            stats.inflight_write_buffer_index_miss != 0 || stats.probe_downloaded_hit != 0 ||
            stats.probe_downloading_hit != 0 || stats.probe_miss != 0 ||
            stats.block_wait_success != 0 || stats.block_wait_timeout != 0 ||
