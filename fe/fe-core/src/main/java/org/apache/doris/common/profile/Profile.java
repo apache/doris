@@ -119,6 +119,10 @@ public class Profile {
     private String profileStoragePath = "";
     private volatile String storageProfileCompletionState;
     private volatile boolean executionProfilesReleased;
+    // Serializes the storage and display updates of the completion state. Not the Profile monitor:
+    // ProfileManager renders under its read lock, while updateSummary() holds the monitor and then
+    // takes the manager's write lock.
+    private final Object completionStateLock = new Object();
     // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
@@ -681,15 +685,19 @@ public class Profile {
         return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
     }
 
-    private synchronized void updateProfileCompletionStateForStorage() {
-        // Freeze the terminal state before serialization. Concurrent rendering must not
-        // replace INCOMPLETE with COLLECTING while the storage path is still unpublished.
-        storageProfileCompletionState = getProfileCompletionStateForStorage();
-        summaryProfile.setProfileCompletionState(storageProfileCompletionState);
+    private void updateProfileCompletionStateForStorage() {
+        synchronized (completionStateLock) {
+            // Freeze the terminal state before serialization. Concurrent rendering must not
+            // replace INCOMPLETE with COLLECTING while the storage path is still unpublished.
+            storageProfileCompletionState = getProfileCompletionStateForStorage();
+            summaryProfile.setProfileCompletionState(storageProfileCompletionState);
+        }
     }
 
-    private synchronized void updateProfileCompletionStateForDisplay() {
-        summaryProfile.setProfileCompletionState(getProfileCompletionState());
+    private void updateProfileCompletionStateForDisplay() {
+        synchronized (completionStateLock) {
+            summaryProfile.setProfileCompletionState(getProfileCompletionState());
+        }
     }
 
     // Profile IO threads races with Coordinator threads.

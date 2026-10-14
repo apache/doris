@@ -199,6 +199,28 @@ class ProfileCompletionStateTest {
     }
 
     @Test
+    void renderingDoesNotWaitForProfileMonitor() throws Exception {
+        Profile profile = profile();
+        ExecutionProfile execution = profile.getExecutionProfiles().get(0);
+        execution.addFragmentBackend(new PlanFragmentId(0), 1L);
+        profile.markQueryFinished();
+        report(execution, "127.0.0.1", true);
+        ExecutorService renderer = Executors.newSingleThreadExecutor();
+        try {
+            // updateSummary() holds this monitor while it takes ProfileManager's write lock, and
+            // ProfileManager renders under its read lock, so rendering must not need the monitor.
+            synchronized (profile) {
+                Future<String> rendered = renderer.submit(profile::getProfileByLevel);
+                Assertions.assertTrue(rendered.get(10, TimeUnit.SECONDS)
+                        .contains("Profile Completion State: COMPLETE"));
+            }
+        } finally {
+            renderer.shutdownNow();
+            Assertions.assertTrue(renderer.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void persistsTerminalStateBeforeReleasingReports() throws Exception {
         for (boolean complete : new boolean[] {false, true}) {
             Profile profile = profile();
