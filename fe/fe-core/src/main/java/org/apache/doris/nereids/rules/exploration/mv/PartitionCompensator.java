@@ -27,6 +27,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -40,6 +41,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,6 +51,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -144,6 +147,61 @@ public class PartitionCompensator {
         if (allCompensateIsNull) {
             return null;
         }
+        // A base partition the query reads that no MV partition of this plan is named from -- one the
+        // partition_sync_limit window left out, say -- is one the MV does not hold: a partition of the MV reads
+        // a table through the partitions it does name, and the pass above works from the mapping, which has no
+        // entry for this one. Adding that partition's rows to the union alone would not be enough, because the
+        // MV partitions this plan uses still hold the rows they hold and the answer would count them twice.
+        // The partitions the plan uses are taken out and the query's partitions are read from the base table,
+        // so the answer is whole and counted once. A partition the MV's snapshots name for a partition this
+        // plan reads is left alone: the MV does hold its rows, and the validity pass above decides about them.
+        boolean uncoveredFound = false;
+        for (Entry<MTMVRelatedTableIf, Map<String, Set<String>>> mappingEntry
+                : mtmvRelatedTableIfMapMap.entrySet()) {
+            MTMVRelatedTableIf pctTable = mappingEntry.getKey();
+            Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
+            if (CollectionUtils.isEmpty(queryUsed)) {
+                continue;
+            }
+            Set<String> named = Sets.newHashSet();
+            for (Set<String> names : mappingEntry.getValue().values()) {
+                named.addAll(names);
+            }
+            Set<String> uncovered = Sets.difference(queryUsed, named);
+            if (uncovered.isEmpty()) {
+                continue;
+            }
+            Set<String> recorded = Sets.newHashSet();
+            MTMVRefreshSnapshot refreshSnapshot = mtmv.getRefreshSnapshot();
+            if (refreshSnapshot != null) {
+                for (String mvPartitionName : rewrittenPlanUsePartitionNameSet) {
+                    recorded.addAll(refreshSnapshot.getPctSnapshots(mvPartitionName, new BaseTableInfo(pctTable)));
+                }
+            }
+            if (!Sets.difference(uncovered, recorded).isEmpty()) {
+                uncoveredFound = true;
+            }
+        }
+        if (uncoveredFound) {
+            for (Entry<MTMVRelatedTableIf, Map<String, Set<String>>> mappingEntry
+                    : mtmvRelatedTableIfMapMap.entrySet()) {
+                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(mappingEntry.getKey()));
+                Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(
+                        mappingEntry.getKey().getFullQualifiers());
+                if (pctInfo == null || CollectionUtils.isEmpty(queryUsed)) {
+                    continue;
+                }
+                baseTablePartitionNeedUnionNameMap
+                        .computeIfAbsent(pctInfo, k -> new HashSet<>()).addAll(queryUsed);
+            }
+            if (!rewrittenPlanUsePartitionNameSet.isEmpty()) {
+                mvPartitionNeedRemoveNameMap
+                        .computeIfAbsent(new BaseTableInfo(mtmv), k -> new HashSet<>())
+                        .addAll(rewrittenPlanUsePartitionNameSet);
+            }
+            allCompensateIsNull = false;
+        }
+
         // merge all partition to delete or union
         Set<String> needRemovePartitionSet = new HashSet<>();
         mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
