@@ -1330,7 +1330,7 @@ create_s3_client(const std::string& path) {
     std::shared_ptr<S3FileWriter> s3_file_writer(static_cast<S3FileWriter*>(file_writer.release()));
     auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
-    holder->_client = mock_client;
+    holder->set_client_for_test(mock_client);
     s3_file_writer->_obj_client = holder;
     return {mock_client, s3_file_writer};
 }
@@ -1533,7 +1533,7 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     ASSERT_TRUE(st.ok()) << st;
     auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
-    holder->_client = mock_client;
+    holder->set_client_for_test(mock_client);
     dynamic_cast<io::S3FileWriter*>(file_writer.get())->_obj_client = holder;
     auto* s3_writer = file_writer.get();
     const auto file_path = s3_writer->path().native();

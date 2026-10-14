@@ -131,7 +131,7 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
     S3ClientConf client_conf;
     client_conf.provider = provider;
     auto holder = std::make_shared<io::ObjClientHolder>(client_conf);
-    holder->_client = client;
+    holder->set_client_for_test(client);
     io::FileWriterOptions options {.used_by_s3_committer = true};
     auto file_writer =
             std::make_unique<io::S3FileWriter>(holder, "bucket", "table/part.parquet", &options);
