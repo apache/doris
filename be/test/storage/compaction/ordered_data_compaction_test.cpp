@@ -47,6 +47,7 @@
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
 #include "storage/compaction/cumulative_compaction.h"
+#include "storage/compaction/full_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/index/index_writer.h"
@@ -474,6 +475,109 @@ private:
     std::string absolute_dir;
     std::unique_ptr<DataDir> _data_dir;
 };
+
+TEST_F(OrderedDataCompactionTest, RowTtlRequiresRowMergeForOrderedInputs) {
+    TabletSchemaPB schema_pb;
+    create_schema()->to_schema_pb(&schema_pb);
+    auto* ttl = schema_pb.add_column();
+    ttl->set_unique_id(3);
+    ttl->set_name(TTL_COL);
+    ttl->set_type("BIGINT");
+    ttl->set_length(8);
+    ttl->set_is_key(false);
+    ttl->set_is_nullable(true);
+    ttl->set_aggregation("NONE");
+    schema_pb.set_ttl_col_idx(2);
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(schema_pb);
+
+    TabletMetaPB meta_pb;
+    meta_pb.set_tablet_id(2);
+    meta_pb.set_schema_hash(3333);
+    meta_pb.set_tablet_state(PB_RUNNING);
+    meta_pb.mutable_schema()->CopyFrom(schema_pb);
+    auto meta = std::make_shared<TabletMeta>();
+    meta->init_from_pb(meta_pb);
+    auto tablet = std::make_shared<Tablet>(*engine_ref, meta, _data_dir.get());
+    ASSERT_TRUE(tablet->init().ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    CumulativeCompaction compaction(*engine_ref, tablet);
+    for (int32_t batch = 0; batch < 2; ++batch) {
+        RowsetWriterContext context;
+        create_rowset_writer_context(schema, tablet->tablet_path(), NONOVERLAPPING, UINT32_MAX,
+                                     &context);
+        auto result = RowsetFactory::create_rowset_writer(*engine_ref, context, false);
+        ASSERT_TRUE(result.has_value()) << result.error();
+        auto writer = std::move(result).value();
+        Block block = schema->create_storage_block();
+        {
+            auto guard = block.mutate_columns_scoped();
+            auto& columns = guard.mutable_columns();
+            for (int32_t row = 0; row < 100; ++row) {
+                const int32_t key = batch * 100 + row;
+                const int64_t expiration = 0;
+                columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+                columns[1]->insert_data(reinterpret_cast<const char*>(&row), sizeof(row));
+                columns[2]->insert_data(reinterpret_cast<const char*>(&expiration),
+                                        sizeof(expiration));
+            }
+        }
+        ASSERT_TRUE(writer->add_block(&block).ok());
+        ASSERT_TRUE(writer->flush().ok());
+        RowsetSharedPtr rowset;
+        ASSERT_TRUE(writer->build(rowset).ok());
+        compaction._input_rowsets.push_back(std::move(rowset));
+    }
+
+    // These sorted, disjoint rowsets satisfy the ordinary link-file optimization, but all
+    // 200 expired rows need the reader's visibility filter before publishing a new rowset.
+    std::string first_max_key;
+    std::string second_min_key;
+    ASSERT_TRUE(compaction._input_rowsets[0]->last_key(&first_max_key));
+    ASSERT_TRUE(compaction._input_rowsets[1]->first_key(&second_min_key));
+    ASSERT_LT(first_max_key, second_min_key);
+    EXPECT_FALSE(compaction.handle_ordered_data_compaction());
+    EXPECT_EQ(nullptr, compaction._output_rowset);
+}
+
+TEST_F(OrderedDataCompactionTest, RowTtlCompactionSnapshotsMutablePolicy) {
+    TabletSchemaPB schema_pb;
+    create_schema()->to_schema_pb(&schema_pb);
+    auto* ttl = schema_pb.add_column();
+    ttl->set_unique_id(3);
+    ttl->set_name(TTL_COL);
+    ttl->set_type("DATETIMEV2");
+    ttl->set_frac(6);
+    ttl->set_is_nullable(true);
+    ttl->set_aggregation("NONE");
+    schema_pb.set_ttl_col_idx(2);
+    schema_pb.set_row_ttl_duration_us(100);
+    TabletMetaPB pb;
+    pb.set_tablet_id(2);
+    pb.set_schema_hash(3333);
+    pb.set_tablet_state(PB_RUNNING);
+    *pb.mutable_schema() = schema_pb;
+    auto meta = std::make_shared<TabletMeta>();
+    meta->init_from_pb(pb);
+    auto tablet = std::make_shared<Tablet>(*engine_ref, meta, _data_dir.get());
+    ASSERT_TRUE(tablet->init().ok());
+    FullCompaction compaction(*engine_ref, tablet);
+    compaction._cur_tablet_schema = tablet->tablet_schema();
+    compaction.snapshot_row_ttl();
+    EXPECT_EQ(100, compaction._cur_tablet_schema->row_ttl_duration_us());
+    RowTtlConfigPB policy;
+    policy.set_duration_us(7);
+    policy.set_config_version(1);
+    {
+        std::unique_lock lock(tablet->get_header_lock());
+        ASSERT_TRUE(meta->update_row_ttl_config(policy).ok());
+    }
+    EXPECT_EQ(100, compaction._cur_tablet_schema->row_ttl_duration_us());
+    compaction.snapshot_row_ttl();
+    EXPECT_EQ(7, compaction._cur_tablet_schema->row_ttl_duration_us());
+    EXPECT_EQ(100, tablet->tablet_schema()->row_ttl_duration_us());
+}
 
 TEST_F(OrderedDataCompactionTest, test_01) {
     auto num_input_rowset = 5;
