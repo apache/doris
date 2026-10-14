@@ -95,6 +95,10 @@ public:
         auto point_offsets = ColumnArray::ColumnOffsets::create();
         auto row_offsets = ColumnArray::ColumnOffsets::create();
         auto nulls = ColumnUInt8::create(rows, 0);
+        row_offsets->reserve(rows);
+        if constexpr (!boundary) {
+            values->reserve(2 * rows);
+        }
         for (size_t row = 0; row < rows; ++row) {
             CellBoundary coords {};
             const auto cell = cells.value_at(row);
