@@ -140,8 +140,6 @@ protected:
         return Status::OK();
     }
 
-    Status _get_block_with_padding(RuntimeState* state, int64_t num_slots, bool* eos);
-
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
 

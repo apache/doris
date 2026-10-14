@@ -89,6 +89,8 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     return Status::OK();
 }
 
+// Keep the single-use padding loop inline with its projection and LIMIT accounting.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     // Peer scanners may have exhausted the shared LIMIT while this scanner waited to be
@@ -109,7 +111,44 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
             // depend on whether two file tails happen to share one output batch.
             RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
         } else {
-            RETURN_IF_ERROR(_get_block_with_padding(state, row_descriptor.num_slots(), eos));
+            auto min_batch_size = std::max(state->batch_size() / 2, 1);
+            if (_shared_scan_limit) {
+                // Pending padding is not charged until it is returned. Bound this call's batch
+                // target by the shared remaining rows to avoid reading on just to fill a batch.
+                min_batch_size = cast_set<int>(std::clamp<int64_t>(
+                        _shared_scan_limit->load(std::memory_order_acquire), 0, min_batch_size));
+            }
+            const auto block_max_bytes = state->preferred_block_size_bytes();
+            while (_padding_block.rows() < min_batch_size &&
+                   _padding_block.bytes() < block_max_bytes && !*eos) {
+                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+                if (*eos) {
+                    // For the final block, merge any padding directly and return eos in this call.
+                    // The merged tail can be larger than the target batch, but each source block
+                    // is already bounded by the lower scanner.
+                    RETURN_IF_ERROR(_merge_padding_block());
+                    _origin_block.clear_column_data(row_descriptor.num_slots());
+                    break;
+                }
+                if (_origin_block.rows() >= min_batch_size) {
+                    break;
+                }
+
+                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
+                    _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
+                    RETURN_IF_ERROR(_merge_padding_block());
+                    _origin_block.clear_column_data(row_descriptor.num_slots());
+                } else {
+                    if (_origin_block.rows() < _padding_block.rows()) {
+                        _padding_block.swap(_origin_block);
+                    }
+                    break;
+                }
+            }
+
+            if (_origin_block.empty() && !_padding_block.empty()) {
+                _padding_block.swap(_origin_block);
+            }
         }
         RETURN_IF_ERROR(_do_projections(&_origin_block, block));
     } else {
@@ -124,50 +163,6 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
                                           std::memory_order_acq_rel);
         }
         *eos = *eos || _shared_scan_limit->load(std::memory_order_acquire) <= 0;
-    }
-    return Status::OK();
-}
-
-// get_block() updates eos through this pointer; clang-tidy does not follow that call.
-// NOLINTNEXTLINE(readability-non-const-parameter)
-Status Scanner::_get_block_with_padding(RuntimeState* state, int64_t num_slots, bool* eos) {
-    auto min_batch_size = std::max(state->batch_size() / 2, 1);
-    if (_shared_scan_limit) {
-        // Pending padding is not charged until it is returned. Bound this call's batch target by
-        // the shared remaining rows so a small LIMIT does not read on just to fill half a batch.
-        min_batch_size = cast_set<int>(std::clamp<int64_t>(
-                _shared_scan_limit->load(std::memory_order_acquire), 0, min_batch_size));
-    }
-    const auto block_max_bytes = state->preferred_block_size_bytes();
-    while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
-           !*eos) {
-        RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
-        if (*eos) {
-            // For the final block, merge any padding directly and return eos in this call.
-            // The merged tail can be larger than the target batch, but each source block is
-            // already bounded by the lower scanner.
-            RETURN_IF_ERROR(_merge_padding_block());
-            _origin_block.clear_column_data(num_slots);
-            break;
-        }
-        if (_origin_block.rows() >= min_batch_size) {
-            break;
-        }
-
-        if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
-            _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
-            RETURN_IF_ERROR(_merge_padding_block());
-            _origin_block.clear_column_data(num_slots);
-        } else {
-            if (_origin_block.rows() < _padding_block.rows()) {
-                _padding_block.swap(_origin_block);
-            }
-            break;
-        }
-    }
-
-    if (_origin_block.empty() && !_padding_block.empty()) {
-        _padding_block.swap(_origin_block);
     }
     return Status::OK();
 }
