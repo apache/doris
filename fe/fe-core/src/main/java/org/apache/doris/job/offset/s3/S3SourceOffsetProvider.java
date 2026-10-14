@@ -86,10 +86,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
             List<FileEntry> rfiles = globListing.getFiles();
             if (!rfiles.isEmpty()) {
-                String bucket = globListing.getBucket();
-                String bucketBase = "s3://" + bucket + "/";
-                String beginFile = rfiles.get(0).location().uri().replace(bucketBase, "");
-                String lastFile = rfiles.get(rfiles.size() - 1).location().uri().replace(bucketBase, "");
+                // Listing cursors are object keys; keep the original URI in the file statuses.
+                String beginFile = objectKey(rfiles.get(0).location().uri());
+                String lastFile = objectKey(rfiles.get(rfiles.size() - 1).location().uri());
                 offset.setFileStatuses(rfiles.stream().map(entry -> new TBrokerFileStatus(
                         entry.location().uri(), entry.isDirectory(), entry.length(), !entry.isDirectory()))
                         .collect(Collectors.toList()));
@@ -106,6 +105,15 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             throw new RuntimeException(e);
         }
         return offset;
+    }
+
+    static String objectKey(String location) {
+        int schemeEnd = location.indexOf("://");
+        if (schemeEnd < 0) {
+            return location;
+        }
+        int pathStart = location.indexOf('/', schemeEnd + 3);
+        return pathStart < 0 ? "" : location.substring(pathStart + 1);
     }
 
     @Override

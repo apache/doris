@@ -77,9 +77,7 @@ public class AzureFileSystem extends ObjFileSystem {
     @Override
     public void mkdirs(Location location) throws IOException {
         // Azure is a flat namespace; create a zero-byte directory marker for compatibility.
-        String path = location.uri().endsWith(DIR_MARKER_SUFFIX)
-                ? location.uri()
-                : location.uri() + DIR_MARKER_SUFFIX;
+        String path = directoryPrefix(location.uri());
         // Idempotent: if a marker blob already exists at <path>/, don't re-upload it
         // (putObject uses overwrite=true and would truncate any pre-existing blob with
         // exactly the same key). Only proceed when the marker is genuinely missing.
@@ -110,8 +108,7 @@ public class AzureFileSystem extends ObjFileSystem {
                 throw e;
             }
         }
-        String prefix = location.uri().endsWith(DIR_MARKER_SUFFIX)
-                ? location.uri() : location.uri() + DIR_MARKER_SUFFIX;
+        String prefix = directoryPrefix(location.uri());
         return hasChildUnder(prefix);
     }
 
@@ -132,8 +129,7 @@ public class AzureFileSystem extends ObjFileSystem {
      */
     @Override
     public void delete(Location location, boolean recursive) throws IOException {
-        String prefix = location.uri().endsWith(DIR_MARKER_SUFFIX)
-                ? location.uri() : location.uri() + DIR_MARKER_SUFFIX;
+        String prefix = directoryPrefix(location.uri());
         if (recursive) {
             deleteRecursive(prefix);
             return;
@@ -158,24 +154,37 @@ public class AzureFileSystem extends ObjFileSystem {
      */
     private boolean hasChildUnder(String prefix) throws IOException {
         String prefixKey = AzureUri.parse(prefix).key();
-        RemoteObjects firstPage = objStorage.listObjects(prefix, null);
-        for (RemoteObject obj : firstPage.getObjectList()) {
-            if (obj.getKey().length() > prefixKey.length()) {
-                return true;
+        String continuationToken = null;
+        do {
+            RemoteObjects page = objStorage.listObjects(prefix, continuationToken);
+            for (RemoteObject obj : page.getObjectList()) {
+                if (obj.getKey().length() > prefixKey.length()) {
+                    return true;
+                }
             }
-        }
+            continuationToken = page.isTruncated() ? page.getContinuationToken() : null;
+        } while (continuationToken != null);
         return false;
     }
 
     private void deleteRecursive(String prefix) throws IOException {
+        AzureUri prefixUri = AzureUri.parse(prefix);
         String continuationToken = null;
         do {
             RemoteObjects batch = objStorage.listObjects(prefix, continuationToken);
             for (RemoteObject obj : batch.getObjectList()) {
-                objStorage.deleteObject(rebuildUri(prefix, obj.getKey()));
+                objStorage.deleteObject(prefixUri.withKey(obj.getKey()).toString());
             }
             continuationToken = batch.isTruncated() ? batch.getContinuationToken() : null;
         } while (continuationToken != null);
+    }
+
+    private static String directoryPrefix(String location) throws IOException {
+        AzureUri uri = AzureUri.parse(location);
+        String key = uri.key();
+        // Append to the object name, not after a URL query/fragment where the slash would
+        // be discarded by AzureUri.parse and accidentally include same-prefix siblings.
+        return uri.withKey(key.isEmpty() || key.endsWith(DIR_MARKER_SUFFIX) ? key : key + DIR_MARKER_SUFFIX).toString();
     }
 
     /**
@@ -199,7 +208,7 @@ public class AzureFileSystem extends ObjFileSystem {
         }
         // Refuse rename when src is a virtual directory (children exist under <src>/);
         // a copy-then-delete on the literal blob name would silently leave children behind.
-        if (hasChildUnder(src.uri() + DIR_MARKER_SUFFIX)) {
+        if (hasChildUnder(directoryPrefix(src.uri()))) {
             throw new IOException(
                     "Renaming directories is not supported in Azure Blob Storage: " + src);
         }
@@ -243,8 +252,7 @@ public class AzureFileSystem extends ObjFileSystem {
     @Override
     public void renameDirectory(Location src, Location dst, Runnable whenSrcNotExists)
             throws IOException {
-        String prefix = src.uri().endsWith(DIR_MARKER_SUFFIX)
-                ? src.uri() : src.uri() + DIR_MARKER_SUFFIX;
+        String prefix = directoryPrefix(src.uri());
         if (hasChildUnder(prefix)) {
             throw new UnsupportedOperationException(
                     "renameDirectory is not supported by AzureFileSystem; "
@@ -311,11 +319,14 @@ public class AzureFileSystem extends ObjFileSystem {
      */
     private List<FileEntry> listFilesSingleLevelGlob(Location location) throws IOException {
         String uri = location.uri();
-        int lastSlash = uri.lastIndexOf('/');
-        String parentPrefix = uri.substring(0, lastSlash + 1);
-        String basenameGlob = uri.substring(lastSlash + 1);
+        AzureUri parsed = AzureUri.parse(uri);
+        String keyPattern = parsed.key();
+        int lastSlash = keyPattern.lastIndexOf('/');
+        String parentKey = lastSlash >= 0 ? keyPattern.substring(0, lastSlash + 1) : "";
+        String basenameGlob = keyPattern.substring(lastSlash + 1);
         Pattern matcher = Pattern.compile(globToRegex(basenameGlob));
-        String parentKey = AzureUri.parse(parentPrefix).key();
+        AzureUri parentUri = parsed.withKey(parentKey);
+        String parentPrefix = parentUri.toString();
 
         List<FileEntry> result = new ArrayList<>();
         String continuation = null;
@@ -337,7 +348,7 @@ public class AzureFileSystem extends ObjFileSystem {
                     continue;
                 }
                 result.add(new FileEntry(
-                        Location.of(parentPrefix + relative),
+                        Location.of(parentUri.withKey(key).toString()),
                         obj.getSize(), false, obj.getModificationTime(), List.of()));
             }
             continuation = page.isTruncated() ? page.getContinuationToken() : null;
@@ -352,11 +363,7 @@ public class AzureFileSystem extends ObjFileSystem {
         // because they share the same string prefix. The FileSystem.list
         // contract specifies a directory, so enforce a trailing '/' to
         // constrain the prefix to a true directory boundary.
-        String uri = location.uri();
-        if (!uri.endsWith(DIR_MARKER_SUFFIX)) {
-            uri = uri + DIR_MARKER_SUFFIX;
-        }
-        return new AzureFileIterator(uri);
+        return new AzureFileIterator(directoryPrefix(location.uri()));
     }
 
     @Override
@@ -369,24 +376,6 @@ public class AzureFileSystem extends ObjFileSystem {
         return new AzureOutputFile(location);
     }
 
-    private static String rebuildUri(String prefix, String key) {
-        // prefix is like "wasbs://container@account.blob.core.windows.net/path/",
-        // key is the full blob name; reconstruct the full URI for the key.
-        int schemeEnd = prefix.indexOf("://");
-        if (schemeEnd < 0) {
-            return prefix + key;
-        }
-        String scheme = prefix.substring(0, schemeEnd);
-        String withoutScheme = prefix.substring(schemeEnd + 3);
-        // For wasb/abfs: "container@account.host/path/"
-        int firstSlash = withoutScheme.indexOf('/');
-        if (firstSlash < 0) {
-            return prefix + key;
-        }
-        String authority = withoutScheme.substring(0, firstSlash);
-        return scheme + "://" + authority + "/" + key;
-    }
-
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
@@ -394,12 +383,9 @@ public class AzureFileSystem extends ObjFileSystem {
         AzureUri parsed = AzureUri.parse(uri);
         String container = parsed.container();
         String keyPattern = parsed.key();
-        // base = uri with the key portion stripped, preserving the original scheme/host syntax.
-        String base = uri.substring(0, uri.length() - keyPattern.length());
-
         Pattern matcher = Pattern.compile(globToRegex(keyPattern));
         String listKeyPrefix = longestNonGlobPrefix(keyPattern);
-        String listPrefixUri = base + listKeyPrefix;
+        String listPrefixUri = parsed.withKey(listKeyPrefix).toString();
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
@@ -428,7 +414,7 @@ public class AzureFileSystem extends ObjFileSystem {
                     break outer;
                 }
                 files.add(new FileEntry(
-                        Location.of(base + key),
+                        Location.of(parsed.withKey(key).toString()),
                         obj.getSize(),
                         false,
                         obj.getModificationTime(),
@@ -587,24 +573,24 @@ public class AzureFileSystem extends ObjFileSystem {
     /** Lazy-paginating FileIterator over Azure list results. */
     private class AzureFileIterator implements FileIterator {
         private final String prefix;
+        private final AzureUri prefixUri;
         private String continuationToken;
         private List<FileEntry> buffer = new ArrayList<>();
         private int bufferIdx = 0;
         private boolean done = false;
 
-        AzureFileIterator(String prefix) {
+        AzureFileIterator(String prefix) throws IOException {
             this.prefix = prefix;
+            this.prefixUri = AzureUri.parse(prefix);
         }
 
         @Override
         public boolean hasNext() throws IOException {
-            if (bufferIdx < buffer.size()) {
-                return true;
+            // A page can contain only directory markers (or no blobs) and still have a
+            // continuation token. Filtering that page must not hide later files.
+            while (bufferIdx >= buffer.size() && !done) {
+                fetchNextPage();
             }
-            if (done) {
-                return false;
-            }
-            fetchNextPage();
             return bufferIdx < buffer.size();
         }
 
@@ -625,7 +611,7 @@ public class AzureFileSystem extends ObjFileSystem {
                 if (obj.getKey().endsWith(DIR_MARKER_SUFFIX)) {
                     continue;
                 }
-                Location loc = Location.of(rebuildUri(prefix, obj.getKey()));
+                Location loc = Location.of(prefixUri.withKey(obj.getKey()).toString());
                 buffer.add(new FileEntry(loc, obj.getSize(), false, obj.getModificationTime(), List.of()));
             }
             if (page.isTruncated()) {

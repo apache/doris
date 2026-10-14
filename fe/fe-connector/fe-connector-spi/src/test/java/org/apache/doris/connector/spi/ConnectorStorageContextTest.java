@@ -17,11 +17,14 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.UnaryOperator;
@@ -42,6 +45,38 @@ public class ConnectorStorageContextTest {
         Assertions.assertNotNull(storage, "getStorageProperties() must never return null");
         Assertions.assertTrue(storage.isEmpty(),
                 "default getStorageProperties() must be empty so connectors without storage are unaffected");
+        Assertions.assertTrue(ConnectorStorageContext.NOOP.resolveStorageProperties(null).isEmpty());
+        Assertions.assertTrue(ConnectorStorageContext.NOOP.resolveStorageProperties(Map.of()).isEmpty());
+    }
+
+    @Test
+    public void resolveStorageProperties_defaultCapturesAnImmutableStaticList() {
+        StorageProperties storage = new StaticStorageProperties();
+        List<StorageProperties> staticBindings = new ArrayList<>(List.of(storage));
+        ConnectorStorageContext context = staticContext(staticBindings);
+
+        List<StorageProperties> fromNull = context.resolveStorageProperties(null);
+        List<StorageProperties> fromEmpty = context.resolveStorageProperties(Map.of());
+        staticBindings.clear();
+
+        Assertions.assertEquals(List.of(storage), fromNull);
+        Assertions.assertEquals(List.of(storage), fromEmpty);
+        Assertions.assertThrows(UnsupportedOperationException.class, fromNull::clear);
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> fromEmpty.add(storage));
+        Assertions.assertTrue(context.resolveStorageProperties(Map.of()).isEmpty(),
+                "a new request must capture the current static bindings, not reuse the old list");
+    }
+
+    @Test
+    public void resolveStorageProperties_defaultNeverIgnoresVendedCredentials() {
+        for (ConnectorStorageContext context : List.of(ConnectorStorageContext.NOOP,
+                staticContext(List.of(new StaticStorageProperties())))) {
+            UnsupportedOperationException failure = Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> context.resolveStorageProperties(Map.of("adls.sas-token.account", "private-material")));
+
+            Assertions.assertEquals("Vended storage binding is unavailable for this catalog", failure.getMessage());
+            Assertions.assertNull(failure.getCause());
+        }
     }
 
     @Test
@@ -84,5 +119,41 @@ public class ConnectorStorageContextTest {
         Assertions.assertNull(ctx.getFileSystem(null), "no engine-managed filesystem");
         Assertions.assertDoesNotThrow(() -> ctx.cleanupEmptyManagedLocation("s3://bucket/db/t", List.of()),
                 "cleanup is cosmetic and must never fail a drop");
+    }
+
+    private static ConnectorStorageContext staticContext(List<StorageProperties> bindings) {
+        return new ConnectorStorageContext() {
+            @Override
+            public List<StorageProperties> getStorageProperties() {
+                return bindings;
+            }
+        };
+    }
+
+    private static final class StaticStorageProperties implements StorageProperties {
+        @Override
+        public String providerName() {
+            return "LOCAL";
+        }
+
+        @Override
+        public StorageKind kind() {
+            return StorageKind.LOCAL;
+        }
+
+        @Override
+        public FileSystemType type() {
+            return FileSystemType.FILE;
+        }
+
+        @Override
+        public Map<String, String> rawProperties() {
+            return Map.of();
+        }
+
+        @Override
+        public Map<String, String> matchedProperties() {
+            return Map.of();
+        }
     }
 }

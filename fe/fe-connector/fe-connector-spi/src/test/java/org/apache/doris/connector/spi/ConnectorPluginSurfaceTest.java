@@ -20,10 +20,13 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -87,8 +90,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 13 carries textual write-input semantics on ConnectorColumn.
-        Assertions.assertEquals("13.0", version.getProperty("api.version"));
+        // Major 14 adds native storage bindings to the existing textual write-input contract.
+        Assertions.assertEquals("14.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -96,6 +99,9 @@ public class ConnectorPluginSurfaceTest {
             ConnectorProvider.class,
             ConnectorContext.class,
             ConnectorSession.class,
+            ConnectorStorageContext.class,
+            ConnectorStorageAccess.class,
+            ConnectorStorageAccessResolver.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorColumn.class,
@@ -103,11 +109,14 @@ public class ConnectorPluginSurfaceTest {
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
+            ConnectorScanRange.class,
             ConnectorWriteHandle.class,
             ConnectorChangelogMode.class,
             ConnectorRowLevelDmlRequest.class,
             org.apache.doris.connector.spi.write.ConnectorWriteDistribution.class,
             ConnectorWritePlanProvider.class,
+            FileSystemProperties.class,
+            StorageProperties.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class);

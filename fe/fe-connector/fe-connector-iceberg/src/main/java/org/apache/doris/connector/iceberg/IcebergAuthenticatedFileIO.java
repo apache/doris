@@ -19,6 +19,8 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.hadoop.HadoopConfigurable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.FileInfo;
 import org.apache.iceberg.io.InputFile;
@@ -109,6 +111,11 @@ class IcebergAuthenticatedFileIO implements FileIO {
     @Override
     public Map<String, String> properties() {
         return delegate.properties();
+    }
+
+    /** Configuration view only: callers cannot unwrap FileIO or bypass its per-I/O doAs. */
+    Configuration hadoopConfiguration() {
+        return delegate instanceof HadoopConfigurable ? ((HadoopConfigurable) delegate).getConf() : null;
     }
 
     @Override

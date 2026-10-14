@@ -28,6 +28,7 @@
 #include <gtest/gtest_prod.h>
 #endif
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -39,6 +40,7 @@
 #include "core/string_ref.h"
 #include "cpp/aws_common.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "cpp/obj-client/auth/azure_credential_options.h"
 #include "cpp/obj-client/obj_storage_client.h"
 
 namespace Aws::S3 {
@@ -61,6 +63,7 @@ struct S3ClientConf {
     std::string ak;
     std::string sk;
     std::string token;
+    AzureCredentialOptions azure_credentials;
     // For azure we'd better support the bucket at the first time init azure blob container client
     std::string bucket;
     io::ObjStorageProvider provider = io::ObjStorageProvider::AWS;
@@ -80,41 +83,11 @@ struct S3ClientConf {
     // returned bare in cloud mode.
     bool is_internal_bucket = false;
 
-    // Full-field identity. get_hash() is only good for picking an unordered_map
-    // bucket; distinct configurations can collide, so never treat hash equality as
-    // configuration equality.
-    bool operator==(const S3ClientConf&) const = default;
-
-    uint64_t get_hash() const {
-        uint64_t hash_code = 0;
-        // Use crc32_hash(ak + sk) hash to prevent swapped AK/SK order from producing same result.
-        hash_code ^= crc32_hash(ak + sk);
-        hash_code ^= crc32_hash(token);
-        hash_code ^= crc32_hash(endpoint);
-        hash_code ^= crc32_hash(region);
-        hash_code ^= crc32_hash(bucket);
-        hash_code ^= max_connections;
-        hash_code ^= request_timeout_ms;
-        hash_code ^= connect_timeout_ms;
-        hash_code ^= use_virtual_addressing;
-        hash_code ^= static_cast<int>(provider);
-
-        hash_code ^= static_cast<int>(cred_provider_type);
-        hash_code ^= crc32_hash(role_arn);
-        hash_code ^= crc32_hash(external_id);
-        hash_code ^= is_internal_bucket;
-        return hash_code;
-    }
-
-    std::string to_string() const {
-        return fmt::format(
-                "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-                "cred_provider_type={},role_arn={}, external_id={}, is_internal_bucket={}",
-                hide_access_key(ak), token.empty() ? "" : "******", endpoint, region, bucket,
-                max_connections, request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
-                cred_provider_type, role_arn, external_id, is_internal_bucket);
-    }
+    // Compare provider-owned identity, never just a hash. Azure authentication
+    // must not borrow AWS fields or depend on an unrelated region/role setting.
+    bool operator==(const S3ClientConf&) const;
+    uint64_t get_hash() const;
+    std::string to_string() const;
 };
 
 struct S3ClientConfHash {
@@ -149,6 +122,12 @@ public:
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
                                                 const S3URI& s3_uri, S3Conf* s3_conf);
 
+    static Status validate_azure_uri(const S3URI& uri, const S3ClientConf& conf);
+
+    // Reused file systems must validate credentials before opening a new reader
+    // or writer too. This does not expire or interrupt existing readers.
+    static Status validate_credentials_for_access(const S3ClientConf& conf);
+
     static Aws::Client::ClientConfiguration& getClientConfiguration() {
         // The default constructor of ClientConfiguration will do some http call
         // such as Aws::Internal::GetEC2MetadataClient and other init operation,
@@ -172,16 +151,35 @@ public:
 private:
 #ifdef BE_TEST
     FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
+    friend class AzureClientFactoryCacheTest;
 #endif
     Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(const S3ClientConf& s3_conf);
     Result<std::shared_ptr<io::ObjStorageClient>> _create_azure_client(const S3ClientConf& s3_conf);
     std::string _get_ca_cert_file_path();
+    // Caller holds _lock. Eviction releases only the cache's shared ownership;
+    // readers and writers keep their own client references.
+    void _prune_azure_clients(int64_t now_ms);
+    // Caller holds _lock. Keep a losing candidate owned by create so that its
+    // destruction happens after unlocking, as for a failed expiry recheck.
+    Result<std::shared_ptr<io::ObjStorageClient>> _publish_azure_client(
+            const S3ClientConf& s3_conf, std::shared_ptr<io::ObjStorageClient>& obj_client,
+            int64_t azure_expiry_ms);
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
     std::mutex _lock;
     std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
             _cache;
+    struct AzureCachedClient {
+        std::shared_ptr<io::ObjStorageClient> client;
+        int64_t expiry_ms;
+        uint64_t last_access;
+    };
+    // Azure's short-lived credentials rotate. Keep its bounded cache separate
+    // from the existing non-Azure cache, whose eviction semantics are unchanged.
+    std::unordered_map<S3ClientConf, AzureCachedClient, S3ClientConfHash> _azure_cache;
+    size_t _azure_cache_capacity = 256;
+    uint64_t _azure_cache_clock = 0;
     std::mutex _ca_cert_lock;
     std::string _ca_cert_file_path;
 #ifdef BE_TEST
