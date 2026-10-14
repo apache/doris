@@ -18,17 +18,23 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
+import java.util.Objects;
 import java.util.TreeMap;
 
 /** Statement-scoped Paimon write target shared by sink planning and transaction commit. */
@@ -55,10 +61,12 @@ final class PaimonWriteBinding {
     }
 
     static PaimonWriteBinding create(PaimonTableHandle handle, FileStoreTable table,
-            Map<String, String> hadoopConfig, boolean overwrite,
-            Map<String, String> requestedStaticPartition, Set<String> staticPartitionNullKeys) {
-        Map<String, String> staticPartition = resolveStaticPartition(
-                table, requestedStaticPartition, staticPartitionNullKeys);
+            Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle) {
+        boolean overwrite = writeHandle.isOverwrite();
+        // Only a static overwrite reads the partition values. An INSERT writes each row to the partition its own
+        // values name, so it leaves them alone: casting them could only fail a write the rows would accept.
+        Map<String, String> staticPartition = overwrite
+                ? resolveStaticPartition(table, writeHandle) : Collections.emptyMap();
         FileStoreTable writeTable = configureTableForWrite(table, overwrite, staticPartition);
         return new PaimonWriteBinding(handle.getDatabaseName() + "." + handle.getTableName(),
                 writeTable, hadoopConfig, overwrite, staticPartition);
@@ -78,24 +86,79 @@ final class PaimonWriteBinding {
         return table.copy(Collections.singletonMap(dynamicOverwriteKey, Boolean.FALSE.toString()));
     }
 
-    private static Map<String, String> resolveStaticPartition(FileStoreTable table,
-            Map<String, String> requested, Set<String> nullKeys) {
+    /**
+     * The static partition of an overwrite, as Paimon's static overwrite parses it: SQL NULL becomes the table's
+     * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
+     * column type. A binary column can only be statically overwritten with NULL.
+     */
+    static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle) {
         Map<String, String> canonicalNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String partitionKey : table.partitionKeys()) {
             canonicalNames.put(partitionKey, partitionKey);
         }
-        String defaultPartitionName = CoreOptions.fromMap(table.options()).partitionDefaultName();
-        Map<String, String> result = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : requested.entrySet()) {
-            String canonicalName = canonicalNames.get(entry.getKey());
+        Map<String, String> requestedColumns = new LinkedHashMap<>();
+        for (String key : writeHandle.getStaticPartitionSpec().keySet()) {
+            String canonicalName = canonicalNames.get(key);
             if (canonicalName == null) {
-                throw new DorisConnectorException("Column '" + entry.getKey()
+                throw new DorisConnectorException("Column '" + key
                         + "' is not a partition column of Paimon table");
             }
-            String value = entry.getValue();
-            result.put(canonicalName, nullKeys.contains(entry.getKey()) ? defaultPartitionName : value);
+            DataTypeRoot typeRoot = table.rowType().getField(canonicalName).type().getTypeRoot();
+            if ((typeRoot == DataTypeRoot.BINARY || typeRoot == DataTypeRoot.VARBINARY)
+                    && !writeHandle.getStaticPartitionNullKeys().contains(key)) {
+                // Paimon's static overwrite takes the UTF-8 bytes of a value's string, which cannot name every
+                // binary partition, and a wrong name overwrites another partition without an error. Checked
+                // before the values are cast.
+                throw new DorisConnectorException("Static overwrite of binary partition column '"
+                        + canonicalName + "' is not supported");
+            }
+            requestedColumns.put(key, canonicalName);
+        }
+        String defaultPartitionName = CoreOptions.fromMap(table.options()).partitionDefaultName();
+        Map<String, String> castValues = writeHandle.getCastStaticPartitionSpec();
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> requested : requestedColumns.entrySet()) {
+            String key = requested.getKey();
+            String canonicalName = requested.getValue();
+            if (writeHandle.getStaticPartitionNullKeys().contains(key)) {
+                result.put(canonicalName, defaultPartitionName);
+                continue;
+            }
+            String value = Objects.requireNonNull(castValues.get(key),
+                    () -> "missing the cast value of static partition column " + key);
+            if (table.rowType().getField(canonicalName).type().getTypeRoot()
+                    == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                value = toSdkLocalTime(canonicalName, value);
+            }
+            if (defaultPartitionName.equals(value)) {
+                // Paimon's static overwrite reads this string as the NULL partition of any partition type, so
+                // a value equal to it would overwrite the NULL partition instead.
+                throw new DorisConnectorException("Static partition value for column '" + canonicalName
+                        + "' equals Paimon partition.default-name '" + defaultPartitionName
+                        + "' and cannot be represented in a static overwrite");
+            }
+            result.put(canonicalName, value);
         }
         return result;
+    }
+
+    /**
+     * Paimon parses a static overwrite value of a TIMESTAMP WITH LOCAL TIME ZONE column as local time in the FE
+     * JVM's default zone. Doris binds such a column as TIMESTAMPTZ, so the cast value is the instant in UTC with
+     * its offset; it is moved to the JVM zone, with a space between the date and the time as Paimon's parser
+     * needs. An instant whose local time a DST change repeats there is rejected: both instants of the overlap
+     * format to the same value, which Paimon reads as the earlier one.
+     */
+    private static String toSdkLocalTime(String column, String value) {
+        ZoneId sdkZone = ZoneId.systemDefault();
+        LocalDateTime sdkLocal = OffsetDateTime.parse(value.replace(' ', 'T'), DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                .atZoneSameInstant(sdkZone).toLocalDateTime();
+        if (sdkZone.getRules().getValidOffsets(sdkLocal).size() > 1) {
+            throw new DorisConnectorException("Static LTZ partition value for column '" + column
+                    + "' is ambiguous in FE JVM time zone " + sdkZone
+                    + " and cannot be represented in a static overwrite");
+        }
+        return sdkLocal.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
     }
 
     private static String serialize(FileStoreTable table) {
