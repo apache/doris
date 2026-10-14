@@ -421,7 +421,9 @@ protected:
     // More [] rows than one BUILD INDEX read batch (block_row_max) holds, so the builder's
     // first block is all [].
     static int32_t empty_rows_before_items() {
-        return static_cast<int32_t>(StorageReadOptions().block_row_max) + 32;
+        OlapReaderStatistics stats;
+        const StorageReadOptions options(stats);
+        return static_cast<int32_t>(options.block_row_max) + 32;
     }
 
     // A tablet whose NOT NULL ARRAY<VARCHAR> column `tags` (unique id 2) holds
@@ -4358,7 +4360,9 @@ TEST_F(IndexBuilderTest, BuildAnnIndexRejectsAllEmptyBlock) {
     auto rowset_writer = std::move(res).value();
 
     // No vector shares a read batch with a [] row, so only the all-[] batch can fail the build.
-    const auto empty_rows = static_cast<int32_t>(StorageReadOptions().block_row_max);
+    OlapReaderStatistics stats;
+    const StorageReadOptions options(stats);
+    const auto empty_rows = static_cast<int32_t>(options.block_row_max);
     Block block = tablet_schema->create_storage_block();
     auto columns = std::move(block).mutate_columns();
     for (int32_t i = 0; i < empty_rows; ++i) {
