@@ -568,6 +568,61 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                         Lists.newArrayList(c1Column), Maps.newHashMap()));
     }
 
+    @Test
+    public void testAQueryUnusedRangePartitionIsLeftOutBeforeTheRollUp() throws Exception {
+        // A range partition's desc is its own bounds -- such a table has one partition column -- so leaving out
+        // the ones the query does not read takes nothing the transfer generator would have kept, and spares the
+        // roll-up a date parse, truncation and increment per desc: a view over a year's worth of daily
+        // partitions would otherwise do that for all of them to answer a query about one day.
+        OlapTable t1 = getOlapTable("t1");
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<List<String>, Set<String>> queryUsed = Maps.newHashMap();
+        queryUsed.put(Lists.newArrayList("internal", "test", "t1"), Sets.newHashSet("p20210201"));
+
+        Assertions.assertEquals(3,
+                onePartitionColDescs(Lists.newArrayList("t1"), c1Column, Maps.newHashMap()).get(t1).size());
+        Assertions.assertEquals(1,
+                onePartitionColDescs(Lists.newArrayList("t1"), c1Column, queryUsed).get(t1).size());
+    }
+
+    @Test
+    public void testAQueryUnusedListPartitionIsKeptForTheMerge() throws Exception {
+        // The mirror of the case above: a list partition the query does not read keeps its desc here, because
+        // two partitions whose keys meet are one MV partition, and the query can be answered from it while
+        // naming only one of them.
+        OlapTable t2 = getOlapTable("t2");
+        Column c1Column = new Column("c1", PrimitiveType.INT);
+        Map<List<String>, Set<String>> queryUsed = Maps.newHashMap();
+        queryUsed.put(Lists.newArrayList("internal", "test", "t2"), Sets.newHashSet("p1_bj"));
+
+        Map<PartitionKeyDesc, Set<String>> unfiltered = onePartitionColDescs(Lists.newArrayList("t2"), c1Column,
+                Maps.newHashMap()).get(t2);
+        Assertions.assertEquals(unfiltered, onePartitionColDescs(Lists.newArrayList("t2"), c1Column, queryUsed)
+                .get(t2));
+    }
+
+    /**
+     * The descs the one-partition-column generator emits, which is what the roll-up below it consumes: the
+     * filtered run and the unfiltered one differ only by the partitions the query does not read.
+     */
+    private Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> onePartitionColDescs(
+            List<String> pctTableNames, Column partitionColumn,
+            Map<List<String>, Set<String>> queryUsed) throws AnalysisException {
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(pctTableNames);
+        List<Column> partitionColumns = Lists.newArrayList(partitionColumn);
+        RelatedPartitionDescResult result = new RelatedPartitionDescResult(null);
+        new MTMVRelatedPartitionDescInitGenerator()
+                .apply(mtmvPartitionInfo, Maps.newHashMap(), result, partitionColumns, queryUsed);
+        new MTMVRelatedPartitionDescOnePartitionColGenerator()
+                .apply(mtmvPartitionInfo, Maps.newHashMap(), result, partitionColumns, queryUsed);
+        return result.getDescs();
+    }
+
+    private OlapTable getOlapTable(String tableName) throws AnalysisException {
+        return (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException(tableName);
+    }
+
     private MTMVPartitionInfo getMTMVPartitionInfo(List<String> pctTableNames) throws AnalysisException {
         MTMVPartitionInfo mtmvPartitionInfo = new MTMVPartitionInfo();
         mtmvPartitionInfo.setPartitionType(MTMVPartitionType.FOLLOW_BASE_TABLE);
