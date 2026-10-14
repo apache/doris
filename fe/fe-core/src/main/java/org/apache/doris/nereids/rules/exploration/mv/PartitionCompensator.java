@@ -149,10 +149,11 @@ public class PartitionCompensator {
         mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
         mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
 
-        // consider multi base table partition name not same, how to handle it?
-        Set<String> needUnionPartitionSet = new HashSet<>();
-        baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
-        baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
+        // The partitions to union stay with the table they belong to: a partition name means that table's
+        // keys, and two tables of a multi-table MV can use the same name for different keys -- the merge of the
+        // cross-table LIST descriptors makes such MVs buildable. Unioning the names across the tables would
+        // read the other table's partitions too, and with the union rewrite the MV's own branch already
+        // supplies their rows, so the answer would count them twice.
 
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
     }
