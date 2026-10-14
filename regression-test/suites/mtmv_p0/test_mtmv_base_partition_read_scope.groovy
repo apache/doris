@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_mtmv_base_partition_read_scope") {
+    String dbName = context.config.getDbNameByFile(context.file)
     // A refresh reads the base partitions the MV partition is recorded with, and no others. The window of
     // partition_sync_limit below keeps the last two days, so the day before them is recorded nowhere: it
     // must not be read either, or its rows would sit in the MV partition -- whose key range does cover
@@ -135,6 +136,65 @@ suite("test_mtmv_base_partition_read_scope") {
     """
     waitingMTMVTaskFinishedByMvName("list_default_mv")
     order_qt_list_default "SELECT d, k, total FROM list_default_mv"
+    // And the rows of that partition are read for every MV partition they belong to, so the MV partition is
+    // recorded with the partition they come from: a row inserted into it afterwards is a change the MV
+    // compares, rather than one it calls itself synchronized through.
+    sql """INSERT INTO list_default_base VALUES (\"2020-01-01\", 4, 7)"""
+    order_qt_list_default_tracked "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='list_default_mv'"
+
+    // A table's default partition belongs to every MV partition that reads the table, not only to the one
+    // its own key maps to: here the join's other table has a partition for key 2 and a default partition
+    // holding key 1, and the MV partition for key 1 is named by the first table. Reading the second table
+    // as "no row" for that partition -- which is what its mapping says on its own -- empties the join.
+    sql """drop materialized view if exists two_pct_default_mv"""
+    sql """drop table if exists two_pct_left"""
+    sql """drop table if exists two_pct_right"""
+    sql """
+        CREATE TABLE two_pct_left (k INT, v INT) DUPLICATE KEY(k)
+        PARTITION BY LIST(k) (PARTITION l1 VALUES IN ((1)))
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """
+        CREATE TABLE two_pct_right (k INT, w INT) DUPLICATE KEY(k)
+        PARTITION BY LIST(k) (PARTITION r2 VALUES IN ((2)), PARTITION r_default)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO two_pct_left VALUES (1, 10)"""
+    sql """INSERT INTO two_pct_right VALUES (1, 100)"""
+    sql """
+        CREATE MATERIALIZED VIEW two_pct_default_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT l.k AS k, l.v AS v, r.w AS w FROM two_pct_left l JOIN two_pct_right r ON l.k = r.k
+    """
+    waitingMTMVTaskFinishedByMvName("two_pct_default_mv")
+    order_qt_two_pct_default "SELECT k, v, w FROM two_pct_default_mv"
+
+    // The same read at the partition column's own type: a key written with milliseconds is compared at that
+    // scale, so the partition of the fractional key keeps its row even though the table has a default
+    // partition, which sends this table through the MV partition's key range rather than through the key.
+    sql """drop materialized view if exists fractional_default_mv"""
+    sql """drop table if exists fractional_default_base"""
+    sql """
+        CREATE TABLE fractional_default_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts)
+        PARTITION BY LIST(ts) (
+            PARTITION p_fraction VALUES IN ((\"2024-02-01 00:00:00.123\")),
+            PARTITION p_default
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO fractional_default_base VALUES (\"2024-02-01 00:00:00.123\", 5)"""
+    sql """
+        CREATE MATERIALIZED VIEW fractional_default_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (ts)
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT ts, SUM(amount) AS total FROM fractional_default_base GROUP BY ts
+    """
+    waitingMTMVTaskFinishedByMvName("fractional_default_mv")
+    order_qt_fractional_default "SELECT ts, total FROM fractional_default_mv"
 
     // The second is a key whose value carries a scale: what a partition of a DATETIME(3) partitioned table
     // holds is the value written with its milliseconds, and a read pinned to that value at a coarser scale
