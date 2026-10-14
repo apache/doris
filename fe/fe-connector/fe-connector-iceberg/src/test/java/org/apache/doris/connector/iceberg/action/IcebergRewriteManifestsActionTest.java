@@ -22,12 +22,19 @@ import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import org.apache.iceberg.AppendFiles;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFiles;
 import org.apache.iceberg.ExpireSnapshots;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManageSnapshots;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.OverwriteFiles;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
 import org.apache.iceberg.ReplaceSortOrder;
@@ -49,14 +56,21 @@ import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Pins {@code rewrite_manifests}, including the delegated connector {@link RewriteManifestExecutor}.
@@ -103,12 +117,130 @@ public class IcebergRewriteManifestsActionTest {
         action.validate();
         ConnectorProcedureResult result = action.execute(catalog.loadTable(id), ActionTestTables.session("UTC"));
 
-        // The executor reports manifestsBefore.size() as the rewritten count (the faithful port behaviour);
-        // the added count is iceberg's internal combine outcome, asserted only as a valid non-negative int.
-        Assertions.assertEquals(String.valueOf(manifestsBefore), result.getRows().get(0).get(0),
-                "rewritten_manifests_count is the number of manifests targeted for rewrite");
-        Assertions.assertTrue(Integer.parseInt(result.getRows().get(0).get(1)) >= 0,
-                "added_manifests_count is a valid non-negative count");
+        // Iceberg rewrites nothing without a cluster function (BaseRewriteManifests.requiresRewrite) and only
+        // commits a snapshot that keeps every manifest. With one, the three manifests of an unpartitioned table
+        // become one, and the counts are the manifests actually replaced and written.
+        Assertions.assertEquals(ImmutableList.of("3", "1"), result.getRows().get(0));
+        Table after = catalog.loadTable(id);
+        Assertions.assertEquals(1, after.currentSnapshot().dataManifests(after.io()).size());
+        Assertions.assertEquals(3, Iterables.size(after.newScan().planFiles()), "every data file is kept");
+    }
+
+    @Test
+    public void clustersManifestsByTheFirstPartitionField() {
+        // A multi-field partition is clustered by its first field only, as Trino's optimize_manifests does, so
+        // a rewrite does not write one manifest per partition.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        PartitionSpec spec = PartitionSpec.builderFor(ActionTestTables.SCHEMA).identity("id").identity("name")
+                .build();
+        ActionTestTables.createTable(catalog, "t", spec);
+        append(catalog, partitionedFile(spec, "f1.parquet", 1, "a"));
+        append(catalog, partitionedFile(spec, "f2.parquet", 1, "b"));
+        append(catalog, partitionedFile(spec, "f3.parquet", 2, "a"));
+        append(catalog, partitionedFile(spec, "f4.parquet", 2, "b"));
+
+        ConnectorProcedureResult result = rewriteAll(catalog);
+
+        Assertions.assertEquals(ImmutableList.of("4", "2"), result.getRows().get(0));
+        assertOneFirstPartitionValuePerManifest(catalog, Arrays.asList(1, 2));
+    }
+
+    @Test
+    public void clustersPartitionsReadFromTheSameManifest() {
+        // One commit can write several partitions into one manifest: each commit below writes both, and the
+        // rewrite splits them by partition value.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        PartitionSpec spec = PartitionSpec.builderFor(ActionTestTables.SCHEMA).identity("id").build();
+        ActionTestTables.createTable(catalog, "t", spec);
+        append(catalog, partitionedFile(spec, "f1.parquet", 1), partitionedFile(spec, "f2.parquet", 2));
+        append(catalog, partitionedFile(spec, "f3.parquet", 1), partitionedFile(spec, "f4.parquet", 2));
+
+        ConnectorProcedureResult result = rewriteAll(catalog);
+
+        Assertions.assertEquals(ImmutableList.of("2", "2"), result.getRows().get(0));
+        assertOneFirstPartitionValuePerManifest(catalog, Arrays.asList(1, 2));
+    }
+
+    @Test
+    public void clustersANullFirstPartitionValue() {
+        // Iceberg rejects a null cluster key, and a NULL partition value is one group like any other value.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        PartitionSpec spec = PartitionSpec.builderFor(ActionTestTables.SCHEMA).identity("id").identity("name")
+                .build();
+        ActionTestTables.createTable(catalog, "t", spec);
+        append(catalog, partitionedFile(spec, "f1.parquet", null, "a"));
+        append(catalog, partitionedFile(spec, "f2.parquet", null, "b"));
+        append(catalog, partitionedFile(spec, "f3.parquet", 1, "a"));
+
+        ConnectorProcedureResult result = rewriteAll(catalog);
+
+        Assertions.assertEquals(ImmutableList.of("3", "2"), result.getRows().get(0));
+        assertOneFirstPartitionValuePerManifest(catalog, Arrays.asList(null, 1));
+    }
+
+    @Test
+    public void leavesASingleSmallManifestUntouched() {
+        // One manifest below commit.manifest.target-size-bytes has nothing to merge with, as in Spark's and
+        // Trino's manifest rewrites: nothing is committed and nothing is counted.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        ActionTestTables.appendSnapshot(catalog, "t", "f1.parquet", 1L);
+        long snapshotBefore = catalog.loadTable(id).currentSnapshot().snapshotId();
+
+        ConnectorProcedureResult result = rewriteAll(catalog);
+
+        Assertions.assertEquals(ImmutableList.of("0", "0"), result.getRows().get(0));
+        Assertions.assertEquals(snapshotBefore, catalog.loadTable(id).currentSnapshot().snapshotId(),
+                "no snapshot is committed");
+    }
+
+    private static ConnectorProcedureResult rewriteAll(InMemoryCatalog catalog) {
+        IcebergRewriteManifestsAction action = action(Collections.emptyMap());
+        action.validate();
+        return action.execute(catalog.loadTable(ActionTestTables.id("t")), ActionTestTables.session("UTC"));
+    }
+
+    private static DataFile partitionedFile(PartitionSpec spec, String fileName, Object... partitionValues) {
+        PartitionData partition = new PartitionData(spec.partitionType());
+        for (int i = 0; i < partitionValues.length; i++) {
+            partition.set(i, partitionValues[i]);
+        }
+        return DataFiles.builder(spec)
+                .withPath("s3://b/db1/" + fileName)
+                .withFileSizeInBytes(1024)
+                .withRecordCount(1)
+                .withFormat(FileFormat.PARQUET)
+                .withPartition(partition)
+                .build();
+    }
+
+    private static void append(InMemoryCatalog catalog, DataFile... files) {
+        AppendFiles append = catalog.loadTable(ActionTestTables.id("t")).newAppend();
+        for (DataFile file : files) {
+            append.appendFile(file);
+        }
+        append.commit();
+    }
+
+    /** Every data manifest holds files of one first-partition-field value, and together they hold expected. */
+    private static void assertOneFirstPartitionValuePerManifest(InMemoryCatalog catalog, List<?> expected) {
+        Table table = catalog.loadTable(ActionTestTables.id("t"));
+        List<Object> values = new ArrayList<>();
+        for (ManifestFile manifest : table.currentSnapshot().dataManifests(table.io())) {
+            Set<Object> manifestValues = new HashSet<>();
+            try (CloseableIterable<DataFile> files = ManifestFiles.read(manifest, table.io(), table.specs())) {
+                for (DataFile file : files) {
+                    manifestValues.add(file.partition().get(0, Object.class));
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            Assertions.assertEquals(1, manifestValues.size(), manifest.path() + " holds " + manifestValues);
+            values.addAll(manifestValues);
+        }
+        Assertions.assertEquals(new HashSet<>(expected), new HashSet<>(values));
+        Assertions.assertEquals(expected.size(), values.size(), "one manifest per first partition value");
     }
 
     @Test

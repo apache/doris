@@ -19,22 +19,31 @@ package org.apache.doris.connector.iceberg.action;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.RewriteManifests;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.util.PropertyUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Executor for manifest rewrite operations. Connector port of legacy
  * {@code datasource/iceberg/rewrite/RewriteManifestExecutor}. The fe-core couplings are dropped: there is no
  * {@code ExternalTable} parameter and no {@code Env.getExtMetaCacheMgr().invalidateTableCache} call (cache
- * invalidation is performed once at dispatch level by {@code IcebergProcedureOps}); the SDK call chain and
- * the before/after manifest accounting are otherwise verbatim, with the failure message kept byte-identical
- * to the legacy {@code UserException}.
+ * invalidation is performed once at dispatch level by {@code IcebergProcedureOps}); the failure message is kept
+ * byte-identical to the legacy {@code UserException}. Unlike the legacy executor, which committed a rewrite
+ * without a cluster function (so Iceberg kept every manifest as it was), it clusters the data files by their
+ * first partition field, skips a single manifest below the target size, and reports the manifests the rewrite
+ * actually replaced and wrote.
  */
 public class RewriteManifestExecutor {
     private static final Logger LOG = LogManager.getLogger(RewriteManifestExecutor.class);
@@ -66,17 +75,23 @@ public class RewriteManifestExecutor {
             }
 
             // Collect manifests before rewrite and filter by specId if provided
-            List<ManifestFile> manifestsBefore = currentSnapshot.dataManifests(table.io());
-            List<ManifestFile> manifestsBeforeTargeted = filterBySpecId(manifestsBefore, specId);
-
-            int rewrittenCount = manifestsBeforeTargeted.size();
-
-            if (rewrittenCount == 0) {
+            List<ManifestFile> manifestsBeforeTargeted =
+                    filterBySpecId(currentSnapshot.dataManifests(table.io()), specId);
+            if (manifestsBeforeTargeted.isEmpty()) {
+                return new Result(0, 0);
+            }
+            // One manifest below the target size has nothing to merge with, as in Spark's and Trino's manifest
+            // rewrites: leave the table alone instead of committing a snapshot that changes nothing.
+            long targetManifestSizeBytes = PropertyUtil.propertyAsLong(table.properties(),
+                    TableProperties.MANIFEST_TARGET_SIZE_BYTES, TableProperties.MANIFEST_TARGET_SIZE_BYTES_DEFAULT);
+            if (manifestsBeforeTargeted.size() == 1
+                    && manifestsBeforeTargeted.get(0).length() < targetManifestSizeBytes) {
                 return new Result(0, 0);
             }
 
-            // Configure rewrite operation, optionally restricting manifests by specId
-            RewriteManifests rm = table.rewriteManifests();
+            // Without a cluster function Iceberg rewrites nothing (BaseRewriteManifests.requiresRewrite) and only
+            // commits a snapshot that keeps every manifest. Optionally restrict the rewrite to one spec.
+            RewriteManifests rm = table.rewriteManifests().clusterBy(RewriteManifestExecutor::clusterKey);
 
             if (specId != null) {
                 final int targetSpecId = specId;
@@ -86,31 +101,36 @@ public class RewriteManifestExecutor {
             // Commit manifest rewrite
             rm.commit();
 
-            // Refresh snapshot after rewrite
-            Snapshot snapshotAfter = table.currentSnapshot();
-            if (snapshotAfter == null) {
-                return new Result(rewrittenCount, 0);
-            }
-
-            // Collect manifests after rewrite and filter by specId
-            List<ManifestFile> manifestsAfter = snapshotAfter.dataManifests(table.io());
-            List<ManifestFile> manifestsAfterTargeted = filterBySpecId(manifestsAfter, specId);
-
-            // Compute addedCount as newly produced manifests (path not in before set)
-            java.util.Set<String> beforePaths = manifestsBeforeTargeted.stream()
+            // Count the targeted manifests the rewrite replaced and the manifests it wrote in their place
+            Set<String> beforePaths = manifestsBeforeTargeted.stream()
                     .map(ManifestFile::path)
-                    .collect(java.util.stream.Collectors.toSet());
-
-            int addedCount = (int) manifestsAfterTargeted.stream()
+                    .collect(Collectors.toSet());
+            Set<String> afterPaths = filterBySpecId(table.currentSnapshot().dataManifests(table.io()), specId)
+                    .stream()
                     .map(ManifestFile::path)
-                    .filter(path -> !beforePaths.contains(path))
-                    .count();
+                    .collect(Collectors.toSet());
+            int rewrittenCount = (int) beforePaths.stream().filter(path -> !afterPaths.contains(path)).count();
+            int addedCount = (int) afterPaths.stream().filter(path -> !beforePaths.contains(path)).count();
 
             return new Result(rewrittenCount, addedCount);
         } catch (Exception e) {
             LOG.warn("Failed to execute manifest rewrite for table: {}", table.name(), e);
             throw new DorisConnectorException("Failed to rewrite manifests: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Groups data files by the value of their first partition field (one group for an unpartitioned table), as
+     * Trino's optimize_manifests does, so a rewrite of a multi-field partition does not write one manifest per
+     * partition. The key holds the value PartitionData returns (immutable, or a copy for binary values) rather
+     * than the partition, so it does not depend on whether ManifestReader reuses the partition between rows (its
+     * iterator() copies files for that reason); the list lets a NULL value be a key, which Iceberg rejects.
+     */
+    private static Object clusterKey(DataFile file) {
+        StructLike partition = file.partition();
+        return partition.size() == 0
+                ? Collections.emptyList()
+                : Collections.singletonList(partition.get(0, Object.class));
     }
 
     private List<ManifestFile> filterBySpecId(List<ManifestFile> manifests, Integer specId) {
@@ -120,6 +140,6 @@ public class RewriteManifestExecutor {
         final int targetSpecId = specId;
         return manifests.stream()
                 .filter(manifest -> manifest.partitionSpecId() == targetSpecId)
-                .collect(java.util.stream.Collectors.toList());
+                .collect(Collectors.toList());
     }
 }
