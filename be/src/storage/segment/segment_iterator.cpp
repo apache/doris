@@ -406,7 +406,6 @@ Status SegmentIterator::_init_query_read_ahead() {
         return Status::OK();
     }
     DORIS_CHECK(_segment_read_ahead != nullptr);
-    _file_reader = _segment_read_ahead->file_reader();
     _column_read_ahead_context =
             std::make_unique<ColumnReadAheadContext>(_segment_read_ahead->column_context());
     return Status::OK();
@@ -627,9 +626,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     _lazy_inited = true;
 
-    if (_column_read_ahead_context == nullptr) {
-        _init_segment_prefetchers();
-    }
+    _init_segment_prefetchers();
 
     // G03: engage the count-emission shortcut. All inputs are final here (the
     // index apply ran, _row_bitmap saw every subtraction/intersection above,
@@ -644,6 +641,12 @@ Status SegmentIterator::_lazy_init(Block* block) {
     }
 
     return Status::OK();
+}
+
+bool SegmentIterator::_use_read_ahead_for_column(ColumnId cid) const {
+    const auto* column = _schema->column(cid);
+    return _column_read_ahead_context != nullptr && is_scalar_type(column->type()) &&
+           !column->is_extracted_column();
 }
 
 void SegmentIterator::_init_segment_prefetchers() {
@@ -682,6 +685,11 @@ void SegmentIterator::_init_segment_prefetchers() {
             SegmentPrefetcherConfig prefetch_config(window_size,
                                                     config::file_cache_each_block_size);
             for (uint32_t cid = 0; cid < _schema->num_read_columns(); ++cid) {
+                // Only scalar columns use the new windows. Nested columns keep their existing
+                // prefetchers even when the query has a read-ahead context.
+                if (_use_read_ahead_for_column(cid)) {
+                    continue;
+                }
                 auto& column_iter = _column_iterators[cid];
                 if (column_iter == nullptr) {
                     continue;
@@ -713,6 +721,10 @@ void SegmentIterator::_init_segment_prefetchers() {
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
             for (size_t idx = 0; idx < _column_iterators.size(); ++idx) {
                 auto cid = cast_set<ColumnId>(idx);
+                // Match initialization above so each column uses one prefetch mechanism.
+                if (_use_read_ahead_for_column(cid)) {
+                    continue;
+                }
                 auto* column_iter = _column_iterators[cid].get();
                 if (column_iter != nullptr) {
                     ScopedColumnIteratorReadPhase scoped_read_phase {
@@ -749,21 +761,19 @@ std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_scan_read_ahead() {
     }
     std::vector<ColumnReadAheadPlan> plans;
     const auto prepare_columns = [&](const std::vector<ColumnId>& ordinals,
-                                     ColumnReadAheadRole role,
-                                     ColumnIterator::ReadPhase fixed_phase) {
+                                     ColumnReadAheadRole role) {
         for (ColumnId cid : ordinals) {
             DORIS_CHECK_LT(cid, _column_iterators.size());
+            // Nested columns have independent child positions across read phases and stay on
+            // the original path, including their offsets and null maps.
+            if (!_use_read_ahead_for_column(cid)) {
+                continue;
+            }
             if (_no_need_read_key_data_eligible(cid) || !_need_read_data(cid)) {
                 continue;
             }
             auto* column_iterator = _column_iterators[cid].get();
             DORIS_CHECK(column_iterator != nullptr);
-            auto phase = fixed_phase;
-            if (fixed_phase == ColumnIterator::ReadPhase::NORMAL &&
-                _has_lazy_pruned_children(cid)) {
-                phase = ColumnIterator::ReadPhase::PREDICATE;
-            }
-            ScopedColumnIteratorReadPhase scoped_read_phase {column_iterator, phase};
             const ColumnReadAheadRequest request {
                     .scan_rowids = &_row_bitmap,
                     .context = _column_read_ahead_context.get(),
@@ -782,23 +792,16 @@ std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_scan_read_ahead() {
 
     const bool need_predicate_eval = _is_need_vec_eval || _is_need_short_eval;
     if (need_predicate_eval) {
-        prepare_columns(_predicate_ordinals, ColumnReadAheadRole::EAGER,
-                        ColumnIterator::ReadPhase::NORMAL);
-        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::LAZY,
-                        ColumnIterator::ReadPhase::NORMAL);
+        prepare_columns(_predicate_ordinals, ColumnReadAheadRole::EAGER);
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::LAZY);
     } else if (_is_need_expr_eval) {
-        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::EAGER,
-                        ColumnIterator::ReadPhase::NORMAL);
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::EAGER);
     }
 
     if (need_predicate_eval || _is_need_expr_eval) {
-        prepare_columns(_output_ordinals, ColumnReadAheadRole::LAZY,
-                        ColumnIterator::ReadPhase::NORMAL);
-        prepare_columns(_lazy_pruned_ordinals, ColumnReadAheadRole::LAZY,
-                        ColumnIterator::ReadPhase::LAZY);
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::LAZY);
     } else {
-        prepare_columns(_output_ordinals, ColumnReadAheadRole::EAGER,
-                        ColumnIterator::ReadPhase::NORMAL);
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::EAGER);
     }
 
     return plans;
@@ -2014,7 +2017,9 @@ Status SegmentIterator::_init_column_iterators() {
                     // If the col is predicate column, then should read the last page to check
                     // if the column is full dict encoding
                     .is_predicate_column = _column_states[cid].has_predicate(),
-                    .file_reader = _file_reader.get(),
+                    .file_reader = _use_read_ahead_for_column(cid)
+                                           ? _segment_read_ahead->file_reader().get()
+                                           : _file_reader.get(),
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
             };

@@ -27,6 +27,7 @@
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_read_ahead.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -60,8 +61,7 @@ Status prepare_slot_iterator(Segment& segment, const TabletSchema& schema, RowId
     DORIS_CHECK(prepared != nullptr);
     *prepared = nullptr;
 
-    // Variant columns need Segment's existing path resolution and casting logic. Leaving their
-    // iterator empty makes the subsequent seek_and_read_by_rowid() follow that path unchanged.
+    // Extracted variant paths use Segment's existing path resolution and casting logic.
     if (!column.slot->column_paths().empty()) {
         return Status::OK();
     }
@@ -72,7 +72,9 @@ Status prepare_slot_iterator(Segment& segment, const TabletSchema& schema, RowId
         return Status::OK();
     }
     const auto& tablet_column = schema.column(index);
-    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+    // Nested columns retain the original iterator and reader; their children can be read in
+    // different predicate/lazy phases, with independent positions.
+    if (!is_scalar_type(tablet_column.type())) {
         return Status::OK();
     }
 
@@ -146,6 +148,7 @@ Status read_column_by_rowids_with_read_ahead(Segment& segment, const TabletColum
     }
     DORIS_CHECK(std::is_sorted(row_ids.begin(), row_ids.end()));
     DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
+    DORIS_CHECK(is_scalar_type(column.type()));
     RETURN_IF_ERROR(prepare_column_iterator(segment, column, read_options, iterator, read_ahead));
     std::array<ColumnIterator*, 1> columns {iterator.get()};
     static_cast<void>(read_ahead.prefetch_by_rowids(row_ids.data(), row_ids.size(), columns));
