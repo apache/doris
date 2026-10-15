@@ -24,6 +24,7 @@
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
+#include "core/column/column_file.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -31,6 +32,7 @@
 #include "core/column/column_varbinary.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
@@ -43,6 +45,34 @@
 #include "util/url_coding.h"
 
 namespace doris {
+
+namespace {
+
+// FILE keeps its Doris type in the destination block. The JNI wire layout is the same
+// six-child layout as STRUCT, so Java can reuse VectorColumn's existing nested transport.
+std::string jni_file_type(const DataTypePtr& type, bool encoded_names) {
+    const auto& file_type = assert_cast<const DataTypeFile&>(*remove_nullable(type));
+    std::ostringstream buffer;
+    buffer << "struct<";
+    for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
+        if (i != 0) {
+            buffer << ",";
+        }
+        if (encoded_names) {
+            std::string encoded_name;
+            base64_encode(file_type.get_element_name(i), &encoded_name);
+            buffer << "$" << encoded_name;
+        } else {
+            buffer << file_type.get_element_name(i);
+        }
+        // Type lengths remain authoritative on BE; Java only needs the binary value layout.
+        buffer << ":" << JniDataBridge::get_jni_type(file_type.get_element(i));
+    }
+    buffer << ">";
+    return buffer.str();
+}
+
+} // namespace
 
 #define FOR_FIXED_LENGTH_TYPES(M)                                  \
     M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
@@ -146,6 +176,15 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     case PrimitiveType::TYPE_STRUCT:
         status = _fill_struct_column(address, data_column, data_type, num_rows);
         break;
+    case PrimitiveType::TYPE_FILE: {
+        auto& file = assert_cast<ColumnFile&>(*data_column);
+        const auto& file_type = assert_cast<const DataTypeFile&>(*remove_nullable(data_type));
+        for (size_t i = 0; i < DataTypeFile::FIELD_COUNT && status.ok(); ++i) {
+            status = fill_column(address, file.get_column_ptr(i), file_type.get_element(i),
+                                 num_rows);
+        }
+        break;
+    }
     case PrimitiveType::TYPE_VARBINARY:
         status = _fill_varbinary_column(address, data_column, num_rows);
         break;
@@ -297,6 +336,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
     DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
     switch (type->get_primitive_type()) {
+    case TYPE_FILE:
+        return jni_file_type(data_type, false);
     case TYPE_BOOLEAN:
         return "boolean";
     case TYPE_TINYINT:
@@ -403,6 +444,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
     DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
     switch (data_type->get_primitive_type()) {
+    case TYPE_FILE:
+        return jni_file_type(data_type, false);
     case TYPE_BOOLEAN:
         return "boolean";
     case TYPE_TINYINT:
@@ -535,6 +578,8 @@ std::string JniDataBridge::encode_string_list(const std::vector<std::string>& va
 
 std::string JniDataBridge::get_jni_type_with_encoded_struct_fields(const DataTypePtr& data_type) {
     switch (data_type->get_primitive_type()) {
+    case TYPE_FILE:
+        return jni_file_type(data_type, true);
     case TYPE_STRUCT: {
         const auto* type_struct =
                 assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
@@ -631,6 +676,15 @@ Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const Dat
             const auto& struct_field = doris_struct.get_column_ptr(i);
             const auto& field_type = doris_struct_type->get_element(i);
             RETURN_IF_ERROR(_fill_column_meta(struct_field, field_type, meta_data));
+        }
+        break;
+    }
+    case PrimitiveType::TYPE_FILE: {
+        const auto& file = assert_cast<const ColumnFile&>(*data_column);
+        const auto& file_type = assert_cast<const DataTypeFile&>(*remove_nullable(data_type));
+        for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
+            RETURN_IF_ERROR(
+                    _fill_column_meta(file.get_column_ptr(i), file_type.get_element(i), meta_data));
         }
         break;
     }

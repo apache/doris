@@ -44,6 +44,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
@@ -1054,6 +1055,16 @@ Status FileScanner::_get_next_reader() {
 
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
+
+        if (range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
+            (range.table_format_params.paimon_params.__isset.blob_files ||
+             std::ranges::any_of(_file_slot_descs, [](const SlotDescriptor* slot) {
+                 return contains_file_type(slot->get_data_type_ptr());
+             }))) {
+            return Status::NotSupported(
+                    "Paimon BLOB columns require enable_file_scanner_v2=true for both native "
+                    "and JNI readers");
+        }
 
         if (!_partition_slot_descs.empty()) {
             // we need get partition columns first for runtime filter partition pruning

@@ -20,6 +20,7 @@ package org.apache.doris.paimon;
 import org.apache.doris.common.jni.vec.ColumnType;
 
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.MapType;
@@ -40,6 +41,11 @@ final class PaimonReadTypeProjection {
     }
 
     static DataType project(DataType tableType, ColumnType requiredType) {
+        // FILE uses STRUCT on the JNI wire, but its six metadata children are constructed
+        // after reading BLOB. Asking Paimon to project those children would change its schema.
+        if (tableType instanceof BlobType) {
+            return tableType;
+        }
         if (requiredType.isStruct()) {
             return projectRow(tableType, requiredType);
         }

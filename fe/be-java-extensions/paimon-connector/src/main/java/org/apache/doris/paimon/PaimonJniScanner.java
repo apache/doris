@@ -29,6 +29,7 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.options.MemorySize;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.DelegatedFileStoreTable;
@@ -194,6 +195,9 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initReader() throws IOException {
+        // Read the same effective option that the SDK uses, including table-cache hits and
+        // relation-level overrides carried in serialized_table.
+        columnValue.setBlobAsDescriptor(new Options(table.options()).get(CoreOptions.BLOB_AS_DESCRIPTOR));
         ReadBuilder readBuilder = table.newReadBuilder();
         if (this.fields.length > this.paimonAllFieldNames.size()) {
             throw new IOException(

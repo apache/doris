@@ -1021,6 +1021,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && nativeSplit && !fallbackRead
                     && !isFullyMaterializedPkDvSplit((DataSplit) split);
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
+                    && !sessionVariable.isForceJniScanner() && !hasProjectedFileColumn()
                     && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
                     && !isIncremental && providerModeTranslatable && !queryAuthTable
                     && !restTokenTable
@@ -1156,7 +1157,9 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
-        boolean forceJniScanner = sessionVariable.isForceJniScanner();
+        // BLOB columns are materialized as FILE by the JNI adapter. Keep their logical
+        // Paimon splits intact instead of converting them to independent raw-file reads.
+        boolean forceJniScanner = sessionVariable.isForceJniScanner() || hasProjectedFileColumn();
         // Paimon system tables need Paimon-side semantics:
         // - binlog: pack/merge + array materialization
         // - audit_log: rowkind / sequence-number projection
@@ -1345,6 +1348,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                 (PaimonJdbcMetaStoreProperties) catalog.getCatalogProperty().getMetastoreProperties();
         backendOptions.putAll(jdbcMetaStoreProperties.getBackendPaimonOptions());
         return backendOptions;
+    }
+
+    private boolean hasProjectedFileColumn() {
+        return desc.getSlots().stream().anyMatch(slot -> slot.getType().typeContainsFile());
     }
 
     @VisibleForTesting
