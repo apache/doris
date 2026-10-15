@@ -123,11 +123,11 @@ suite("test_hive_streaming_splits", "p0,external") {
         qt_settings_after_hint "select @@split_batch_size, @@split_queue_capacity"
         test {
             sql "set split_batch_size=0"
-            exception "Split batch size and queue capacity must be positive"
+            exception "split_batch_size value should greater than or equal 1"
         }
         test {
             sql "set split_queue_capacity=-1"
-            exception "Split batch size and queue capacity must be positive"
+            exception "split_queue_capacity value should greater than or equal 1"
         }
     } finally {
         saved.each { name, value -> sql "set ${name}=${value}" }

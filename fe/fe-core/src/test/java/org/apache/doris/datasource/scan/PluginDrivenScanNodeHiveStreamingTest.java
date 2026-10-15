@@ -98,19 +98,44 @@ class PluginDrivenScanNodeHiveStreamingTest {
             fixture.release.countDown();
 
             List<Long> actual = fixture.drain();
-            Set<Long> expected = new HashSet<>();
-            for (int partition = 0; partition < 9; partition++) {
-                if (!emptyPartitions.contains(partition)) {
-                    for (int offset = 0; offset < 17; offset++) {
-                        expected.add(partition * 100L + offset);
-                    }
-                }
-            }
+            Set<Long> expected = expectedRanges(emptyPartitions);
             Assertions.assertEquals(expected.size(), actual.size(), "Every range is emitted once");
             Assertions.assertEquals(expected, new HashSet<>(actual));
             Assertions.assertEquals(9, fixture.listings.get(), "No partition batch is omitted or loaded twice");
             Assertions.assertEquals(2, fixture.peakListings.get(), "The producer count bounds remote listing");
         }
+    }
+
+    @Test
+    @Timeout(30)
+    void fileCountStreamingDrainsThroughTheSharedProducerFinalizer() throws Exception {
+        Set<Integer> emptyPartitions = new HashSet<>(Arrays.asList(0, 4, 7));
+        try (Fixture fixture = new Fixture(emptyPartitions)) {
+            SessionVariable variables = Deencapsulation.getField(fixture.node, "sessionVariable");
+            Mockito.when(variables.getNumPartitionsInBatchMode()).thenReturn(1024);
+            fixture.release.countDown();
+            fixture.start();
+            Assertions.assertTrue((Boolean) Deencapsulation.getField(fixture.node, "streamingBatch"));
+
+            List<Long> actual = fixture.drain();
+            Set<Long> expected = expectedRanges(emptyPartitions);
+            Assertions.assertEquals(expected.size(), actual.size());
+            Assertions.assertEquals(expected, new HashSet<>(actual));
+            Assertions.assertEquals(9, fixture.listings.get());
+            Assertions.assertEquals(1, fixture.peakListings.get(), "Whole-scan streaming uses one producer");
+        }
+    }
+
+    private static Set<Long> expectedRanges(Set<Integer> emptyPartitions) {
+        Set<Long> expected = new HashSet<>();
+        for (int partition = 0; partition < 9; partition++) {
+            if (!emptyPartitions.contains(partition)) {
+                for (int offset = 0; offset < 17; offset++) {
+                    expected.add(partition * 100L + offset);
+                }
+            }
+        }
+        return expected;
     }
 
     @Test

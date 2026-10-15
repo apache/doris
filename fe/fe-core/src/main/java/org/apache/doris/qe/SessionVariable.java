@@ -2601,18 +2601,20 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public int numFilesInBatchMode = 1024;
 
-    @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkPositiveSplitSize", needForward = true,
+    @VarAttrDef.VarAttr(name = SPLIT_BATCH_SIZE, checker = "checkSplitBatchSize", needForward = true,
             description = "Maximum number of splits in a producer batch.")
     public int splitBatchSize = 128;
 
-    @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkPositiveSplitSize", needForward = true,
+    @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
             description = "Maximum number of queued split batches per backend.")
     public int splitQueueCapacity = 32;
 
-    public void checkPositiveSplitSize(String value) {
-        if (Integer.parseInt(value) <= 0) {
-            throw new IllegalArgumentException("Split batch size and queue capacity must be positive");
-        }
+    public void checkSplitBatchSize(String value) throws Exception {
+        checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
+    }
+
+    public void checkSplitQueueCapacity(String value) throws Exception {
+        checkFieldValue(SPLIT_QUEUE_CAPACITY, 1, value);
     }
 
     @VarAttrDef.VarAttr(

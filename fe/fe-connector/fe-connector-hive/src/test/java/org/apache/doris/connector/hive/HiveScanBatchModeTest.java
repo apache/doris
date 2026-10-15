@@ -46,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -217,6 +218,70 @@ public class HiveScanBatchModeTest {
         }
         Assertions.assertEquals(1, lister.totalCalls);
         Assertions.assertEquals(Collections.singleton("year=2024/month=02"), lister.callsPerLocation.keySet());
+    }
+
+    @Test
+    public void partitionBatchAndStreamingMatchAcrossFormatsAndListingFailures() throws Exception {
+        List<String> batch = Arrays.asList("year=2024/month=01", "year=2024/month=02", "year=2024/month=03");
+        for (boolean lzo : Arrays.asList(false, true)) {
+            Map<String, Integer> listings = new HashMap<>();
+            HiveScanPlanProvider provider = provider(new FakeHmsClient(), (location, fs) -> {
+                listings.merge(location, 1, Integer::sum);
+                if (location.equals(batch.get(0))) {
+                    return Collections.emptyList();
+                }
+                if (location.equals(batch.get(1))) {
+                    throw new HiveDirectoryListingException("unreadable partition", new IOException("retry"));
+                }
+                String extension = lzo ? ".lzo" : ".parquet";
+                List<HiveFileStatus> files = new ArrayList<>(Arrays.asList(
+                        new HiveFileStatus(location + "/empty" + extension, 0, 1),
+                        new HiveFileStatus(location + "/small" + extension, 3, 2),
+                        new HiveFileStatus(location + "/large" + extension, 35, 3)));
+                if (lzo) {
+                    files.add(new HiveFileStatus(location + "/large.lzo.index", 20, 4));
+                    files.add(new HiveFileStatus(location + "/other.txt", 20, 4));
+                }
+                return files;
+            });
+            HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder()
+                    .inputFormat(lzo ? LZO_TEXT_INPUT_FORMAT : PARQUET_INPUT_FORMAT)
+                    .serializationLib(lzo ? LAZY_SIMPLE_SERDE : PARQUET_SERDE)
+                    .prunedPartitions(Collections.singletonList(part("year=2023/month=12"))).build();
+            Map<String, String> settings = new HashMap<>();
+            settings.put("file_split_size", "8");
+            settings.put("num_partitions_in_batch_mode", "1");
+            FakeSession session = new FakeSession(settings);
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                    .requiredPartitions(Collections.singletonList("year=2023/month=12")).build();
+
+            Assertions.assertTrue(provider.planScanForPartitionBatch(session, request,
+                    Collections.emptyList()).isEmpty());
+            Assertions.assertTrue(listings.isEmpty(), "An empty batch must not enumerate the handle's partitions");
+            List<ConnectorScanRange> synchronous = provider.planScanForPartitionBatch(session, request, batch);
+            List<ConnectorScanRange> streaming = new ArrayList<>();
+            try (ConnectorSplitSource source = provider.streamSplits(session, request.withRequiredPartitions(batch))) {
+                while (source.hasNext()) {
+                    streaming.add(source.next());
+                }
+            }
+            long[] starts = lzo ? new long[] {0, 0} : new long[] {0, 0, 8, 16, 24, 32};
+            long[] lengths = lzo ? new long[] {3, 35} : new long[] {3, 8, 8, 8, 8, 3};
+            for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, streaming)) {
+                Assertions.assertEquals(starts.length, ranges.size());
+                for (int i = 0; i < starts.length; i++) {
+                    ConnectorScanRange range = ranges.get(i);
+                    String file = i == 0 ? "/small" : "/large";
+                    Assertions.assertEquals(batch.get(2) + file + (lzo ? ".lzo" : ".parquet"),
+                            range.getPath().get());
+                    Assertions.assertEquals(starts[i], range.getStart());
+                    Assertions.assertEquals(lengths[i], range.getLength());
+                }
+            }
+            Assertions.assertEquals(new HashSet<>(batch), listings.keySet());
+            Assertions.assertEquals(2, (int) listings.get(batch.get(1)),
+                    "A tolerated directory failure must not be cached by either enumeration path");
+        }
     }
 
     @Test

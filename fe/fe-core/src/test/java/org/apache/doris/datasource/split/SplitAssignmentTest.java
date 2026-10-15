@@ -80,7 +80,9 @@ public class SplitAssignmentTest {
                 mockSplitToScanRange,
                 locationProperties,
                 pathPartitionKeys,
-                true
+                true,
+                128,
+                32
         );
     }
 
@@ -177,7 +179,7 @@ public class SplitAssignmentTest {
     @Test
     void testConsumerCreatesBoundedQueueFirst() throws Exception {
         BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
-        Assertions.assertEquals(10000, queue.remainingCapacity());
+        Assertions.assertEquals(32, queue.remainingCapacity());
         Assertions.assertSame(queue, splitAssignment.getAssignedSplits(mockBackend));
     }
 
@@ -224,7 +226,7 @@ public class SplitAssignmentTest {
 
         BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
         Assertions.assertEquals(1, queue.size());
-        Assertions.assertEquals(9999, queue.remainingCapacity());
+        Assertions.assertEquals(31, queue.remainingCapacity());
         Assertions.assertSame(mockScanRangeLocations, queue.element().iterator().next());
     }
 
@@ -232,7 +234,7 @@ public class SplitAssignmentTest {
     void testConsumerCreatedQueueBlocksProducerUntilSpaceAvailable() throws Exception {
         BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
         Collection<TScanRangeLocations> queuedBatch = Collections.singletonList(mockScanRangeLocations);
-        for (int i = 0; i < 10000; i++) {
+        for (int i = 0; i < 32; i++) {
             Assertions.assertTrue(queue.offer(queuedBatch));
         }
         Assertions.assertFalse(queue.offer(queuedBatch));
@@ -255,11 +257,11 @@ public class SplitAssignmentTest {
             });
             Assertions.assertTrue(scanRangeCreated.await(5, TimeUnit.SECONDS));
             Assertions.assertThrows(TimeoutException.class, () -> producer.get(200, TimeUnit.MILLISECONDS));
-            Assertions.assertEquals(10000, queue.size());
+            Assertions.assertEquals(32, queue.size());
 
             Assertions.assertSame(queuedBatch, queue.poll());
             producer.get(5, TimeUnit.SECONDS);
-            Assertions.assertEquals(10000, queue.size());
+            Assertions.assertEquals(32, queue.size());
         } finally {
             executor.shutdownNow();
             Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));

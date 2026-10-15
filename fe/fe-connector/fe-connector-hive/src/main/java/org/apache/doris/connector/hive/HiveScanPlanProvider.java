@@ -452,8 +452,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * strings are the metastore-rendered {@code key=value/...} partition names (the keys of the Nereids
      * selected-partition map), exactly the form {@code hmsClient.getPartitions} accepts, so batch-scoped
      * resolution is a clean {@code getPartitions(batch)} round-trip. Only the non-ACID path is reachable here
-     * ({@link #supportsBatchScan} excludes transactional tables). Reuses the SAME helpers as {@link #planScan}:
-     * format detect, split size, hadoop conf, {@link #convertPartitions}, {@link #listAndSplitFiles}.
+     * ({@link #supportsBatchScan} excludes transactional tables). Collects the same partition-scoped source
+     * that {@link #streamSplits} consumes lazily, preserving its file filtering and split boundaries.
      */
     @Override
     public List<ConnectorScanRange> planScanForPartitionBatch(
@@ -463,43 +463,16 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         // Batch mode deliberately does not retain completed ranges in the statement scope: its
         // purpose is to bound FE memory while splits are streamed to the coordinator. Caching every
         // batch until statement close would materialize the full scan again and defeat that bound.
-        return doPlanScanForPartitionBatch(session, request, partitionBatch);
-    }
-
-    private List<ConnectorScanRange> doPlanScanForPartitionBatch(
-            ConnectorSession session,
-            ConnectorScanRequest request,
-            List<String> partitionBatch) {
-        HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
-        String dbName = hiveHandle.getDbName();
-        String tableName = hiveHandle.getTableName();
-        recordPruningProfile(hiveHandle);
-
-        // Resolve ONLY this batch's partitions (scoped to partitionBatch), NOT handle.getPrunedPartitions().
-        List<HmsPartitionInfo> hmsPartitions = loadPartitionsWithProfile(dbName, tableName, partitionBatch);
-        List<PartitionScanInfo> partitions = convertPartitions(
-                hmsPartitions, hiveHandle.getPartitionKeyNames());
-        if (partitions.isEmpty()) {
+        // An empty batch contains no partitions; an empty streaming request instead means scan all.
+        if (partitionBatch.isEmpty()) {
             return Collections.emptyList();
         }
-
-        HiveFileFormat fileFormat = HiveFileFormat.detect(
-                hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
-                readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
-        long targetSplitSize = getTargetSplitSize(session);
-        boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
-        // LZO text is not splittable (see planScan); mask it out of the TEXT-derived splittable flag.
-        boolean splittable = fileFormat.isSplittable() && !isLzo;
-        // Only the non-ACID path is reachable here (supportsBatchScan excludes transactional tables), so this
-        // borrows the engine's per-catalog Doris FileSystem to list — no Hadoop Configuration is needed.
-        FileSystem fs = storage().getFileSystem(session);
-
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        for (PartitionScanInfo partition : partitions) {
-            HiveFileFormat partFormat = partition.fileFormat != null
-                    ? partition.fileFormat : fileFormat;
-            listAndSplitFiles(dbName, tableName, partition, partFormat,
-                    splittable, isLzo, targetSplitSize, fs, ranges, null);
+        try (HiveSplitSource source = new HiveSplitSource(
+                session, (HiveTableHandle) request.getTableHandle(), partitionBatch)) {
+            while (source.hasNext()) {
+                ranges.add(source.next());
+            }
         }
         return ranges;
     }

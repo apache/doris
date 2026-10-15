@@ -2070,12 +2070,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // EXPLAIN also initializes batch scans, but has no BE to drain their bounded queues.
         QeProcessorImpl.INSTANCE.registerQueryFinishCallback(connectorSession.getQueryId(), this::stop);
         QueryFinishCleanup queryFinishCleanup = registerQueryFinishCleanup(connectorSession);
-        if (streamingBatch) {
-            // File-count streaming flavor (FIX-M3): pump a connector-driven lazy source instead of
-            // slicing partitions. Mutually exclusive with the partition-slicing path below.
-            startStreamingSplit(queryFinishCleanup);
-            return;
-        }
         try {
             checkSysTableScanConstraints();
         } catch (UserException e) {
@@ -2090,55 +2084,67 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             this.selectedPartitionNum = partitionCounts[0];
             this.totalPartitionNum = partitionCounts[1];
         }
-        if (selectedPartitions.selectedPartitions.isEmpty()) {
+        if (!streamingBatch && selectedPartitions.selectedPartitions.isEmpty()) {
             // Unreachable under the isBatchMode gate (size >= num_partitions_in_batch_mode >= 1);
             // kept for fidelity with legacy MaxComputeScanNode.startSplit's empty short-circuit.
             return;
         }
 
-        // Mirror getSplits()'s projection + filter pushdown (but NOT the limit) before going async.
-        // tryPushDownProjection mutates currentHandle, so capture the resolved handle afterwards.
-        // buildColumnHandles (a time-travel schema/handle mismatch) and pinMvccSnapshot both throw;
-        // startSplit cannot throw checked exceptions, so surface either through the SplitAssignment
-        // error channel (same protocol as checkSysTableScanConstraints above) rather than dropping it.
-        final List<ConnectorColumnHandle> columns;
-        final Optional<ConnectorExpression> remainingFilter;
+        final ConnectorScanRequest request;
         try {
-            columns = buildColumnHandles();
-            tryPushDownProjection(columns);
-            remainingFilter = buildRemainingFilter();
-            // Pin the MVCC snapshot onto currentHandle before the resolved handle is captured below,
-            // so the async batch path (planScanForPartitionBatch) reads at the pinned snapshot.
-            pinMvccSnapshot();
+            request = prepareBatchScan(queryFinishCleanup);
         } catch (UserException e) {
+            // startSplit cannot throw checked exceptions; use the same error channel for both flavors.
             splitAssignment.setException(e);
             return;
         }
-        // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
-        pinRewriteFileScope();
-        final ConnectorTableHandle handle = currentHandle;
-        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
-        queryFinishCleanup.bind(scanProvider);
-        // One request for the whole batched scan; each batch re-scopes it to its own partitions. No row
-        // limit and no COUNT(*) pushdown on this path (batch mode is entered before either applies),
-        // matching what the batched call passed before the request object existed.
-        final ConnectorScanRequest batchRequest = ConnectorScanRequest.builder(handle, columns)
-                .filter(remainingFilter)
-                .build();
-        final List<String> allPartitions =
-                new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
-        final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
-        SummaryProfile batchSummaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
-        final RuntimeProfile batchExecutionSummary = batchSummaryProfile == null
-                ? null : batchSummaryProfile.getExecutionSummary();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        List<SplitProducer.BatchSource> sources;
+        if (streamingBatch) {
+            List<String> requiredPartitions = resolveRequiredPartitions(selectedPartitions,
+                    onPluginClassLoader(scanProvider, scanProvider::ignorePartitionPruneShortCircuit));
+            if (requiredPartitions != null && requiredPartitions.isEmpty()) {
+                splitAssignment.finishSchedule();
+                return;
+            }
+            sources = Collections.singletonList(createStreamingBatchSource(scanProvider,
+                    request.withRequiredPartitions(requiredPartitions), summaryProfile));
+        } else {
+            sources = createPartitionBatchSources(scanProvider, request,
+                    new ArrayList<>(selectedPartitions.selectedPartitions.keySet()),
+                    sessionVariable.getNumPartitionsInBatchMode(), Config.max_external_cache_loader_thread_pool_size);
+        }
+        startSplitProducers(scanProvider, sources,
+                summaryProfile == null ? null : summaryProfile.getExecutionSummary());
+    }
 
+    private ConnectorScanRequest prepareBatchScan(QueryFinishCleanup queryFinishCleanup) throws UserException {
+        // Projection mutates currentHandle. Pin snapshot and rewrite scope before capturing it in the
+        // request, just as getSplits does. Batch scans deliberately omit LIMIT and COUNT(*) pushdown.
+        List<ConnectorColumnHandle> columns = buildColumnHandles();
+        tryPushDownProjection(columns);
+        Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
+        // The pre-pin streaming estimate is only a scheduling hint; the source reads the pinned handle.
+        pinMvccSnapshot();
+        pinRewriteFileScope();
+        queryFinishCleanup.bind(resolveScanProvider());
+        return ConnectorScanRequest.builder(currentHandle, columns).filter(remainingFilter).build();
+    }
+
+    private void startSplitProducers(ConnectorScanPlanProvider scanProvider, List<SplitProducer.BatchSource> sources,
+            RuntimeProfile executionSummary) {
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
         SubmittedTaskFinalizer profileFinalizer = new SubmittedTaskFinalizer(() -> {
             try {
-                List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
-                        () -> scanProvider.collectScanProfiles(connectorSession));
-                writeScanProfilesInto(batchExecutionSummary, profiles);
+                // Whole-scan streaming previously collected profiles only on successful completion;
+                // partition batching also retains partial profiles when a producer fails or is stopped.
+                if (!streamingBatch || splitAssignment.needMoreSplit()) {
+                    List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
+                            () -> scanProvider.collectScanProfiles(connectorSession));
+                    writeScanProfilesInto(executionSummary, profiles);
+                }
             } catch (Exception e) {
                 UserException profileFailure = new UserException(e.getMessage(), e);
                 UserException primaryFailure = batchException.get();
@@ -2154,8 +2160,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         Runnable dispatch = () -> {
             try {
-                for (SplitProducer.BatchSource source : createPartitionBatchSources(scanProvider, batchRequest,
-                        allPartitions, batchSize, Config.max_external_cache_loader_thread_pool_size)) {
+                for (SplitProducer.BatchSource source : sources) {
                     if (batchException.get() != null || splitAssignment.isStop()) {
                         break;
                     }
@@ -2176,7 +2181,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         };
         try {
-            CompletableFuture.runAsync(dispatch, scheduleExecutor);
+            // Keep the single-source path's direct submission; partition dispatch still runs on the
+            // scheduler so admitting its lanes does not hold the planning thread.
+            if (streamingBatch) {
+                dispatch.run();
+            } else {
+                CompletableFuture.runAsync(dispatch, scheduleExecutor);
+            }
         } catch (Exception e) {
             try {
                 publishBatchFailure(batchException, splitAssignment,
@@ -2245,65 +2256,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return sources;
     }
 
-    /**
-     * Streams splits from a connector-driven lazy {@link ConnectorSplitSource} into
-     * {@link #splitAssignment} with backpressure, mirroring legacy {@code IcebergScanNode.doStartSplit}.
-     * Used by the file-count streaming batch flavor (see {@link #computeBatchMode}); the partition-count
-     * flavor stays on the {@link #startSplit} partition-slicing path. Deliberately does NOT push the limit
-     * (passes {@code -1}): the LIMIT-split optimization stays on the non-batch {@link #getSplits} path only.
-     */
-    private void startStreamingSplit(QueryFinishCleanup queryFinishCleanup) {
-        try {
-            checkSysTableScanConstraints();
-        } catch (UserException e) {
-            // startSplit cannot throw checked exceptions; surface the fail-loud guard through the
-            // SplitAssignment error channel so the query fails rather than silently ignoring the guard.
-            splitAssignment.setException(e);
-            return;
-        }
-        // Mirror getSplits()'s projection + filter pushdown (but NOT the limit) before going async.
-        // tryPushDownProjection mutates currentHandle, so capture the resolved handle afterwards.
-        // buildColumnHandles (a time-travel schema/handle mismatch) and pinMvccSnapshot both throw;
-        // startSplit cannot throw checked exceptions, so surface either through the SplitAssignment
-        // error channel so the query fails rather than silently ignoring it.
-        final List<ConnectorColumnHandle> columns;
-        final Optional<ConnectorExpression> remainingFilter;
-        try {
-            columns = buildColumnHandles();
-            tryPushDownProjection(columns);
-            remainingFilter = buildRemainingFilter();
-            // Pin the MVCC snapshot + rewrite scope onto currentHandle before capturing the resolved
-            // handle, so the lazy source plans at the PINNED snapshot (rows are always correct). The
-            // streamingSplitEstimate gate ran pre-pin (current snapshot), so it only affects the
-            // approximate batch decision + concurrency hint, never the rows. Narrow caveat: a
-            // time-travel query to a past snapshot much LARGER than current (table since
-            // compacted/expired) may under-count -> pick the eager path -> lose streaming's OOM
-            // protection for that scan. Acceptable (perf-only, rare); documented in the FIX-M3 design.
-            pinMvccSnapshot();
-        } catch (UserException e) {
-            splitAssignment.setException(e);
-            return;
-        }
-        pinRewriteFileScope();
-        final ConnectorTableHandle handle = currentHandle;
-        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
-        queryFinishCleanup.bind(scanProvider);
-        long[] partitionCounts = displayPartitionCounts(selectedPartitions);
-        if (partitionCounts != null) {
-            selectedPartitionNum = partitionCounts[0];
-            totalPartitionNum = partitionCounts[1];
-        }
-        List<String> requiredPartitions = resolveRequiredPartitions(selectedPartitions,
-                onPluginClassLoader(scanProvider, scanProvider::ignorePartitionPruneShortCircuit));
-        if (requiredPartitions != null && requiredPartitions.isEmpty()) {
-            splitAssignment.finishSchedule();
-            return;
-        }
-        final ConnectorScanRequest request = ConnectorScanRequest.builder(handle, columns)
-                .filter(remainingFilter)
-                .requiredPartitions(requiredPartitions)
-                .build();
-        SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+    private SplitProducer.BatchSource createStreamingBatchSource(ConnectorScanPlanProvider scanProvider,
+            ConnectorScanRequest request, SummaryProfile summaryProfile) {
         RuntimeProfile generationProfile = new RuntimeProfile("Split Generation " + getId());
         generationProfile.addInfoString("BatchSize", String.valueOf(sessionVariable.getSplitBatchSize()));
         generationProfile.addInfoString("QueueCapacity", String.valueOf(sessionVariable.getSplitQueueCapacity()));
@@ -2313,8 +2267,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (summaryProfile != null) {
             summaryProfile.getExecutionSummary().addChild(generationProfile, true);
         }
-        Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
-        new SplitProducer(splitAssignment, scheduleExecutor, new SplitProducer.BatchSource() {
+        return new SplitProducer.BatchSource() {
             private ConnectorSplitSource source;
 
             @Override
@@ -2346,22 +2299,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                     });
                 }
             }
-        }, failure -> {
-            try {
-                if (failure != null) {
-                    splitAssignment.setException(new UserException(failure.getMessage(), failure));
-                } else if (splitAssignment.needMoreSplit()) {
-                    List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
-                            () -> scanProvider.collectScanProfiles(connectorSession));
-                    writeScanProfilesInto(summaryProfile == null ? null : summaryProfile.getExecutionSummary(),
-                            profiles);
-                }
-            } catch (Exception e) {
-                splitAssignment.setException(new UserException(e.getMessage(), e));
-            } finally {
-                splitAssignment.finishSchedule();
-            }
-        }).start();
+        };
     }
 
     @Override

@@ -48,7 +48,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class SplitAssignment {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
-    private static final int MAX_QUEUED_BATCHES = 10000;
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
@@ -68,17 +67,6 @@ public class SplitAssignment {
     private volatile UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
     private final Map<Backend, Set<Runnable>> queueSpaceListeners = new HashMap<>();
-
-    public SplitAssignment(
-            FederationBackendPolicy backendPolicy,
-            SplitGenerator splitGenerator,
-            SplitToScanRange splitToScanRange,
-            Map<String, String> locationProperties,
-            List<String> pathPartitionKeys,
-            boolean fileCacheAdmission) {
-        this(backendPolicy, splitGenerator, splitToScanRange, locationProperties, pathPartitionKeys,
-                fileCacheAdmission, 128, MAX_QUEUED_BATCHES);
-    }
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
