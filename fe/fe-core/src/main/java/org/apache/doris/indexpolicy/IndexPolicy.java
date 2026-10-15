@@ -130,21 +130,13 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
             ImmutableSet.of("common_grams");
 
     public boolean isInvalid() {
-        if (properties == null) {
-            return false;
-        }
-        if (type == IndexPolicyTypeEnum.TOKEN_FILTER
-                && LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES.contains(properties.get(PROP_TYPE))) {
-            return true;
-        }
-        if (type == IndexPolicyTypeEnum.TOKENIZER
-                && "ngram".equals(properties.get(PROP_TYPE))) {
-            try {
-                new NGramTokenizerValidator().validate(properties);
-            } catch (DdlException | RuntimeException e) {
-                return true;
-            }
-        }
-        return false;
+        boolean hasUnsupportedTokenFilter = type == IndexPolicyTypeEnum.TOKEN_FILTER
+                && properties != null
+                && LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES.contains(properties.get(PROP_TYPE));
+        boolean hasInvalidNgramTokenizer = type == IndexPolicyTypeEnum.TOKENIZER
+                && properties != null
+                && "ngram".equals(properties.get(PROP_TYPE))
+                && !NGramTokenizerValidator.isValidPolicy(properties);
+        return hasUnsupportedTokenFilter || hasInvalidNgramTokenizer;
     }
 }
