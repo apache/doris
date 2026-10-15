@@ -30,19 +30,23 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
+import org.apache.logging.log4j.Level;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -130,6 +134,99 @@ public class DynamicPartitionTableTest {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         if (parsed instanceof AlterTableCommand) {
             ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    private void setDynamicPartitionDropProtection(boolean enabled) throws DdlException {
+        VariableMgr.setGlobalSessionVariableForImage(
+                SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION, Boolean.toString(enabled));
+    }
+
+    @Test
+    public void testDynamicPartitionDropProtection() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_drop_protection` (\n"
+                + "  `k1` date NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "PARTITION BY RANGE (`k1`) ()\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"false\",\n"
+                + "\"dynamic_partition.start\" = \"-1\",\n"
+                + "\"dynamic_partition.end\" = \"1\",\n"
+                + "\"dynamic_partition.time_unit\" = \"day\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_drop_protection");
+        alterTable("ALTER TABLE test.dynamic_partition_drop_protection ADD PARTITION p_old "
+                + "VALUES [('2000-01-01'), ('2000-01-02'))");
+
+        try {
+            setDynamicPartitionDropProtection(true);
+            alterTable("ALTER TABLE test.dynamic_partition_drop_protection SET "
+                    + "('dynamic_partition.enable' = 'true')");
+            try (TestLogAppender appender = TestLogAppender.attach(DynamicPartitionScheduler.class, Level.WARN)) {
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
+                        .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+                Assert.assertTrue(appender.contains(Level.WARN,
+                        "table [" + table.getId() + "-" + table.getName()
+                                + "] because global session variable '"
+                                + SessionVariable.ENABLE_DYNAMIC_PARTITION_DROP_PROTECTION + "' is enabled"));
+            }
+
+            Assert.assertTrue(table.getPartitionNames().contains("p_old"));
+            Assert.assertTrue("Dynamic partition creation should continue while drop protection is enabled",
+                    table.getPartitionNames().size() > 1);
+
+            setDynamicPartitionDropProtection(false);
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+            Assert.assertFalse(table.getPartitionNames().contains("p_old"));
+        } finally {
+            setDynamicPartitionDropProtection(false);
+        }
+    }
+
+    @Test
+    public void testAutoPartitionRetentionDropProtection() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`auto_partition_drop_protection` (\n"
+                + "  `k1` datetime NOT NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(k1, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"partition.retention_count\" = \"1\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("auto_partition_drop_protection");
+        alterTable("ALTER TABLE test.auto_partition_drop_protection ADD PARTITION p_old "
+                + "VALUES [('2000-01-01'), ('2000-01-02'))");
+        alterTable("ALTER TABLE test.auto_partition_drop_protection ADD PARTITION p_new "
+                + "VALUES [('2020-01-01'), ('2020-01-02'))");
+
+        try {
+            setDynamicPartitionDropProtection(true);
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+            Assert.assertTrue(table.getPartitionNames().contains("p_old"));
+            Assert.assertTrue(table.getPartitionNames().contains("p_new"));
+
+            setDynamicPartitionDropProtection(false);
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+            Assert.assertFalse(table.getPartitionNames().contains("p_old"));
+            Assert.assertTrue(table.getPartitionNames().contains("p_new"));
+        } finally {
+            setDynamicPartitionDropProtection(false);
         }
     }
 
