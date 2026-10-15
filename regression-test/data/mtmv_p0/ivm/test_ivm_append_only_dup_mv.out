@@ -106,3 +106,18 @@
 4	40
 5	50
 
+-- !dup_chained_mow_after_complete --
+1	1	10
+2	1	20
+3	1	30
+4	2	80
+5	1	50
+
+-- !dup_chained_mow_after_incremental --
+1	1	10
+2	1	20
+3	1	30
+4	2	80
+5	1	50
+6	1	60
+

@@ -74,18 +74,18 @@ suite("test_ivm_append_only_dup_mv") {
 
     sql """REFRESH MATERIALIZED VIEW dup_mv_single COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_single")
-    order_qt_dup_single_after_complete """SELECT id, category, amount FROM dup_mv_single ORDER BY id"""
+    order_qt_dup_single_after_complete """SELECT id, category, amount FROM dup_mv_single"""
 
     // The delta is what the base table appended: the filter still applies to it.
     sql """INSERT INTO dup_base_single VALUES (4, 'book', 30.00), (5, 'toy', 3.00);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_single INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_single")
-    order_qt_dup_single_after_incremental """SELECT id, category, amount FROM dup_mv_single ORDER BY id"""
+    order_qt_dup_single_after_incremental """SELECT id, category, amount FROM dup_mv_single"""
 
     // A complete refresh rebuilds the same rows the appends produced.
     sql """REFRESH MATERIALIZED VIEW dup_mv_single COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_single")
-    order_qt_dup_single_after_complete_again """SELECT id, category, amount FROM dup_mv_single ORDER BY id"""
+    order_qt_dup_single_after_complete_again """SELECT id, category, amount FROM dup_mv_single"""
 
     // =====================================================================================
     // Part 2: repeated rows -- the MV holds the query's own rows, duplicates included
@@ -117,12 +117,12 @@ suite("test_ivm_append_only_dup_mv") {
     sql """INSERT INTO dup_base_dup_rows VALUES (1, 7), (1, 7);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_dup_rows COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_dup_rows")
-    order_qt_dup_rows_after_complete """SELECT id, v1, count(*) AS c FROM dup_mv_dup_rows GROUP BY id, v1 ORDER BY id, v1"""
+    order_qt_dup_rows_after_complete """SELECT id, v1, count(*) AS c FROM dup_mv_dup_rows GROUP BY id, v1"""
 
     sql """INSERT INTO dup_base_dup_rows VALUES (2, 7), (2, 7), (2, 7);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_dup_rows INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_dup_rows")
-    order_qt_dup_rows_after_incremental """SELECT id, v1, count(*) AS c FROM dup_mv_dup_rows GROUP BY id, v1 ORDER BY id, v1"""
+    order_qt_dup_rows_after_incremental """SELECT id, v1, count(*) AS c FROM dup_mv_dup_rows GROUP BY id, v1"""
 
     // =====================================================================================
     // Part 3: inner join of two append-only detail tables
@@ -176,20 +176,20 @@ suite("test_ivm_append_only_dup_mv") {
     sql """INSERT INTO dup_base_join_r VALUES (1, 100), (2, 200), (3, 300);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_join COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_join")
-    order_qt_dup_join_after_complete """SELECT id, v1, v2 FROM dup_mv_join ORDER BY id"""
+    order_qt_dup_join_after_complete """SELECT id, v1, v2 FROM dup_mv_join"""
 
     // Only the left table appends: the delta is the left's rows joined against the right's snapshot.
     sql """INSERT INTO dup_base_join_l VALUES (3, 30);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_join INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_join")
-    order_qt_dup_join_left_only """SELECT id, v1, v2 FROM dup_mv_join ORDER BY id"""
+    order_qt_dup_join_left_only """SELECT id, v1, v2 FROM dup_mv_join"""
 
     // Only the right table appends.
     sql """INSERT INTO dup_base_join_r VALUES (4, 400);"""
     sql """INSERT INTO dup_base_join_l VALUES (4, 40);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_join INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_join")
-    order_qt_dup_join_right_only """SELECT id, v1, v2 FROM dup_mv_join ORDER BY id"""
+    order_qt_dup_join_right_only """SELECT id, v1, v2 FROM dup_mv_join"""
 
     // Both sides append inside one window: each side's delta joins the other side's snapshot, and the
     // pair that matches only appears once.
@@ -197,17 +197,17 @@ suite("test_ivm_append_only_dup_mv") {
     sql """INSERT INTO dup_base_join_r VALUES (5, 500);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_join INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_join")
-    order_qt_dup_join_both_sides """SELECT id, v1, v2 FROM dup_mv_join ORDER BY id"""
+    order_qt_dup_join_both_sides """SELECT id, v1, v2 FROM dup_mv_join"""
 
     // A left row that matches nothing contributes nothing, and an id that arrives later still joins.
     sql """INSERT INTO dup_base_join_l VALUES (9, 90);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_join INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_join")
-    order_qt_dup_join_unmatched_l """SELECT id, v1, v2 FROM dup_mv_join ORDER BY id"""
+    order_qt_dup_join_unmatched_l """SELECT id, v1, v2 FROM dup_mv_join"""
     sql """INSERT INTO dup_base_join_r VALUES (9, 900);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_join INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_join")
-    order_qt_dup_join_late_match """SELECT id, v1, v2 FROM dup_mv_join ORDER BY id"""
+    order_qt_dup_join_late_match """SELECT id, v1, v2 FROM dup_mv_join"""
 
     // =====================================================================================
     // Part 4: cross join
@@ -253,17 +253,17 @@ suite("test_ivm_append_only_dup_mv") {
     sql """INSERT INTO dup_base_cross_r VALUES (10), (20);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_cross COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_cross")
-    order_qt_dup_cross_after_complete """SELECT l_id, r_id FROM dup_mv_cross ORDER BY l_id, r_id"""
+    order_qt_dup_cross_after_complete """SELECT l_id, r_id FROM dup_mv_cross"""
 
     sql """INSERT INTO dup_base_cross_l VALUES (3);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_cross INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_cross")
-    order_qt_dup_cross_after_left_append """SELECT l_id, r_id FROM dup_mv_cross ORDER BY l_id, r_id"""
+    order_qt_dup_cross_after_left_append """SELECT l_id, r_id FROM dup_mv_cross"""
 
     sql """INSERT INTO dup_base_cross_r VALUES (30);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_cross INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_cross")
-    order_qt_dup_cross_after_right_append """SELECT l_id, r_id FROM dup_mv_cross ORDER BY l_id, r_id"""
+    order_qt_dup_cross_after_right_append """SELECT l_id, r_id FROM dup_mv_cross"""
 
     // =====================================================================================
     // Part 5: UNION ALL
@@ -315,13 +315,13 @@ suite("test_ivm_append_only_dup_mv") {
     sql """INSERT INTO dup_base_union_b VALUES (3, 30);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_union COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_union")
-    order_qt_dup_union_after_complete """SELECT id, v1 FROM dup_mv_union ORDER BY id"""
+    order_qt_dup_union_after_complete """SELECT id, v1 FROM dup_mv_union"""
 
     sql """INSERT INTO dup_base_union_a VALUES (4, 40);"""
     sql """INSERT INTO dup_base_union_b VALUES (4, 40);"""
     sql """REFRESH MATERIALIZED VIEW dup_mv_union INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_union")
-    order_qt_dup_union_after_incremental """SELECT id, v1, count(*) AS c FROM dup_mv_union GROUP BY id, v1 ORDER BY id"""
+    order_qt_dup_union_after_incremental """SELECT id, v1, count(*) AS c FROM dup_mv_union GROUP BY id, v1"""
 
     // =====================================================================================
     // Part 6: a chained MV stays on the append-only path
@@ -345,7 +345,7 @@ suite("test_ivm_append_only_dup_mv") {
 
     sql """REFRESH MATERIALIZED VIEW dup_mv_chained COMPLETE"""
     waitingMTMVTaskFinishedByMvName("dup_mv_chained")
-    order_qt_dup_chained_after_complete """SELECT id, v1 FROM dup_mv_chained ORDER BY id"""
+    order_qt_dup_chained_after_complete """SELECT id, v1 FROM dup_mv_chained"""
 
     // Upstream first, then downstream: the downstream delta is built from the upstream MV's own appended
     // rows.
@@ -354,7 +354,37 @@ suite("test_ivm_append_only_dup_mv") {
     waitingMTMVTaskFinishedByMvName("dup_mv_union")
     sql """REFRESH MATERIALIZED VIEW dup_mv_chained INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("dup_mv_chained")
-    order_qt_dup_chained_after_incremental """SELECT id, v1 FROM dup_mv_chained ORDER BY id"""
+    order_qt_dup_chained_after_incremental """SELECT id, v1 FROM dup_mv_chained"""
+
+    // A downstream MV whose query aggregates is a unique-key MV even though its base table is the detail MV
+    // above, so the chain spans both models: the downstream one carries the layout the unique-key model
+    // needs, and its delta is built from the rows the detail MV appended.
+    sql """drop materialized view if exists dup_mv_chained_mow;"""
+    sql """
+        CREATE MATERIALIZED VIEW dup_mv_chained_mow
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+        AS SELECT id, COUNT(*) AS cnt, SUM(v1) AS sum_v1 FROM dup_mv_union GROUP BY id;
+    """
+    def dupChainedMowDesc = sql """desc dup_mv_chained_mow all"""
+    logger.info("desc dup_mv_chained_mow: " + dupChainedMowDesc.toString())
+    assertTrue(dupChainedMowDesc.toString().contains("UNIQUE_KEYS"))
+    assertFalse(dupChainedMowDesc.toString().contains("DUP_KEYS"))
+
+    sql """REFRESH MATERIALIZED VIEW dup_mv_chained_mow COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("dup_mv_chained_mow")
+    order_qt_dup_chained_mow_after_complete """SELECT id, cnt, sum_v1 FROM dup_mv_chained_mow"""
+
+    // Upstream first, then the unique-key downstream one.
+    sql """INSERT INTO dup_base_union_a VALUES (6, 60);"""
+    sql """REFRESH MATERIALIZED VIEW dup_mv_union INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("dup_mv_union")
+    sql """REFRESH MATERIALIZED VIEW dup_mv_chained_mow INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("dup_mv_chained_mow")
+    order_qt_dup_chained_mow_after_incremental """SELECT id, cnt, sum_v1 FROM dup_mv_chained_mow"""
 
     // =====================================================================================
     // Part 7: the premise broken -- a base table that stops being an append-only detail table
