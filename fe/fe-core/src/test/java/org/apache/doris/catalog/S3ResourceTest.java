@@ -26,7 +26,6 @@ import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -336,7 +335,7 @@ public class S3ResourceTest {
         Env env = Mockito.mock(Env.class);
         ResourceMgr manager = Mockito.mock(ResourceMgr.class);
         AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
-        ConnectContext context = Mockito.mock(ConnectContext.class);
+        ConnectContext context = Mockito.spy(new ConnectContext());
         S3Resource resource = new S3Resource("s3_resource");
         resource.setProperties(ImmutableMap.<String, String>builder()
                 .put("s3.endpoint", "https://oss-cn-beijing.aliyuncs.com")
@@ -353,11 +352,9 @@ public class S3ResourceTest {
         Mockito.when(env.getAccessManager()).thenReturn(access);
         Mockito.when(manager.getResource("s3_resource")).thenReturn(resource);
         Mockito.when(access.checkResourcePriv(context, "s3_resource", PrivPredicate.USAGE)).thenReturn(true);
-        StatementContext statement = new StatementContext(context, null);
-        Mockito.when(context.getStatementContext()).thenReturn(statement);
-        statement.registerUsedS3ResourceName("s3_resource");
         try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
             current.when(Env::getCurrentEnv).thenReturn(env);
+            context.getOrRegisterS3Resource("s3_resource");
             TS3Resource first = ThriftPlansBuilder.collectS3Resources(context).get("s3_resource");
             assertBackendProperties(first, "https://oss-cn-beijing.aliyuncs.com", "cn-beijing",
                     "fake-access-key", "first");
@@ -369,11 +366,16 @@ public class S3ResourceTest {
             Assertions.assertEquals("first", ThriftPlansBuilder.collectS3Resources(context)
                     .get("s3_resource").getProperties().get("AWS_SECRET_KEY"));
             Assertions.assertEquals("second", resource.toThrift().getProperties().get("AWS_SECRET_KEY"));
-            StatementContext next = statement.createNextExecuteContext();
-            next.registerUsedS3ResourceName("s3_resource");
-            Mockito.when(context.getStatementContext()).thenReturn(next);
+            context.setStartTime();
+            Assertions.assertTrue(context.getS3Resources().isEmpty());
+            context.getOrRegisterS3Resource("s3_resource");
             Assertions.assertEquals("second", ThriftPlansBuilder.collectS3Resources(context)
                     .get("s3_resource").getProperties().get("AWS_SECRET_KEY"));
+
+            Mockito.when(access.checkResourcePriv(context, "s3_resource", PrivPredicate.USAGE)).thenReturn(false);
+            context.setStartTime();
+            Assertions.assertThrows(AnalysisException.class, () -> context.getOrRegisterS3Resource("s3_resource"));
+            Assertions.assertTrue(context.getS3Resources().isEmpty());
         }
     }
 
@@ -462,7 +464,7 @@ public class S3ResourceTest {
         Env env = Mockito.mock(Env.class);
         ResourceMgr manager = Mockito.mock(ResourceMgr.class);
         AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
-        ConnectContext context = Mockito.mock(ConnectContext.class);
+        ConnectContext context = Mockito.spy(new ConnectContext());
         Resource resource = Mockito.mock(Resource.class);
         Mockito.when(env.getResourceMgr()).thenReturn(manager);
         Mockito.when(env.getAccessManager()).thenReturn(access);

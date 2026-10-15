@@ -102,6 +102,32 @@ protected:
     }
 };
 
+TEST_F(DataTypeFileSerDeTest, TextRoundTripPreservesOpaqueMetadataBytes) {
+    for (const size_t field : {0, 4}) {
+        SCOPED_TRACE(field);
+        auto input = value();
+        auto& fields = input.get<TYPE_FILE>();
+        const std::string bytes = (field == 0 ? std::string("urn:") : std::string("ETAG:")) +
+                                  std::string("\xff\0x", 3);
+        fields[field] = Field::create_field<TYPE_STRING>(bytes);
+        auto source = type.create_column();
+        source->insert(input);
+        for (const bool format : {false, true}) {
+            const auto encoded = text(*source, 0, format);
+            auto restored = type.create_column();
+            ASSERT_TRUE(
+                    (format ? parse_format(*restored, encoded) : parse(*restored, encoded)).ok());
+            ASSERT_EQ(restored->size(), 1);
+            const auto output = (*restored)[0];
+            const auto& output_fields = output.get<TYPE_FILE>();
+            EXPECT_EQ(output_fields[field].get<TYPE_STRING>(), bytes);
+            EXPECT_EQ(output_fields[0].get<TYPE_STRING>(), fields[0].get<TYPE_STRING>());
+            EXPECT_EQ(output_fields[4].get<TYPE_STRING>(), fields[4].get<TYPE_STRING>());
+            expect_bytes(*restored, 0, nullptr);
+        }
+    }
+}
+
 TEST_F(DataTypeFileSerDeTest, InlineOnlyJsonbRoundTrip) {
     auto source = type.create_column();
     ASSERT_TRUE(parse(*source, R"({"inline":""})").ok());
