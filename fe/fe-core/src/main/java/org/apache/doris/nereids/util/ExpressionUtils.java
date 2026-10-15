@@ -84,10 +84,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -154,7 +154,7 @@ public class ExpressionUtils {
      * A date add/subtract with literal zero is an identity and remains safe to push through.
      */
     public static boolean requiresDateArithmeticProtection(Expression expression, Plan input) {
-        return expression.anyMatch(expr -> isUnsafeDateArithmetic(expr))
+        return expression.anyMatch(expr -> isUnsafeDateArithmetic((Expression) expr))
                 && input.anyMatch(plan -> plan instanceof Filter || plan instanceof Join || plan instanceof Limit
                         || plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer);
     }
@@ -169,8 +169,8 @@ public class ExpressionUtils {
         DateAddSubMonotonic dateArithmetic = (DateAddSubMonotonic) expression;
         int dateChildIndex = dateArithmetic.getMonotonicFunctionChildIndex();
         for (int i = 0; i < expression.children().size(); i++) {
-            if (i != dateChildIndex && !(expression.child(i) instanceof NumericLiteral
-                    && ((NumericLiteral) expression.child(i)).getDouble() == 0)) {
+            if (i != dateChildIndex && !(expression.child(i) instanceof IntegerLikeLiteral
+                    && ((IntegerLikeLiteral) expression.child(i)).compareTo(new IntegerLiteral(0)) == 0)) {
                 return true;
             }
         }
