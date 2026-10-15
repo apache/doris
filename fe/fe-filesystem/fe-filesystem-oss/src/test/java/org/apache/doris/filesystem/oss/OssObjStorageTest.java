@@ -198,6 +198,122 @@ class OssObjStorageTest {
     }
 
     @Test
+    void listObjects_acceptsLegacyBucketEndpointWithoutDecodingKeys() throws Exception {
+        // HMS retains the original table location even when BE receives a normalized write path.
+        String key = "warehouse/pt=a%2Fb%252Fc+value/";
+        for (String scheme : List.of("oss", "s3", "s3a")) {
+            for (boolean pathStyle : List.of(false, true)) {
+                OSS mockOss = Mockito.mock(OSS.class);
+                Mockito.when(mockOss.listObjects(Mockito.any(ListObjectsRequest.class)))
+                        .thenReturn(new ObjectListing());
+                Map<String, String> props = buildBasicProps();
+                props.put("use_path_style", Boolean.toString(pathStyle));
+                OssObjStorage storage = new TestableOssObjStorage(props, mockOss);
+
+                storage.listObjects(scheme + "://my-bucket.oss-cn-hangzhou.aliyuncs.com/" + key, null);
+
+                ArgumentCaptor<ListObjectsRequest> captor = ArgumentCaptor.forClass(ListObjectsRequest.class);
+                Mockito.verify(mockOss).listObjects(captor.capture());
+                Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+                Assertions.assertEquals(key, captor.getValue().getPrefix());
+            }
+        }
+    }
+
+    @Test
+    void headObject_acceptsBucketEndpointAndBucketRoot() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        Mockito.when(mockOss.getObjectMetadata(Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(new ObjectMetadata());
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        storage.headObject("oss://my-bucket.custom-endpoint.example.com/dir/a%2Fb+file");
+        storage.headObject("oss://my-bucket.oss-cn-hangzhou.aliyuncs.com");
+
+        Mockito.verify(mockOss).getObjectMetadata("my-bucket", "dir/a%2Fb+file");
+        Mockito.verify(mockOss).getObjectMetadata("my-bucket", "");
+    }
+
+    @Test
+    void deleteFiles_usesSameBucketParsingAsObjectRequests() throws Exception {
+        // Batch deletion extracts buckets in the shared filesystem, bypassing URI-based SDK methods.
+        OSS mockOss = Mockito.mock(OSS.class);
+        Mockito.when(mockOss.deleteObjects(Mockito.any(DeleteObjectsRequest.class)))
+                .thenReturn(new DeleteObjectsResult(Collections.emptyList()));
+        OssFileSystem filesystem = new OssFileSystem(new TestableOssObjStorage(buildBasicProps(), mockOss));
+
+        filesystem.deleteFiles(List.of(
+                Location.of("oss://my-bucket.oss-cn-hangzhou.aliyuncs.com/dir/a%2Fb"),
+                Location.of("s3://my-bucket/dir/c+d")));
+
+        ArgumentCaptor<DeleteObjectsRequest> captor = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        Mockito.verify(mockOss).deleteObjects(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+        Assertions.assertEquals(List.of("dir/a%2Fb", "dir/c+d"), captor.getValue().getKeys());
+    }
+
+    @Test
+    void writeCopyAndDelete_acceptLegacyAuthorities() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+        String source = "oss://my-bucket.oss-cn-hangzhou.aliyuncs.com/dir/a%2Fb";
+        String target = "s3://other-bucket.oss-cn-hangzhou.aliyuncs.com/dir/a+b";
+
+        storage.putObject(source, RequestBody.of(new ByteArrayInputStream(new byte[] {1}), 1));
+        storage.copyObject(source, target);
+        storage.deleteObject(source);
+
+        ArgumentCaptor<PutObjectRequest> put = ArgumentCaptor.forClass(PutObjectRequest.class);
+        Mockito.verify(mockOss).putObject(put.capture());
+        Assertions.assertEquals("my-bucket", put.getValue().getBucketName());
+        Assertions.assertEquals("dir/a%2Fb", put.getValue().getKey());
+        ArgumentCaptor<CopyObjectRequest> copy = ArgumentCaptor.forClass(CopyObjectRequest.class);
+        Mockito.verify(mockOss).copyObject(copy.capture());
+        Assertions.assertEquals("my-bucket", copy.getValue().getSourceBucketName());
+        Assertions.assertEquals("dir/a%2Fb", copy.getValue().getSourceKey());
+        Assertions.assertEquals("other-bucket", copy.getValue().getDestinationBucketName());
+        Assertions.assertEquals("dir/a+b", copy.getValue().getDestinationKey());
+        Mockito.verify(mockOss).deleteObject("my-bucket", "dir/a%2Fb");
+    }
+
+    @Test
+    void recursiveDelete_usesNormalizedBucketForBatchRequest() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OSSObjectSummary summary = new OSSObjectSummary();
+        summary.setKey("dir/pt=a%2Fb/file");
+        ObjectListing listing = new ObjectListing();
+        listing.setObjectSummaries(List.of(summary));
+        Mockito.when(mockOss.listObjects(Mockito.any(ListObjectsRequest.class))).thenReturn(listing);
+        Mockito.when(mockOss.deleteObjects(Mockito.any(DeleteObjectsRequest.class)))
+                .thenReturn(new DeleteObjectsResult(Collections.emptyList()));
+        OssFileSystem filesystem = new OssFileSystem(new TestableOssObjStorage(buildBasicProps(), mockOss));
+
+        filesystem.delete(Location.of("oss://my-bucket.oss-cn-hangzhou.aliyuncs.com/dir/"), true);
+
+        ArgumentCaptor<DeleteObjectsRequest> captor = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        Mockito.verify(mockOss).deleteObjects(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+        Assertions.assertEquals(List.of("dir/pt=a%2Fb/file"), captor.getValue().getKeys());
+    }
+
+    @Test
+    void headObject_keepsPathStyleHttpBucketAndRejectsUnsupportedSchemes() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        Mockito.when(mockOss.getObjectMetadata(Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(new ObjectMetadata());
+        Map<String, String> props = buildBasicProps();
+        props.put("use_path_style", "true");
+        OssObjStorage storage = new TestableOssObjStorage(props, mockOss);
+
+        storage.headObject("https://oss-cn-hangzhou.aliyuncs.com/my-bucket/dir/a%2Fb");
+
+        Mockito.verify(mockOss).getObjectMetadata("my-bucket", "dir/a%2Fb");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> storage.headObject("cos://my-bucket.endpoint.example.com/key"));
+        Mockito.verifyNoMoreInteractions(mockOss);
+    }
+
+    @Test
     void listObjects_usesOssNativeClientAndMapsResult() throws Exception {
         OSS mockOss = Mockito.mock(OSS.class);
         OSSObjectSummary summary = new OSSObjectSummary();
