@@ -67,7 +67,7 @@ suite("test_unicode_normalize", "p0") {
             select unicode_normalize(col, mode)
             from test_unicode_normalize_not_const;
         """
-        exception "must be constant"
+        exception "must be a constant expression"
     }
 
     test {

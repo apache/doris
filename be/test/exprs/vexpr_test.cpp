@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -53,6 +54,7 @@
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "gtest/gtest_pred_impl.h"
@@ -61,6 +63,68 @@
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/timezone_utils.h"
+
+namespace doris {
+
+class ConstantArgumentTestExpr : public VExpr {
+public:
+    ConstantArgumentTestExpr(DataTypePtr type, bool constant) : _constant(constant) {
+        data_type() = std::move(type);
+    }
+
+    const std::string& expr_name() const override { return _name; }
+    bool is_constant() const override { return _constant; }
+
+    Status execute_column_impl(VExprContext* /*context*/, const Block* /*block*/,
+                               const Selector* /*selector*/, size_t /*count*/,
+                               ColumnPtr& /*result_column*/) const override {
+        return Status::InternalError("ConstantArgumentTestExpr should not execute");
+    }
+
+private:
+    bool _constant;
+    std::string _name = "constant_argument_test";
+};
+
+} // namespace doris
+
+TEST(TEST_VEXPR, FunctionRequiredConstantArgument) {
+    using namespace doris;
+
+    DataTypePtr string_type = std::make_shared<DataTypeString>();
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    node.__set_type(string_type->to_thrift());
+    node.__set_is_nullable(false);
+    TFunction fn;
+    TFunctionName name;
+    name.__set_function_name("mask");
+    fn.__set_name(name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    node.__set_fn(fn);
+
+    RuntimeState state;
+    auto query_options = state.query_options();
+    query_options.__set_be_exec_version(BeExecVersionManager::get_newest_version());
+    state.set_query_options(query_options);
+    RowDescriptor row_desc;
+    for (bool required_arg_is_constant : {false, true}) {
+        auto expr = std::make_shared<VectorizedFnCall>(node);
+        expr->add_child(std::make_shared<ConstantArgumentTestExpr>(string_type, false));
+        expr->add_child(
+                std::make_shared<ConstantArgumentTestExpr>(string_type, required_arg_is_constant));
+        VExprContext context(expr);
+
+        Status status = context.prepare(&state, row_desc);
+        if (required_arg_is_constant) {
+            EXPECT_TRUE(status.ok()) << status.to_string();
+        } else {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("Argument at index 1 for function mask"),
+                      std::string::npos);
+        }
+    }
+}
 
 TEST(TEST_VEXPR, ABSTEST) {
     doris::ObjectPool object_pool;

@@ -102,7 +102,7 @@ suite("test_encryption_function") {
 
     test {
         sql "SELECT AES_ENCRYPT(plain_txt, k, iv, mode, aad) FROM aes_encrypt_decrypt_tbl"
-        exception "Argument at index 3 for function aes_encrypt must be constant"
+        exception "Argument at index 3 for function aes_encrypt must be a constant expression"
     }
 
     qt_sql_gcm_5 """
