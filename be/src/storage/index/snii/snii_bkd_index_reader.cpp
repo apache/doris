@@ -95,8 +95,9 @@ Status SniiBkdIndexReader::_get_searcher(const IndexQueryContextPtr& context,
     return Status::OK();
 }
 
-Status SniiBkdIndexReader::_encode_query_value(const ::doris::snii::bkd::BkdSearcher& searcher,
-                                               const Field& query_value, std::string* out) {
+Status SniiBkdIndexReader::_encode_query_bounds(const ::doris::snii::bkd::BkdSearcher& searcher,
+                                                const Field& query_value, std::string* lower,
+                                                std::string* upper) {
     // The type comes out of the index HEADER, so the coder that reads is the one
     // that wrote. Taking it from the query's own type instead would compare
     // correctly-encoded bytes in the wrong order (INV-1).
@@ -105,7 +106,9 @@ Status SniiBkdIndexReader::_encode_query_value(const ::doris::snii::bkd::BkdSear
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "unsupported bkd index type {}", static_cast<int>(type));
     }
-    return encode_bkd_field_ascending(type, query_value, get_key_coder(type), out);
+    const KeyCoder* coder = get_key_coder(type);
+    RETURN_IF_ERROR(encode_bkd_field_lower_bound_ascending(type, query_value, coder, lower));
+    return encode_bkd_field_upper_bound_ascending(type, query_value, coder, upper);
 }
 
 Status SniiBkdIndexReader::query(const IndexQueryContextPtr& context,
@@ -121,18 +124,21 @@ Status SniiBkdIndexReader::query(const IndexQueryContextPtr& context,
     const ::doris::snii::bkd::BkdSearcher* searcher = nullptr;
     RETURN_IF_ERROR(_get_searcher(context, &searcher_cache_handle, &uncached, &searcher));
 
-    std::string query_str;
-    RETURN_IF_ERROR(_encode_query_value(*searcher, query_value, &query_str));
+    std::string lower_query_str;
+    std::string upper_query_str;
+    RETURN_IF_ERROR(
+            _encode_query_bounds(*searcher, query_value, &lower_query_str, &upper_query_str));
 
     // The interval is resolved BEFORE the query cache is consulted: an
     // unsupported shape must be refused, not answered from a cache entry some
     // other predicate left behind under the same key.
     BkdQueryBounds bounds;
-    RETURN_IF_ERROR(build_bkd_query_bounds(query_type, slice_of(query_str), &bounds));
+    RETURN_IF_ERROR(build_bkd_query_bounds(query_type, slice_of(lower_query_str),
+                                           slice_of(upper_query_str), &bounds));
 
     auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
     InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
-                                                 query_str};
+                                                 lower_query_str};
     auto* cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handler;
     if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
@@ -160,10 +166,13 @@ Status SniiBkdIndexReader::try_query(const IndexQueryContextPtr& context,
     const ::doris::snii::bkd::BkdSearcher* searcher = nullptr;
     RETURN_IF_ERROR(_get_searcher(context, &searcher_cache_handle, &uncached, &searcher));
 
-    std::string query_str;
-    RETURN_IF_ERROR(_encode_query_value(*searcher, query_value, &query_str));
+    std::string lower_query_str;
+    std::string upper_query_str;
+    RETURN_IF_ERROR(
+            _encode_query_bounds(*searcher, query_value, &lower_query_str, &upper_query_str));
     BkdQueryBounds bounds;
-    RETURN_IF_ERROR(build_bkd_query_bounds(query_type, slice_of(query_str), &bounds));
+    RETURN_IF_ERROR(build_bkd_query_bounds(query_type, slice_of(lower_query_str),
+                                           slice_of(upper_query_str), &bounds));
 
     uint64_t estimate = 0;
     RETURN_IF_ERROR(searcher->reader->estimate_cardinality(

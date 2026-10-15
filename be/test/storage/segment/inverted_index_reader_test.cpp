@@ -3315,9 +3315,10 @@ public:
     //    StorageLayout<FT>::to_storage
     //  * BKD's writer/reader/visitor agreement on KeyCoder-encoded bytes
     template <PrimitiveType PT, typename T>
-    void verify_bkd_range_queries(int col_id, std::string_view rowset_id,
-                                  const std::string& column_name, std::vector<T> values,
-                                  T threshold) {
+    void verify_bkd_range_queries(
+            int col_id, std::string_view rowset_id, const std::string& column_name,
+            std::vector<T> values, T threshold,
+            InvertedIndexStorageFormatPB format = InvertedIndexStorageFormatPB::V2) {
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         io::IOContext io_ctx;
@@ -3330,10 +3331,10 @@ public:
         TabletIndex idx_meta;
         std::string index_path_prefix;
         prepare_bkd_index_typed(rowset_id, /*seg_id=*/0, col_id, values, &idx_meta,
-                                &index_path_prefix);
+                                &index_path_prefix, format);
 
-        auto reader = std::make_shared<IndexFileReader>(
-                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                        index_path_prefix, format);
         EXPECT_TRUE(reader->init().ok());
 
         auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
@@ -3501,6 +3502,13 @@ public:
                 /*col_id=*/15, "bkd_range_float", "c_float",
                 {-100.5f, -1.25f, 0.0f, 3.14159f, 100.25f, 1234.5f},
                 /*threshold=*/3.14159f);
+        const std::vector<float> signed_zero_values = {-1.0F, -0.0F, 0.0F, 1.0F};
+        verify_bkd_range_queries<TYPE_FLOAT, float>(
+                /*col_id=*/15, "bkd_range_float_positive_zero_v3", "c_float", signed_zero_values,
+                /*threshold=*/0.0F, InvertedIndexStorageFormatPB::V3);
+        verify_bkd_range_queries<TYPE_FLOAT, float>(
+                /*col_id=*/15, "bkd_range_float_negative_zero_v3", "c_float", signed_zero_values,
+                /*threshold=*/-0.0F, InvertedIndexStorageFormatPB::V3);
     }
     void test_bkd_range_double() {
         // DOUBLE real values across magnitudes from -1e10 to +1e10, including
@@ -3509,6 +3517,13 @@ public:
                 /*col_id=*/16, "bkd_range_double", "c_double",
                 {-9.87654321e10, -1.5, 0.0, 3.14159265358979, 1.0e6, 1.0e10},
                 /*threshold=*/3.14159265358979);
+        const std::vector<double> signed_zero_values = {-1.0, -0.0, 0.0, 1.0};
+        verify_bkd_range_queries<TYPE_DOUBLE, double>(
+                /*col_id=*/16, "bkd_range_double_positive_zero_v3", "c_double", signed_zero_values,
+                /*threshold=*/0.0, InvertedIndexStorageFormatPB::V3);
+        verify_bkd_range_queries<TYPE_DOUBLE, double>(
+                /*col_id=*/16, "bkd_range_double_negative_zero_v3", "c_double", signed_zero_values,
+                /*threshold=*/-0.0, InvertedIndexStorageFormatPB::V3);
     }
     void test_bkd_range_decimal32() {
         // DECIMAL(9, 2). Storage = real_value × 10^2.
