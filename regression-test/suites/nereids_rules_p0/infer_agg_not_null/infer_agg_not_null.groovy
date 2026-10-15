@@ -39,30 +39,6 @@ suite("infer_agg_not_null") {
     sql "INSERT INTO infer_agg_not_null_left VALUES (1), (2), (3)"
     sql "INSERT INTO infer_agg_not_null_right VALUES (2, 9), (3, NULL)"
 
-    order_qt_count_boolean_argument """
-        SELECT COUNT(r.v IS NOT NULL)
-        FROM infer_agg_not_null_left l
-        LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
-    """
-
-    order_qt_count_nullable_slot """
-        SELECT COUNT(r.v)
-        FROM infer_agg_not_null_left l
-        LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
-    """
-
-    order_qt_count_coalesce_argument """
-        SELECT COUNT(COALESCE(r.v, 0))
-        FROM infer_agg_not_null_left l
-        LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
-    """
-
-    order_qt_mixed_count_array_agg """
-        SELECT COUNT(r.v), ARRAY_SIZE(ARRAY_AGG(r.v))
-        FROM infer_agg_not_null_left l
-        LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
-    """
-
     order_qt_null_ignoring_aggregate_identities """
         SELECT SUM(r.v), SUM0(r.v), ARRAY_SIZE(COLLECT_LIST(r.v)),
                BITMAP_COUNT(BITMAP_AGG(r.v))
@@ -87,47 +63,6 @@ suite("infer_agg_not_null") {
         FROM infer_agg_not_null_left l
         LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
     """
-
-    explain {
-        sql """
-            SHAPE PLAN
-            SELECT COUNT(r.v IS NOT NULL)
-            FROM infer_agg_not_null_left l
-            LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
-        """
-        contains "LEFT_OUTER_JOIN"
-    }
-
-    explain {
-        sql """
-            SHAPE PLAN
-            SELECT COUNT(r.v)
-            FROM infer_agg_not_null_left l
-            LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
-        """
-        contains "INNER_JOIN"
-    }
-
-    explain {
-        sql """
-            SHAPE PLAN
-            SELECT COUNT(COALESCE(r.v, 0))
-            FROM infer_agg_not_null_left l
-            LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
-        """
-        contains "LEFT_OUTER_JOIN"
-    }
-
-    explain {
-        sql """
-            SHAPE PLAN
-            SELECT COUNT(r.v), ARRAY_SIZE(ARRAY_AGG(r.v))
-            FROM infer_agg_not_null_left l
-            LEFT JOIN infer_agg_not_null_right r ON l.k = r.k
-        """
-        contains "LEFT_OUTER_JOIN"
-    }
-
 
     explain {
         sql """

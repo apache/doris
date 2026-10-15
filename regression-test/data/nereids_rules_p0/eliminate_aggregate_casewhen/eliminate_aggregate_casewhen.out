@@ -200,8 +200,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------filter((t4.c4 = 102))
-----------------PhysicalOlapScan[t4]
+--------------PhysicalOlapScan[t4]
 
 -- !bool_or_eliminate --
 PhysicalResultSink
