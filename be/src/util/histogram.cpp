@@ -25,6 +25,8 @@
 #include <limits>
 #include <utility>
 
+#include "util/sse_util.hpp"
+
 namespace doris {
 
 HistogramBucketMapper::HistogramBucketMapper() {
@@ -121,12 +123,16 @@ void HistogramStat::merge(const HistogramStat& other) {
     // requires no lock and value update can still happen concurrently
     uint64_t old_min = min();
     uint64_t other_min = other.min();
+    // Pause on CAS failure: a bare retry loop floods the interconnect with
+    // LL/SC attempts on many-core aarch64 machines.
     while (other_min < old_min && !_min.compare_exchange_weak(old_min, other_min)) {
+        _mm_pause();
     }
 
     uint64_t old_max = max();
     uint64_t other_max = other.max();
     while (other_max > old_max && !_max.compare_exchange_weak(old_max, other_max)) {
+        _mm_pause();
     }
 
     _num.fetch_add(other.num(), std::memory_order_relaxed);

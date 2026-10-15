@@ -1407,8 +1407,8 @@ std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time(bool allow_unk
     // so let this tablet's visible version become int64 max.
     auto version_info = _visible_version.load();
     if (version_info != nullptr && partition_id() != 0) {
-        return std::make_tuple(version_info->version.load(std::memory_order_relaxed),
-                               version_info->update_ts);
+        return std::make_tuple(version_info->version.load(std::memory_order_acquire),
+                               version_info->update_ts.load(std::memory_order_acquire));
     } else {
         return std::make_tuple(allow_unknown ? std::numeric_limits<int64_t>::max() : -1,
                                std::numeric_limits<int64_t>::max());
