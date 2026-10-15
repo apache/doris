@@ -43,7 +43,7 @@ Status VStructLiteral::prepare(RuntimeState* state, const RowDescriptor& row_des
         child_literal->get_column_ptr()->get(0, item);
         struct_field.get<TYPE_STRUCT>().push_back(item);
     }
-    _column_ptr = _data_type->create_column_const(1, struct_field);
+    init_column(struct_field);
     return Status::OK();
 }
 

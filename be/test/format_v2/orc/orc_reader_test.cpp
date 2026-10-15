@@ -194,7 +194,7 @@ public:
     TableLiteral(const DataTypePtr& type, const Field& field) : VLiteral(type) {
         _node_type = node_type_for_field(field);
         _data_type = type;
-        _column_ptr = _data_type->create_column_const(1, field);
+        init_column(field);
         _expr_name = _data_type->get_name();
     }
 

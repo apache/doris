@@ -28,6 +28,10 @@
 
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "core/column/column_complex.h"
+#include "core/column/column_const.h"
+#include "core/column/column_fixed_length_object.h"
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -35,6 +39,39 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+bool supports_literal_digest(IColumn& column) {
+    // These concrete columns inherit IColumn's throwing xxHash implementation.
+    // Inspect the column rather than the SQL type: AGG_STATE can use either a
+    // hashable string column or an unsupported fixed-length object column.
+    if (is_column<ColumnBitmap>(column) || is_column<ColumnHLL>(column) ||
+        is_column<ColumnQuantileState>(column) || is_column<ColumnVarbinary>(column) ||
+        is_column<ColumnFixedLengthObject>(column)) {
+        return false;
+    }
+
+    bool supported = true;
+    column.for_each_subcolumn([&](IColumn::WrappedPtr& child) {
+        supported = supported && supports_literal_digest(*child);
+    });
+    return supported;
+}
+
+} // namespace
+
+void VLiteral::init_column(const Field& field) {
+    auto column = _data_type->create_column();
+    column->insert(field);
+    set_column(ColumnConst::create(std::move(column), 1));
+}
+
+void VLiteral::set_column(MutableColumnPtr column) {
+    // The 4.2 subcolumn visitor temporarily moves child pointers. Traverse before sharing.
+    _supports_digest = supports_literal_digest(*column);
+    _column_ptr = std::move(column);
+}
 
 class VExprContext;
 
@@ -101,6 +138,11 @@ bool VLiteral::equals(const VExpr& other) {
 }
 
 uint64_t VLiteral::get_digest(uint64_t seed) const {
+    // Wrappers and containers delegate hashing to their nested columns. A zero
+    // digest disables the condition cache without changing the column hash contract.
+    if (!_supports_digest) {
+        return 0;
+    }
     _column_ptr->update_xxHash_with_value(0, 1, seed, nullptr);
     return seed;
 }
