@@ -49,9 +49,8 @@ import java.util.Arrays;
 import java.util.Collections;
 
 /**
- * P5-T11 — pins the Doris-&gt;Paimon reverse type mapping in
- * {@link PaimonTypeMapping#toPaimonType}, the connector equivalent of the former fe-core
- * {@code DorisToPaimonTypeVisitor}.
+ * Pins the Doris-to-Paimon reverse type mapping, including declared string bounds and
+ * timestamp precision used by CREATE and ALTER TABLE.
  *
  * <p>The CREATE TABLE path produces these {@link ConnectorType} descriptors; this mapping is
  * what decides the on-disk Paimon column type, so any drift silently changes the physical schema
@@ -126,6 +125,9 @@ public class PaimonTypeMappingToPaimonTest {
         Assertions.assertEquals(new MapType(new CharType(false, 2), new TimestampType(3)),
                 PaimonTypeMapping.toPaimonType(ConnectorType.mapOf(
                         ConnectorType.of("CHAR", 2, 0), ConnectorType.of("DATETIMEV2", 3, 0))));
+        Assertions.assertEquals(new RowType(Collections.singletonList(new DataField(0, "v", new CharType(4)))),
+                PaimonTypeMapping.toPaimonType(ConnectorType.structOf(Collections.singletonList("v"),
+                        Collections.singletonList(ConnectorType.of("CHAR", 4, 0)))));
     }
 
     @Test

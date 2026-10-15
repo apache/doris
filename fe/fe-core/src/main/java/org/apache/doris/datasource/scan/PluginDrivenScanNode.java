@@ -90,6 +90,7 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TUnit;
 
@@ -1735,6 +1736,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
+                .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
+                .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
                 // connector whose planning has a side effect on the source (ADBC: asking the driver to
                 // partition a query EXECUTES it) needs to know the plan is only going to be shown.
@@ -1860,6 +1863,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     public boolean cannotBeRedispatched() {
         return plannedSingleUseRange;
+    }
+
+    /** Capabilities supported by every backend eligible for this scan. */
+    static Set<String> commonBackendCapabilities(Iterable<Backend> backends) {
+        Set<String> common = null;
+        for (Backend backend : backends) {
+            if (common == null) {
+                common = new HashSet<>(backend.getConnectorCapabilities());
+            } else {
+                common.retainAll(backend.getConnectorCapabilities());
+            }
+        }
+        return common == null ? Collections.emptySet() : common;
     }
 
     /**
@@ -2631,10 +2647,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     static ConnectorColumnHandle withProjectedFieldIds(
             ConnectorColumnHandle handle, SlotDescriptor slot) {
         Set<Integer> projectedFieldIds = new HashSet<>();
+        boolean hasNestedProjection = false;
         for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
+            hasNestedProjection |= accessPath.getPath().size() > 1;
             collectProjectedFieldIds(accessPath.getPath(), slot.getColumn(), projectedFieldIds);
         }
-        return projectedFieldIds.isEmpty()
+        return projectedFieldIds.isEmpty() && !hasNestedProjection
                 ? handle : handle.withProjectedFieldIds(projectedFieldIds);
     }
 

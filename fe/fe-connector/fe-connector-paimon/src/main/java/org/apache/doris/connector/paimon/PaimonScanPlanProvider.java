@@ -60,6 +60,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
@@ -88,11 +89,14 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
+import org.apache.paimon.utils.JsonSerdeUtil;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -556,13 +560,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                    request.getFilter(), request.getLimit(), request.isCountPushdown());
+                    request.getFilter(), request.getLimit(), request.isCountPushdown(),
+                    request.isAggregatePushdown(),
+                    request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY));
         }
         if (paimonHandle.isSystemTable()) {
             // System tables resolve their snapshot on the BE and carry deferred side effects
             // (authorized file enumeration); never reuse their planned ranges.
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                    request.getFilter(), request.getLimit(), request.isCountPushdown());
+                    request.getFilter(), request.getLimit(), request.isCountPushdown(),
+                    request.isAggregatePushdown(),
+                    request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY));
         }
         // Resolve the table ONCE at the statement scope so both the scan-planning path (here) and
         // the properties path (getScanNodeProperties) observe the SAME table generation. Without
@@ -571,10 +579,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveScanTableConsistent(session, paimonHandle);
         long generation = resolvePaimonGeneration(paimonHandle, table);
         // Statement-scoped reuse: within one statement the identical scan (same table, same
-        // branch/options pin, same generation, same projection, same filter, same limit, same COUNT
-        // pushdown) plans once and every duplicated relation shares the result. Session variables
-        // are constant within a statement and deliberately absent from the key. Every scan of a
-        // statement is planned within one plan, so the memo is dropped when planning ends.
+        // branch/options pin, same generation, same projection shape, same backend Rust eligibility,
+        // same filter, same limit, same aggregate pushdown) plans once and every duplicated relation
+        // shares the result. Session variables are constant within a statement and deliberately
+        // absent from the key. Every scan of a statement is planned within one plan, so the memo is
+        // dropped when planning ends.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<PaimonScanReuseKey, List<ConnectorScanRange>> scanReuse =
                 session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
@@ -582,7 +591,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return scanReuse.computeIfAbsent(reuseKey,
                 key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
-                        request.getLimit(), request.isCountPushdown(), table)));
+                        request.getLimit(), request.isCountPushdown(), request.isAggregatePushdown(),
+                        request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY), table)));
     }
 
     private long resolvePaimonGeneration(PaimonTableHandle handle, Table table) {
@@ -767,9 +777,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter,
             long limit,
-            boolean countPushdown) {
+            boolean countPushdown,
+            boolean aggregatePushdown,
+            boolean backendsSupportRust) {
         return planScanInternal(session, handle, columns, filter, limit, countPushdown,
-                resolveScanTable((PaimonTableHandle) handle));
+                aggregatePushdown, backendsSupportRust, resolveScanTable((PaimonTableHandle) handle));
     }
 
     private List<ConnectorScanRange> planScanInternal(
@@ -779,6 +791,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             long limit,
             boolean countPushdown,
+            boolean aggregatePushdown,
+            boolean backendsSupportRust,
             Table table) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
@@ -897,6 +911,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
+        boolean incrementalRead = pinnedOptions.containsKey("incremental-between")
+                || pinnedOptions.containsKey("incremental-between-timestamp");
+        PaimonRustReaderSelector rustReaderSelector = table instanceof FileStoreTable
+                && !requiresMetadataColumns
+                ? new PaimonRustReaderSelector(session, backendsSupportRust,
+                        (FileStoreTable) table, columns, backendStorageProperties(),
+                        usesFallbackRead(table, paimonHandle), incrementalRead, hasVariantProjection)
+                : null;
+        RustScanMetadata rustScanMetadata = null;
+
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
         // FIX-REST-VENDED-URI-NORMALIZE (P9-1): extract the per-table vended token ONCE per scan
@@ -977,11 +1001,26 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
             boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni() || needsNanosecondReader,
                     isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
+            boolean rustEligible = rustReaderSelector != null && rustReaderSelector.canRead(dataSplit);
             boolean legacyOrcTimestamp = false;
-            if (nativeEligible) {
+            if (nativeEligible && (!rustEligible || aggregatePushdown)) {
                 FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
                 legacyOrcTimestamp = requiresLegacyOrcTimestampReader(splitTable, optRawFiles, readFieldIds,
                         legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>()));
+            }
+            // Only the native reader can answer COUNT(column) and MIN/MAX from file footers.
+            // Keep ordinary compatible scans on Rust, but preserve native aggregate pushdown.
+            if (rustEligible && !(aggregatePushdown && nativeEligible && !legacyOrcTimestamp)) {
+                // Rust consumes logical splits, so IGNORE_JNI applies just as on branch-4.1.
+                if (ignoreJni) {
+                    continue;
+                }
+                if (rustScanMetadata == null) {
+                    rustScanMetadata = RustScanMetadata.from((FileStoreTable) table);
+                }
+                ranges.add(buildRustScanRange(dataSplit, rustScanMetadata, paimonHandle,
+                        defaultFileFormat, partitionValues, weightDenominator));
+                continue;
             }
             if (nativeEligible && !legacyOrcTimestamp) {
                 if (ignoreNative) {
@@ -1014,7 +1053,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             dataSplit.bucket()));
                 }
             } else {
-                // JNI reader path
+                // Logical fallback after Rust/native eligibility checks.
                 if (ignoreJni) {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
@@ -1263,11 +1302,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // emitted as ANONYMOUS for credential-less catalogs — a fe-filesystem parity gap (out of P1 whitelist),
         // tracked as a follow-up; only affects OSS/COS/OBS catalogs with no static ak/sk.
         if (context != null) {
-            Map<String, String> backendStorageProps = new HashMap<>();
-            for (StorageProperties sp : storage().getStorageProperties()) {
-                sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
-            }
-            for (Map.Entry<String, String> e : backendStorageProps.entrySet()) {
+            for (Map.Entry<String, String> e : backendStorageProperties().entrySet()) {
                 props.put(ScanNodePropertyKeys.LOCATION_PREFIX + e.getKey(), e.getValue());
             }
         }
@@ -1690,6 +1725,39 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             builder.bucket(((DataSplit) split).bucket());
         }
         return builder.build();
+    }
+
+    private PaimonScanRange buildRustScanRange(DataSplit split, RustScanMetadata metadata,
+            PaimonTableHandle handle, String defaultFileFormat,
+            Map<String, String> partitionValues, long weightDenominator) {
+        return new PaimonScanRange.Builder()
+                .fileFormat(dataSplitFileFormat(split, defaultFileFormat))
+                .rustSplit(encodeDataSplit(split), metadata.tableLocation, handle.getDatabaseName(),
+                        handle.getTableName(), metadata.schemaJson, metadata.branch)
+                .partitionValues(partitionValues)
+                .selfSplitWeight(computeSplitWeight(split))
+                .targetSplitSize(weightDenominator)
+                .bucket(split.bucket())
+                .build();
+    }
+
+    static final class RustScanMetadata {
+        final String tableLocation;
+        final String schemaJson;
+        final String branch;
+
+        private RustScanMetadata(String tableLocation, String schemaJson, String branch) {
+            this.tableLocation = tableLocation;
+            this.schemaJson = schemaJson;
+            this.branch = branch;
+        }
+
+        static RustScanMetadata from(FileStoreTable table) {
+            TableSchema schema = PaimonScanParams.withoutTimeTravelSelectors(table.schema());
+            String branch = CoreOptions.branch(schema.options());
+            return new RustScanMetadata(table.location().toString(), encodeTableSchema(schema),
+                    Identifier.DEFAULT_MAIN_BRANCH.equals(branch) ? null : branch);
+        }
     }
 
     /**
@@ -2719,6 +2787,24 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return encodeObjectToString(split);
     }
 
+    static String encodeDataSplit(DataSplit split) {
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            split.serialize(new DataOutputViewStreamWrapper(output));
+            return Base64.getEncoder().encodeToString(output.toByteArray());
+        } catch (IOException e) {
+            throw new DorisConnectorException("Failed to serialize Paimon DataSplit", e);
+        }
+    }
+
+    static String encodeTableSchema(TableSchema schema) {
+        try {
+            return JsonSerdeUtil.toJson(schema);
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to serialize Paimon table schema", e);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> String encodeObjectToString(T obj) {
         try {
@@ -2736,6 +2822,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    private Map<String, String> backendStorageProperties() {
+        if (context == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> properties = new HashMap<>();
+        for (StorageProperties storageProperties : storage().getStorageProperties()) {
+            storageProperties.toBackendProperties()
+                    .ifPresent(backend -> properties.putAll(backend.toMap()));
+        }
+        return properties;
     }
 
     /** Full identity used to resolve one statement-scoped Paimon {@link Table}. */
@@ -2787,9 +2885,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * selectors), the projected columns in order, the pushed filter, the limit and the COUNT
      * pushdown flag. The generation fences latest-dependent scans against same-path table
      * recreation or schema change between two aliases: without it, alias A's ranges (from
-     * generation A) could be paired with alias B's serialized table (from generation B). System
-     * tables are excluded upstream, and session variables are statement-constant, so both stay out
-     * of the key.
+     * generation A) could be paired with alias B's serialized table (from generation B). Nested
+     * projection shape and the common BE Rust capability are included because both change JNI/Rust
+     * routing even when the projected root-column names are identical. System tables are excluded
+     * upstream, and session variables are statement-constant, so both stay out of the key.
      */
     private static final class PaimonScanReuseKey {
         private final String databaseName;
@@ -2798,9 +2897,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         private final Map<String, String> scanOptions;
         private final long generation;
         private final List<String> columnNames;
+        private final List<Boolean> nestedProjections;
+        private final boolean rustBackendCapable;
         private final Optional<ConnectorExpression> filter;
         private final long limit;
         private final boolean countPushdown;
+        private final boolean aggregatePushdown;
 
         private PaimonScanReuseKey(PaimonTableHandle handle, ConnectorScanRequest request,
                 long generation) {
@@ -2817,17 +2919,31 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             this.columnNames = request.getColumns().stream()
                     .map(PaimonScanReuseKey::toPaimonColumnName)
                     .collect(Collectors.toList());
+            this.nestedProjections = request.getColumns().stream()
+                    .map(PaimonScanReuseKey::hasNestedProjection)
+                    .collect(Collectors.toList());
+            this.rustBackendCapable = request.allBackendsSupport(
+                    PaimonRustReaderSelector.BACKEND_CAPABILITY);
             this.filter = request.getFilter();
             this.limit = request.getLimit();
             this.countPushdown = request.isCountPushdown();
+            this.aggregatePushdown = request.isAggregatePushdown();
         }
 
         private static String toPaimonColumnName(ConnectorColumnHandle column) {
-            if (!(column instanceof PaimonColumnHandle)) {
-                throw new IllegalArgumentException(
-                        "Paimon scan reuse key requires PaimonColumnHandle, got: " + column.getClass().getName());
+            return asPaimonColumn(column).getName().toLowerCase(Locale.ROOT);
+        }
+
+        private static boolean hasNestedProjection(ConnectorColumnHandle column) {
+            return asPaimonColumn(column).hasNestedProjection();
+        }
+
+        private static PaimonColumnHandle asPaimonColumn(ConnectorColumnHandle column) {
+            if (column instanceof PaimonColumnHandle) {
+                return (PaimonColumnHandle) column;
             }
-            return ((PaimonColumnHandle) column).getName().toLowerCase(Locale.ROOT);
+            throw new IllegalArgumentException(
+                    "Paimon scan reuse key requires PaimonColumnHandle, got: " + column.getClass().getName());
         }
 
         @Override
@@ -2842,18 +2958,22 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return generation == that.generation
                     && limit == that.limit
                     && countPushdown == that.countPushdown
+                    && aggregatePushdown == that.aggregatePushdown
+                    && rustBackendCapable == that.rustBackendCapable
                     && Objects.equals(databaseName, that.databaseName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(branchName, that.branchName)
                     && Objects.equals(scanOptions, that.scanOptions)
                     && Objects.equals(columnNames, that.columnNames)
+                    && Objects.equals(nestedProjections, that.nestedProjections)
                     && Objects.equals(filter, that.filter);
         }
 
         @Override
         public int hashCode() {
             return Objects.hash(databaseName, tableName, branchName,
-                    scanOptions, generation, columnNames, filter, limit, countPushdown);
+                    scanOptions, generation, columnNames, nestedProjections,
+                    rustBackendCapable, filter, limit, countPushdown, aggregatePushdown);
         }
 
         @Override
