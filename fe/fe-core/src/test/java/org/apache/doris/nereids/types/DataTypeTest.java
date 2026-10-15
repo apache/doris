@@ -218,12 +218,28 @@ public class DataTypeTest {
 
     @Test
     public void testIsInjectiveCastToForPrimitiveTypes() {
+        assertSafeCast(NullType.INSTANCE, IntegerType.INSTANCE);
         assertSafeCast(IntegerType.INSTANCE, IntegerType.INSTANCE);
         assertSafeCast(IntegerType.INSTANCE, BigIntType.INSTANCE);
         assertUnsafeCast(BigIntType.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(TinyIntType.INSTANCE, FloatType.INSTANCE);
+        assertSafeCast(SmallIntType.INSTANCE, FloatType.INSTANCE);
+        assertUnsafeCast(IntegerType.INSTANCE, FloatType.INSTANCE);
+        assertSafeCast(FloatType.INSTANCE, DoubleType.INSTANCE);
+        assertUnsafeCast(FloatType.INSTANCE, StringType.INSTANCE);
+        assertSafeCast(IntegerType.INSTANCE, DoubleType.INSTANCE);
+        assertUnsafeCast(BigIntType.INSTANCE, DoubleType.INSTANCE);
+
+        // DECIMALV2 is deprecated. Treat every cast involving it as non-injective, even when the
+        // declared domains suggest that the cast is an identity or widening conversion.
+        assertUnsafeCast(NullType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(BooleanType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(IntegerType.INSTANCE, DecimalV2Type.createDecimalV2Type(9, 0));
+        assertUnsafeCast(BigIntType.INSTANCE, DecimalV2Type.createDecimalV2Type(27, 0));
         assertSafeCast(IntegerType.INSTANCE, DecimalV3Type.createDecimalV3Type(10, 0));
         assertUnsafeCast(IntegerType.INSTANCE, DecimalV3Type.createDecimalV3Type(9, 0));
         assertUnsafeCast(LargeIntType.INSTANCE, DecimalV3Type.createDecimalV3Type(38, 0));
+        assertSafeCast(LargeIntType.INSTANCE, DecimalV3Type.createDecimalV3TypeNotCheck256(39, 0));
 
         assertSafeCast(BooleanType.INSTANCE, DecimalV3Type.createDecimalV3Type(1, 0));
         assertUnsafeCast(BooleanType.INSTANCE, DecimalV3Type.createDecimalV3Type(1, 1));
@@ -231,21 +247,66 @@ public class DataTypeTest {
         assertSafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(8, 3));
         assertUnsafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(6, 1));
         assertUnsafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(5, 2));
+        DecimalV2Type narrowDecimalV2 = DecimalV2Type.createDecimalV2Type(2, 0);
+        assertUnsafeCast(narrowDecimalV2, DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(DecimalV2Type.SYSTEM_DEFAULT, narrowDecimalV2);
+        assertUnsafeCast(narrowDecimalV2, DecimalV3Type.createDecimalV3Type(27, 9));
+        assertUnsafeCast(narrowDecimalV2, DecimalV3Type.createDecimalV3Type(26, 9));
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(27, 9), narrowDecimalV2);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(28, 9), DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(27, 10), DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(narrowDecimalV2, TinyIntType.INSTANCE);
+        assertUnsafeCast(narrowDecimalV2, FloatType.INSTANCE);
+        assertUnsafeCast(narrowDecimalV2, DoubleType.INSTANCE);
+        assertUnsafeCast(narrowDecimalV2, StringType.INSTANCE);
+        assertSafeCast(DecimalV3Type.createDecimalV3Type(15, 0), DoubleType.INSTANCE);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(16, 0), DoubleType.INSTANCE);
+        assertSafeCast(DecimalV3Type.createDecimalV3Type(15, 6), DoubleType.INSTANCE);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(16, 6), DoubleType.INSTANCE);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(6, 2), IntegerType.INSTANCE);
 
+        assertSafeCast(DateType.INSTANCE, DateTimeType.INSTANCE);
+        assertSafeCast(DateType.INSTANCE, DateTimeV2Type.of(0));
+        assertSafeCast(DateType.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(DateType.INSTANCE, DoubleType.INSTANCE);
+        assertSafeCast(DateV2Type.INSTANCE, DateType.INSTANCE);
+        assertSafeCast(DateV2Type.INSTANCE, DateTimeType.INSTANCE);
+        assertSafeCast(DateV2Type.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(DateV2Type.INSTANCE, StringType.INSTANCE);
         assertSafeCast(DateTimeType.INSTANCE, DateTimeV2Type.of(0));
+        assertSafeCast(DateTimeType.INSTANCE, BigIntType.INSTANCE);
+        assertSafeCast(DateTimeType.INSTANCE, DoubleType.INSTANCE);
         assertSafeCast(DateTimeV2Type.of(0), DateTimeType.INSTANCE);
+        assertSafeCast(DateTimeV2Type.of(0), BigIntType.INSTANCE);
+        assertSafeCast(DateTimeV2Type.of(0), DoubleType.INSTANCE);
         assertSafeCast(DateTimeV2Type.of(3), DateTimeV2Type.of(6));
         assertUnsafeCast(DateTimeV2Type.of(3), DateTimeType.INSTANCE);
+        assertUnsafeCast(DateTimeV2Type.of(3), BigIntType.INSTANCE);
+        assertUnsafeCast(DateTimeV2Type.of(3), DoubleType.INSTANCE);
         assertUnsafeCast(DateTimeType.INSTANCE, DateType.INSTANCE);
+        assertSafeCast(TimeV2Type.of(0), FloatType.INSTANCE);
+        assertUnsafeCast(TimeV2Type.of(1), FloatType.INSTANCE);
+        assertSafeCast(TimeV2Type.MAX, BigIntType.INSTANCE);
+        assertSafeCast(TimeV2Type.MAX, LargeIntType.INSTANCE);
+        assertSafeCast(TimeV2Type.MAX, DoubleType.INSTANCE);
+        assertUnsafeCast(TimeV2Type.MAX, IntegerType.INSTANCE);
         assertSafeCast(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
         assertSafeCast(TimeStampNsType.INSTANCE, StringType.INSTANCE);
         assertUnsafeCast(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX);
         assertUnsafeCast(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE);
 
+        assertSafeCast(IPv4Type.INSTANCE, IPv6Type.INSTANCE);
+        assertSafeCast(IPv4Type.INSTANCE, StringType.INSTANCE);
+        assertSafeCast(IPv6Type.INSTANCE, StringType.INSTANCE);
+        assertUnsafeCast(IPv6Type.INSTANCE, IPv4Type.INSTANCE);
+
         assertSafeCast(VarcharType.createVarcharType(10), VarcharType.createVarcharType(20));
         assertSafeCast(VarcharType.createVarcharType(10), StringType.INSTANCE);
         assertSafeCast(VarcharType.createVarcharType(20), VarcharType.createVarcharType(10));
         assertSafeCast(StringType.INSTANCE, VarcharType.createVarcharType(10));
+        assertSafeCast(StringType.INSTANCE, VarBinaryType.createVarBinaryType(10));
+        assertSafeCast(VarBinaryType.createVarBinaryType(10), StringType.INSTANCE);
+        assertSafeCast(VarBinaryType.createVarBinaryType(10), VarBinaryType.createVarBinaryType(2));
 
         VariantType v1 = new VariantType(100);
         VariantType anotherV1 = new VariantType(200);
@@ -257,11 +318,18 @@ public class DataTypeTest {
     public void testIsInjectiveCastToForComplexTypes() {
         assertSafeCast(ArrayType.of(IntegerType.INSTANCE), ArrayType.of(BigIntType.INSTANCE));
         assertUnsafeCast(ArrayType.of(BigIntType.INSTANCE), ArrayType.of(IntegerType.INSTANCE));
+        assertUnsafeCast(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT),
+                ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT));
 
-        assertSafeCast(MapType.of(IntegerType.INSTANCE, VarcharType.createVarcharType(10)),
-                MapType.of(BigIntType.INSTANCE, StringType.INSTANCE));
+        MapType intVarcharMap = MapType.of(IntegerType.INSTANCE, VarcharType.createVarcharType(10));
+        assertSafeCast(intVarcharMap, intVarcharMap);
+        MapType decimalV2Map = MapType.of(IntegerType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(decimalV2Map, decimalV2Map);
+        assertUnsafeCast(intVarcharMap, MapType.of(BigIntType.INSTANCE, StringType.INSTANCE));
         assertUnsafeCast(MapType.of(BigIntType.INSTANCE, VarcharType.createVarcharType(10)),
                 MapType.of(IntegerType.INSTANCE, StringType.INSTANCE));
+        assertUnsafeCast(ArrayType.of(intVarcharMap),
+                ArrayType.of(MapType.of(BigIntType.INSTANCE, StringType.INSTANCE)));
 
         StructType intStringStruct = new StructType(ImmutableList.of(
                 new StructField("a", IntegerType.INSTANCE, true, ""),
@@ -276,9 +344,9 @@ public class DataTypeTest {
         assertUnsafeCast(bigintStringStruct, intStringStruct);
         assertUnsafeCast(intOnlyStruct, intStringStruct);
 
-        assertSafeCast(ArrayType.of(IntegerType.INSTANCE), StringType.INSTANCE);
-        assertSafeCast(MapType.of(IntegerType.INSTANCE, StringType.INSTANCE), StringType.INSTANCE);
-        assertSafeCast(intStringStruct, StringType.INSTANCE);
+        assertUnsafeCast(ArrayType.of(IntegerType.INSTANCE), StringType.INSTANCE);
+        assertUnsafeCast(MapType.of(IntegerType.INSTANCE, StringType.INSTANCE), StringType.INSTANCE);
+        assertUnsafeCast(intStringStruct, StringType.INSTANCE);
     }
 
     @Test
