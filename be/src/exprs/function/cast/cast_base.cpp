@@ -17,6 +17,7 @@
 
 #include "exprs/function/cast/cast_base.h"
 
+#include <algorithm>
 #include <cstdint>
 
 #include "core/column/column_array.h"
