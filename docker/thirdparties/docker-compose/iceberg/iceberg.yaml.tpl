@@ -229,6 +229,8 @@ services:
     # an earlier fixture would win over the one just published and point readers at tables
     # that no longer exist. This bucket is not recreated between runs, so a plain copy would
     # merge the two catalogs. --remove makes the prefix match the committed fixture exactly.
+    # The Unicode branch uses an ASCII directory in Git for portable checkout. Restore its
+    # object keys after each mirror: Lance resolves the original name recorded in the manifests.
     entrypoint: >
       /bin/sh -c "
       until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
@@ -240,7 +242,8 @@ services:
         /usr/bin/mc policy set public minio/warehouse;
         /usr/bin/mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       fi;
-      /usr/bin/mc mirror --overwrite --remove /mnt/preinstalled_data/lance/ minio/warehouse/lance/;
+      /usr/bin/mc mirror --overwrite --remove /mnt/preinstalled_data/lance/ minio/warehouse/lance/ &&
+      /usr/bin/mc mv --recursive minio/warehouse/lance/unicode_branch.lance/tree/dev_u1c89/ minio/warehouse/lance/unicode_branch.lance/tree/devᲉ/ || exit 1;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
       "
 
