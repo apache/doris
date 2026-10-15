@@ -199,6 +199,50 @@ Status IcebergTableReader::validate_variant_file_mappings(
             file_format_name(format));
 }
 
+Status IcebergTableReader::annotate_file_schema(
+        std::vector<format::ColumnDefinition>* file_schema) {
+    if (file_schema == nullptr || file_schema->empty()) {
+        return Status::OK();
+    }
+    // Iceberg's positional fallback is a Parquet-reader-only compatibility path. Its ORC/Avro
+    // readers instead derive a name mapping from the expected schema for id-less files, which is
+    // exactly the current-name resurrection that v2 scan semantics deliberately rejects (#65784),
+    // so ORC keeps its existing behavior and stays out of scope here.
+    if (_format != FileFormat::PARQUET) {
+        return Status::OK();
+    }
+    // Iceberg's `hasIds` contract is existential: a single real field id keeps the file on the id
+    // path and, exactly as in Iceberg, skips both the name mapping and the positional fallback.
+    if (schema_has_any_field_id(*file_schema)) {
+        return Status::OK();
+    }
+    // An old-FE plan keeps the legacy name fallback (rolling upgrade), and an explicit table-level
+    // name mapping stays authoritative even when it does not cover this file.
+    if (!supports_iceberg_scan_semantics_v2(_scan_params) ||
+        _scan_has_any_authoritative_name_mapping()) {
+        return Status::OK();
+    }
+    // ParquetSchemaUtil.addFallbackIds: ordinals start at 1, are counted over the physical
+    // top-level fields in file order, and are not propagated to nested fields. Reader-synthesized
+    // carriers (row number / global row id) are not file fields and must not consume an ordinal.
+    int32_t ordinal = 0;
+    for (auto& field : *file_schema) {
+        if (field.column_type != format::ColumnType::DATA_COLUMN) {
+            continue;
+        }
+        ++ordinal;
+        // ID-less Parquet fields carry their physical name as a STRING identifier
+        // (ParquetReader::_fill_column_definition), so only a real integer field id may skip
+        // stamping; overwriting the string identifier is what lets FieldIdMatcher resolve the file.
+        if (field.has_identifier_field_id()) {
+            continue;
+        }
+        field.identifier = Field::create_field<TYPE_INT>(ordinal);
+    }
+    _positional_id_fallback = true;
+    return Status::OK();
+}
+
 Status IcebergTableReader::validate_file_mapping(const format::TableColumnMapper& mapper) const {
     const bool metadata_only_count = _push_down_agg_type == TPushAggOp::type::COUNT &&
                                      _push_down_count_columns.has_value() &&
@@ -1053,6 +1097,9 @@ Status IcebergTableReader::prepare_split(const format::SplitReadOptions& options
         _row_lineage_columns = {};
         _iceberg_params.reset();
         _delete_predicates_initialized = false;
+        // Per-file diagnostic: the reader instance is reused across splits, so a previous ID-less
+        // file must not leave this set for the next (possibly ID-bearing) split.
+        _positional_id_fallback = false;
         _position_delete_rows_storage.clear();
         _equality_delete_filters.clear();
         _split_cache = options.cache;
@@ -1145,6 +1192,7 @@ std::string IcebergTableReader::debug_string() const {
         << ", deletion_vector_file_count=" << deletion_vector_file_count
         << ", position_delete_rows_storage_count=" << _position_delete_rows_storage.size()
         << ", equality_delete_filter_count=" << _equality_delete_filters.size()
+        << ", positional_id_fallback=" << _positional_id_fallback
         << ", equality_delete_filters=" << equality_filters.str() << "}";
     return out.str();
 }
@@ -1610,11 +1658,11 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         // Delete and data files must parse raw binary fields with the same scan-level mapping.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
-                enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                enable_mapping_timestamp_tz, enable_mapping_varbinary, "", preserve_binary_uuid());
     } else {
-        *reader = std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                           io_ctx, _scanner_profile, std::nullopt,
-                                                           enable_mapping_timestamp_tz);
+        *reader = std::make_unique<format::orc::OrcReader>(
+                system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
+                enable_mapping_timestamp_tz, enable_mapping_varbinary);
     }
     RETURN_IF_ERROR((*reader)->init(_runtime_state));
     return Status::OK();
@@ -1768,7 +1816,17 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
             return Status::NotSupported(
                     "Iceberg equality delete does not support complex column {}", field->name);
         }
-        const auto key_type = path.size() > 1 ? make_nullable(field->type) : field->type;
+        // Equality comparison must run in the promoted (current snapshot schema) type domain.
+        // Narrowing a wider data key into a historical delete-file type is lossy: an INT overflow
+        // becomes NULL, and NULL-safe equality then matches a NULL delete key. Delete values are
+        // promoted into this same domain when the delete file is read.
+        const DataTypePtr delete_file_type =
+                path.size() > 1 ? make_nullable(field->type) : field->type;
+        DataTypePtr key_type = delete_file_type;
+        if (auto table_field = _find_table_column_by_field_id(field_id, delete_file_type, true);
+            table_field.has_value() && table_field->type != nullptr) {
+            key_type = table_field->type;
+        }
         delete_paths->push_back(std::move(path));
         result->field_ids.push_back(field_id);
         result->field_names.push_back(field->name);
@@ -1814,11 +1872,21 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     std::vector<VExprContextSPtr> key_exprs;
     key_exprs.reserve(delete_paths.size());
     RowDescriptor row_desc;
-    for (const auto& path : delete_paths) {
+    for (size_t index = 0; index < delete_paths.size(); ++index) {
+        const auto& path = delete_paths[index];
         const auto root_column_id = format::LocalColumnId(path.front()->file_local_id());
         VExprSPtr key_expr;
         RETURN_IF_ERROR(build_equality_delete_key_expr(
                 path, request->local_positions.at(root_column_id).value(), &key_expr));
+        const auto& key_type = result->key_types[index];
+        if (!key_expr->data_type()->equals(*key_type)) {
+            // Historical delete values are promoted into the comparison domain. For an
+            // Iceberg-legal type promotion this cast is always widening, so it cannot turn a
+            // non-NULL value into NULL.
+            auto cast_expr = Cast::create_shared(key_type);
+            cast_expr->add_child(key_expr);
+            key_expr = std::move(cast_expr);
+        }
         auto context = VExprContext::create_shared(std::move(key_expr));
         RETURN_IF_ERROR(context->prepare(_runtime_state, row_desc));
         RETURN_IF_ERROR(context->open(_runtime_state));
@@ -1862,6 +1930,11 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
     }
     std::ostringstream cache_key;
     cache_key << _delete_file_cache_key("iceberg_v2_equality_delete_", delete_file.path);
+    if (scan_params.__isset.current_schema_id) {
+        // The promoted comparison type depends on the current snapshot schema, so a cached filter
+        // must not be reused across schemas.
+        cache_key << ":schema=" << scan_params.current_schema_id;
+    }
     cache_key << ':' << delete_file.field_ids.size();
     for (const auto field_id : delete_file.field_ids) {
         cache_key << ':' << field_id;

@@ -124,6 +124,17 @@ class JoinReorderRuleTest {
     }
 
     @Test
+    void testFallbackWhenAtomRowCountIsNonFinite() {
+        for (double rowCount : new double[] {Double.NaN, Double.POSITIVE_INFINITY}) {
+            LogicalOlapScan a = scan(131, "a", rowCount, 10);
+            LogicalOlapScan b = scan(132, "b", 100, 10);
+            Plan original = innerJoin(a, b, equal(a, b));
+
+            Assertions.assertSame(original, JoinReorderRule.INSTANCE.rewrite(original, null));
+        }
+    }
+
+    @Test
     void testReorderAtAtomLimit() {
         Plan original = chain(JoinReorderRule.MAX_ATOM_NUM_FOR_GREEDY);
 

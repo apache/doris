@@ -22,17 +22,19 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
+    // Exercise index evaluation instead of reusing cached query or condition results.
+    sql "set enable_sql_cache = false"
+    sql "set enable_query_cache = false"
+    sql "set enable_condition_cache = false"
 
-    def queryAndCheck = { String sqlQuery, int expectedFilteredRows = -1, boolean checkFilterUsed = true ->
-      def checkpoints_name = "segment_iterator.inverted_index.filtered_rows"
+    // Earlier pruning can change index filter counts; check results and index use separately.
+    def queryAndCheck = { String sqlQuery ->
       try {
           GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
-          GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
           sql "set experimental_enable_parallel_scan = false"
           sql "sync"
-          sql "${sqlQuery}"
+          order_qt_index_count sqlQuery
       } finally {
-          GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
           GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
       }
     }
@@ -52,34 +54,34 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
 
-    queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'", 2)
-    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello'", 2)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello', 'world')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello')", 2)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello')", 3)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello', 'world')", 5)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('helloworld')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('helloworld')", 5)
-    queryAndCheck("select count() from ${tableName} where var['string'] != 'world'", 2)
-    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match_phrase 'world'", 0)
-    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')", 2)
+    queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string'] != 'world'")
+    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match_phrase 'world'")
+    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')")
 
     for (int i = 0; i < 10; i++) {
         sql """insert into ${tableName} values(1, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (2, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (3, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (4, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (5, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')) """
     }
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
-    queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello', 'world')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello')", 22)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello')", 33)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello', 'world')", 55)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('helloworld')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('helloworld')", 55)
-    queryAndCheck("select count() from ${tableName} where var['string'] != 'world'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match_phrase 'world'", 0)
-    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')", 22)
+    queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string'] != 'world'")
+    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match_phrase 'world'")
+    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')")
 
     sql """ alter table ${tableName} modify column var variant<properties ("variant_max_subcolumns_count" = "10")> NULL """
 
@@ -88,18 +90,18 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         time 6000
     }
 
-    queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match 'world'", 0)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello', 'world')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello')", 22)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello')", 33)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello', 'world')", 55)
-    queryAndCheck("select count() from ${tableName} where var['string'] not in ('helloworld')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string'] in ('helloworld')", 55)
-    queryAndCheck("select count() from ${tableName} where var['string'] != 'world'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match_phrase 'world'", 0)
-    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')", 22)
+    queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match 'world'")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string'] not in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string'] in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string'] != 'world'")
+    queryAndCheck("select count() from ${tableName} where var['string'] = 'hello' or var['string'] match_phrase 'world'")
+    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')")
 
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -129,17 +131,17 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
 
-    queryAndCheck("select count() from ${tableName} where var['string1'] match_phrase 'hello'", 2)
-    queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello'", 2)
-    queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello', 'world')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello')", 2)
-    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('hello')", 3)
-    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('hello', 'world')", 5)
-    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('helloworld')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string1'] in ('helloworld')", 5)
-    queryAndCheck("select count() from ${tableName} where var['string1'] != 'world'", 2)
-    queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello' or var['string1'] match_phrase 'world'", 0)
-    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')", 2)
+    queryAndCheck("select count() from ${tableName} where var['string1'] match_phrase 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] != 'world'")
+    queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello' or var['string1'] match_phrase 'world'")
+    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')")
 
     boolean findException = false
     try {
@@ -150,7 +152,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         findException = true
     }
     assertTrue(findException)
-    queryAndCheck("select count() from ${tableName} where var['string2'] = 'world'", 3)
+    queryAndCheck("select count() from ${tableName} where var['string2'] = 'world'")
 
     for (int i = 0; i < 10; i++) {
         sql """insert into ${tableName} values(1, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')),
@@ -161,17 +163,17 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     }
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
-    queryAndCheck("select count() from ${tableName} where var['string1'] match_phrase 'hello'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello', 'world')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello')", 22)
-    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('hello')", 33)
-    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('hello', 'world')", 55)
-    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('helloworld')", 0)
-    queryAndCheck("select count() from ${tableName} where var['string1'] in ('helloworld')", 55)
-    queryAndCheck("select count() from ${tableName} where var['string1'] != 'world'", 22)
-    queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello' or var['string1'] match_phrase 'world'", 0)
-    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')", 22)
+    queryAndCheck("select count() from ${tableName} where var['string1'] match_phrase 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello'")
+    queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('hello')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('hello', 'world')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] not in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] in ('helloworld')")
+    queryAndCheck("select count() from ${tableName} where var['string1'] != 'world'")
+    queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello' or var['string1'] match_phrase 'world'")
+    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')")
     findException = false
     try {
         sql """ select count() from ${tableName} where var['string2'] match_phrase 'world' """
@@ -181,7 +183,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         findException = true
     }
     assertTrue(findException)
-    queryAndCheck("select count() from ${tableName} where var['string2'] = 'world'", 33)
+    queryAndCheck("select count() from ${tableName} where var['string2'] = 'world'")
 
 
     def load_json_data = {table_name, file_name ->
@@ -284,66 +286,66 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         );
     """
 
-    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)", 0)
+    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)")
     //qt_sql "select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456689)"
-    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456689)", 1)
+    queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456689)")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['int_1'] as int) = 42", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['int_1'] as int) = 43", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['int_1'] as int) = 42")
+    queryAndCheck("select count() from ${tableName} where cast(var['int_1'] as int) = 43")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['int_nested.level1_num_1'] as int) = 1011111", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['int_nested.level1_num_1'] as int) = 1011112", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['int_nested.level1_num_1'] as int) = 1011111")
+    queryAndCheck("select count() from ${tableName} where cast(var['int_nested.level1_num_1'] as int) = 1011112")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['int_nested']['level1_num_1'] as int) = 1011111", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['int_nested']['level1_num_1'] as int) = 1011112", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['int_nested']['level1_num_1'] as int) = 1011111")
+    queryAndCheck("select count() from ${tableName} where cast(var['int_nested']['level1_num_1'] as int) = 1011112")
 
-    queryAndCheck("select count() from ${tableName} where var['string_1'] match 'sample'", 0)
-    queryAndCheck("select count() from ${tableName} where var['string_1'] match 'samples'", 1)
+    queryAndCheck("select count() from ${tableName} where var['string_1'] match 'sample'")
+    queryAndCheck("select count() from ${tableName} where var['string_1'] match 'samples'")
 
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match 'Hello'", 0)
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match 'Hellos'", 1)
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match 'Hello'")
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match 'Hellos'")
 
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_all 'nested object'", 0)
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_all 'nested objects'", 1)
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_all 'nested object'")
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_all 'nested objects'")
 
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_any 'object'", 0)
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_any 'objects'", 1)
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_any 'object'")
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_any 'objects'")
 
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] match_all '2023-10-27T12:00:00Z'", 0)
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] match_all '2023-10-28T12:00:00Z'", 1)
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] match_all '2023-10-27T12:00:00Z'")
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] match_all '2023-10-28T12:00:00Z'")
 
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] = '2023-10-27T12:00:00Z'", 0)
-    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] = '2023-10-27T12:00:00S'", 1)
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] = '2023-10-27T12:00:00Z'")
+    queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] = '2023-10-27T12:00:00S'")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['decimal_1'] as decimalv3(26,9)) = 12345.6789", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['decimal_1'] as decimalv3(26,9)) = 12345.67819", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['decimal_1'] as decimalv3(26,9)) = 12345.6789")
+    queryAndCheck("select count() from ${tableName} where cast(var['decimal_1'] as decimalv3(26,9)) = 12345.67819")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['datetime_1'] as datetime) = '2023-10-27 10:30:00'", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['datetime_1'] as datetime) = '2023-10-27 10:30:01'", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['datetime_1'] as datetime) = '2023-10-27 10:30:00'")
+    queryAndCheck("select count() from ${tableName} where cast(var['datetime_1'] as datetime) = '2023-10-27 10:30:01'")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['datetimev2_1'] as datetimev2(6)) = '2023-10-27 10:30:00.123456'", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['datetimev2_1'] as datetimev2(6)) = '2023-10-27 10:30:01.123456'", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['datetimev2_1'] as datetimev2(6)) = '2023-10-27 10:30:00.123456'")
+    queryAndCheck("select count() from ${tableName} where cast(var['datetimev2_1'] as datetimev2(6)) = '2023-10-27 10:30:01.123456'")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['date_1'] as date) = '2023-10-27'", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['date_1'] as date) = '2023-10-28'", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['date_1'] as date) = '2023-10-27'")
+    queryAndCheck("select count() from ${tableName} where cast(var['date_1'] as date) = '2023-10-28'")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['datev2_1'] as datev2) = '2023-10-28'", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['datev2_1'] as datev2) = '2023-10-29'", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['datev2_1'] as datev2) = '2023-10-28'")
+    queryAndCheck("select count() from ${tableName} where cast(var['datev2_1'] as datev2) = '2023-10-29'")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['ipv4_1'] as ipv4) = '192.168.1.1'", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['ipv4_1'] as ipv4) = '192.168.1.2'", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['ipv4_1'] as ipv4) = '192.168.1.1'")
+    queryAndCheck("select count() from ${tableName} where cast(var['ipv4_1'] as ipv4) = '192.168.1.2'")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['ipv6_1'] as ipv6) = '::1'", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['ipv6_1'] as ipv6) = '::2'", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['ipv6_1'] as ipv6) = '::1'")
+    queryAndCheck("select count() from ${tableName} where cast(var['ipv6_1'] as ipv6) = '::2'")
 
-    queryAndCheck("select count() from ${tableName} where cast(var['largeint_1'] as largeint) = 12345678901234567890123456789012345678", 0)
-    queryAndCheck("select count() from ${tableName} where cast(var['largeint_1'] as largeint) = 1234567890123456789123456789012345679", 1)
+    queryAndCheck("select count() from ${tableName} where cast(var['largeint_1'] as largeint) = 12345678901234567890123456789012345678")
+    queryAndCheck("select count() from ${tableName} where cast(var['largeint_1'] as largeint) = 1234567890123456789123456789012345679")
 
-    queryAndCheck("select count() from ${tableName} where var['char_1'] = 'short text'", 0)
-    queryAndCheck("select count() from ${tableName} where var['char_1'] = 'short texts'", 1)
+    queryAndCheck("select count() from ${tableName} where var['char_1'] = 'short text'")
+    queryAndCheck("select count() from ${tableName} where var['char_1'] = 'short texts'")
 
-    queryAndCheck("select count() from ${tableName} where var['char_1'] match_all 'short text'", 0)
-    queryAndCheck("select count() from ${tableName} where var['char_1'] match_all 'short texts'", 1)
+    queryAndCheck("select count() from ${tableName} where var['char_1'] match_all 'short text'")
+    queryAndCheck("select count() from ${tableName} where var['char_1'] match_all 'short texts'")
 
     findException = false
     try {
@@ -360,41 +362,41 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     }
 
     def accurateCheckIndexWithQueries = { ->
-      queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)", 90000)
+      queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['int_1'] as int) = 42", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['int_1'] as int) = 42")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['int_nested.level1_num_1'] as int) = 1011111", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['int_nested.level1_num_1'] as int) = 1011111")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['int_nested']['level1_num_1'] as int) = 1011111", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['int_nested']['level1_num_1'] as int) = 1011111")
 
-      queryAndCheck("select count() from ${tableName} where var['string_1'] match 'sample'", 82222)
+      queryAndCheck("select count() from ${tableName} where var['string_1'] match 'sample'")
 
-      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match 'Hello'", 90000)
+      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match 'Hello'")
 
-      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_all 'nested object'", 88730)
+      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_all 'nested object'")
 
-      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_any 'object'", 82173)
+      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['message'] match_any 'object'")
 
-      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] match '2023-10-27T12:00:00Z'", 90000)
+      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] match '2023-10-27T12:00:00Z'")
 
-      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] match '2023-10-27T12:00:00Z'", 90000)
+      queryAndCheck("select count() from ${tableName} where var['string_1_nested']['metadata']['timestamp'] match '2023-10-27T12:00:00Z'")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['decimal_1'] as decimalv3(26,9)) = 12345.6789", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['decimal_1'] as decimalv3(26,9)) = 12345.6789")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['datetime_1'] as datetime) = '2023-10-27 10:30:00'", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['datetime_1'] as datetime) = '2023-10-27 10:30:00'")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['datetimev2_1'] as datetimev2(6)) = '2023-10-27 10:30:00.123456'", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['datetimev2_1'] as datetimev2(6)) = '2023-10-27 10:30:00.123456'")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['date_1'] as date) = '2023-10-27'", 89976)
+      queryAndCheck("select count() from ${tableName} where cast(var['date_1'] as date) = '2023-10-27'")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['datev2_1'] as datev2) = '2023-10-28'", 89974)
+      queryAndCheck("select count() from ${tableName} where cast(var['datev2_1'] as datev2) = '2023-10-28'")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['ipv4_1'] as ipv4) = '192.168.1.1'", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['ipv4_1'] as ipv4) = '192.168.1.1'")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['ipv6_1'] as ipv6) = '::1'", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['ipv6_1'] as ipv6) = '::1'")
 
-      queryAndCheck("select count() from ${tableName} where cast(var['largeint_1'] as largeint) = 12345678901234567890123456789012345678", 90000)
+      queryAndCheck("select count() from ${tableName} where cast(var['largeint_1'] as largeint) = 12345678901234567890123456789012345678")
     }
 
     def typedOutputQuery = """

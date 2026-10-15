@@ -415,6 +415,8 @@ protected:
     // concrete reader. Subclasses should not duplicate this loop.
     Status create_next_reader(bool* eos);
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
+    // Some table formats expose UUID as raw bytes rather than the native Doris UUID type.
+    virtual bool preserve_binary_uuid() const { return false; }
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual void configure_mapper_options(TableColumnMapperOptions*) const {}
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
@@ -553,7 +555,12 @@ protected:
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
-    bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
+    // The condition cache key covers the file identity plus the table-level predicate/session
+    // digest only. A table format whose file-column binding can change without changing that digest
+    // (Iceberg's positional fallback resolves an ID-less file by physical ordinals) must override
+    // this to false: a stale all-false granule would silently drop matching rows, because the
+    // cached verdict was produced by a different physical binding.
+    virtual bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
@@ -2261,6 +2268,9 @@ protected:
     TableColumnMapperOptions _mapper_options;
 
 private:
+    static std::optional<std::string> _get_int96_timezone_override(
+            const TFileScanRangeParams* params);
+
     static const ColumnDefinition* _find_column_definition(
             const std::vector<ColumnDefinition>& schema, LocalColumnId column_id) {
         for (const auto& field : schema) {

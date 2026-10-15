@@ -80,7 +80,9 @@ TEST(SniiProtoFieldNumbers, CoreMetadataMatchesTheShippedLayout) {
                           {"stats", 2},
                           {"section_refs", 3},
                           {"legacy_common_grams", 4},
-                          {"legacy_common_grams_posting_policy", 5}});
+                          {"legacy_common_grams_posting_policy", 5},
+                          {"gram_scheme", 6},
+                          {"high_df_terms", 7}});
 }
 
 } // namespace doris::snii

@@ -186,6 +186,13 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnBitmap&>(column);
+        this->data(place).merge(col.get_data()[row]);
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena&) const override {
@@ -197,6 +204,8 @@ public:
             this->data(place).merge(data[i]);
         }
     }
+
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena&,
@@ -351,19 +360,25 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
+        const IColumn* data_column = columns[0];
         if constexpr (arg_is_nullable) {
             const auto& nullable_column =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            if (!nullable_column.is_null_at(row_num)) {
-                const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
-                        nullable_column.get_nested_column());
-                this->data(place).add(column.get_data()[row_num]);
+            if (nullable_column.is_null_at(row_num)) {
+                return;
             }
-        } else {
-            const auto& column =
-                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            this->data(place).add(column.get_data()[row_num]);
+            data_column = &nullable_column.get_nested_column();
         }
+        const auto& value =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*data_column)
+                        .get_data()[row_num];
+        if constexpr (!std::is_same_v<ColVecType, ColumnBitmap>) {
+            // Match bitmap_agg and to_bitmap before conversion to uint64_t.
+            if (value < 0) {
+                return;
+            }
+        }
+        this->data(place).add(value);
     }
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,

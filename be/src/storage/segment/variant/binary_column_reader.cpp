@@ -35,7 +35,7 @@ Status DummyBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* i
         TabletColumn binary_column;
         binary_column.set_name("binary_column");
         binary_column.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
-        binary_column.set_default_value("NULL");
+        binary_column.set_default_value("{}");
         TabletColumn child_tcolumn;
         child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
         binary_column.add_sub_column(child_tcolumn);
@@ -43,7 +43,7 @@ Status DummyBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* i
         binary_column.set_is_nullable(false);
         return binary_column;
     }();
-    RETURN_IF_ERROR(Segment::new_default_iterator(binary_column, iter));
+    RETURN_IF_ERROR(Segment::new_constant_iterator(binary_column, iter));
     return Status::OK();
 }
 

@@ -50,8 +50,6 @@ public:
 
     bool is_source() const override { return true; }
 
-    Status prepare(RuntimeState* state) override;
-
 private:
     friend class AnalyticLocalState;
 };

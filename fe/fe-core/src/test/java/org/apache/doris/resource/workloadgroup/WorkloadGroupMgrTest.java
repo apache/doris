@@ -37,6 +37,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -210,6 +212,45 @@ public class WorkloadGroupMgrTest {
             Assertions.fail();
         } catch (DdlException e) {
             Assertions.assertTrue(true);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 15})
+    public void testWorkloadGroupCountLimit(int limit) throws DdlException {
+        int originalLimit = Config.workload_group_max_num;
+        try {
+            Config.workload_group_max_num = limit;
+            WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+            for (String computeGroup : List.of("cg1", "cg2")) {
+                for (int i = 0; i < limit; i++) {
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(WorkloadGroup.COMPUTE_GROUP, computeGroup);
+                    properties.put(WorkloadGroup.MIN_CPU_PERCENT, "0");
+                    String name = i == 0 ? WorkloadGroupMgr.DEFAULT_GROUP_NAME : "wg" + i;
+                    WorkloadGroup group = new WorkloadGroup(id.incrementAndGet(), name, properties);
+                    workloadGroupMgr.createWorkloadGroup(computeGroup, group, false);
+                    Assertions.assertSame(group, workloadGroupMgr.getNameToWorkloadGroup()
+                            .get(WorkloadGroupKey.get(computeGroup, name)));
+                }
+
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.COMPUTE_GROUP, computeGroup);
+                properties.put(WorkloadGroup.MIN_CPU_PERCENT, "0");
+                WorkloadGroup excess = new WorkloadGroup(id.incrementAndGet(), "excess", properties);
+                DdlException exception = Assertions.assertThrows(DdlException.class,
+                        () -> workloadGroupMgr.createWorkloadGroup(computeGroup, excess, false));
+                Assertions.assertTrue(exception.getMessage().contains("can not exceed " + limit));
+                Assertions.assertFalse(workloadGroupMgr.getIdToWorkloadGroup().containsKey(excess.getId()));
+                Assertions.assertFalse(workloadGroupMgr.getNameToWorkloadGroup()
+                        .containsKey(WorkloadGroupKey.get(computeGroup, excess.getName())));
+                Mockito.verify(editLog, Mockito.never()).logCreateWorkloadGroup(excess);
+            }
+            Assertions.assertEquals(2 * limit, workloadGroupMgr.getIdToWorkloadGroup().size());
+            Assertions.assertEquals(2 * limit, workloadGroupMgr.getNameToWorkloadGroup().size());
+            Mockito.verify(editLog, Mockito.times(2 * limit)).logCreateWorkloadGroup(ArgumentMatchers.any());
+        } finally {
+            Config.workload_group_max_num = originalLimit;
         }
     }
 

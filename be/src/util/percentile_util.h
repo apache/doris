@@ -47,10 +47,15 @@ class Counts {
 public:
     Counts() = default;
 
+    // Moves all samples of `other` into this state. `other` may itself be a merged state whose
+    // samples live in `_sorted_nums_vec`, and either side may still hold unsorted raw samples.
     void merge(Counts* other) {
-        if (other != nullptr && !other->_nums.empty()) {
-            _sorted_nums_vec.emplace_back(std::move(other->_nums));
+        _move_nums_to_sorted_vec();
+        other->_move_nums_to_sorted_vec();
+        for (auto& nums : other->_sorted_nums_vec) {
+            _sorted_nums_vec.emplace_back(std::move(nums));
         }
+        other->_sorted_nums_vec.clear();
     }
 
     void increment(Ty key, uint32_t i) {
@@ -66,16 +71,16 @@ public:
     void increment_batch(const PaddedPODArray<Ty>& keys) { _nums.insert(keys.begin(), keys.end()); }
 
     void serialize(BufferWritable& buf) {
-        if (!_nums.empty()) {
+        if (_sorted_nums_vec.empty()) {
             pdqsort(_nums.begin(), _nums.end());
-            size_t size = _nums.size();
-            buf.write_binary(size);
-            buf.write(reinterpret_cast<const char*>(_nums.data()), sizeof(Ty) * size);
         } else {
-            // convert _sorted_nums_vec to _nums and do seiralize again
+            // merge all sorted runs (including the raw samples) into `_nums`
+            _move_nums_to_sorted_vec();
             _convert_sorted_num_vec_to_nums();
-            serialize(buf);
         }
+        size_t size = _nums.size();
+        buf.write_binary(size);
+        buf.write(reinterpret_cast<const char*>(_nums.data()), sizeof(Ty) * size);
     }
 
     void unserialize(BufferReadable& buf) {
@@ -87,9 +92,13 @@ public:
     }
 
     double terminate(double quantile) {
+        if (!_sorted_nums_vec.empty()) {
+            _move_nums_to_sorted_vec();
+        }
         if (_sorted_nums_vec.size() <= 1) {
             if (_sorted_nums_vec.size() == 1) {
                 _nums = std::move(_sorted_nums_vec[0]);
+                _sorted_nums_vec.clear();
             }
 
             if (_nums.empty()) {
@@ -149,6 +158,17 @@ private:
 
         auto operator<=>(const Node& other) const { return value <=> other.value; }
     };
+
+    void _move_nums_to_sorted_vec() {
+        if (_nums.empty()) {
+            return;
+        }
+        if (!std::is_sorted(_nums.begin(), _nums.end())) {
+            pdqsort(_nums.begin(), _nums.end());
+        }
+        _sorted_nums_vec.emplace_back(std::move(_nums));
+        DCHECK(_nums.empty());
+    }
 
     void _convert_sorted_num_vec_to_nums() {
         size_t rows = 0;

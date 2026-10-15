@@ -125,8 +125,20 @@ public class ConnectContext {
     private static final int INITIAL_PREPARED_STMT_ID = Integer.MIN_VALUE;
 
     public enum ConnectType {
-        MYSQL,
-        ARROW_FLIGHT_SQL
+        MYSQL("MySQL"),
+        ARROW_FLIGHT_SQL("ArrowFlightSQL");
+
+        // The name SHOW PROCESSLIST, information_schema.processlist and the audit log report the
+        // protocol under (their Protocol column / field).
+        private final String protocolName;
+
+        ConnectType(String protocolName) {
+            this.protocolName = protocolName;
+        }
+
+        public String protocolName() {
+            return protocolName;
+        }
     }
 
     private final ProtocolAdapter protocolAdapter;
@@ -1514,6 +1526,10 @@ public class ConnectContext {
             } else {
                 row.add(currentCloudCluster);
             }
+            // Protocol is the last column, after CloudCluster; a row of another frontend that lacks or
+            // exceeds the local columns is fitted to them by whoever merges it (ShowProcessListCommand,
+            // the BE processlist scanner).
+            row.add(getConnectType().protocolName());
             return row;
         }
     }

@@ -19,6 +19,7 @@ package org.apache.doris.datasource.credentials;
 
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -194,6 +195,35 @@ public class CredentialUtilsTest {
         Assertions.assertEquals("us-west-2", result.get("AWS_REGION"));
         Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", result.get("AWS_ENDPOINT"));
         Assertions.assertEquals("hdfs://namenode:9000", result.get("HDFS_NAMENODE"));
+    }
+
+    @Test
+    public void testGetBackendPropertiesFromStorageMapKeepsEveryStoragesFsCacheKey() {
+        // Real adapters rather than mocks: the per-scheme FileSystem cache keys are written by
+        // StorageAdapter itself, and this merge is where several storages' maps meet.
+        Map<String, String> hdfsProps = new HashMap<>();
+        hdfsProps.put("uri", "hdfs://test/1.orc");
+        hdfsProps.put("hadoop.username", "userA");
+        StorageAdapter hdfs = StorageAdapter.of(hdfsProps);
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        s3Props.put("s3.access_key", "ak1");
+        s3Props.put("s3.secret_key", "secret");
+        StorageAdapter s3 = StorageAdapter.of(s3Props);
+
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(hdfs.getType(), hdfs);
+        storagePropertiesMap.put(s3.getType(), s3);
+
+        Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
+
+        // Each storage keeps its own fingerprint under its own schemes; a single shared key would
+        // let whichever storage merged last decide the cache identity of the other one.
+        Assertions.assertEquals(hdfs.getFsCacheFingerprint(),
+                result.get(FsCacheKeys.fsCacheKeyProperty("hdfs")));
+        Assertions.assertEquals(s3.getFsCacheFingerprint(), result.get(FsCacheKeys.fsCacheKeyProperty("s3a")));
+        Assertions.assertNotEquals(hdfs.getFsCacheFingerprint(), s3.getFsCacheFingerprint());
+        Assertions.assertNull(result.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
     }
 
     @Test

@@ -282,6 +282,21 @@ public class AlterTableCommandTest {
     }
 
     @Test
+    void testRejectGeneratedColumnForPluginDrivenExternalTable() {
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(false);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN c INT AS (id + 1) NULL",
+                "ALTER TABLE t ADD COLUMN (c1 INT AS (id + 1) NULL, c2 INT NULL)",
+                "ALTER TABLE t MODIFY COLUMN c BIGINT AS (id + 1)")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Generated columns are not supported for external ADD/MODIFY COLUMN"));
+        }
+    }
+
+    @Test
     void testRejectUnsupportedDefaultChangesForIcebergTable() throws AnalysisException {
         PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
         Mockito.when(table.supportsNestedColumnSchemaChange()).thenReturn(true);

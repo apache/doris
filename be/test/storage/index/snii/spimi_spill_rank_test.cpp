@@ -101,7 +101,7 @@ TEST(SpimiSpillRankTest, ReusesRankAcrossFixedVocabularySpillsAndFinalMerge) {
     EXPECT_EQ(terms[2].docids, std::vector<uint32_t>({0, 3}));
 }
 
-TEST(SpimiSpillRankTest, RefreshesStaleRankBeforeRunCompaction) {
+TEST(SpimiSpillRankTest, RefreshesStaleRankBeforeMergingSpooledRuns) {
     testing::reset_run_compactions();
     testing::reset_string_rank_rebuilds();
     SpimiTermBuffer buffer(/*has_positions=*/false, /*spill_threshold_bytes=*/0);
@@ -123,8 +123,8 @@ TEST(SpimiSpillRankTest, RefreshesStaleRankBeforeRunCompaction) {
     buffer.request_global_spill_for_test();
     buffer.add_token("b", /*docid=*/6, /*pos=*/0);
     ASSERT_TRUE(buffer.status().ok()) << buffer.status();
-    EXPECT_EQ(testing::run_compactions(), 1);
-    EXPECT_EQ(testing::string_rank_rebuilds(), 2);
+    EXPECT_EQ(testing::run_compactions(), 0);
+    EXPECT_EQ(buffer.spill_file_count_for_test(), 1U);
 
     const std::vector<TermPostings> terms = buffer.finalize_sorted();
 

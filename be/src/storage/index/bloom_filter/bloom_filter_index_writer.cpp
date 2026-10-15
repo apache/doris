@@ -338,6 +338,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options, Fiel
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
         M(FieldType::OLAP_FIELD_TYPE_IPV4)
         M(FieldType::OLAP_FIELD_TYPE_IPV6)
+        M(FieldType::OLAP_FIELD_TYPE_UUID)
 #undef M
     default:
         return Status::NotSupported("unsupported type for bloom filter index: {}",

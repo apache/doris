@@ -99,6 +99,10 @@ TEST(FunctionUrlTEST, ParseUrlQueryKeyTest) {
                                 PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
+            // Every nullable argument must short-circuit independently in the keyed form.
+            {{Null(), STRING("QUERY"), STRING("k")}, Null()},
+            {{STRING("http://h/p?k=1"), Null(), STRING("k")}, Null()},
+            {{STRING("http://h/p?k=1"), STRING("QUERY"), Null()}, Null()},
             // The only '?' is inside the fragment, so the url has no query component.
             {{STRING("http://h/p#f?k=v"), STRING("QUERY"), STRING("k")}, Null()},
             // The '#' comes before the '?', so it is a fragment instead of a query.
@@ -156,6 +160,49 @@ TEST(FunctionUrlTEST, ParseUrlQueryTest) {
             // An empty query component is not NULL.
             {{STRING("http://h/p?"), STRING("QUERY")}, STRING("")},
             {{STRING("  http://h/p?k=1  "), STRING("QUERY")}, STRING("k=1")},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
+TEST(FunctionUrlTEST, ParseUrlAuthorityTest) {
+    std::string func_name = "parse_url";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            // A nullable dynamic part must be handled row by row. A NULL part must not be
+            // materialized as an invalid empty part while another row is being parsed.
+            {{Null(), STRING("HOST")}, Null()},
+            {{STRING("http://example.com/path?x=1"), STRING("HOST")}, STRING("example.com")},
+            {{STRING("http://example.com/path?x=1"), Null()}, Null()},
+            // A ':' in the path is not a port separator, and an '@' in the path is not a
+            // userinfo separator.
+            {{STRING("http://example.com/a:b"), STRING("HOST")}, STRING("example.com")},
+            {{STRING("http://example.com/a:b"), STRING("PORT")}, Null()},
+            {{STRING("http://example.com/a:b"), STRING("AUTHORITY")}, STRING("example.com")},
+            {{STRING("http://example.com/a@b:c"), STRING("HOST")}, STRING("example.com")},
+            {{STRING("http://example.com/a@b:c"), STRING("USERINFO")}, Null()},
+            // A ':' in the query or the fragment is not a port separator either.
+            {{STRING("http://example.com/p?r=http:8080"), STRING("PORT")}, Null()},
+            {{STRING("http://example.com#f:1"), STRING("HOST")}, STRING("example.com")},
+            {{STRING("http://example.com#f:1"), STRING("PORT")}, Null()},
+            {{STRING("http://example.com?x=1"), STRING("AUTHORITY")}, STRING("example.com")},
+            {{STRING("http://[2001:db8::1]:8080/a?x=1#r"), STRING("HOST")},
+             STRING("[2001:db8::1]")},
+            {{STRING("http://[2001:db8::1]:8080/a?x=1#r"), STRING("PORT")}, STRING("8080")},
+            {{STRING("http://h/p#frag?x=1"), STRING("PATH")}, STRING("/p")},
+            {{STRING("http://h/p#frag?x=1"), STRING("QUERY")}, Null()},
+            // FILE includes a query even when the URL has no path, while PATH remains empty.
+            {{STRING("http://h?k=/v#frag"), STRING("FILE")}, STRING("?k=/v")},
+            {{STRING("http://h?k=/v#frag"), STRING("PATH")}, STRING("")},
+            // A real port and a real userinfo are still returned.
+            {{STRING("http://user:pass@example.com:80/a:b"), STRING("HOST")},
+             STRING("example.com")},
+            {{STRING("http://user:pass@example.com:80/a:b"), STRING("PORT")}, STRING("80")},
+            {{STRING("http://user:pass@example.com:80/a:b"), STRING("USERINFO")},
+             STRING("user:pass")},
+            {{STRING("http://user:pass@example.com:80/a:b"), STRING("AUTHORITY")},
+             STRING("user:pass@example.com:80")},
     };
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));

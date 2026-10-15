@@ -27,10 +27,12 @@
 #include "benchmark_binary_arithmetic.hpp"
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_case_expr.hpp"
+#include "benchmark_character_encoding.hpp"
 #include "benchmark_column_array_view.hpp"
 #include "benchmark_column_array_view_distance.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_fmod.hpp"
+#include "benchmark_gram_extractor.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
@@ -92,7 +94,7 @@ static void Example1(benchmark::State& state) {
     state.ResumeTiming();
 
     // do test
-    for (auto _ : state) {
+    for ([[maybe_unused]] auto _ : state) {
         auto str_col = ColumnString::create();
         for (auto& v : vals) {
             str_col->insert_data(v.data(), v.size());

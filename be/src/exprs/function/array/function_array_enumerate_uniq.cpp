@@ -26,6 +26,7 @@
 #include <ostream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "core/arena.h"
@@ -41,6 +42,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
@@ -51,6 +53,7 @@
 #include "exec/common/columns_hashing.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/hash_table/hash_map_context.h"
+#include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
@@ -76,6 +79,8 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 1; }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.empty()) {
             throw doris::Exception(
@@ -84,6 +89,9 @@ public:
         }
         bool is_nested_nullable = false;
         for (size_t i = 0; i < arguments.size(); ++i) {
+            if (arguments[i]->is_null_literal()) {
+                return make_nullable(std::make_shared<DataTypeNothing>());
+            }
             const DataTypeArray* array_type =
                     check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[i]).get());
             if (!array_type) {
@@ -98,10 +106,7 @@ public:
         auto return_nested_type = std::make_shared<DataTypeInt64>();
         DataTypePtr return_type = std::make_shared<DataTypeArray>(
                 is_nested_nullable ? make_nullable(return_nested_type) : return_nested_type);
-        if (arguments[0]->is_nullable()) {
-            return_type = make_nullable(return_type);
-        }
-        return return_type;
+        return have_nullable(arguments) ? make_nullable(return_type) : return_type;
     }
 
 // When compiling `FunctionArrayEnumerateUniq::_execute_by_hash`, `AllocatorWithStackMemory::free(buf)`
@@ -116,36 +121,107 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        ColumnRawPtrs data_columns(arguments.size());
-        const ColumnArray::Offsets64* offsets = nullptr;
-        ColumnPtr src_offsets;
-        Columns src_columns; // to keep ownership
+        for (const auto argument : arguments) {
+            if (block.get_by_position(argument).column->only_null()) {
+                auto& result_column = block.get_by_position(result);
+                result_column.column =
+                        result_column.type->create_column_const(input_rows_count, Field());
+                return Status::OK();
+            }
+        }
 
-        const ColumnArray* first_column_array = nullptr;
+        ColumnUInt8::MutablePtr result_null_map;
+        ColumnUInt8::Container* result_null_map_data = nullptr;
+        if (block.get_by_position(result).type->is_nullable()) {
+            result_null_map = ColumnUInt8::create(input_rows_count, 0);
+            result_null_map_data = &result_null_map->get_data();
+        }
 
-        for (size_t i = 0; i < arguments.size(); i++) {
-            src_columns.emplace_back(
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const());
-            ColumnPtr& cur_column = src_columns[i];
-            const ColumnArray* array =
-                    check_and_get_column<ColumnArray>(remove_nullable(cur_column->get_ptr()).get());
+        std::vector<const ColumnArray*> array_columns(arguments.size());
+        Columns src_columns;
+        src_columns.reserve(arguments.size());
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            auto cur_column =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(cur_column.get())) {
+                VectorizedUtils::update_null_map(*result_null_map_data,
+                                                 nullable->get_null_map_data());
+                cur_column = nullable->get_nested_column_ptr();
+            }
+            src_columns.emplace_back(std::move(cur_column));
+            const auto* array = check_and_get_column<ColumnArray>(src_columns.back().get());
             if (!array) {
                 return Status::RuntimeError(
                         fmt::format("Illegal column {}, of first argument of function {}",
-                                    cur_column->get_name(), get_name()));
+                                    src_columns.back()->get_name(), get_name()));
+            }
+            array_columns[i] = array;
+        }
+
+        bool offsets_aligned = true;
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            const auto& first_offsets = array_columns[0]->get_offsets();
+            const size_t first_row_size = first_offsets[row] - first_offsets[row - 1];
+            for (size_t i = 1; i < arguments.size(); ++i) {
+                const auto& current_offsets = array_columns[i]->get_offsets();
+                if (result_null_map_data == nullptr || !(*result_null_map_data)[row]) {
+                    if (current_offsets[row] - current_offsets[row - 1] != first_row_size) {
+                        return Status::RuntimeError(fmt::format(
+                                "lengths of all arrays of function {} must be equal.", get_name()));
+                    }
+                }
+                offsets_aligned &= current_offsets[row] == first_offsets[row];
+            }
+        }
+
+        ColumnRawPtrs data_columns(arguments.size());
+        const ColumnArray::Offsets64* offsets = nullptr;
+        ColumnPtr result_offsets;
+        MutableColumns compacted_data_columns;
+        if (offsets_aligned) {
+            offsets = &array_columns[0]->get_offsets();
+            result_offsets = array_columns[0]->get_offsets_ptr();
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                data_columns[i] = &array_columns[i]->get_data();
+            }
+        } else {
+            // Outer-NULL rows may retain payload and shift each input's physical offsets.
+            // Compact visible rows so the hash key getter can keep using one element index.
+            compacted_data_columns.resize(arguments.size());
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                compacted_data_columns[i] = array_columns[i]->get_data().clone_empty();
             }
 
-            const ColumnArray::Offsets64& cur_offsets = array->get_offsets();
-            if (i == 0) {
-                first_column_array = array;
-                offsets = &cur_offsets;
-                src_offsets = array->get_offsets_ptr();
-            } else if (*offsets != cur_offsets) {
-                return Status::RuntimeError(fmt::format(
-                        "lengths of all arrays of function {} must be equal.", get_name()));
+            auto compacted_offsets = ColumnArray::ColumnOffsets::create();
+            auto& compacted_offsets_data = compacted_offsets->get_data();
+            compacted_offsets_data.reserve(input_rows_count);
+            size_t compacted_offset = 0;
+            for (size_t row = 0; row < input_rows_count; ++row) {
+                if ((*result_null_map_data)[row]) {
+                    compacted_offsets_data.push_back(compacted_offset);
+                    continue;
+                }
+
+                size_t row_size = 0;
+                for (size_t i = 0; i < arguments.size(); ++i) {
+                    const auto& current_offsets = array_columns[i]->get_offsets();
+                    const size_t row_begin = current_offsets[row - 1];
+                    const size_t current_row_size = current_offsets[row] - row_begin;
+                    if (i == 0) {
+                        row_size = current_row_size;
+                    }
+                    compacted_data_columns[i]->insert_range_from(array_columns[i]->get_data(),
+                                                                 row_begin, row_size);
+                }
+                compacted_offset += row_size;
+                compacted_offsets_data.push_back(compacted_offset);
             }
-            const auto* array_data = &array->get_data();
-            data_columns[i] = array_data;
+
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                data_columns[i] = compacted_data_columns[i].get();
+            }
+            offsets = &compacted_offsets_data;
+            result_offsets = std::move(compacted_offsets);
         }
 
         const NullMapType* null_map = nullptr;
@@ -158,7 +234,7 @@ public:
 
         auto dst_nested_column = ColumnInt64::create();
         ColumnInt64::Container& dst_values = dst_nested_column->get_data();
-        dst_values.resize(offsets->back());
+        dst_values.resize(offsets->empty() ? 0 : offsets->back());
 
         if (arguments.size() == 1) {
             DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
@@ -189,18 +265,16 @@ public:
         }
 
         ColumnPtr nested_column = dst_nested_column->get_ptr();
-        if (is_column_nullable(first_column_array->get_data())) {
+        const auto& result_array_type = assert_cast<const DataTypeArray&>(
+                *remove_nullable(block.get_by_position(result).type));
+        if (result_array_type.get_nested_type()->is_nullable()) {
             nested_column = ColumnNullable::create(nested_column,
                                                    ColumnUInt8::create(nested_column->size(), 0));
         }
-        ColumnPtr res_column = ColumnArray::create(std::move(nested_column), src_offsets);
-        if (arguments.size() == 1) {
-            auto left_column =
-                    block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-            if (const auto* nullable = check_and_get_column<ColumnNullable>(left_column.get())) {
-                res_column =
-                        ColumnNullable::create(res_column, nullable->get_null_map_column_ptr());
-            }
+        ColumnPtr res_column =
+                ColumnArray::create(std::move(nested_column), std::move(result_offsets));
+        if (block.get_by_position(result).type->is_nullable()) {
+            res_column = ColumnNullable::create(std::move(res_column), std::move(result_null_map));
         }
 
         block.replace_by_position(result, std::move(res_column));

@@ -32,11 +32,24 @@ import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 
@@ -139,7 +152,7 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterFromIncrementalToCompleteRejected() throws Exception {
         createDatabaseAndUse("alter_test2");
-        createTable("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -158,7 +171,7 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterFromIncrementalToAutoRejected() throws Exception {
         createDatabaseAndUse("alter_test3");
-        createTable("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -251,7 +264,7 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testAlterIvmWindowLimitUnknownTableRejected() throws Exception {
         // ALTER on an IVM MV with a table that is not a base table is rejected.
         createDatabaseAndUse("alter_ivm_window_unknown_ivm");
-        createTable("CREATE TABLE alter_ivm_window_unknown_ivm.alt_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_ivm_window_unknown_ivm.alt_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',"
@@ -368,7 +381,7 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testAlterIvmInfoPersistence() throws Exception {
         Config.enable_table_stream = true;
         createDatabaseAndUse("alter_ivm_test");
-        createTable("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -388,25 +401,139 @@ public class AlterMTMVTest extends TestWithFeService {
 
         IvmInfo newInfo = new IvmInfo(initialInfo);
         newInfo.setPlanSignature("sig-1");
-        newInfo.requireCompleteBaselineRebuild();
 
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
         AlterMTMV replayAlter = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_IVM_INFO);
         replayAlter.setIvmInfo(newInfo);
         long schemaChangeVersion = mtmv.getSchemaChangeVersion();
-        newInfo.clearBaselineRebuild();
         Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
 
         IvmInfo updatedInfo = mtmv.getIvmInfo();
         Assertions.assertEquals("sig-1", updatedInfo.getPlanSignature());
-        Assertions.assertTrue(updatedInfo.isBaselineRebuildRequired());
         Assertions.assertEquals(schemaChangeVersion, mtmv.getSchemaChangeVersion());
+    }
+
+    @Test
+    public void testReplayAlterPartitionStates() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("alter_partition_states_test");
+        createTableWithRowBinlog("CREATE TABLE alter_partition_states_test.states_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW states_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM states_base");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_partition_states_test").get()
+                .getTableOrMetaException("states_mv");
+        String partitionName = mtmv.getPartitionNames().iterator().next();
+        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
+
+        // A payload carrying state applies it. The live map keeps moving after the payload was taken,
+        // and for a restart only the bytes in the journal matter, so both are driven here.
+        MTMVPartitionState state = new MTMVPartitionState(0, 1);
+        Map<String, MTMVPartitionState> states = new LinkedHashMap<>();
+        states.put(partitionName, state);
+        AlterMTMV withState = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_PARTITION_STATES);
+        withState.setPartitionStates(states);
+        state.setLatestEpoch(7);
+        // The MV starts without any state, so only the replayed payload can put it there.
+        mtmv.alterPartitionStates(Map.of());
+
+        replayFromJournal(withState);
+
+        Map<String, MTMVPartitionState> applied = mtmv.getPartitionStates();
+        Assertions.assertEquals(Set.of(partitionName), applied.keySet());
+        Assertions.assertEquals(0, applied.get(partitionName).getRefreshEpoch());
+        Assertions.assertEquals(1, applied.get(partitionName).getLatestEpoch());
+
+        // An explicit empty map empties the states.
+        AlterMTMV empty = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_PARTITION_STATES);
+        empty.setPartitionStates(Map.of());
+        Assertions.assertTrue(new String(journalBytes(empty), StandardCharsets.UTF_8).contains("\"pst\""),
+                "the state member should be written under its serialized name");
+
+        replayFromJournal(empty);
+
+        Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
+
+        // A payload written before the member existed leaves the states alone instead of clearing them.
+        mtmv.alterPartitionStates(Map.of(partitionName, new MTMVPartitionState(4, 6)));
+        JsonObject legacy = JsonParser.parseString(GsonUtils.GSON.toJson(withState)).getAsJsonObject();
+        Assertions.assertNotNull(legacy.remove("pst"));
+
+        replayFromJournal(GsonUtils.GSON.fromJson(legacy.toString(), AlterMTMV.class));
+
+        MTMVPartitionState kept = mtmv.getPartitionStates().get(partitionName);
+        Assertions.assertEquals(4, kept.getRefreshEpoch());
+        Assertions.assertEquals(6, kept.getLatestEpoch());
+    }
+
+    /** The bytes the edit log writes for an alter record. */
+    private static byte[] journalBytes(AlterMTMV alter) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            alter.write(out);
+        }
+        return bytes.toByteArray();
+    }
+
+    /** Replays an alter record the way a restart does: from what the journal wrote, not from memory. */
+    @Test
+    public void testReplayAlterPartitionStatesRemovesSnapshots() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("alter_partition_states_snapshot_test");
+        createTableWithRowBinlog("CREATE TABLE alter_partition_states_snapshot_test.states_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW states_snapshot_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM states_base");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_partition_states_snapshot_test").get()
+                .getTableOrMetaException("states_snapshot_mv");
+        String partitionName = mtmv.getPartitionNames().iterator().next();
+        mtmv.getRefreshSnapshot().updateSnapshots(
+                Maps.newHashMap(Map.of(partitionName, new MTMVRefreshPartitionSnapshot())),
+                Sets.newHashSet(partitionName));
+        Assertions.assertEquals(Sets.newHashSet(partitionName),
+                mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
+
+        // The invalidation journaled the raised requirement and the snapshot it dropped together, so a
+        // replay has to apply both: a reader that saw the requirement while the snapshot was still there
+        // could let a transparent rewrite serve rows the rebuild has to replace.
+        AlterMTMV payload = new AlterMTMV(
+                new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()),
+                MTMVAlterOpType.ALTER_PARTITION_STATES);
+        payload.setPartitionStates(Map.of(partitionName, new MTMVPartitionState(1, 2)));
+        payload.setRemovedSnapshotPartitions(Sets.newHashSet(partitionName));
+
+        replayFromJournal(payload);
+
+        Assertions.assertEquals(2, mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
+    private static void replayFromJournal(AlterMTMV alter) throws Exception {
+        AlterMTMV replayed;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(journalBytes(alter)))) {
+            replayed = AlterMTMV.read(in);
+        }
+        Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayed, true);
     }
 
     @Test
     public void testCreateIncrementalMtmvAutoCreatesStream() throws Exception {
         createDatabaseAndUse("stream_test");
-        createTable("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
@@ -509,7 +636,7 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     private void createIvmBaseAndMv(String dbName, String baseTableName, String mvName) throws Exception {
-        createTable("CREATE TABLE " + dbName + "." + baseTableName + " (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE " + dbName + "." + baseTableName + " (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -527,13 +654,13 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testCreateIncrementalMtmvExcludeTriggerTableSkipsStream() throws Exception {
         createDatabaseAndUse("stream_excl_test");
-        createTable("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
                 + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
                 + " 'binlog.format' = 'ROW')");
-        createTable("CREATE TABLE stream_excl_test.excl_base2 (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE stream_excl_test.excl_base2 (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
@@ -570,7 +697,7 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesAllowsEquivalentScopeChanges() throws Exception {
         createDatabaseAndUse("alter_ivm_excluded_trigger_test");
-        createTable("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -599,12 +726,12 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerKeepsStreamOwnedByAnotherBaseTable() throws Exception {
         createDatabaseAndUse("alter_ivm_stream_owner_test");
-        createTable("CREATE TABLE owner_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE owner_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
                 + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE owner_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE owner_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
@@ -630,12 +757,12 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesCreateStreamFailureCompensatesAndFails() throws Exception {
         createDatabaseAndUse("alter_ivm_excl_create_fail_test");
-        createTable("CREATE TABLE excl_fail_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE excl_fail_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
                 + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE excl_fail_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE excl_fail_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
@@ -683,12 +810,12 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesDropStreamFailureIsBestEffort() throws Exception {
         createDatabaseAndUse("alter_ivm_excl_drop_fail_test");
-        createTable("CREATE TABLE excl_drop_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE excl_drop_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
                 + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE excl_drop_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE excl_drop_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "

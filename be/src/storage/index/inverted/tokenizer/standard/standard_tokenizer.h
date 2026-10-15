@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "storage/index/inverted/tokenizer/standard/standard_tokenizer_impl.h"
 #include "storage/index/inverted/tokenizer/tokenizer.h"
 
@@ -37,8 +39,13 @@ public:
 
             std::string_view term = _scanner->get_text();
             size_t token_length = _scanner->yylength();
-            if (token_length <= _max_token_length) {
+            if (std::cmp_less_equal(token_length, _max_token_length)) {
                 set(t, term, _skipped_positions + 1);
+                const int32_t token_start = _scanner->get_token_start_offset();
+                const int32_t token_end = _scanner->get_token_end_offset();
+                set_source_byte_offsets(term, token_start);
+                t->setStartOffset(correct_source_start_offset(token_start));
+                t->setEndOffset(correct_source_offset(token_end));
                 return t;
             } else {
                 _skipped_positions++;

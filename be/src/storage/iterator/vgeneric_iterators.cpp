@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -433,11 +434,12 @@ public:
 private:
     const ReadSchemaSPtr _read_schema;
     RowwiseIteratorUPtr _cur_iter = nullptr;
-    StorageReadOptions _read_options;
+    std::optional<StorageReadOptions> _read_options;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 };
 
 Status VUnionIterator::init(const StorageReadOptions& opts) {
+    _read_options.emplace(opts);
     if (_origin_iters.empty()) {
         return Status::OK();
     }
@@ -446,9 +448,8 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     // in the same order as the original segments.
     std::reverse(_origin_iters.begin(), _origin_iters.end());
 
-    _read_options = opts;
     _cur_iter = std::move(_origin_iters.back());
-    RETURN_IF_ERROR(_cur_iter->init(_read_options));
+    RETURN_IF_ERROR(_cur_iter->init(*_read_options));
     return Status::OK();
 }
 
@@ -459,7 +460,7 @@ Status VUnionIterator::next_batch(Block* block) {
             _origin_iters.pop_back();
             if (!_origin_iters.empty()) {
                 _cur_iter = std::move(_origin_iters.back());
-                RETURN_IF_ERROR(_cur_iter->init(_read_options));
+                RETURN_IF_ERROR(_cur_iter->init(*_read_options));
             } else {
                 _cur_iter = nullptr;
             }

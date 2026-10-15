@@ -25,8 +25,10 @@ import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
@@ -64,6 +66,8 @@ public class PaimonColumnValue implements ColumnValue {
     private ColumnType dorisType;
     private DataType dataType;
     private ZoneId timeZone;
+    private PaimonVariantProjection variantProjection;
+    private Variant materializedVariant;
     // Keep these caches lazy so scalar columns do not pay for complex-type reuse bookkeeping.
     private List<PaimonColumnValue> arrayValues;
     private List<PaimonColumnValue> mapKeys;
@@ -87,13 +91,21 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     public void setIdx(int idx, ColumnType dorisType, DataType dataType) {
+        setIdx(idx, dorisType, dataType, null);
+    }
+
+    public void setIdx(int idx, ColumnType dorisType, DataType dataType,
+            PaimonVariantProjection variantProjection) {
         this.idx = idx;
         this.dorisType = dorisType;
         this.dataType = dataType;
+        this.variantProjection = variantProjection;
+        this.materializedVariant = null;
     }
 
     public void setOffsetRow(InternalRow record) {
         this.record = record;
+        this.materializedVariant = null;
     }
 
     public void setTimeZone(String timeZone) {
@@ -147,7 +159,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public BigDecimal getDecimal() {
-        return record.getDecimal(idx, dorisType.getPrecision(), dorisType.getScale()).toBigDecimal();
+        // Paimon decodes compact decimals from the physical unscaled value using the
+        // precision and scale supplied here. During schema evolution those values belong to
+        // the record's Paimon type, while dorisType is the destination type. Passing the
+        // destination scale interprets an old value such as 1.20 as 0.120.
+        DecimalType decimalType = (DecimalType) dataType;
+        return record.getDecimal(idx, decimalType.getPrecision(), decimalType.getScale()).toBigDecimal();
     }
 
     @Override
@@ -196,6 +213,26 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public byte[] getBytes() {
         return record.getBinary(idx);
+    }
+
+    @Override
+    public byte[] getVariantMetadata() {
+        return getVariant().metadata();
+    }
+
+    @Override
+    public byte[] getVariantValue() {
+        return getVariant().value();
+    }
+
+    private Variant getVariant() {
+        if (variantProjection == null) {
+            return record.getVariant(idx);
+        }
+        if (materializedVariant == null) {
+            materializedVariant = variantProjection.materialize(record, idx);
+        }
+        return materializedVariant;
     }
 
     @Override
@@ -277,6 +314,8 @@ public class PaimonColumnValue implements ColumnValue {
         this.dorisType = dorisType;
         this.dataType = dataType;
         this.timeZone = timeZone;
+        this.variantProjection = null;
+        this.materializedVariant = null;
     }
 
     private static ZoneId resolveTimeZone(String timeZone) {

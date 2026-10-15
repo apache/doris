@@ -91,4 +91,19 @@ public class HMSExternalCatalogParquetTimeZoneTest {
             Assertions.assertTrue(exception.getMessage().contains(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
         }
     }
+
+    @Test
+    public void testAlterValidatesCandidateTimezoneBeforePublishing() throws Exception {
+        Map<String, String> current = baseProperties();
+        current.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "UTC");
+        PluginDrivenExternalCatalog catalog = catalog(current);
+        Map<String, String> updated = new HashMap<>();
+        updated.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "Not/A_Timezone");
+        // ALTER must validate its candidate map, not the still-valid live catalog properties.
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(current, updated));
+        Assertions.assertEquals("UTC", catalog.getProperties().get(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
+        updated.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "+05:45");
+        Assertions.assertTrue(catalog.validatePropertiesBeforeUpdate(current, updated));
+    }
 }

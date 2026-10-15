@@ -62,7 +62,7 @@ public final class HmsWriteConverter {
     private static final Set<String> SUPPORTED_ORC_COMPRESSIONS =
             unmodifiableSet("plain", "zlib", "snappy", "zstd", "lz4");
     private static final Set<String> SUPPORTED_PARQUET_COMPRESSIONS =
-            unmodifiableSet("plain", "snappy", "zstd", "lz4");
+            unmodifiableSet("plain", "snappy", "gzip", "zstd", "lz4");
     private static final Set<String> SUPPORTED_TEXT_COMPRESSIONS =
             unmodifiableSet("plain", "gzip", "zstd", "bzip2", "lz4", "snappy");
 

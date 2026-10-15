@@ -43,12 +43,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code max_user_connections}, the processlist, KILL, the timeout checker and the connection
  * metrics. Arrow Flight SQL sessions additionally count against their own sub-quota
  * ({@code arrow_flight_max_connections}, half of the pool's limit unless set) and are indexed by
- * their peer identity, the bearer token, since that is how Flight requests name their session.
+ * their peer identity, the bearer token, since that is how Flight requests name their session:
+ * that index is the only place a bearer token exists, so a token is valid exactly as long as its
+ * session is in the pool.
  *
  * <p>{@link #unregisterConnection} is where every teardown path of a connection meets - a MySQL
- * channel closing, a Flight bearer token expiring or being evicted, CloseSession, a KILL CONNECTION
- * from another connection, the timeout checker past wait_timeout - so it is where the protocol
- * releases what it still holds for the session.
+ * channel closing, a Flight CloseSession, a KILL CONNECTION from another connection, the timeout
+ * checker past wait_timeout - so it is where the protocol releases what it still holds for the
+ * session.
  */
 public class ConnectPoolMgr {
     private static final Logger LOG = LogManager.getLogger(ConnectPoolMgr.class);
@@ -180,8 +182,7 @@ public class ConnectPoolMgr {
                 traceId2QueryId.remove(ctx.traceId());
             }
             if (isFlight(ctx)) {
-                // Only this connection's own entry: a second session created under the same token by
-                // a concurrent first request must not lose its index to the first one's teardown.
+                // Only this connection's own entry.
                 peerIdentity2ConnectionId.remove(ctx.getPeerIdentity(), ctx.getConnectionId());
                 numberFlightConnection.decrementAndGet();
             }

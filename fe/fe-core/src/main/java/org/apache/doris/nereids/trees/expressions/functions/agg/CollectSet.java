@@ -112,6 +112,12 @@ public class CollectSet extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        // The BE set kernel cannot hash raw VARBINARY; reject it before implicit casts change its type.
+        for (Expression argument : getArguments()) {
+            if (argument.getDataType().isVarBinaryType()) {
+                throw new AnalysisException("collect_set does not support VARBINARY arguments");
+            }
+        }
         if (arity() == 2 && !getArgument(1).isConstant()) {
             throw new AnalysisException(
                     "collect_set requires second parameter must be a constant: "

@@ -150,7 +150,7 @@ public abstract class JoinOrder {
     }
 
     // Different join order algorithms should have different implementations
-    protected abstract void enumerate();
+    protected abstract boolean enumerate();
 
     //Get reorder result
     public abstract List<Plan> getResult();
@@ -159,8 +159,7 @@ public abstract class JoinOrder {
         if (!init(atoms, predicates)) {
             return false;
         }
-        enumerate();
-        return true;
+        return enumerate();
     }
 
     private boolean init(List<Plan> atoms, List<Expression> predicates) {
@@ -191,7 +190,9 @@ public abstract class JoinOrder {
             BitSet atomBit = new BitSet();
             atomBit.set(i);
             PlanInfo atomPlanInfo = new PlanInfo(atoms.get(i));
-            computeCost(atomPlanInfo);
+            if (!computeCost(atomPlanInfo)) {
+                return false;
+            }
 
             GroupInfo groupInfo = new GroupInfo(atomBit);
             groupInfo.bestPlanInfo = atomPlanInfo;
@@ -201,9 +202,16 @@ public abstract class JoinOrder {
         return true;
     }
 
-    protected void computeCost(PlanInfo planInfo) {
-        double cost = planInfo.plan.getStats().getRowCount();
-        planInfo.rowCount = cost;
+    protected boolean computeCost(PlanInfo planInfo) {
+        double rowCount = planInfo.plan.getStats().getRowCount();
+        // Arithmetic over zero-row inputs can derive NaN statistics. Such costs cannot
+        // select a best plan, so let the caller retain the original join cluster.
+        if (!Double.isFinite(rowCount)) {
+            return false;
+        }
+        planInfo.rowCount = rowCount;
+        // Apply the same bound to atoms as to joins, including Double.MAX_VALUE.
+        double cost = Math.min(rowCount, MAXIMUM_COST);
         if (planInfo.leftChild != null) {
             cost = cost > (MAXIMUM_COST - planInfo.leftChild.bestPlanInfo.cost)
                     ? MAXIMUM_COST : cost + planInfo.leftChild.bestPlanInfo.cost;
@@ -219,6 +227,7 @@ public abstract class JoinOrder {
             }
         }
         planInfo.cost = cost;
+        return true;
     }
 
     private boolean computeEdgeCover(List<Plan> atoms) {
