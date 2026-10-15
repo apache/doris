@@ -111,6 +111,23 @@ public class HboStructFreshnessTest {
         Assertions.assertEquals("F{EqualTo(col(internal.db.t.b),lit(*))}(S{internal.db.t})",
                 GroupStructInfo.toNoLiteral("F{EqualTo(col(internal.db.t.b),lit(abc:VARCHAR(10)))}"
                         + "(S{internal.db.t})"));
+        // the arguments of the headers whose literals the traversal writes in both modes are copied
+        // verbatim: folding a generator's delimiter would make the pasted struct info hash to something
+        // else than the constant agnostic fingerprint EXPLAIN printed
+        Assertions.assertEquals(
+                "A{gb:}(G{tf:[Explode(SplitByString(col(t.s),lit(%2C:VARCHAR(1))))]}S{internal.db.t})",
+                GroupStructInfo.toNoLiteral(
+                        "A{gb:}(G{tf:[Explode(SplitByString(col(t.s),lit(%2C:VARCHAR(1))))]}"
+                                + "S{internal.db.t})"));
+        Assertions.assertEquals("U{all,cols:[col(t.a)],const:[Alias(lit(2:INT))]}(S{internal.db.t})",
+                GroupStructInfo.toNoLiteral("U{all,cols:[col(t.a)],const:[Alias(lit(2:INT))]}(S{internal.db.t})"));
+        Assertions.assertEquals("T{5,0;ord:[col(t.a):asc:nulls_first]}S{internal.db.t}",
+                GroupStructInfo.toNoLiteral("T{5,0;ord:[col(t.a):asc:nulls_first]}S{internal.db.t}"));
+        // a filter literal next to a protected header is still folded (the canonical renders a filter
+        // predicate as an expression, not as the simplified `b = 1` form)
+        Assertions.assertEquals("F{EqualTo(col(t.b),lit(*))}(G{tf:[f(lit(%2C))]}S{internal.db.t})",
+                GroupStructInfo.toNoLiteral(
+                        "F{EqualTo(col(t.b),lit(1:INT))}(G{tf:[f(lit(%2C))]}S{internal.db.t})"));
         // an unbalanced `lit(` is reported instead of folding the rest of the text away: a truncated
         // result hashes to nothing the user could have copied, and the statement would then be rejected
         // with a message about the fingerprint (or about a missing scan) instead of about the text

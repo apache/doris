@@ -172,6 +172,9 @@ public class GroupStructInfo {
 
     private static final String SEP = ";";
 
+    /** The headers whose arguments the traversal writes in both literal modes. */
+    private static final String PROTECTED_HEADERS = "GTWUIEL";
+
     private static final String NO_LOOKUP_PATH_REASON =
             "storage layer aggregate: the read side applies the row count of the aggregation above it";
 
@@ -1398,6 +1401,18 @@ public class GroupStructInfo {
         return sb.toString();
     }
 
+    /** The start of the next protected header at or after {@code from}, or -1. */
+    private static int nextProtectedHeaderStart(String text, int from) {
+        int best = -1;
+        for (int i = 0; i < PROTECTED_HEADERS.length(); i++) {
+            int at = text.indexOf(PROTECTED_HEADERS.charAt(i) + "{", from);
+            if (at >= 0 && (best < 0 || at < best)) {
+                best = at;
+            }
+        }
+        return best;
+    }
+
     /**
      * Rewrite every literal of a canonical string into its constant agnostic form ({@code lit(*)}),
      * i.e. turn a WITH_LITERAL canonical string into the NO_LITERAL one. Used to accept a struct info
@@ -1408,17 +1423,34 @@ public class GroupStructInfo {
      * parentheses ({@code lit(abc:VARCHAR(10))}), so the closing parenthesis is found by counting
      * instead of by a regular expression; a value with balanced parentheses
      * ({@code lit(IL (north))}) is therefore folded correctly. Only an <b>unbalanced</b> parenthesis
-     * in a value (e.g. {@code where city = 'IL)'}) makes the fold consume too much, and the pasted
-     * struct info is then rejected by the fingerprint check of {@code HBO SET STATISTICS} with the
-     * generic "does not match the fingerprint" message; there is no workaround, because the check
-     * runs in both literal modes. The constant agnostic struct info printed by EXPLAIN is built by the
-     * group traversal itself, so it has no such limitation.
+     * in a value is encoded by the traversal (see {@code encodeLiteralValue}), so it cannot be read as
+     * the structure of the canonical form. The headers whose arguments the traversal writes in both
+     * literal modes (a generator, a top-n, a limit, a window and a set operation) are copied verbatim,
+     * because folding an argument which is part of such an identity would make the sha256 of the pasted
+     * struct info differ from the fingerprint EXPLAIN printed. A text whose parenthesis never closes is
+     * reported instead of being folded into a truncated string.
      */
     public static String toNoLiteral(String canonicalString) {
         StringBuilder sb = new StringBuilder(canonicalString.length());
         int index = 0;
         while (index < canonicalString.length()) {
             int start = canonicalString.indexOf("lit(", index);
+            int protectedStart = nextProtectedHeaderStart(canonicalString, index);
+            if (protectedStart >= 0 && (start < 0 || protectedStart < start)) {
+                // the arguments of these headers are written in *both* literal modes (a generator's
+                // delimiter decides how many rows a row expands into, a top-n's ordering and a window's
+                // definition decide which rows reach the node above, a set-operation constant and a limit
+                // bound decide the rows of the operation), so folding them here would make the sha256 of
+                // the pasted struct info differ from the fingerprint EXPLAIN printed
+                int end = canonicalString.indexOf('}', protectedStart);
+                if (end < 0) {
+                    throw new IllegalArgumentException("an unbalanced '" + canonicalString.charAt(protectedStart)
+                            + "{' at position " + protectedStart);
+                }
+                sb.append(canonicalString, index, end + 1);
+                index = end + 1;
+                continue;
+            }
             if (start < 0) {
                 sb.append(canonicalString, index, canonicalString.length());
                 break;
