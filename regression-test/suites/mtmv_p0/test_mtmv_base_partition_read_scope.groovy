@@ -396,4 +396,74 @@ suite("test_mtmv_base_partition_read_scope") {
     sql """REFRESH MATERIALIZED VIEW range_ms_direct_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("range_ms_direct_mv")
     order_qt_range_ms_direct "SELECT ts, total FROM range_ms_direct_mv"
+
+    // A table every query-used partition of which the mapping does not name -- the sync window left the one
+    // the query reads out of it, the query's filtering then dropped the table from the mapping whole -- is
+    // read for the query's own partitions from the base table. The MV partitions the plan uses answer the
+    // partitions the mapping names, and for this table those are none: without this the MV alone answered for
+    // it and the committed join row of the partition the query reads was lost. Grace is what admits the MV
+    // partition here without comparing it, so the compensation is the only thing that reads those rows.
+    sql """drop materialized view if exists uncovered_pct_mv"""
+    sql """drop table if exists uncovered_pct_a"""
+    sql """drop table if exists uncovered_pct_b"""
+    sql """
+        CREATE TABLE uncovered_pct_a (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION a_kept VALUES IN (("2020-01-01", 1), ("2038-01-01", 1)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE uncovered_pct_b (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION b_kept VALUES IN (("2020-01-01", 1), ("2038-01-01", 1)),
+            PARTITION b_old VALUES IN (("2020-01-01", 2)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO uncovered_pct_a VALUES ("2020-01-01", 1, 1)"""
+    sql """INSERT INTO uncovered_pct_b VALUES ("2020-01-01", 1, 10), ("2020-01-01", 2, 20)"""
+    sql """
+        CREATE MATERIALIZED VIEW uncovered_pct_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (a_d)
+        DISTRIBUTED BY HASH(a_d) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "partition_sync_limit" = "2", "partition_sync_time_unit" = "YEAR",
+                    "grace_period" = "600")
+        AS SELECT a.d AS a_d, b.k AS b_k, COUNT(*) AS c
+           FROM uncovered_pct_a a JOIN uncovered_pct_b b ON a.d = b.d
+           GROUP BY a.d, b.k
+    """
+    waitingMTMVTaskFinishedByMvName("uncovered_pct_mv")
+    sql """set enable_materialized_view_rewrite = true"""
+    // b.k = 2 is b_old's, which the window left out: the answer needs that join row, and the MV does not
+    // hold it.
+    order_qt_uncovered_pct """SELECT a.d AS a_d, b.k AS b_k, COUNT(*) AS c FROM uncovered_pct_a a
+        JOIN uncovered_pct_b b ON a.d = b.d WHERE a.d = "2020-01-01" AND b.k = 2 GROUP BY a.d, b.k"""
+
+    // A merged LIST component is recorded with every partition it was built from, and the query's partitions
+    // decide only which component is read: a query reading one of a component's partitions finds the MV
+    // partition freshly refreshed, since the freshness check compares those names to the recorded ones. A
+    // name set narrowed to what the query reads would never match it and the MV would answer nothing.
+    sql """drop materialized view if exists merged_component_mv"""
+    sql """drop table if exists merged_component_base"""
+    sql """
+        CREATE TABLE merged_component_base (d INT NOT NULL, region VARCHAR(10) NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, region) PARTITION BY LIST(d, region) (
+            PARTITION p_single VALUES IN ((1, "EU")),
+            PARTITION p_double VALUES IN ((1, "US"), (2, "US")))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO merged_component_base VALUES (1, "EU", 1), (1, "US", 2), (2, "US", 3)"""
+    sql """
+        CREATE MATERIALIZED VIEW merged_component_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT d, region, SUM(v) AS s FROM merged_component_base GROUP BY d, region
+    """
+    waitingMTMVTaskFinishedByMvName("merged_component_mv")
+    sql """set enable_materialized_view_rewrite = true"""
+    mv_rewrite_success(
+        "select d, region, sum(v) as s from merged_component_base where d = 2 group by d, region",
+        "merged_component_mv",
+        is_partition_statistics_ready(dbName, ["merged_component_base", "merged_component_mv"]))
+    order_qt_merged_component """SELECT d, region, SUM(v) AS s FROM merged_component_base
+        WHERE d = 2 GROUP BY d, region"""
 }
