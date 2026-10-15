@@ -473,13 +473,16 @@ TEST_F(RowIdStorageReaderTest, RpcHelperReportsThrownExceptionOnThreadPoolPath) 
     // A type node kind unknown to this BE, as a newer FE could send.
     slot->mutable_slot_type()->add_types()->set_type(99);
 
+    // The worker captures the response and the latch by reference. Declare them before the
+    // scheduler so every exit, including a failed wait below, joins the worker in stop_scheduler
+    // before either captured object is destroyed.
+    PMultiGetResponseV2 response;
+    CountDownLatch finished(1);
     std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_shared<CgroupV2CpuCtl>(1);
     ThreadPoolSimplifiedScanScheduler scheduler("rowid_rpc_test", cgroup_cpu_ctl);
     ASSERT_TRUE(scheduler.start(1, 1, 4, 1).ok());
     Defer stop_scheduler {[&] { scheduler.stop(); }};
 
-    PMultiGetResponseV2 response;
-    CountDownLatch finished(1);
     ASSERT_TRUE(scheduler
                         .submit_scan_task(SimplifiedScanTask(
                                                   [&]() {

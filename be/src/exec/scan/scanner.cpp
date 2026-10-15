@@ -96,7 +96,8 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
     // Peer scanners may have exhausted the shared LIMIT while this scanner waited to be
     // scheduled. Admission does not look at the LIMIT, so the scanner returns an empty block
     // instead of reading on. It does not report EOS: the operator already holds enough rows and
-    // stops the scanners after cutting the LIMIT itself.
+    // stops the scanners after cutting the LIMIT itself, and ScannerContext parks the scanner
+    // rather than resubmitting it while the outstanding work drains.
     if (_shared_scan_limit_exhausted()) {
         return Status::OK();
     }
