@@ -27,7 +27,6 @@ import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
@@ -58,22 +57,11 @@ class ToFileTranslatorTest {
         assertResourceWire("hdfs://OtherHost/a/../b%2f?token=value#fragment");
     }
 
-    @Test
-    void loadMappingTranslationRegistersOnExecutionStatement() throws Exception {
-        assertResourceWire("s3://bucket/a.txt", true);
-    }
-
-    private void assertResourceWire(String uri)
-            throws Exception {
-        assertResourceWire(uri, false);
-    }
-
-    private void assertResourceWire(String uri,
-            boolean loadMapping) throws Exception {
+    private void assertResourceWire(String uri) throws Exception {
         Env env = Mockito.mock(Env.class);
         ResourceMgr manager = Mockito.mock(ResourceMgr.class);
         AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
-        ConnectContext connection = Mockito.mock(ConnectContext.class);
+        ConnectContext connection = Mockito.spy(new ConnectContext());
         PlanTranslatorContext translation = Mockito.mock(PlanTranslatorContext.class);
         S3Resource resource = Mockito.mock(S3Resource.class);
         Mockito.when(resource.toThrift()).thenCallRealMethod();
@@ -91,10 +79,9 @@ class ToFileTranslatorTest {
         Mockito.when(access.checkResourcePriv(connection, "resource", PrivPredicate.USAGE)).thenReturn(true);
         Mockito.when(resource.getType()).thenReturn(Resource.ResourceType.S3);
         Mockito.when(resource.getCopiedProperties()).thenAnswer(ignored -> new HashMap<>(properties));
-        StatementContext statement = new StatementContext(connection, null);
-        Mockito.when(connection.getStatementContext()).thenReturn(statement);
-        StatementContext translationStatement = loadMapping ? new StatementContext(connection, null) : statement;
-        Mockito.when(translation.getStatementContext()).thenReturn(translationStatement);
+        Mockito.when(translation.getConnectContext()).thenReturn(connection);
+        Mockito.when(translation.getStatementContext())
+                .thenThrow(new AssertionError("S3 resource translation must not use StatementContext"));
 
         try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
             current.when(Env::getCurrentEnv).thenReturn(env);
@@ -133,10 +120,8 @@ class ToFileTranslatorTest {
                     new Type[] {Type.STRING, Type.STRING}, new Boolean[] {false, false});
             assertFunctionHasNoResource(cloned, backendSecretKey);
 
-            StatementContext next = statement.createNextExecuteContext();
-            Assertions.assertTrue(next.getUsedS3ResourceNames().isEmpty());
-            Mockito.when(connection.getStatementContext()).thenReturn(next);
-            Mockito.when(translation.getStatementContext()).thenReturn(next);
+            connection.setStartTime();
+            Assertions.assertTrue(connection.getS3Resources().isEmpty());
             Expr nextExecute = ExpressionTranslator.translate(expression, translation);
             assertFunctionHasNoResource(wireSnapshot(nextExecute), backendSecretKey);
             Assertions.assertEquals("second", ThriftPlansBuilder.collectS3Resources(connection)

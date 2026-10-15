@@ -113,10 +113,6 @@ public abstract class ExprVisitor<R, C> {
         return visit(expr, context);
     }
 
-    public R visitFileLiteral(FileLiteral expr, C context) {
-        return visit(expr, context);
-    }
-
     public R visitStructLiteral(StructLiteral expr, C context) {
         return visit(expr, context);
     }

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
@@ -28,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -43,7 +41,6 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -123,7 +120,9 @@ public class ElementAt extends ScalarFunction
                         + " string second parameter: " + this.toSql());
             }
         } else if (getArgument(0).getDataType().isFileType()) {
-            fileField();
+            if (!(getArgument(1) instanceof StringLikeLiteral)) {
+                throw new AnalysisException("element_at over FILE requires a constant public field name");
+            }
         }
     }
 
@@ -145,44 +144,10 @@ public class ElementAt extends ScalarFunction
                 return ImmutableList.of(VARIANT_KEY_SIGNATURE);
             }
         } else if (arg0Type.isFileType()) {
-            return ImmutableList.of(FunctionSignature.ret(fileField().getDataType())
+            return ImmutableList.of(FunctionSignature.ret(structFieldType(((FileType) arg0Type).publicStructType()))
                     .args(arg0Type, child(1).getDataType()));
         }
         return SIGNATURES;
-    }
-
-    private StructField fileField() {
-        Expression selector = getArgument(1);
-        if (!(selector instanceof StringLikeLiteral)) {
-            throw new AnalysisException("element_at over FILE requires a constant public field name");
-        }
-        StructField field = FileType.INSTANCE.publicStructType()
-                .getField(((StringLikeLiteral) selector).getStringValue());
-        if (field == null) {
-            throw new AnalysisException("Unknown FILE field: " + selector.toSql());
-        }
-        return field;
-    }
-
-    /** Expose a canonical FILE child access to subsequent access-path analysis. */
-    public Expression rewriteFileAccess() {
-        if (left().getDataType().isFileType()) {
-            String name = fileField().getName();
-            return name.equals(((StringLikeLiteral) right()).getStringValue()) ? this
-                    : new ElementAt(left(), new StringLiteral(name));
-        }
-        if (left() instanceof Cast && ((Cast) left()).child().getDataType().isFileType()
-                && left().getDataType().isStructType()) {
-            Cast cast = (Cast) left();
-            TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());
-            StructType struct = (StructType) cast.getDataType();
-            StructField field = right() instanceof StringLikeLiteral
-                    ? struct.getField(((StringLikeLiteral) right()).getStringValue())
-                    : struct.getFields().get(((IntegerLikeLiteral) right()).getIntValue() - 1);
-            return TypeCoercionUtils.castIfNotSameTypeStrict(
-                    new ElementAt(cast.child(), new StringLiteral(field.getName())), getDataType());
-        }
-        return this;
     }
 
     // Resolve the type of the struct field selected by the constant int/string index.
