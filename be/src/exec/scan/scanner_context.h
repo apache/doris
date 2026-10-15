@@ -96,6 +96,7 @@ public:
         IN_FLIGHT, // scheduled and running
         COMPLETED, // finished with result or error, waiting to be collected by scan node
         EOS,       // finished and no more data, waiting to be collected by scan node
+        PARKED,    // waiting, off the workers, for what its scanner cannot read on without
     };
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner);
 
@@ -131,8 +132,9 @@ public:
         case State::PENDING:
             // A task returns to PENDING after the operator consumes its non-EOS cached block.
             // For example, one scanner may produce several blocks, so COMPLETED is not terminal.
+            // A parked task returns to it once what it waited for is done.
             DCHECK(_state == State::PENDING || _state == State::IN_FLIGHT ||
-                   _state == State::COMPLETED)
+                   _state == State::COMPLETED || _state == State::PARKED)
                     << (int)_state;
             DCHECK(cached_block == nullptr);
             break;
@@ -149,6 +151,10 @@ public:
         case State::EOS:
             DCHECK(_state == State::IN_FLIGHT || status.is<ErrorCode::END_OF_FILE>())
                     << (int)_state;
+            break;
+        case State::PARKED:
+            DCHECK(_state == State::IN_FLIGHT) << (int)_state;
+            DCHECK(cached_block == nullptr);
             break;
         default:
             break;
@@ -214,6 +220,15 @@ public:
     // Publish a task whose current scan attempt has completed. The operator consumes its cached
     // block and returns a non-EOS task to PENDING for its next scan attempt.
     void push_completed_scan_task(std::shared_ptr<ScanTask> scan_task);
+
+    // Park a task whose scan attempt ended without a block because its scanner cannot read on until
+    // `waiting_for` is done (Scanner::take_waiting_for()). A parked task holds no worker and no
+    // concurrency slot - another scanner of this context, perhaps one holding what it waits for,
+    // is admitted in its place - and returns to scheduling, as if the operator had just consumed
+    // its block, once the future is done. The caller must not touch the task afterwards: by then
+    // another worker may already be running it.
+    void park_scan_task(std::shared_ptr<ScanTask> scan_task,
+                        SharedListenableFuture<Void> waiting_for);
 
     // Return true if this ScannerContext need no more process
     bool done() const { return _is_finished || _should_stop; }
@@ -299,6 +314,8 @@ protected:
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
     void _set_scanner_done();
     bool _is_shared_scan_limit_exhausted() const;
+    // The callback of a parked task's future; runs on whichever thread completed it.
+    void _resume_parked_task(const std::shared_ptr<ScanTask>& scan_task);
 
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
@@ -364,6 +381,9 @@ protected:
     // but must be read under _transfer_lock whenever combined with _completed_tasks.size()
     // to form a consistent concurrency snapshot.
     std::atomic_int _in_flight_tasks_num = 0;
+    // Tasks parked by park_scan_task() until what their scanners wait for is done. They are not in
+    // flight and occupy no concurrency slot. Protected by _transfer_lock.
+    int32_t _parked_tasks_num = 0;
     // Scanner that is eos or error.
     int32_t _num_finished_scanners = 0;
     // weak pointer for _scanners, used in stop function

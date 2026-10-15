@@ -183,6 +183,27 @@ public class FlussScanRangeTest {
         // Unpartitioned: nothing for BE to materialize from the range.
         Assertions.assertFalse(rangeDesc.isSetColumnsFromPathKeys());
         Assertions.assertFalse(rangeDesc.isSetColumnsFromPath());
+        // Undeclared: BE opens the reader without waiting at its JNI heap gate.
+        Assertions.assertFalse(rangeDesc.isSetJniHeapBytes());
+    }
+
+    /**
+     * The heap a range declares is for BE's gate, which reads it off the range descriptor; the scanner's
+     * own map stays exactly what it was, since the java scanner has no use for it.
+     */
+    @Test
+    public void declaredRangeHandsItsHeapToBeAndLeavesTheScannerMapAlone() {
+        FlussScanRange plain = FlussScanRange.pkFull(FlussScanRange.Partition.NONE, 2, 7L, 70L, 99L);
+        FlussScanRange declared = plain.withJniHeapBytes(4096L);
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+
+        declared.populateRangeParams(formatDesc, rangeDesc);
+
+        Assertions.assertEquals(4096L, rangeDesc.getJniHeapBytes());
+        Assertions.assertEquals(plain.getProperties(), formatDesc.getFlussParams());
+        Assertions.assertEquals(FlussScanRange.RangeType.PK_FULL, declared.getRangeType());
+        Assertions.assertEquals(0L, plain.getJniHeapBytes());
     }
 
     /**

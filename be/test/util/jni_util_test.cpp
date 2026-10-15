@@ -754,6 +754,28 @@ TEST_F(JniUtilHeapSizeTest, MalformedXmxIsIgnored) {
     EXPECT_EQ(1024L * 1024 * 1024, Jni::Util::_parse_xmx("-Xmxbig -Xmx1g"));
 }
 
+// Asking the user for more heap is right only when the heap is what ran out, however deep the
+// OutOfMemoryError sits in the causes of what the Java side threw.
+TEST_F(JniUtilHeapSizeTest, OnlyAnOutOfHeapErrorAsksForMoreHeap) {
+    EXPECT_TRUE(Jni::Util::_reports_heap_exhausted("OutOfMemoryError: Java heap space"));
+    EXPECT_TRUE(Jni::Util::_reports_heap_exhausted(
+            "IOException: Failed to open the fluss scanner for db.tbl bucket 0 | CAUSED BY: "
+            "OutOfMemoryError: Java heap space"));
+    EXPECT_FALSE(Jni::Util::_reports_heap_exhausted("OutOfMemoryError: Direct buffer memory"));
+    EXPECT_FALSE(Jni::Util::_reports_heap_exhausted("OutOfMemoryError: Metaspace"));
+    EXPECT_FALSE(Jni::Util::_reports_heap_exhausted(
+            "OutOfMemoryError: unable to create native thread: possibly out of memory"));
+    EXPECT_FALSE(Jni::Util::_reports_heap_exhausted("IOException: Connection reset by peer"));
+}
+
+// What the user is told names the heap and both ways out: a bigger -Xmx, or less of the heap at once.
+TEST_F(JniUtilHeapSizeTest, OutOfHeapHintNamesTheHeapAndTheWaysOut) {
+    const std::string hint = Jni::Util::jvm_heap_exhausted_hint();
+    EXPECT_NE(hint.find("-Xmx in JAVA_OPTS_FOR_JDK_17 of be.conf"), std::string::npos) << hint;
+    EXPECT_NE(hint.find("max_file_scanners_concurrency"), std::string::npos) << hint;
+    EXPECT_NE(hint.find("enable_jni_heap_admission = true"), std::string::npos) << hint;
+}
+
 // No -Xmx at all is not fatal any more: it used to be LOG(FATAL), and 1g is what the JVM is
 // created with when the deployment says nothing.
 TEST_F(JniUtilHeapSizeTest, MissingXmxFallsBackToTheDefaultHeap) {

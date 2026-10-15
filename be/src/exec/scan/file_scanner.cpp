@@ -27,6 +27,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
 #include <map>
 #include <ranges>
@@ -569,6 +570,19 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             return Status::OK();
         }
 
+        // A JNI reader whose range declared its heap opens its Java scanner only once the JNI heap
+        // gate admits it. Until then this turn ends without a block, and the scheduler runs the
+        // scanner again once the gate is done with it.
+        if (_current_range.__isset.jni_heap_bytes && _current_range.jni_heap_bytes > 0) {
+            auto* jni_reader = dynamic_cast<JniReader*>(_cur_reader.get());
+            // Only paimon declares in V1, and only for a split it reads through JNI.
+            DORIS_CHECK(jni_reader != nullptr);
+            if (auto waiting_for = jni_reader->waiting_for()) {
+                _waiting_for = std::move(waiting_for);
+                return Status::OK();
+            }
+        }
+
         // Init src block for load job based on the data file schema (e.g. parquet)
         // For query job, simply set _src_block_ptr to block.
         size_t read_rows = 0;
@@ -1004,6 +1018,7 @@ void FileScanner::_fill_base_init_context(ReaderInitContext* ctx) {
     ctx->range = &_current_range;
     ctx->table_info_node = TableSchemaChangeHelper::ConstNode::get_instance();
     ctx->push_down_agg_type = _get_push_down_agg_type();
+    ctx->io_ctx = _io_ctx;
 }
 
 Status FileScanner::_get_next_reader() {
@@ -2012,7 +2027,8 @@ Status FileScanner::close(RuntimeState* state) {
 void FileScanner::try_stop() {
     Scanner::try_stop();
     if (_io_ctx) {
-        _io_ctx->should_stop = true;
+        // Atomically: the JNI heap gate's thread reads it while a JNI reader of this scan waits.
+        std::atomic_ref<bool>(_io_ctx->should_stop).store(true, std::memory_order_relaxed);
     }
 }
 

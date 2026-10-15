@@ -475,6 +475,11 @@ bool PaimonHybridReader::current_split_uses_metadata_count() const {
     return _current_split_reader->current_split_uses_metadata_count();
 }
 
+std::optional<SharedListenableFuture<Void>> PaimonHybridReader::waiting_for() const {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->waiting_for();
+}
+
 Status PaimonHybridReader::abort_split() {
     DORIS_CHECK(_current_split_reader != nullptr);
     return _current_split_reader->abort_split();

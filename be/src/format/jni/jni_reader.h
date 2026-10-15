@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -31,6 +32,7 @@
 #include "runtime/runtime_profile.h"
 #include "util/jni-util.h"
 #include "util/jni_plugin_registry.h"
+#include "util/jni_scan_heap_gate.h"
 #include "util/profile_collector.h"
 #include "util/string_util.h"
 
@@ -66,11 +68,15 @@ public:
      * @param scanner_params   Configuration map passed to the Java scanner factory
      * @param column_names     Fields to read (also the required_fields in scanner_params)
      * @param self_split_weight  Weight for this split (for profile conditition counter)
+     * @param jni_heap_bytes   JVM heap the range declares this reader will hold
+     *                         (TFileRangeDesc.jni_heap_bytes); 0 when it declares none, and then
+     *                         the reader opens without waiting at the JNI heap gate
      */
     JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
               RuntimeProfile* profile, Jni::PluginRef plugin_ref,
               std::map<std::string, std::string> scanner_params,
-              std::vector<std::string> column_names, int64_t self_split_weight = -1);
+              std::vector<std::string> column_names, int64_t self_split_weight = -1,
+              int64_t jni_heap_bytes = 0);
 
     /**
      * Constructor for table-schema-only mode (no data reading).
@@ -101,6 +107,12 @@ public:
      * Read next batch from Java scanner and fill the block.
      */
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    /**
+     * The JNI heap gate's admission, while a reader whose range declared its heap waits for it:
+     * FileScanner must not read the reader until the future is done.
+     */
+    std::optional<SharedListenableFuture<Void>> waiting_for() const;
 
     /**
      * Close the scanner and release JNI resources.
@@ -140,6 +152,9 @@ private:
 
     Status _fill_partition_columns(Block* block, size_t num_rows);
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
+    // Opens the Java scanner of a reader that declared no heap, or whose wait for it is over. A
+    // reader whose scan stopped first stays unopened and reads nothing.
+    Status _open_admitted_java_scanner();
     Status _fill_block(Block* block, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
 
@@ -148,6 +163,7 @@ private:
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
     int32_t _self_split_weight = -1;
+    int64_t _jni_heap_bytes = 0;
     bool _is_table_schema = false;
 
     RuntimeProfile::Counter* _open_scanner_time = nullptr;
@@ -155,6 +171,8 @@ private:
     RuntimeProfile::Counter* _java_append_data_time = nullptr;
     RuntimeProfile::Counter* _java_create_vector_table_time = nullptr;
     RuntimeProfile::Counter* _fill_block_time = nullptr;
+    RuntimeProfile::Counter* _jvm_heap_wait_time = nullptr;
+    RuntimeProfile::Counter* _jvm_heap_declared_bytes = nullptr;
     RuntimeProfile::ConditionCounter* _max_time_split_weight_counter = nullptr;
 
     int64_t _jni_scanner_open_watcher = 0;
@@ -165,6 +183,11 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
+    // The JVM heap the range declares (util/jni_scan_heap_gate.h): in line until the gate admits
+    // it, then held while the Java scanner is open. Null for a reader that declares none.
+    std::unique_ptr<JniScanHeapGate::Admission> _heap_admission;
+    // FileScanner's, for the gate to see the scan stop while this reader waits.
+    std::shared_ptr<io::IOContext> _io_ctx;
 
     Jni::GlobalObject _jni_scanner_obj;
     // Resolved on the SPI base class and shared by every reader in the process, so this is a

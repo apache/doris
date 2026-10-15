@@ -137,7 +137,8 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                       }
                       return names;
                   }(),
-                  range.__isset.self_split_weight ? range.self_split_weight : -1) {
+                  range.__isset.self_split_weight ? range.self_split_weight : -1,
+                  range.__isset.jni_heap_bytes ? range.jni_heap_bytes : 0) {
     if (range.table_format_params.__isset.table_level_row_count) {
         _remaining_table_level_row_count = range.table_format_params.table_level_row_count;
     } else {

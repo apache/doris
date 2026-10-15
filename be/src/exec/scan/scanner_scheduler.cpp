@@ -22,6 +22,7 @@
 #include <functional>
 #include <list>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -182,6 +183,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     Status status = Status::OK();
     bool eos = false;
+    // Set when the scanner ended the attempt without a block because it cannot read on yet.
+    std::optional<SharedListenableFuture<Void>> waiting_for;
     auto append_late_arrival_runtime_filter = [&] {
         Status rf_status = scanner->try_append_late_arrival_runtime_filter();
         if (!rf_status.ok()) {
@@ -270,10 +273,20 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     // We got a new created block or a reused block.
                     status = scanner->get_block_after_projects(state, free_block.get(), &eos);
                     first_read = false;
+                    waiting_for = scanner->take_waiting_for();
                     if (!status.ok()) {
+                        waiting_for.reset();
                         LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
                         break;
                     }
+                    if (waiting_for.has_value() && !eos && free_block->rows() == 0) {
+                        // Nothing to hand over: the block goes back, and the task is parked below.
+                        ctx->return_free_block(std::move(free_block));
+                        break;
+                    }
+                    // Rows padded before the scanner had to wait still go out; it says so again
+                    // on its next attempt.
+                    waiting_for.reset();
                     // Check column type only after block is read successfully.
                     // Or it may cause a crash when the block is not normal.
                     _make_sure_virtual_col_is_materialized(scanner, free_block.get());
@@ -312,11 +325,24 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     if (UNLIKELY(!status.ok())) {
         scan_task->set_status(status);
         eos = true;
+        // Also an exception after the scanner said it had to wait: a failed attempt ends it.
+        waiting_for.reset();
     }
 
     // Always update scanner profile to properly account for CPU time on the same
     // thread that started the CPU timer (CLOCK_THREAD_CPUTIME_ID is per-thread).
     update_scanner_profile();
+
+    if (waiting_for.has_value()) {
+        // A failed attempt ends the scanner, and so does an EOS one: neither waits for anything.
+        DORIS_CHECK(status.ok() && !eos);
+        VLOG_DEBUG << fmt::format("Scanner context {} parks a task until its scanner can read on",
+                                  ctx->ctx_id);
+        // The last thing this worker does with the task, as push_completed_scan_task() is below:
+        // once the future is done, another worker may run it.
+        ctx->park_scan_task(scan_task, std::move(*waiting_for));
+        return;
+    }
 
     if (eos) {
         scanner->mark_to_need_to_close();
