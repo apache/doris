@@ -120,6 +120,10 @@ void ColumnStruct::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_STRUCT);
     const auto& tuple = x.get<TYPE_STRUCT>();
     const size_t tuple_size = columns.size();
+    if (tuple.empty() && tuple_size != 0) {
+        insert_default();
+        return;
+    }
     if (tuple.size() != tuple_size) {
         throw doris::Exception(
                 ErrorCode::INTERNAL_ERROR,

@@ -35,6 +35,11 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
@@ -973,9 +978,10 @@ TEST_F(ConstantColumnIteratorTest, StructNullDefaultAndRuntimeConstantMaterializ
     EXPECT_EQ("doris", materialized_struct->get_column(1).get_data_at(1).to_string());
 }
 
-TEST_F(ConstantColumnIteratorTest, NonEmptyComplexTextDefaultsAreRejected) {
-    // Case: schema defaults currently support only [] and {} for complex non-null values. Reject
-    // non-empty text forms explicitly instead of silently synthesizing a different value.
+TEST_F(ConstantColumnIteratorTest, NonEmptyComplexTextDefaultsAreParsed) {
+    // Case: a non-empty ARRAY/MAP/STRUCT literal default is parsed through the declared (nested)
+    // type's SerDe instead of being rejected, so `[1]`, `{"k":7}`, and a positional struct literal
+    // all materialize the matching typed Field.
     TabletColumn int_child;
     int_child.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     int_child.set_is_nullable(false);
@@ -988,9 +994,11 @@ TEST_F(ConstantColumnIteratorTest, NonEmptyComplexTextDefaultsAreRejected) {
     array_column.set_is_nullable(false);
     array_column.set_default_value("[1]");
     array_column.add_sub_column(int_child);
-    Field field;
-    EXPECT_TRUE(Segment::get_default_value_field(array_column, &field)
-                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    Field array_field;
+    ASSERT_TRUE(Segment::get_default_value_field(array_column, &array_field).ok());
+    const auto& array = array_field.get<TYPE_ARRAY>();
+    ASSERT_EQ(1, array.size());
+    EXPECT_EQ(1, array[0].get<TYPE_INT>());
 
     TabletColumn map_column;
     map_column.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
@@ -998,17 +1006,162 @@ TEST_F(ConstantColumnIteratorTest, NonEmptyComplexTextDefaultsAreRejected) {
     map_column.set_default_value("{\"k\":7}");
     map_column.add_sub_column(string_child);
     map_column.add_sub_column(int_child);
-    EXPECT_TRUE(Segment::get_default_value_field(map_column, &field)
-                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    Field map_field;
+    ASSERT_TRUE(Segment::get_default_value_field(map_column, &map_field).ok());
+    const auto& map = map_field.get<TYPE_MAP>();
+    ASSERT_EQ(2, map.size());
+    const auto& keys = map[0].get<TYPE_ARRAY>();
+    const auto& values = map[1].get<TYPE_ARRAY>();
+    ASSERT_EQ(1, keys.size());
+    ASSERT_EQ(1, values.size());
+    EXPECT_EQ("k", std::string_view(keys[0].get<TYPE_STRING>()));
+    EXPECT_EQ(7, values[0].get<TYPE_INT>());
 
+    // Positional struct literal: int_child/string_child have no declared name, so the literal is
+    // matched by field position instead of by name.
     TabletColumn struct_column;
     struct_column.set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
     struct_column.set_is_nullable(false);
-    struct_column.set_default_value("(99, doris)");
+    struct_column.set_default_value("{99,\"doris\"}");
     struct_column.add_sub_column(int_child);
     struct_column.add_sub_column(string_child);
-    EXPECT_TRUE(Segment::get_default_value_field(struct_column, &field)
-                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    Field struct_field;
+    ASSERT_TRUE(Segment::get_default_value_field(struct_column, &struct_field).ok());
+    const auto& struct_value = struct_field.get<TYPE_STRUCT>();
+    ASSERT_EQ(2, struct_value.size());
+    EXPECT_EQ(99, struct_value[0].get<TYPE_INT>());
+    EXPECT_EQ("doris", std::string_view(struct_value[1].get<TYPE_STRING>()));
+}
+
+TEST_F(ConstantColumnIteratorTest, ComplexDefaultIsProjectedToPrunedReadType) {
+    // Case: nested column pruning reads `struct_element(s, 'text')` of a light-added
+    // STRUCT<number:INT, text:STRING> DEFAULT '{99, "doris"}' into a STRUCT<text:STRING> column.
+    // The constant parsed with the declared type must keep only the read fields, also for STRUCT
+    // items of an ARRAY and STRUCT values of a MAP, while the `{}` default stays empty so the
+    // destination fills its own defaults.
+    TabletColumn int_child;
+    int_child.set_name("number");
+    int_child.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    int_child.set_is_nullable(false);
+
+    TabletColumn string_child;
+    string_child.set_name("text");
+    string_child.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    string_child.set_is_nullable(false);
+
+    TabletColumn struct_column;
+    struct_column.set_name("s");
+    struct_column.set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
+    struct_column.set_is_nullable(false);
+    struct_column.set_default_value("{99,\"doris\"}");
+    struct_column.add_sub_column(int_child);
+    struct_column.add_sub_column(string_child);
+    // FE prunes the slot type to the accessed fields, in declared order, keeping nullability.
+    DataTypePtr read_struct = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>()}, Strings {"text"});
+
+    Field struct_default;
+    auto st = Segment::get_default_value_field(struct_column, &struct_default);
+    ASSERT_TRUE(st.ok()) << st;
+    ConstantColumnIterator struct_iterator(struct_default);
+    st = struct_iterator.project_to_read_type(struct_column.get_vec_type(), read_struct);
+    ASSERT_TRUE(st.ok()) << st;
+    MutableColumnPtr struct_dst = read_struct->create_column();
+    size_t rows = 2;
+    bool has_null = true;
+    st = struct_iterator.next_batch(&rows, struct_dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    const auto* materialized_struct = assert_cast<const ColumnStruct*>(struct_dst.get());
+    ASSERT_EQ(1, materialized_struct->tuple_size());
+    ASSERT_EQ(2, materialized_struct->size());
+    EXPECT_EQ("doris", materialized_struct->get_column(0).get_data_at(0).to_string());
+    EXPECT_EQ("doris", materialized_struct->get_column(0).get_data_at(1).to_string());
+
+    // Projection to the declared type itself keeps every field.
+    ConstantColumnIterator full_iterator(struct_default);
+    st = full_iterator.project_to_read_type(struct_column.get_vec_type(),
+                                            struct_column.get_vec_type());
+    ASSERT_TRUE(st.ok()) << st;
+    MutableColumnPtr full_dst = struct_column.get_vec_type()->create_column();
+    rows = 1;
+    st = full_iterator.next_batch(&rows, full_dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    const auto* full_struct = assert_cast<const ColumnStruct*>(full_dst.get());
+    ASSERT_EQ(2, full_struct->tuple_size());
+    EXPECT_EQ(99, assert_cast<const ColumnInt32&>(full_struct->get_column(0)).get_element(0));
+    EXPECT_EQ("doris", full_struct->get_column(1).get_data_at(0).to_string());
+
+    // ARRAY<STRUCT>: every item is projected.
+    TabletColumn array_column;
+    array_column.set_name("arr");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    array_column.set_default_value("[{1,\"p\"},{2,\"q\"}]");
+    array_column.add_sub_column(struct_column);
+    DataTypePtr read_array = std::make_shared<DataTypeArray>(make_nullable(read_struct));
+    Field array_default;
+    st = Segment::get_default_value_field(array_column, &array_default);
+    ASSERT_TRUE(st.ok()) << st;
+    ConstantColumnIterator array_iterator(array_default);
+    st = array_iterator.project_to_read_type(array_column.get_vec_type(), read_array);
+    ASSERT_TRUE(st.ok()) << st;
+    MutableColumnPtr array_dst = read_array->create_column();
+    rows = 1;
+    st = array_iterator.next_batch(&rows, array_dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    const auto* materialized_array = assert_cast<const ColumnArray*>(array_dst.get());
+    ASSERT_EQ(2, materialized_array->size_at(0));
+    const auto& array_items = assert_cast<const ColumnStruct&>(
+            assert_cast<const ColumnNullable&>(materialized_array->get_data()).get_nested_column());
+    ASSERT_EQ(1, array_items.tuple_size());
+    EXPECT_EQ("p", array_items.get_column(0).get_data_at(0).to_string());
+    EXPECT_EQ("q", array_items.get_column(0).get_data_at(1).to_string());
+
+    // MAP<STRING, STRUCT>: keys are never pruned, every value is projected.
+    TabletColumn map_column;
+    map_column.set_name("m");
+    map_column.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+    map_column.set_is_nullable(false);
+    map_column.set_default_value("{\"k\":{3,\"r\"}}");
+    map_column.add_sub_column(string_child);
+    map_column.add_sub_column(struct_column);
+    DataTypePtr read_map = std::make_shared<DataTypeMap>(
+            make_nullable(std::make_shared<DataTypeString>()), make_nullable(read_struct));
+    Field map_default;
+    st = Segment::get_default_value_field(map_column, &map_default);
+    ASSERT_TRUE(st.ok()) << st;
+    ConstantColumnIterator map_iterator(map_default);
+    st = map_iterator.project_to_read_type(map_column.get_vec_type(), read_map);
+    ASSERT_TRUE(st.ok()) << st;
+    MutableColumnPtr map_dst = read_map->create_column();
+    rows = 1;
+    st = map_iterator.next_batch(&rows, map_dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    const auto* materialized_map = assert_cast<const ColumnMap*>(map_dst.get());
+    ASSERT_EQ(1, materialized_map->size_at(0));
+    EXPECT_EQ("k", materialized_map->get_keys().get_data_at(0).to_string());
+    const auto& map_values = assert_cast<const ColumnStruct&>(
+            assert_cast<const ColumnNullable&>(materialized_map->get_values()).get_nested_column());
+    ASSERT_EQ(1, map_values.tuple_size());
+    EXPECT_EQ("r", map_values.get_column(0).get_data_at(0).to_string());
+
+    // `{}` means every field takes its own default, so the pruned destination fills itself.
+    struct_column.set_default_value("{}");
+    Field empty_default;
+    st = Segment::get_default_value_field(struct_column, &empty_default);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(empty_default.get<TYPE_STRUCT>().empty());
+    ConstantColumnIterator empty_iterator(empty_default);
+    st = empty_iterator.project_to_read_type(struct_column.get_vec_type(), read_struct);
+    ASSERT_TRUE(st.ok()) << st;
+    MutableColumnPtr empty_dst = read_struct->create_column();
+    rows = 2;
+    st = empty_iterator.next_batch(&rows, empty_dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    const auto* empty_struct = assert_cast<const ColumnStruct*>(empty_dst.get());
+    ASSERT_EQ(1, empty_struct->tuple_size());
+    ASSERT_EQ(2, empty_struct->size());
+    EXPECT_EQ("", empty_struct->get_column(0).get_data_at(1).to_string());
 }
 
 TEST_F(ConstantColumnIteratorTest, VariantConstantMaterializesSubcolumnsAndZoneMap) {

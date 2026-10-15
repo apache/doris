@@ -894,29 +894,22 @@ Status Segment::get_default_value_field(const TabletColumn& tablet_column, Field
         return Status::OK();
     }
 
-    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        if (default_value != "[]") {
-            return Status::NotSupported("Array default {} is unsupported", default_value);
-        }
+    // [] and {} need no nested SerDe, so an ARRAY/MAP TabletColumn built without sub-columns can
+    // still materialize an empty default.
+    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY && default_value == "[]") {
         *field = Field::create_field<TYPE_ARRAY>(Array {});
         return Status::OK();
     }
-    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-        return Status::NotSupported("STRUCT default type is unsupported");
-    }
-    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
-        if (default_value != "{}") {
-            return Status::NotSupported("Map default {} is unsupported", default_value);
-        }
+    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_MAP && default_value == "{}") {
         *field = Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array {}),
                                                     Field::create_field<TYPE_ARRAY>(Array {})});
         return Status::OK();
     }
 
-    const auto serde = DataTypeFactory::instance()
-                               .create_data_type(tablet_column.type(), tablet_column.precision(),
-                                                 tablet_column.frac(), tablet_column.length())
-                               ->get_serde();
+    // Any other non-null default, including a non-empty ARRAY/MAP or any STRUCT literal, needs the
+    // SerDe of the declared (possibly nested) type to parse recursively; a bare FieldType cannot
+    // describe nested item types.
+    const auto serde = remove_nullable(tablet_column.get_vec_type())->get_serde();
     return serde->from_fe_string(default_value, *field);
 }
 
@@ -935,7 +928,7 @@ Status Segment::new_constant_iterator(const TabletColumn& tablet_column,
 // in the new schema column c's cid == 2
 // but in the old schema column b's cid == 2
 // but they are not the same column
-Status Segment::new_column_iterator(const TabletColumn& tablet_column,
+Status Segment::new_column_iterator(const TabletColumn& tablet_column, const DataTypePtr& read_type,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt,
                                     const std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr>*
@@ -986,6 +979,15 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                                          ? opt->predicate_access_paths.at(unique_id)
                                                          : TColumnAccessPaths {};
 
+            // A column absent from this segment was parsed from its default with the declared
+            // type, while the destination column is built from the pruned `read_type`. For
+            // example, `struct_element(s, 'b')` reads a light-added `s STRUCT<a:INT, b:STRING>
+            // DEFAULT '{7, "x"}'` into STRUCT<b:STRING>, so the constant must become {"x"}.
+            if (auto* constant_iter = dynamic_cast<ConstantColumnIterator*>(iter->get());
+                constant_iter != nullptr) {
+                RETURN_IF_ERROR(constant_iter->project_to_read_type(tablet_column.get_vec_type(),
+                                                                    read_type));
+            }
             // set column name to apply access paths.
             (*iter)->set_column_name(tablet_column.name());
             RETURN_IF_ERROR((*iter)->set_access_paths(all_access_paths, predicate_access_paths));
@@ -1435,7 +1437,8 @@ Status Segment::seek_and_read_by_rowid(const TabletColumn& read_column, SlotDesc
         MutableColumnPtr file_storage_column = storage_type->create_column();
 
         if (iterator_hint == nullptr) {
-            RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
+            RETURN_IF_ERROR(new_column_iterator(column, slot->type(), &iterator_hint,
+                                                &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(
@@ -1458,8 +1461,8 @@ Status Segment::seek_and_read_by_rowid(const TabletColumn& read_column, SlotDesc
             DORIS_CHECK(variant_v2_type != nullptr);
         }
         if (iterator_hint == nullptr) {
-            RETURN_IF_ERROR(
-                    new_column_iterator(read_column, &iterator_hint, &storage_read_options));
+            RETURN_IF_ERROR(new_column_iterator(read_column, slot->type(), &iterator_hint,
+                                                &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), result));
