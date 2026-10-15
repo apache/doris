@@ -87,8 +87,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 14 adds ConnectorScanRange#getSplitIdentity to the connector plugin surface.
-        Assertions.assertEquals("14.0", version.getProperty("api.version"));
+        // Major 15 adds the bounded streaming batch hint to ConnectorScanPlanProvider.
+        Assertions.assertEquals("15.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

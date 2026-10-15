@@ -111,6 +111,8 @@ public class VariableMgr {
     // If a session variable "foo" is an experimental variable,
     // its display name is "experimental_foo"
     private static ImmutableMap<String, VarContext> ctxByDisplayVarName;
+    // Visibility and aliases come from immutable annotations; values must still be read on every export.
+    private static final ImmutableMap<String, VarContext> SHOWN_CTX_BY_VAR_NAME;
 
     // This variable is equivalent to the default value of session variables.
     // Whenever a new session is established, the value in this object is copied to the session-level variable.
@@ -172,6 +174,13 @@ public class VariableMgr {
         ImmutableSortedMap.Builder<String, VarContext> builder = getStringVarContextBuilder(defaultSessionVariable);
         ctxByVarName = builder.build();
         ctxByDisplayVarName = getDisplaySessionVars();
+        ImmutableMap.Builder<String, VarContext> shownBuilder = ImmutableMap.builder();
+        for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
+            if (isShown(entry.getValue())) {
+                shownBuilder.put(entry);
+            }
+        }
+        SHOWN_CTX_BY_VAR_NAME = shownBuilder.build();
     }
 
     public static SessionVariable getDefaultSessionVariable() {
@@ -976,14 +985,11 @@ public class VariableMgr {
      * without a hard-coded whitelist.</p>
      */
     public static Map<String, String> toMap(SessionVariable sessionVar) {
-        Map<String, String> result = Maps.newHashMap();
+        Map<String, String> result = Maps.newHashMapWithExpectedSize(SHOWN_CTX_BY_VAR_NAME.size());
         rlock.lock();
         try {
-            for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
+            for (Map.Entry<String, VarContext> entry : SHOWN_CTX_BY_VAR_NAME.entrySet()) {
                 VarContext ctx = entry.getValue();
-                if (!isShown(ctx)) {
-                    continue;
-                }
                 result.put(entry.getKey(), getValue(sessionVar, ctx.getField()));
             }
         } finally {

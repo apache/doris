@@ -30,7 +30,9 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * FIX-BATCH-MODE-SPLIT (P4-T06e / NG-7) — guards the two additive SPI defaults on
@@ -118,6 +120,48 @@ public class ConnectorScanPlanProviderBatchScanTest {
         // which for a connector whose planning has a side effect on the source means EXPLAIN runs the
         // query. Losing it is invisible in the plan output.
         Assertions.assertTrue(forwarded.isExplainOnly());
+    }
+
+    @Test
+    public void testStreamingRequestDelegatesToExistingConnectorImplementation() {
+        ConnectorExpression filter = new ConnectorColumnRef("c1", ConnectorType.of("INT"));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
+                .filter(Optional.of(filter)).limit(7).build();
+        AtomicInteger calls = new AtomicInteger();
+        ConnectorSplitSource marker = new ConnectorSplitSource() {
+            @Override
+            public boolean hasNext() {
+                return false;
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                throw new NoSuchElementException();
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        ConnectorScanPlanProvider provider = new ConnectorScanPlanProvider() {
+            @Override
+            public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest scanRequest) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
+                    List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> remaining, long limit) {
+                calls.incrementAndGet();
+                Assertions.assertSame(HANDLE, handle);
+                Assertions.assertSame(request.getColumns(), columns);
+                Assertions.assertSame(filter, remaining.get());
+                Assertions.assertEquals(7, limit);
+                return marker;
+            }
+        };
+        Assertions.assertSame(marker, provider.streamSplits(null, request));
+        Assertions.assertEquals(1, calls.get());
     }
 
     @Test
