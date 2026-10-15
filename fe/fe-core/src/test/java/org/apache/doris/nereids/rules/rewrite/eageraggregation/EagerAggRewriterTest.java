@@ -100,7 +100,8 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                         .rewrite().getPlan();
                 Assertions.assertEquals(expected, plan.getOutput().get(1).getDataType());
                 AtomicInteger compensationCount = new AtomicInteger();
-                plan.foreach(node -> ((Plan) node).getExpressions().forEach(expression ->
+                plan.foreach(node -> {
+                    ((Plan) node).getExpressions().forEach(expression -> {
                         expression.foreach(child -> {
                             if (child instanceof DecimalMultiplyForSum) {
                                 DecimalMultiplyForSum multiply = (DecimalMultiplyForSum) child;
@@ -109,7 +110,9 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                                         multiply.withChildren(multiply.children()).getDataType());
                                 compensationCount.incrementAndGet();
                             }
-                        })));
+                        });
+                    });
+                });
                 Assertions.assertTrue(compensationCount.get() > 0, plan.treeString());
             }
         } finally {
