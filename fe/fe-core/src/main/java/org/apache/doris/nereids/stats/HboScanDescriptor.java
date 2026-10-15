@@ -426,7 +426,13 @@ public class HboScanDescriptor {
     public static int nextScanTokenStart(String canonicalStructInfo, int from) {
         int index = from;
         while ((index = canonicalStructInfo.indexOf("S{", index)) >= 0) {
-            if (index == 0 || "();[".indexOf(canonicalStructInfo.charAt(index - 1)) >= 0) {
+            // the boundaries the traversal emits in front of a scan token: the start of the text, the
+            // opening of a header which wraps its child in parentheses, the separator between the leaves
+            // of a chain, a slot list, and the closing brace of a header which is written *without*
+            // parentheses (a top-n, a limit, a generate, a repeat, a set operation) - without the brace,
+            // the struct info of such a plan could not be stripped and HBO SET STATISTICS would reject the
+            // fingerprint copied from EXPLAIN
+            if (index == 0 || "();[}".indexOf(canonicalStructInfo.charAt(index - 1)) >= 0) {
                 return index;
             }
             index += 2;

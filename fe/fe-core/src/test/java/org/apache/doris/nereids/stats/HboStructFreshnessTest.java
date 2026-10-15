@@ -267,4 +267,18 @@ public class HboStructFreshnessTest {
     private static void assertEquals(String expected, String actual) {
         Assertions.assertEquals(expected, actual, actual);
     }
+
+    @Test
+    public void testScansAfterAUnaryHeaderAreStripped() {
+        // a top-n, a limit, a generate, a repeat and a set operation write their child without
+        // parentheses, so a scan token follows their closing brace: HBO SET STATISTICS has to be able to
+        // strip the baseline of such a struct info, or it hashes the unstripped text and rejects the
+        // fingerprint copied from EXPLAIN
+        Assertions.assertEquals("F{b = *}(T{1,0;ord:[col(t.a):asc:nulls_first]}S{db.t})",
+                GroupStructInfo.stripScanBaseline(
+                        "F{b = *}(T{1,0;ord:[col(t.a):asc:nulls_first]}S{db.t,v2,r1000})"));
+        Assertions.assertEquals("L{5,0}S{db.t}", GroupStructInfo.stripScanBaseline("L{5,0}S{db.t,v3,r10}"));
+        Assertions.assertEquals("G{tf:[split](S{db.t})}",
+                GroupStructInfo.stripScanBaseline("G{tf:[split](S{db.t,v4,e20})}"));
+    }
 }
