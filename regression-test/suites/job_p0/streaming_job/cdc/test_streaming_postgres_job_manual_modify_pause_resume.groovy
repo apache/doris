@@ -52,6 +52,14 @@ suite("test_streaming_postgres_job_manual_modify_pause_resume",
                 rows[0][0] as int == 1
             })
         }
+        def waitForCommit = {
+            long completed = (sql """select SucceedTaskCount from jobs("type"="insert")
+                                       where Name='${jobName}'""")[0][0] as long
+            Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+                (sql """select SucceedTaskCount from jobs("type"="insert")
+                         where Name='${jobName}'""")[0][0] as long > completed
+            })
+        }
 
         connect("${pgUser}", "${pgPassword}",
                 "jdbc:postgresql://${externalEnvIp}:${pgPort}/${pgDb}") {
@@ -87,6 +95,12 @@ suite("test_streaming_postgres_job_manual_modify_pause_resume",
             throw ex
         }
 
+        // Persist an incremental baseline before changing either schema.
+        Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until({
+            (sql """select SucceedTaskCount from jobs("type"="insert")
+                     where Name='${jobName}'""")[0][0] as long >= 2
+        })
+        waitForCommit()
         sql """PAUSE JOB where jobname = '${jobName}'"""
         Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until({
             def status = sql """select Status from jobs("type"="insert") where Name='${jobName}'"""
@@ -109,16 +123,19 @@ suite("test_streaming_postgres_job_manual_modify_pause_resume",
         })
 
         sql """RESUME JOB where jobname = '${jobName}'"""
-        Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until({
-            def status = sql """select Status from jobs("type"="insert") where Name='${jobName}'"""
-            status.size() == 1 && status[0][0] == "RUNNING"
-        })
 
         connect("${pgUser}", "${pgPassword}",
                 "jdbc:postgresql://${externalEnvIp}:${pgPort}/${pgDb}") {
             sql """INSERT INTO ${pgSchema}.${tableName}
                     VALUES ('after_modify', 3000000000)"""
         }
+        // A manual pause is not a schema-change confirmation, even if the target was aligned.
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            def rows = sql """select Status, ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
+            (rows.size() == 1 && rows[0][0] == 'PAUSED'
+                    && rows[0][1].toString().contains('[SCHEMA_CHANGE_UNSUPPORTED]'))
+        })
+        sql """RESUME JOB where jobname = '${jobName}'"""
         try {
             waitForRow("after_modify")
         } catch (Exception ex) {
@@ -126,6 +143,7 @@ suite("test_streaming_postgres_job_manual_modify_pause_resume",
             throw ex
         }
         order_qt_modify_resume """SELECT id, value_col FROM ${tableName}"""
+        waitForCommit()
 
         // Verify that a supported schema change still works after the manual MODIFY workflow.
         connect("${pgUser}", "${pgPassword}",
