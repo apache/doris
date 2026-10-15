@@ -248,13 +248,6 @@ public class StreamLoadHandler {
         if (tables.isEmpty()) {
             throw new MetaNotFoundException("table not found");
         }
-
-        if (result != null) {
-            OlapTable olapTable = tables.get(0);
-            result.setDbId(db.getId());
-            result.setTableId(olapTable.getId());
-            result.setBaseSchemaVersion(olapTable.getBaseSchemaVersion());
-        }
     }
 
     /**
@@ -300,6 +293,11 @@ public class StreamLoadHandler {
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
             result.setEnableTso(table.enableTso());
+            if (this.result != null && fragmentParams.isEmpty()) {
+                this.result.setDbId(db.getId());
+                this.result.setTableId(table.getId());
+                this.result.setBaseSchemaVersion(table.getBaseSchemaVersion());
+            }
             fragmentParams.add(result);
 
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
