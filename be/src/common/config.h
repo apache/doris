@@ -1279,6 +1279,23 @@ DECLARE_mInt64(lance_index_worker_term_grace_seconds);
 DECLARE_Bool(lance_index_isolation_preflight);
 DECLARE_String(lance_index_worker_cgroup_parent);
 
+// Lance index worker service (be/src/lance/index/lance_index_worker_service.h):
+// the synchronous thrift-facing component behind lance_index_mutate. The two
+// structural keys are sampled once at service start (the executor threads ARE
+// the two-state slots and the bounded queue is sized from max_queued), so
+// runtime changes take effect only after a BE restart.
+DECLARE_Int32(lance_index_mutation_worker_max_concurrency);
+DECLARE_Int32(lance_index_mutation_worker_max_queued);
+// Admitted-bounds snapshot injected into the worker dispatch frame (fields
+// 16/17): the worker subprocess reads no BE config, so these BE-side mirrors
+// of the FE admission bounds (FE Config.lance_index_max_num_partitions /
+// lance_index_max_num_sub_vectors, same defaults) are the only source the
+// frame's independent replay of the bounds checks can read. Per-invocation:
+// read at dispatch-build time, so runtime changes apply to the next
+// invocation.
+DECLARE_mInt32(lance_index_max_num_partitions);
+DECLARE_mInt32(lance_index_max_num_sub_vectors);
+
 // block file cache
 DECLARE_Bool(enable_file_cache);
 DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);

@@ -1276,6 +1276,29 @@ DEFINE_Bool(lance_index_isolation_preflight, "true");
 // ancestor whose cgroup.subtree_control accepts +memory +pids.
 DEFINE_String(lance_index_worker_cgroup_parent, "");
 
+// Lance index worker service: the synchronous component behind
+// lance_index_mutate (be/src/lance/index/lance_index_worker_service.h). Names
+// mirror the FE admission side (FE Config.lance_index_mutation_max_concurrency
+// / lance_index_mutation_max_queued). Structural knobs: sampled once at
+// service start (executor thread count = the two-state slot count, queue
+// capacity = max_queued), so runtime changes apply only after a BE restart.
+DEFINE_Int32(lance_index_mutation_worker_max_concurrency, "2");
+DEFINE_Validator(lance_index_mutation_worker_max_concurrency,
+                 [](int32_t value) { return value >= 1 && value <= 64; });
+DEFINE_Int32(lance_index_mutation_worker_max_queued, "16");
+DEFINE_Validator(lance_index_mutation_worker_max_queued,
+                 [](int32_t value) { return value >= 1 && value <= 1024; });
+// Admitted-bounds snapshot injected into the worker dispatch frame (fields
+// 16/17); the worker subprocess reads no BE config, so it can replay the
+// bounds checks only against this frame-carried value. Defaults mirror the FE
+// admission bounds (FE Config.lance_index_max_num_partitions /
+// lance_index_max_num_sub_vectors); per-invocation (read at dispatch-build
+// time), so runtime changes apply to the next invocation.
+DEFINE_mInt32(lance_index_max_num_partitions, "4096");
+DEFINE_Validator(lance_index_max_num_partitions, [](int32_t value) { return value > 0; });
+DEFINE_mInt32(lance_index_max_num_sub_vectors, "256");
+DEFINE_Validator(lance_index_max_num_sub_vectors, [](int32_t value) { return value > 0; });
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
