@@ -959,6 +959,10 @@ DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
 // disable zone map index when page row is too few
 DEFINE_mInt32(zone_map_row_num_threshold, "20");
 
+// Enable only after every reader supports binary bounds. Disabling affects newly created writers;
+// existing writers finish with their captured encoding, and binary segments require a new reader.
+DEFINE_mBool(enable_binary_zone_map, "false");
+
 // Maximum number of IN values checked exactly against a zone map. For larger sets, only the
 // IN-set min/max range is checked.
 DEFINE_mInt32(in_zonemap_point_check_threshold, "8192");

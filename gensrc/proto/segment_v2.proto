@@ -143,6 +143,9 @@ message ZoneMapPB {
     optional bool has_negative_inf = 7;
     // whether the zone has NaN value
     optional bool has_nan = 8;
+    // 0 (including absent): legacy text bounds. 1: fixed-width little-endian bounds.
+    // Writers must enable this only after all readers support the new encoding.
+    optional uint32 value_encoding = 9 [default = 0];
 }
 
 message ColumnPathPartInfo {

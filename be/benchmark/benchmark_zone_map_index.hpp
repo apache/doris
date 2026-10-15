@@ -28,6 +28,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <limits>
 #include <random>
 #include <string>
 #include <vector>
@@ -252,4 +253,55 @@ BENCHMARK(BM_ZoneMap_ColWriter_String)
         ->Arg(4096);
 
 } // namespace bench_zone_map
+// Measure the format conversion itself rather than the per-row extrema update path above.
+static void run_zone_map_bounds_codec(benchmark::State& state, bool decode) {
+    const bool decimal = state.range(0) != 0;
+    const bool binary = state.range(1) != 0;
+    DataTypePtr type;
+    ZoneMap source;
+    source.has_not_null = true;
+    if (decimal) {
+        type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL256, false, 76, 37);
+        wide::Int256 value = 1;
+        for (int digit = 0; digit < 75; ++digit) {
+            value *= 10;
+        }
+        source.min_value = Field::create_field<TYPE_DECIMAL256>(Decimal256(-value));
+        source.max_value = Field::create_field<TYPE_DECIMAL256>(Decimal256(value));
+    } else {
+        type = DataTypeFactory::instance().create_data_type(TYPE_BIGINT, false);
+        source.min_value = Field::create_field<TYPE_BIGINT>(std::numeric_limits<int64_t>::lowest());
+        source.max_value = Field::create_field<TYPE_BIGINT>(std::numeric_limits<int64_t>::max());
+    }
+    ZoneMapPB pb;
+    source.to_proto(&pb, type, binary);
+    for (auto _ : state) {
+        if (decode) {
+            ZoneMap result;
+            auto status = ZoneMap::from_proto(pb, type, result);
+            if (!status.ok()) {
+                state.SkipWithError(status.to_string().c_str());
+                break;
+            }
+            benchmark::DoNotOptimize(result);
+        } else {
+            source.to_proto(&pb, type, binary);
+            benchmark::DoNotOptimize(pb);
+        }
+    }
+    state.counters["protobuf_bytes"] = static_cast<double>(pb.ByteSizeLong());
+    state.SetItemsProcessed(state.iterations());
+}
+
+static void BM_ZoneMap_EncodeBounds(benchmark::State& state) {
+    run_zone_map_bounds_codec(state, false);
+}
+
+static void BM_ZoneMap_DecodeBounds(benchmark::State& state) {
+    run_zone_map_bounds_codec(state, true);
+}
+
+BENCHMARK(BM_ZoneMap_EncodeBounds)->Args({0, 0})->Args({0, 1})->Args({1, 0})->Args({1, 1});
+BENCHMARK(BM_ZoneMap_DecodeBounds)->Args({0, 0})->Args({0, 1})->Args({1, 0})->Args({1, 1});
+
 } // namespace doris::segment_v2

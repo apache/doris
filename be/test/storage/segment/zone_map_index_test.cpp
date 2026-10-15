@@ -45,6 +45,7 @@
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -1856,6 +1857,267 @@ TEST_F(ColumnZoneMapTest, FromProtoGivesUpTheRangeForAMaxThatCarriedPastItsEnd) 
     std::string short_ff = "abc";
     short_ff.push_back(static_cast<char>(0xff));
     EXPECT_FALSE(reads_back_as_pass_all("abc", short_ff));
+}
+
+// Exercise the public serializer so both page and segment writers share the tested contract.
+template <PrimitiveType Type>
+void check_binary_zone_map_bounds(typename PrimitiveTypeTraits<Type>::StorageFieldType low,
+                                  typename PrimitiveTypeTraits<Type>::StorageFieldType high,
+                                  int precision = 0, int scale = 0) {
+    using Cpp = typename PrimitiveTypeTraits<Type>::CppType;
+    for (bool nullable : {false, true}) {
+        const auto type =
+                DataTypeFactory::instance().create_data_type(Type, nullable, precision, scale);
+        ZoneMap source;
+        source.has_not_null = true;
+        source.has_null = nullable;
+        source.min_value = Field::create_field<Type>(Cpp(low));
+        source.max_value = Field::create_field<Type>(Cpp(high));
+        ZoneMapPB pb;
+        source.to_proto(&pb, type, true);
+        ASSERT_EQ(1, pb.value_encoding());
+        EXPECT_EQ(sizeof(low), pb.min().size());
+        EXPECT_EQ(sizeof(high), pb.max().size());
+        std::string persisted;
+        ASSERT_TRUE(pb.SerializeToString(&persisted));
+        ZoneMapPB loaded;
+        ASSERT_TRUE(loaded.ParseFromString(persisted));
+        ZoneMap result;
+        ASSERT_TRUE(ZoneMap::from_proto(loaded, type, result).ok());
+        EXPECT_FALSE(result.pass_all);
+        EXPECT_EQ(nullable, result.has_null);
+        EXPECT_TRUE(result.has_not_null);
+        EXPECT_EQ(source.min_value.get<Type>(), result.min_value.get<Type>());
+        EXPECT_EQ(source.max_value.get<Type>(), result.max_value.get<Type>());
+        if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+            EXPECT_EQ(std::signbit(low), std::signbit(result.min_value.get<Type>()));
+            EXPECT_EQ(std::signbit(high), std::signbit(result.max_value.get<Type>()));
+        }
+        // Reusing a protobuf for a legacy write must clear the binary discriminator.
+        source.to_proto(&pb, type, false);
+        EXPECT_FALSE(pb.has_value_encoding());
+        pb.set_value_encoding(0);
+        ASSERT_TRUE(ZoneMap::from_proto(pb, type, result).ok());
+        EXPECT_FALSE(result.pass_all);
+        EXPECT_EQ(source.min_value.get<Type>(), result.min_value.get<Type>());
+        EXPECT_EQ(source.max_value.get<Type>(), result.max_value.get<Type>());
+    }
+}
+
+TEST_F(ColumnZoneMapTest, BinaryNumericBoundsRoundTrip) {
+    check_binary_zone_map_bounds<TYPE_BOOLEAN>(0, 1);
+    check_binary_zone_map_bounds<TYPE_TINYINT>(INT8_MIN, INT8_MAX);
+    check_binary_zone_map_bounds<TYPE_SMALLINT>(INT16_MIN, INT16_MAX);
+    check_binary_zone_map_bounds<TYPE_INT>(INT32_MIN, INT32_MAX);
+    check_binary_zone_map_bounds<TYPE_BIGINT>(INT64_MIN, INT64_MAX);
+    check_binary_zone_map_bounds<TYPE_LARGEINT>(std::numeric_limits<Int128>::lowest(),
+                                                std::numeric_limits<Int128>::max());
+    check_binary_zone_map_bounds<TYPE_FLOAT>(-std::numeric_limits<float>::max(),
+                                             std::numeric_limits<float>::max());
+    check_binary_zone_map_bounds<TYPE_DOUBLE>(-std::numeric_limits<double>::max(),
+                                              std::numeric_limits<double>::max());
+    check_binary_zone_map_bounds<TYPE_FLOAT>(-0.0F, 0.0F);
+    check_binary_zone_map_bounds<TYPE_DOUBLE>(-0.0, 0.0);
+}
+
+TEST_F(ColumnZoneMapTest, BinaryDecimalBoundsRoundTrip) {
+    check_binary_zone_map_bounds<TYPE_DECIMAL32>(-999999999, 999999999, 9, 3);
+    check_binary_zone_map_bounds<TYPE_DECIMAL64>(-999999999999999999LL, 999999999999999999LL, 18,
+                                                 9);
+    Int128 large = 1;
+    for (int digit = 0; digit < 38; ++digit) {
+        large *= 10;
+    }
+    --large;
+    check_binary_zone_map_bounds<TYPE_DECIMAL128I>(-large, large, 38, 17);
+    wide::Int256 wide_value = 1;
+    for (int digit = 0; digit < 76; ++digit) {
+        wide_value *= 10;
+    }
+    --wide_value;
+    check_binary_zone_map_bounds<TYPE_DECIMAL256>(-wide_value, wide_value, 76, 37);
+}
+
+TEST_F(ColumnZoneMapTest, BinaryBoundsUseCanonicalLittleEndian) {
+    ZoneMap source;
+    source.has_not_null = true;
+    source.min_value = Field::create_field<TYPE_INT>(-2);
+    source.max_value = Field::create_field<TYPE_INT>(0x01020304);
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapPB pb;
+    source.to_proto(&pb, type, true);
+    EXPECT_EQ(std::string("\xfe\xff\xff\xff", 4), pb.min());
+    EXPECT_EQ(std::string("\x04\x03\x02\x01", 4), pb.max());
+    source.min_value = Field::create_field<TYPE_DECIMAL256>(Decimal256(wide::Int256(-1)));
+    wide::Int256 limbs;
+    limbs.items[0] = 1;
+    limbs.items[1] = 2;
+    limbs.items[2] = 3;
+    limbs.items[3] = 4;
+    source.max_value = Field::create_field<TYPE_DECIMAL256>(Decimal256(limbs));
+    source.to_proto(
+            &pb, DataTypeFactory::instance().create_data_type(TYPE_DECIMAL256, false, 76, 0), true);
+    EXPECT_EQ(std::string(32, '\xff'), pb.min());
+    std::string expected(32, '\0');
+    expected[0] = 1;
+    expected[8] = 2;
+    expected[16] = 3;
+    expected[24] = 4;
+    EXPECT_EQ(expected, pb.max());
+}
+
+TEST_F(ColumnZoneMapTest, BinaryRequestedForStringKeepsLegacyBounds) {
+    ZoneMap source;
+    source.has_not_null = true;
+    source.min_value = Field::create_field<TYPE_STRING>(std::string("a\0b", 3));
+    source.max_value = Field::create_field<TYPE_STRING>(std::string("z\0z", 3));
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+    ZoneMapPB pb;
+    source.to_proto(&pb, type, true);
+    EXPECT_FALSE(pb.has_value_encoding());
+    EXPECT_EQ(std::string("a\0b", 3), pb.min());
+    EXPECT_EQ(std::string("z\0z", 3), pb.max());
+    ZoneMap decoded;
+    ASSERT_TRUE(ZoneMap::from_proto(pb, type, decoded).ok());
+    EXPECT_EQ(source.min_value.get<TYPE_STRING>(), decoded.min_value.get<TYPE_STRING>());
+    EXPECT_EQ(source.max_value.get<TYPE_STRING>(), decoded.max_value.get<TYPE_STRING>());
+}
+
+TEST_F(ColumnZoneMapTest, BinaryBoundsRejectCorruptionAndUnknownEncoding) {
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapPB pb;
+    pb.set_has_not_null(true);
+    pb.set_value_encoding(1);
+    pb.set_min(std::string(4, '\0'));
+    pb.set_max(std::string(4, '\0'));
+    ZoneMap result;
+    for (size_t length : {size_t(0), size_t(3), size_t(5)}) {
+        pb.set_min(std::string(length, '\0'));
+        EXPECT_FALSE(ZoneMap::from_proto(pb, type, result).ok());
+    }
+    pb.set_min(std::string(4, '\0'));
+    pb.set_max(std::string(3, '\0'));
+    EXPECT_FALSE(ZoneMap::from_proto(pb, type, result).ok());
+    pb.set_value_encoding(2);
+    EXPECT_FALSE(ZoneMap::from_proto(pb, type, result).ok());
+    pb.set_value_encoding(1);
+    EXPECT_FALSE(
+            ZoneMap::from_proto(
+                    pb, DataTypeFactory::instance().create_data_type(TYPE_STRING, false), result)
+                    .ok());
+}
+
+TEST_F(ColumnZoneMapTest, BinaryBoundsPreserveEmptyNullAndPassAll) {
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMap source;
+    ZoneMapPB pb;
+    for (bool has_null : {false, true}) {
+        source.has_null = has_null;
+        source.to_proto(&pb, type, true);
+        EXPECT_FALSE(pb.has_value_encoding());
+        ZoneMap result;
+        ASSERT_TRUE(ZoneMap::from_proto(pb, type, result).ok());
+        EXPECT_EQ(has_null, result.has_null);
+        EXPECT_FALSE(result.has_not_null);
+    }
+    source.has_not_null = true;
+    source.min_value = Field::create_field<TYPE_INT>(1);
+    source.max_value = Field::create_field<TYPE_INT>(2);
+    source.to_proto(&pb, type, true);
+    EXPECT_EQ(1, pb.value_encoding());
+    source.pass_all = true;
+    source.to_proto(&pb, type, true);
+    EXPECT_FALSE(pb.has_value_encoding());
+    ZoneMap result;
+    ASSERT_TRUE(ZoneMap::from_proto(pb, type, result).ok());
+    EXPECT_TRUE(result.pass_all);
+}
+
+TEST_F(ColumnZoneMapTest, BinaryBoundsPreserveSpecialFloatFlags) {
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+    ZoneMap source;
+    source.has_not_null = true;
+    source.min_value = Field::create_field<TYPE_DOUBLE>(-1.0);
+    source.max_value = Field::create_field<TYPE_DOUBLE>(1.0);
+    source.has_negative_inf = true;
+    source.has_positive_inf = true;
+    for (bool has_nan : {false, true}) {
+        source.has_nan = has_nan;
+        ZoneMapPB pb;
+        source.to_proto(&pb, type, true);
+        ZoneMap result;
+        ASSERT_TRUE(ZoneMap::from_proto(pb, type, result).ok());
+        EXPECT_TRUE(result.has_negative_inf);
+        EXPECT_TRUE(result.has_positive_inf);
+        EXPECT_EQ(has_nan, result.has_nan);
+        EXPECT_EQ(-std::numeric_limits<double>::infinity(), result.min_value.get<TYPE_DOUBLE>());
+        if (has_nan) {
+            EXPECT_TRUE(std::isnan(result.max_value.get<TYPE_DOUBLE>()));
+        } else {
+            EXPECT_EQ(std::numeric_limits<double>::infinity(), result.max_value.get<TYPE_DOUBLE>());
+        }
+    }
+}
+
+TEST_F(ColumnZoneMapTest, BinaryWriterSpecialFloatCombinations) {
+    const bool saved = config::enable_binary_zone_map;
+    Defer restore([saved] { config::enable_binary_zone_map = saved; });
+    config::enable_binary_zone_map = true;
+    test_every_value_combination<TYPE_FLOAT>(kTestDir);
+    test_every_value_combination<TYPE_DOUBLE>(kTestDir);
+}
+
+TEST_F(ColumnZoneMapTest, BinaryWriterPersistsBothIndexLevelsAndSnapshotsConfig) {
+    const bool saved = config::enable_binary_zone_map;
+    Defer restore([saved] { config::enable_binary_zone_map = saved; });
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    auto column = create_int_key(0);
+    for (bool binary : {false, true}) {
+        config::enable_binary_zone_map = binary;
+        std::unique_ptr<ZoneMapIndexWriter> writer;
+        ASSERT_TRUE(ZoneMapIndexWriter::create(type, column.get(), writer).ok());
+        // Changing the dynamic setting does not change an already-created writer's encoding.
+        config::enable_binary_zone_map = !binary;
+        for (int32_t start : {-100, 100}) {
+            const std::vector<int32_t> values = {start, start + 1, start + 2};
+            writer->add_values(values.data(), values.size());
+            ASSERT_TRUE(writer->flush().ok());
+        }
+        writer->add_nulls(3);
+        ASSERT_TRUE(writer->flush().ok());
+        ColumnIndexMetaPB meta;
+        io::FileWriterPtr file;
+        const auto path = kTestDir + (binary ? "/binary" : "/legacy");
+        ASSERT_TRUE(_fs->create_file(path, &file).ok());
+        ASSERT_TRUE(writer->finish(file.get(), &meta).ok());
+        ASSERT_TRUE(file->close().ok());
+        const auto& segment = meta.zone_map_index().segment_zone_map();
+        EXPECT_EQ(binary ? 1 : 0, segment.value_encoding());
+        ZoneMap decoded;
+        ASSERT_TRUE(ZoneMap::from_proto(segment, type, decoded).ok());
+        EXPECT_EQ(-100, decoded.min_value.get<TYPE_INT>());
+        EXPECT_EQ(102, decoded.max_value.get<TYPE_INT>());
+        io::FileReaderSPtr reader;
+        ASSERT_TRUE(_fs->open_file(path, &reader).ok());
+        ZoneMapIndexReader index(reader, meta.zone_map_index().page_zone_maps());
+        ASSERT_TRUE(index.load(false, false).ok());
+        ASSERT_EQ(3, index.num_pages());
+        for (size_t page = 0; page < 2; ++page) {
+            EXPECT_EQ(binary ? 1 : 0, index.page_zone_maps()[page].value_encoding());
+            ASSERT_TRUE(ZoneMap::from_proto(index.page_zone_maps()[page], type, decoded).ok());
+            EXPECT_EQ(page == 0 ? -100 : 100, decoded.min_value.get<TYPE_INT>());
+            EXPECT_EQ(page == 0 ? -98 : 102, decoded.max_value.get<TYPE_INT>());
+            ComparisonPredicateBase<TYPE_INT, PredicateType::EQ> gap(
+                    0, "", Field::create_field<TYPE_INT>(0));
+            ComparisonPredicateBase<TYPE_INT, PredicateType::EQ> present(
+                    0, "", Field::create_field<TYPE_INT>(100));
+            EXPECT_FALSE(gap.evaluate_and(decoded));
+            EXPECT_EQ(page == 1, present.evaluate_and(decoded));
+        }
+        ASSERT_TRUE(ZoneMap::from_proto(index.page_zone_maps()[2], type, decoded).ok());
+        EXPECT_TRUE(decoded.has_null);
+        EXPECT_FALSE(decoded.has_not_null);
+    }
 }
 
 } // namespace segment_v2
