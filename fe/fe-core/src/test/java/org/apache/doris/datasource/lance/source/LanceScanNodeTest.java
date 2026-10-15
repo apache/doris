@@ -606,6 +606,46 @@ public class LanceScanNodeTest {
     }
 
     @Test
+    public void testDistanceRangesOnlyUseSafeIndexPaths() throws Exception {
+        for (IndexType type : IndexType.values()) {
+            if (type.getValue() < IndexType.VECTOR.getValue()) {
+                continue;
+            }
+            UUID segment = UUID.fromString("11111111-2222-3333-4444-555555555555");
+            LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                    new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
+                    42, vectorSchema(), Arrays.asList(new LanceFragmentInfo(1, 8, 8),
+                            new LanceFragmentInfo(2, 7, 7)),
+                    Collections.singletonMap("vector", 9),
+                    Collections.singletonList(new LanceIndexSegmentInfo(segment, "vector_idx",
+                            Collections.singletonList(9), Collections.singletonList(1L), type, "L2")));
+            for (int bounds = 0; bounds < 4; bounds++) {
+                TExternalSearchRequest request = vectorSearchRequest(5, 0);
+                if ((bounds & 1) != 0) {
+                    request.getSearchQuery().getVectorSearch().setDistanceLowerBound(1);
+                }
+                if ((bounds & 2) != 0) {
+                    request.getSearchQuery().getVectorSearch().setDistanceUpperBound(4);
+                }
+                request.setVectorSearchOptions(new TVectorSearchOptions().setUseIndex(true).setQueryParallelism(4));
+                LanceScanNode node = newSearchNode(metadata, request);
+                List<Split> splits = node.getSplits(2);
+                boolean indexed = bounds == 0 || (bounds == 3 && type == IndexType.IVF_FLAT);
+                String status = indexed ? "USED" : "DISTANCE_RANGE_FALLBACK";
+                Assert.assertTrue(type + "/" + bounds, node.getNodeExplainString("", TExplainLevel.NORMAL)
+                        .contains("lanceVectorIndexStatus=" + status));
+                Assert.assertEquals(2, splits.size());
+                if (indexed) {
+                    assertIndexSplit(splits.get(0), segment, Collections.singletonList(1L), 8, 100);
+                } else {
+                    assertSplit(splits.get(0), 1, 8, 100);
+                }
+                assertSplit(splits.get(1), 2, 8, 88);
+            }
+        }
+    }
+
+    @Test
     public void testExternalSearchUsesOneSplitPerIndexSegmentAndKeepsUnindexedFragments()
             throws Exception {
         UUID firstSegment = UUID.fromString("11111111-2222-3333-4444-555555555555");

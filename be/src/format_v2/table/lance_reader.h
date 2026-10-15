@@ -22,8 +22,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -118,20 +116,21 @@ private:
     RuntimeProfile::Counter* _planned_flat_search_fragment_count = nullptr;
     RuntimeProfile::Counter* _dataset_open_time = nullptr;
     RuntimeProfile::Counter* _scanner_configure_time = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_sql_time = nullptr;
-    RuntimeProfile::Counter* _scanner_read_time = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_sql_translation_time = nullptr;
+    RuntimeProfile::Counter* _scanner_next_time = nullptr;
     RuntimeProfile::Counter* _arrow_to_doris_block_time = nullptr;
     RuntimeProfile::Counter* _row_id_take_read_time = nullptr;
     RuntimeProfile::Counter* _row_id_fetch_total_time = nullptr;
     RuntimeProfile::Counter* _execution_iops = nullptr;
     RuntimeProfile::Counter* _execution_requests = nullptr;
     RuntimeProfile::Counter* _execution_bytes_read = nullptr;
+    // Pre-registered before installing Lance's callback so it only updates existing counters.
+    std::vector<RuntimeProfile::Counter*> _scan_metric_counters;
     RuntimeProfile::Counter* _data_cache_bytes_read_from_cache = nullptr;
     RuntimeProfile::Counter* _data_cache_bytes_read_from_remote = nullptr;
-    RuntimeProfile::Counter* _index_partition_cache_miss_loads = nullptr;
+    RuntimeProfile::Counter* _index_object_loads = nullptr;
+    RuntimeProfile::Counter* _index_components_loaded = nullptr;
     RuntimeProfile::Counter* _index_comparisons = nullptr;
-    std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_count_metrics;
-    std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_time_metrics;
     LanceFtsQueryContext* _fts_query_context = nullptr;
     SearchKind _search_kind = SearchKind::NORMAL;
     bool _eof = false;

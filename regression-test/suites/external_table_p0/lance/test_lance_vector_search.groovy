@@ -47,7 +47,10 @@ suite("test_lance_vector_search", "p0,external") {
      *                 top_k and offset must fit in an unsigned 32-bit integer.
      *   metric        l2, cosine, dot (dot_product is an alias), or hamming. If omitted, Lance
      *                 selects its default metric.
-     *   filter        Lance SQL predicate evaluated before candidate selection (prefilter).
+     *   filter        Lance SQL predicate applied during vector search; candidate-selection
+     *                 ordering is controlled by prefilter (default false).
+     *   prefilter     true applies filter before ANN candidate selection; false applies it after
+     *                 candidate selection. Defaults to false.
      *
      * Optional Lance index tuning properties:
      *   nprobes       Positive IVF partition probe count.
@@ -99,7 +102,7 @@ suite("test_lance_vector_search", "p0,external") {
     String indexedTopTwo = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
     String flatTopTwo = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "metric"="l2", "use_index"="false")"""
     String indexedOffset = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="2", "offset"="1", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
-    String indexedPrefilter = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="3", "filter"="category = 'odd'", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
+    String indexedPrefilter = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${headQuery}", "top_k"="3", "filter"="category = 'odd'", "prefilter"="true", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
     String indexedTail = """vector_search("table"="${tableName}", "column"="embedding", "query_vector"="${tailQuery}", "top_k"="3", "metric"="l2", "nprobes"="4", "refine_factor"="10", "use_index"="true")"""
 
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
@@ -191,8 +194,8 @@ suite("test_lance_vector_search", "p0,external") {
             ORDER BY _distance, row_id
         """
 
-        // The TVF filter is evaluated before Lance chooses Top-K. Odd-category rows are the
-        // even row ids, so the nearest eligible rows are row_id 2, 4 and 6.
+        // With prefilter=true, the TVF filter is evaluated before Lance chooses Top-K.
+        // Odd-category rows are the even row IDs, so the nearest eligible rows are 2, 4 and 6.
         qt_indexed_pre_search_filter """
             SELECT row_id, category, _distance
             FROM ${indexedPrefilter}

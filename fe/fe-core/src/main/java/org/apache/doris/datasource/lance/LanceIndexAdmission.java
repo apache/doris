@@ -20,21 +20,12 @@ package org.apache.doris.datasource.lance;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.index.LanceIndexInspection;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
-import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
-import org.apache.doris.datasource.lance.job.LanceIndexFenceKey;
-import org.apache.doris.datasource.lance.job.LanceIndexJob;
-import org.apache.doris.datasource.lance.job.LanceIndexJobMutationType;
-import org.apache.doris.datasource.lance.job.LanceIndexNameNormalizer;
-import org.apache.doris.datasource.lance.job.LanceIndexSchemaContract;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
-import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -46,27 +37,25 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.TreeMap;
 import javax.annotation.Nullable;
 
 /**
  * Lance index admission (design sections 2.2 and 4.1): the single place where a statically
  * validated top-level CREATE [OR REPLACE]/DROP INDEX statement against a Lance catalog table is
- * turned into a durable job. The whole flow runs against one pinned admission snapshot — the
- * IF preflight never takes a second metadata read, and no catalog/db/table metadata lock is held
- * while the snapshot loader does its JNI work (design section 5.1).
+ * checked against authoritative metadata. The whole flow runs against one pinned admission
+ * snapshot — the IF preflight never takes a second metadata read, and no catalog/db/table
+ * metadata lock is held while the snapshot loader does its JNI work (design section 5.1).
  *
  * <p>The step order is the correctness contract: name normalization and reserved prefix come
  * first, before target capture and the snapshot read (fail cheap-first — a reserved name
  * rejected at admission depth costs no remote read), then case-only collision analysis, IF
  * preflight (including the two-stage {@code matches}: requested-algorithm equality plus
  * physical-family corroboration), column-lookup collision analysis, schema contract from
- * the stored column name, locator
- * normalization, deterministic properties JSON, positive-quota assertion, and only then exactly
- * one id allocation and the durable {@code createJob} transfer.
- * Every rejection before {@code createJob} leaves no job, no fence, no quota charge, no journal
- * record, and no id allocation; the manager's own fence/quota rejections pass through verbatim
- * (an id burned by them is accepted — ids are never required to be contiguous).
+ * the stored column name, and deterministic properties JSON. The validation collected here is
+ * the request-validation stage the synchronous execution path builds on; until that path
+ * lands, an admitted mutation terminates with the shared not-supported rejection, while the
+ * IF no-op cases complete as genuine no-ops (nothing is created or dropped). Every rejection
+ * leaves no durable state behind.
  */
 public final class LanceIndexAdmission {
 
@@ -77,24 +66,6 @@ public final class LanceIndexAdmission {
     public interface SnapshotLoader {
         LanceIndexAdmissionSnapshot load(LanceExternalCatalog catalog, String dbName, String tableName)
                 throws Exception;
-    }
-
-    /** The admission result: the durable job id, or null for an IF no-op (no job created). */
-    public static final class Outcome {
-        private final Long jobId;
-
-        private Outcome(Long jobId) {
-            this.jobId = jobId;
-        }
-
-        /**
-         * The admitted job id, or null when the IF preflight made the statement an immediate
-         * no-op (design section 2.2: "returns an immediate no-op, without creating a job").
-         */
-        @Nullable
-        public Long getJobId() {
-            return jobId;
-        }
     }
 
     private static final SnapshotLoader DEFAULT_LOADER = new SnapshotLoader() {
@@ -113,12 +84,12 @@ public final class LanceIndexAdmission {
      * ({@link LanceIndexMutationValidator#validateCreateIndex}) must already have passed for
      * {@code def}.
      */
-    public static Outcome admitCreate(LanceExternalCatalog catalog, LanceExternalDatabase db,
+    public static void admitCreate(LanceExternalCatalog catalog, LanceExternalDatabase db,
             LanceExternalTable table, IndexDefinition def, boolean ifNotExists) throws Exception {
-        return admitCreate(DEFAULT_LOADER, catalog, db, table, def, ifNotExists);
+        admitCreate(DEFAULT_LOADER, catalog, db, table, def, ifNotExists);
     }
 
-    static Outcome admitCreate(SnapshotLoader loader, LanceExternalCatalog catalog,
+    static void admitCreate(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, IndexDefinition def, boolean ifNotExists)
             throws Exception {
         // 1. Display/normalized names and the reserved system prefix, checked before any metadata
@@ -141,57 +112,30 @@ public final class LanceIndexAdmission {
         }
         String storedName = LanceIndexFamilies.uniqueMatch(storedNames, normalizedName);
         // 4. IF preflight (design section 2.2).
-        boolean orReplace = def.isOrReplace();
-        if (!orReplace && storedName != null) {
+        if (!def.isOrReplace() && storedName != null) {
             if (!ifNotExists) {
                 rejectInvalid("index '" + displayName + "' already exists");
             }
             if (!matchesExistingDefinition(snapshot, storedName, def)) {
                 rejectInvalid("index '" + displayName + "' already exists with a different definition");
             }
-            return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new Outcome(null));
+            catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
+            return;
         }
         // 5. Fail closed when the table lookup relation cannot resolve the request column
         // uniquely: a dataset can hold top-level fields that differ only by case (V versus v),
         // and ExternalTable.getColumn returns the first hit, so admitting would journal an
         // arbitrary one of them. The pinned snapshot decides, never the cached table schema.
         rejectIfAmbiguousLookupColumn(snapshot, def.getCols().get(0));
-        // 6. Schema contract v1 from the stored column name (never the raw user spelling).
-        String storedColumnName = storedColumnName(table, def.getCols().get(0));
-        LanceIndexSchemaContract contract =
-                LanceSchemaContractBuilder.build(snapshot.getTopLevelFields(), storedColumnName);
-        // 7. The fence locator is the normalized dataset uri of the same pinned snapshot.
-        String locator = normalizeLocator(snapshot);
-        // 8. Deterministic normalized properties JSON for ANN; scalar families persist null.
-        boolean ann = def.getLanceIndexType() == null;
-        String indexType = ann ? annIndexType(def) : def.getLanceIndexType();
-        String propertiesJson = ann ? buildAnnPropertiesJson(def) : null;
-        // D7 backstop: quota values from fe.conf bypass the ADMIN SET callback, so admission
-        // re-asserts positivity before any id allocation or durable transfer.
-        assertPositiveQuotas();
-        return catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
-            // 9. Exactly one id allocation, after every preflight above has passed.
-            long jobId = Env.getCurrentEnv().getNextId();
-            String creator = ConnectContext.get().getQualifiedUser();
-            // 10. REPLACE on an existing name persists the stored display name (section 4.1) so the
-            // worker locates the case-sensitive target; a fresh REPLACE keeps the user's spelling.
-            String persistedDisplayName = (orReplace && storedName != null) ? storedName : displayName;
-            LanceIndexJob job;
-            try {
-                job = new LanceIndexJob(jobId, creator, catalog.getId(), db.getFullName(), table.getName(),
-                        LanceIndexFenceKey.PROVIDER_DIRECTORY, locator, persistedDisplayName, normalizedName,
-                        orReplace ? LanceIndexJobMutationType.REPLACE : LanceIndexJobMutationType.CREATE,
-                        ifNotExists, false, indexType, storedColumnName, propertiesJson,
-                        snapshot.getDatasetVersion(), contract);
-            } catch (IllegalArgumentException e) {
-                throw invalidAdmission(e.getMessage());
-            }
-            Env.getCurrentEnv().getLanceIndexJobManager().createJob(job,
-                    Config.lance_index_job_max_unresolved_per_table,
-                    Config.lance_index_job_max_unresolved_per_catalog,
-                    Config.lance_index_job_max_unresolved_global);
-            // 11. The job and its fence are durable once createJob returns.
-            return new Outcome(jobId);
+        // 6. Schema contract v1 from the stored column name (never the raw user spelling). The
+        // build itself is the admission-depth type validation against the pinned snapshot.
+        LanceSchemaContractBuilder.build(snapshot.getTopLevelFields(), storedColumnName(table, def.getCols().get(0)));
+        // Every validation above is preserved for the synchronous execution path; until that
+        // path lands, a mutation that would be admitted terminates with the shared rejection.
+        catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
+            LanceIndexMutationValidator.rejectUnsupportedOperation(
+                    def.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX", "catalog tables");
+            return null;
         });
     }
 
@@ -199,12 +143,12 @@ public final class LanceIndexAdmission {
      * Admits a top-level DROP INDEX. The static name bounds
      * ({@link LanceIndexMutationValidator#validateDropIndex}) must already have passed.
      */
-    public static Outcome admitDrop(LanceExternalCatalog catalog, LanceExternalDatabase db,
+    public static void admitDrop(LanceExternalCatalog catalog, LanceExternalDatabase db,
             LanceExternalTable table, String indexName, boolean ifExists) throws Exception {
-        return admitDrop(DEFAULT_LOADER, catalog, db, table, indexName, ifExists);
+        admitDrop(DEFAULT_LOADER, catalog, db, table, indexName, ifExists);
     }
 
-    static Outcome admitDrop(SnapshotLoader loader, LanceExternalCatalog catalog,
+    static void admitDrop(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, String indexName, boolean ifExists)
             throws Exception {
         // Fail cheap-first: the reserved prefix is rejected before target capture and the
@@ -222,31 +166,16 @@ public final class LanceIndexAdmission {
         String storedName = LanceIndexFamilies.uniqueMatch(storedNames, normalizedName);
         if (storedName == null) {
             if (ifExists) {
-                return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new Outcome(null));
+                catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
+                return;
             }
             rejectInvalid("index '" + indexName + "' not found");
         }
-        String locator = normalizeLocator(snapshot);
-        assertPositiveQuotas();
-        return catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
-            long jobId = Env.getCurrentEnv().getNextId();
-            String creator = ConnectContext.get().getQualifiedUser();
-            // DROP only runs past the preflight with a unique match, so the stored display name is
-            // always persisted (section 4.1); definition fields stay null on a DROP job record.
-            LanceIndexJob job;
-            try {
-                job = new LanceIndexJob(jobId, creator, catalog.getId(), db.getFullName(), table.getName(),
-                        LanceIndexFenceKey.PROVIDER_DIRECTORY, locator, storedName, normalizedName,
-                        LanceIndexJobMutationType.DROP, false, ifExists, null, null, null,
-                        snapshot.getDatasetVersion(), null);
-            } catch (IllegalArgumentException e) {
-                throw invalidAdmission(e.getMessage());
-            }
-            Env.getCurrentEnv().getLanceIndexJobManager().createJob(job,
-                    Config.lance_index_job_max_unresolved_per_table,
-                    Config.lance_index_job_max_unresolved_per_catalog,
-                    Config.lance_index_job_max_unresolved_global);
-            return new Outcome(jobId);
+        // The preflight above is preserved for the synchronous execution path; until that path
+        // lands, a mutation that would be admitted terminates with the shared rejection.
+        catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
+            LanceIndexMutationValidator.rejectUnsupportedOperation("DROP INDEX", "catalog tables");
+            return null;
         });
     }
 
@@ -344,7 +273,7 @@ public final class LanceIndexAdmission {
         JsonObject compression = exposed == null || !exposed.has("compression")
                 ? null : exposed.getAsJsonObject("compression");
         // The request side of num_bits is never "unset": the validator accepts an omitted value
-        // and the persisted job pins it to 8 (section 2.4), so the preflight compares an
+        // and the effective default is 8 (section 2.4), so the preflight compares an
         // effective 8 against any exposed compression.num_bits instead of skipping.
         String requestNumBits = request.get("num_bits") == null ? "8" : request.get("num_bits");
         return numericPropertyMatches(request.get("num_sub_vectors"), compression, "num_sub_vectors")
@@ -405,47 +334,6 @@ public final class LanceIndexAdmission {
         return normalizedAnnProperties(def.getProperties()).get("index_type");
     }
 
-    /** The persisted job index type: the uppercased validated ANN index_type, else the literal. */
-    private static String annIndexType(IndexDefinition def) {
-        String indexType = normalizedAnnProperties(def.getProperties()).get("index_type");
-        return indexType == null ? null : indexType.toUpperCase(Locale.ROOT);
-    }
-
-    /**
-     * The deterministic params JSON for an admitted ANN job: lowercased keys in TreeMap order,
-     * index_type as the uppercased original value, metric lowercased, numeric values as their
-     * original strings, and num_bits pinned to 8 (design section 2.4). Bounded well under
-     * {@link LanceIndexJob#MAX_PROPERTIES_JSON_BYTES} by the five-key whitelist.
-     */
-    private static String buildAnnPropertiesJson(IndexDefinition def) throws AnalysisException {
-        Map<String, String> request = normalizedAnnProperties(def.getProperties());
-        TreeMap<String, String> persisted = new TreeMap<>();
-        String indexType = request.get("index_type");
-        if (indexType != null) {
-            persisted.put("index_type", indexType.toUpperCase(Locale.ROOT));
-        }
-        String metric = request.get("metric");
-        if (metric != null) {
-            persisted.put("metric", metric.toLowerCase(Locale.ROOT));
-        }
-        putIfPresent(persisted, request, "num_partitions");
-        putIfPresent(persisted, request, "num_sub_vectors");
-        persisted.put("num_bits", "8");
-        try {
-            return GsonUtils.GSON.toJson(persisted);
-        } catch (IllegalArgumentException e) {
-            throw invalidAdmission(e.getMessage());
-        }
-    }
-
-    private static void putIfPresent(TreeMap<String, String> target, Map<String, String> source,
-            String key) {
-        String value = source.get(key);
-        if (value != null) {
-            target.put(key, value);
-        }
-    }
-
     /**
      * The request properties with case-folded keys. Static validation has already rejected
      * unknown and duplicate (case-insensitively) keys, so a plain last-wins fold is exact here.
@@ -491,15 +379,6 @@ public final class LanceIndexAdmission {
         return column.getName();
     }
 
-    private static String normalizeLocator(LanceIndexAdmissionSnapshot snapshot)
-            throws AnalysisException {
-        try {
-            return LanceIndexDatasetLocator.normalize(snapshot.getDatasetUri());
-        } catch (IllegalArgumentException e) {
-            throw invalidAdmission(e.getMessage());
-        }
-    }
-
     private static List<String> logicalIndexNames(LanceIndexAdmissionSnapshot snapshot) {
         List<String> names = new ArrayList<>(snapshot.getLogicalIndexes().size());
         for (LanceShowIndexInfo index : snapshot.getLogicalIndexes()) {
@@ -508,39 +387,7 @@ public final class LanceIndexAdmission {
         return names;
     }
 
-    /**
-     * D7: the unresolved-job quotas are a section 9.7 enablement precondition. The ADMIN SET
-     * callback validates them, but fe.conf loading bypasses callbacks, so admission asserts them
-     * again before allocating an id. The manager independently rejects non-positive limits
-     * at the durable-transfer boundary.
-     */
-    private static void assertPositiveQuotas() throws AnalysisException {
-        if (Config.lance_index_job_max_unresolved_per_table <= 0) {
-            rejectNonPositiveQuota("lance_index_job_max_unresolved_per_table",
-                    Config.lance_index_job_max_unresolved_per_table);
-        }
-        if (Config.lance_index_job_max_unresolved_per_catalog <= 0) {
-            rejectNonPositiveQuota("lance_index_job_max_unresolved_per_catalog",
-                    Config.lance_index_job_max_unresolved_per_catalog);
-        }
-        if (Config.lance_index_job_max_unresolved_global <= 0) {
-            rejectNonPositiveQuota("lance_index_job_max_unresolved_global",
-                    Config.lance_index_job_max_unresolved_global);
-        }
-    }
-
-    private static void rejectNonPositiveQuota(String configItem, long value) throws AnalysisException {
-        ErrorReport.reportAnalysisException("%s", ErrorCode.ERR_LANCE_INDEX_MUTATION_DISABLED,
-                "Lance index admission requires positive unresolved-job quotas, but " + configItem
-                        + " = " + value + "; fix the FE configuration before enabling "
-                        + "enable_lance_index_mutation");
-    }
-
     private static void rejectInvalid(String detail) throws AnalysisException {
         ErrorReport.reportAnalysisException(ErrorCode.ERR_LANCE_INDEX_INVALID, detail);
-    }
-
-    private static AnalysisException invalidAdmission(String detail) {
-        return new AnalysisException(detail, ErrorCode.ERR_LANCE_INDEX_INVALID);
     }
 }

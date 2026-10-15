@@ -108,6 +108,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
+                "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*// DEFAULT",
                 "hive.metastore.kerberos.principal" = "hive/invalid-host@LABS.TERADATA.COM"
             );
         """

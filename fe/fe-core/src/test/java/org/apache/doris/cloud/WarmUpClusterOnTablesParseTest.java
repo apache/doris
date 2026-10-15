@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule.RuleType;
@@ -66,6 +67,11 @@ public class WarmUpClusterOnTablesParseTest {
         originalSystemInfo = getField(env, Env.class, "systemInfo");
         connectContext = new ConnectContext();
         connectContext.setEnv(env);
+        // this test covers ON TABLES parsing and validation, not authorization, so give the
+        // context an identity and let it bypass the privilege checks in validate()
+        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        connectContext.setNoAuth(true);
+        connectContext.setSkipAuth(true);
         connectContext.setThreadLocalInfo();
     }
 

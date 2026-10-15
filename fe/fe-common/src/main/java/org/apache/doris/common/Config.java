@@ -1429,6 +1429,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 16;
 
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Maximum snapshot parallelism per FROM TO task; values below 1 are treated as 1")
+    public static int streaming_cdc_max_snapshot_parallelism = 16;
+
     /**
      * the max timeout of get kafka meta.
      */
@@ -2660,6 +2664,18 @@ public class Config extends ConfigBase {
     public static boolean ssl_force_client_auth = false;
 
     /**
+     * Which MySQL clients that announce caching_sha2_password are authenticated with it (through its
+     * full-authentication exchange, the password is still checked against the stored native hash):
+     * "auto" - clients announcing caching_sha2_password with _client_version 9 or later
+     * (such as mysql / mysqldump 9.x); every other client is switched to mysql_native_password
+     * as before. "all" - every client announcing caching_sha2_password. "none" - no client;
+     * every client is switched to mysql_native_password, the behavior before this option.
+     */
+    @ConfField(mutable = true, masterOnly = false, options = {"auto", "all", "none"},
+            callback = OptionsConfHandler.class)
+    public static String mysql_caching_sha2_password_clients = "auto";
+
+    /**
      * ssl connection needs to authenticate client's certificate store type.
      */
     @ConfField(mutable = false, masterOnly = false)
@@ -3874,7 +3890,7 @@ public class Config extends ConfigBase {
             description = {
                     "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
                             + "If false, use the legacy modulo placement. Restart-only."})
-    public static boolean enable_cloud_colocate_consistent_hash = true;
+    public static boolean enable_cloud_colocate_consistent_hash = false;
 
     @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认 true",
         "Whether to enable the automatic start-stop feature in cloud model, default is true."})
@@ -4242,32 +4258,13 @@ public class Config extends ConfigBase {
     public static long lance_catalog_arrow_memory_limit_bytes = 256L * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的 admission。默认关闭;"
-                    + "启用前需确认未决 job 配额均为正值。注意:在 dispatch(后续版本)与 FORCE_RELEASE(后续版本)就绪前"
-                    + "开启本开关会产生不可回收的 PENDING job 并冻结对应 catalog 的身份属性变更与 DROP CATALOG。",
-            "Enable admission of Lance index mutations (CREATE/CREATE OR REPLACE/DROP INDEX). "
-                    + "Disabled by default; unresolved-job quotas must be positive before enabling. "
-                    + "WARNING: enabling before dispatch and FORCE_RELEASE land in a later release creates "
-                    + "PENDING jobs that cannot be resolved and freezes catalog identity changes and DROP CATALOG."})
+            "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的权威校验路径。默认关闭;"
+                    + "在同步执行路径就绪前,开启本开关只会让通过校验的语句收到暂不支持的错误。",
+            "Enable the authoritative validation path of Lance index mutations "
+                    + "(CREATE/CREATE OR REPLACE/DROP INDEX). Disabled by default; until the synchronous "
+                    + "execution path lands, enabling it only makes validated statements fail with the "
+                    + "not-supported error."})
     public static boolean enable_lance_index_mutation = false;
-
-    @ConfField(mutable = true, masterOnly = true,
-            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
-            description = {"单个 Lance 数据表(locator 身份)允许的最大未决索引 job 数。",
-                    "Max unresolved Lance index jobs per table (locator identity)."})
-    public static long lance_index_job_max_unresolved_per_table = 8;
-
-    @ConfField(mutable = true, masterOnly = true,
-            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
-            description = {"单个 Lance catalog 允许的最大未决索引 job 数。",
-                    "Max unresolved Lance index jobs per catalog."})
-    public static long lance_index_job_max_unresolved_per_catalog = 64;
-
-    @ConfField(mutable = true, masterOnly = true,
-            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
-            description = {"全部 catalog 合计允许的最大未决 Lance 索引 job 数。",
-                    "Max unresolved Lance index jobs across all catalogs (global)."})
-    public static long lance_index_job_max_unresolved_global = 256;
 
     @ConfField(mutable = true, masterOnly = true,
             callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,

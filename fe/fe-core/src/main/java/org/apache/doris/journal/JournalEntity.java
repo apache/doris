@@ -49,7 +49,6 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
-import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
@@ -1014,11 +1013,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
-                data = LanceIndexJob.read(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_BEGIN_SNAPSHOT: {
                 data = SnapshotState.read(in);
                 isRead = true;
@@ -1026,6 +1020,14 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_META_SYNC_POINT: {
                 data = CloudMetaSyncPoint.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_LANCE_INDEX_JOB_UPSERT: {
+                // Payload of the removed durable Lance index job framework (Text-delimited
+                // JSON). Consumed and ignored so journals from builds that manually enabled
+                // the gate stay readable; the operation code is never reused.
+                Text.readString(in);
                 isRead = true;
                 break;
             }

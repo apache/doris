@@ -35,6 +35,8 @@ import org.apache.doris.thrift.TVectorMetric;
 import org.apache.doris.thrift.TVectorSearchOptions;
 import org.apache.doris.thrift.TVectorSearchParams;
 
+import org.lance.index.IndexType;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -225,6 +227,16 @@ final class LanceScanPlanner {
                 metadata.getIndexes(), searchFieldId)) {
             if (!metricMatches(vectorSearchParam, matchingSegments)) {
                 vectorIndexStatus = VectorIndexStatus.METRIC_MISMATCH;
+                continue;
+            }
+            boolean hasLower = vectorSearchParam.isSetDistanceLowerBound();
+            boolean hasUpper = vectorSearchParam.isSetDistanceUpperBound();
+            // Quantized indexes apply bounds before exact refinement and can discard valid rows.
+            // The pinned parallel IVF_FLAT path also replaces absent bounds with finite sentinels.
+            // Only a two-sided IVF_FLAT range is safe; unknown index types must use exact scans.
+            if ((hasLower || hasUpper) && (!hasLower || !hasUpper || matchingSegments.stream()
+                    .anyMatch(segment -> segment.getIndexType() != IndexType.IVF_FLAT))) {
+                vectorIndexStatus = VectorIndexStatus.DISTANCE_RANGE_FALLBACK;
                 continue;
             }
             Optional<LanceSplitBuilder> indexPlan = planIndexSegments(

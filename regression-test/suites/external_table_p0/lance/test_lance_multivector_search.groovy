@@ -41,7 +41,8 @@ suite("test_lance_multivector_search", "p0,external") {
         return 1d - dot / Math.sqrt((q[0] ** 2 + q[1] ** 2) * (v[0] ** 2 + v[1] ** 2))
     }
     def search = { String column, String json, String metric, boolean indexed, int k, int offset, String filter ->
-        String where = filter == null ? "" : ', "filter"="' + filter + '"'
+        String where = filter == null ? ""
+                : ', "filter"="' + filter + '", "prefilter"="true"'
         String metricProperty = metric == null ? "" : ', "metric"="' + metric + '"'
         return """vector_search("table"="${tableName}", "column"="${column}",
             "query_vector"="${json}"${metricProperty}, "use_index"="${indexed}",

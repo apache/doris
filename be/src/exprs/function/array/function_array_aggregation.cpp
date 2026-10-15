@@ -90,7 +90,8 @@ struct AggregateFunctionTraits<AggregateOperation::AVERAGE> {
     struct TypeTraits {
         static constexpr PrimitiveType ResultType =
                 Element == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : TYPE_DOUBLE;
-        using AggregateDataType = AggregateFunctionAvgData<ResultType>;
+        // Add up the values in the same type as avg(). A double sum loses digits of large integers.
+        using AggregateDataType = AggregateFunctionAvgData<avg_sum_type(Element)>;
         using Function = AggregateFunctionAvg<Element, ResultType, AggregateDataType>;
         static_assert(std::is_same_v<typename PrimitiveTypeTraits<ResultType>::CppType,
                                      typename Function::ResultType>,

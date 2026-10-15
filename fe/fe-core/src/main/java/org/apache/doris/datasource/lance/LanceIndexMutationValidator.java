@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.datasource.lance.job.LanceIndexNameNormalizer;
 import org.apache.doris.datasource.lance.metadata.LanceTypeConverter;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 
@@ -130,9 +129,9 @@ public final class LanceIndexMutationValidator {
     }
 
     /**
-     * Shared Lance index-name bounds for the CREATE and DROP paths: the name becomes the durable
-     * logical identity that an admitted job and its same-name fence key are built on, so
-     * null/empty names are rejected here instead of being masked as unsupported operations.
+     * Shared Lance index-name bounds for the CREATE and DROP paths: the name is the durable
+     * logical identity the admission preflight matches against authoritative Lance metadata,
+     * so null/empty names are rejected here instead of being masked as unsupported operations.
      */
     private static void validateIndexName(String indexName) throws AnalysisException {
         if (indexName == null || indexName.isEmpty()) {
@@ -168,7 +167,7 @@ public final class LanceIndexMutationValidator {
             rejectInvalidDefinition("ANN index column item type must be float type");
         }
         // Keys match case-insensitively; the normalized view below is validation-local only.
-        // Persisting normalized keys/values into the admitted job spec is owned by admission.
+        // Comparing the normalized request against authoritative metadata is owned by admission.
         Map<String, String> lowerCaseProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey().toLowerCase(Locale.ROOT);

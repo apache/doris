@@ -19,6 +19,7 @@ package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -558,19 +559,93 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
     }
 
     @Test
-    void lanceIndexSchemaIsJobIdWithoutAdmission() throws Exception {
+    void lanceIndexSchemaFollowsGenericDdlStatusSchema() throws Exception {
         LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
         Mockito.doReturn(catalog).when(connectContext).getCatalog("schema_lance");
         for (String query : Arrays.asList(
                 "CREATE INDEX idx ON schema_lance.db1.source (v) USING ANN",
                 "CREATE INDEX IF NOT EXISTS idx ON schema_lance.db1.source (v) USING ANN",
                 "DROP INDEX IF EXISTS idx ON schema_lance.db1.source")) {
-            Assertions.assertEquals("JobId", preparedSchema(query).getFields().get(0).getName(), query);
-            Assertions.assertEquals(schema(query), preparedSchema(query));
+            Assertions.assertEquals("StatusResult", schema(query).getFields().get(0).getName(), query);
         }
-        Mockito.verifyNoInteractions(catalog);
         Assertions.assertEquals("StatusResult", schema("CREATE INDEX idx ON schema_input (name) USING INVERTED")
                 .getFields().get(0).getName());
+    }
+
+    @Test
+    void forwardedMasterRejectionFailsFlightExecutionInsteadOfOk() throws Exception {
+        // What a follower FE holds after forwarding a valid Lance index DDL that the master
+        // rejected: the follower-local state stays OK (the MySQL path returns the master's ERR
+        // packet verbatim and the audit log reads the proxy status), so only the proxy fields
+        // describe the outcome. Flight must not turn that combination into a success result.
+        StmtExecutor rejected = Mockito.mock(StmtExecutor.class);
+        Mockito.when(rejected.hasForwardedToMaster()).thenReturn(true);
+        Mockito.when(rejected.getProxyStatusCode())
+                .thenReturn(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED.getCode());
+        Mockito.when(rejected.getProxyErrMsg())
+                .thenReturn("CREATE INDEX is not supported for Lance catalog tables");
+        StmtExecutor accepted = Mockito.mock(StmtExecutor.class);
+        Mockito.when(accepted.hasForwardedToMaster()).thenReturn(true);
+        Mockito.when(accepted.getProxyStatusCode()).thenReturn(0);
+        final StmtExecutor[] forwarded = {rejected};
+        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        Mockito.doReturn(catalog).when(connectContext).getCatalog("schema_lance");
+        StmtExecutor previous = connectContext.getExecutor();
+        String ddl = "CREATE INDEX idx ON schema_lance.db1.source (v) USING ANN";
+        ActionCreatePreparedStatementResult result = prepare(ddl);
+        CommandPreparedStatementQuery prepared = CommandPreparedStatementQuery.newBuilder()
+                .setPreparedStatementHandle(result.getPreparedStatementHandle()).build();
+        try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
+                FlightSqlConnectProcessor.class, (processor, context) -> {
+                    Mockito.doAnswer(invocation -> {
+                        // Reset like the real processor's prepare() so each execution starts from
+                        // a clean local state, whatever the previous one set.
+                        connectContext.getState().reset();
+                        connectContext.setReturnResultFromLocal(true);
+                        connectContext.setExecutor(forwarded[0]);
+                        return null;
+                    }).when(processor).handleQuery(Mockito.anyString());
+                    Mockito.doAnswer(invocation -> {
+                        connectContext.getState().reset();
+                        connectContext.setReturnResultFromLocal(true);
+                        connectContext.setExecutor(forwarded[0]);
+                        return null;
+                    }).when(processor).handleQuery(Mockito.anyString(), Mockito.any());
+                })) {
+            // Direct Execute of a forwarded statement the master rejected.
+            FlightRuntimeException direct = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(CommandStatementQuery.newBuilder()
+                            .setQuery(ddl).build(), callContext, FlightDescriptor.command(new byte[0])));
+            Assertions.assertEquals(FlightStatusCode.INTERNAL, direct.status().code());
+            Assertions.assertTrue(direct.status().description()
+                    .contains("CREATE INDEX is not supported for Lance catalog tables"), direct.toString());
+            Assertions.assertEquals(0, connectContext.getFlightSqlChannel().resultNum());
+
+            // Prepared Execute of the same statement fails the same way, and the handle survives:
+            // the rejection is an execution outcome, not a schema change.
+            FlightRuntimeException viaPrepared = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoPreparedStatement(prepared, callContext,
+                            FlightDescriptor.command(new byte[0])));
+            Assertions.assertEquals(FlightStatusCode.INTERNAL, viaPrepared.status().code());
+            Assertions.assertTrue(viaPrepared.status().description()
+                    .contains("forwarded statement failed on master FE"), viaPrepared.toString());
+            Assertions.assertEquals(0, connectContext.getFlightSqlChannel().resultNum());
+            String handle = result.getPreparedStatementHandle().toStringUtf8();
+            Assertions.assertNotNull(connectContext.getPreparedQuery(handle.substring(handle.indexOf(':') + 1)));
+
+            // A forwarded statement the master accepted still produces the OK StatusResult.
+            forwarded[0] = accepted;
+            Assertions.assertEquals("StatusResult", producer.getFlightInfoStatement(
+                    CommandStatementQuery.newBuilder().setQuery(ddl).build(), callContext,
+                    FlightDescriptor.command(new byte[0])).getSchema().getFields().get(0).getName());
+            Assertions.assertEquals(1, connectContext.getFlightSqlChannel().resultNum());
+        } finally {
+            connectContext.setExecutor(previous);
+            connectContext.getFlightSqlChannel().reset();
+            connectContext.getState().reset();
+            String handle = result.getPreparedStatementHandle().toStringUtf8();
+            connectContext.removePreparedQuery(handle.substring(handle.indexOf(':') + 1));
+        }
     }
 
     @Test

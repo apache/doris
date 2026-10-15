@@ -578,7 +578,7 @@ public class S3Util {
 
     /**
      * Convert range patterns to brace enumeration patterns for glob matching.
-     * Parts containing negative numbers or non-numeric characters are skipped.
+     * Literal alternatives are preserved; ranges containing negative bounds are skipped.
      * eg(valid):
      *    -> "file{1..3}" => "file{1,2,3}"
      *    -> "file_{1..3,4,5..6}" => "file_{1,2,3,4,5,6}"
@@ -595,13 +595,12 @@ public class S3Util {
 
         while (braceMatcher.find()) {
             String braceContent = braceMatcher.group(1);
-            String[] parts = braceContent.split(",");
-            List<Integer> allNumbers = new ArrayList<>();
+            String[] parts = braceContent.split(",", -1);
+            List<String> values = new ArrayList<>();
             Pattern rangePattern = Pattern.compile("^(-?\\d+)\\.\\.(-?\\d+)$");
 
             for (String part : parts) {
-                part = part.trim();
-                Matcher rangeMatcher = rangePattern.matcher(part);
+                Matcher rangeMatcher = rangePattern.matcher(part.trim());
 
                 if (rangeMatcher.matches()) {
                     int start = Integer.parseInt(rangeMatcher.group(1));
@@ -618,39 +617,35 @@ public class S3Util {
                         end = temp;
                     }
                     for (int i = start; i <= end; i++) {
-                        if (!allNumbers.contains(i)) {
-                            allNumbers.add(i);
+                        String value = String.valueOf(i);
+                        if (!values.contains(value)) {
+                            values.add(value);
                         }
                     }
-                } else if (part.matches("^\\d+$")) {
-                    // This is a single non-negative number like "4"
-                    int num = Integer.parseInt(part);
-                    if (!allNumbers.contains(num)) {
-                        allNumbers.add(num);
-                    }
                 } else {
-                    // Not a valid number or range (e.g., negative number, or contains non-numeric chars)
-                    // Just skip this part and continue processing other parts
-                    continue;
+                    // Preserve literal file names, including leading zeros and non-numeric characters.
+                    if (!values.contains(part)) {
+                        values.add(part);
+                    }
                 }
             }
 
-            // If no valid numbers found after filtering, keep original content
-            if (allNumbers.isEmpty()) {
-                braceMatcher.appendReplacement(result, "{" + braceContent + "}");
+            // If all alternatives were skipped, keep the original content.
+            if (values.isEmpty()) {
+                braceMatcher.appendReplacement(result, Matcher.quoteReplacement("{" + braceContent + "}"));
                 continue;
             }
 
             // Build comma-separated result
             StringBuilder sb = new StringBuilder("{");
-            for (int i = 0; i < allNumbers.size(); i++) {
+            for (int i = 0; i < values.size(); i++) {
                 if (i > 0) {
                     sb.append(",");
                 }
-                sb.append(allNumbers.get(i));
+                sb.append(values.get(i));
             }
             sb.append("}");
-            braceMatcher.appendReplacement(result, sb.toString());
+            braceMatcher.appendReplacement(result, Matcher.quoteReplacement(sb.toString()));
         }
         braceMatcher.appendTail(result);
 

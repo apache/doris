@@ -224,10 +224,10 @@ public class LanceScanNode extends FileQueryScanNode {
     @Override
     protected void convertPredicate() {
         if (searchKind.isExternalSearch()) {
-            // The TVF "filter" property is already serialized in externalSearchRequest and is
-            // evaluated by Lance before candidate search. Outer WHERE conjuncts have different
-            // semantics: keep them as Doris scan residuals. Each fragment first returns its Lance
-            // ANN candidates, then Doris evaluates these conjuncts before the local/global TopN.
+            // The TVF "filter" property is serialized in externalSearchRequest; prefilter
+            // controls whether Lance applies it before search or after candidate selection. Outer
+            // WHERE conjuncts remain Doris scan residuals and are evaluated before local/global
+            // TopN.
         } else {
             LancePredicateConverter.ConversionResult result =
                     new LancePredicateConverter(plannedMetadata.getSchema()).convert(conjuncts);
@@ -358,6 +358,13 @@ public class LanceScanNode extends FileQueryScanNode {
                         && externalSearchRequest.getVectorSearchOptions().isSetQueryParallelism()) {
                     result.append(prefix).append("lanceQueryParallelism=")
                             .append(externalSearchRequest.getVectorSearchOptions().getQueryParallelism()).append("\n");
+                }
+                if (vector.isSetDistanceLowerBound() || vector.isSetDistanceUpperBound()) {
+                    result.append(prefix).append("lanceDistanceRange=[")
+                            .append(vector.isSetDistanceLowerBound() ? vector.getDistanceLowerBound() : "-inf")
+                            .append(", ")
+                            .append(vector.isSetDistanceUpperBound() ? vector.getDistanceUpperBound() : "+inf")
+                            .append(")\n");
                 }
                 result.append(prefix).append("lanceMetric=")
                         .append(vector.isSetMetric()

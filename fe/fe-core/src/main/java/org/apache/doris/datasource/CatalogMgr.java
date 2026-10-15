@@ -92,18 +92,18 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     /**
      * The Lance catalog properties whose change moves the persisted target identity
-     * (provider, stable locator, or namespace mapping) out from under unresolved index
-     * jobs. Credentials stay unguarded and may be rotated freely: an access key, secret
-     * key or session token authenticates to the same target. Storage-routing properties
-     * are part of the identity instead, because a job persists only a URI and a different
-     * endpoint or region can land that same URI on a different storage service. The
-     * routing entries are the canonical endpoint/region spellings of every S3-compatible
-     * property family the Lance storage chain consumes: an s3 dataset reads whichever
-     * S3-compatible configuration the catalog carries (LanceS3StorageProvider prefers a
-     * concrete family over the generic s3 keys), while an oss dataset reads the oss keys
-     * only. Other properties are not target-changing and stay unguarded. Keys match
-     * case-insensitively because the catalog property chain performs no key
-     * normalization.
+     * (provider, stable locator, or namespace mapping) out from under an index
+     * statement that captured that identity. Credentials stay unguarded and may be
+     * rotated freely: an access key, secret key or session token authenticates to the
+     * same target. Storage-routing properties are part of the identity instead, because
+     * the target is identified by a URI and a different endpoint or region can land that
+     * same URI on a different storage service. The routing entries are the canonical
+     * endpoint/region spellings of every S3-compatible property family the Lance storage
+     * chain consumes: an s3 dataset reads whichever S3-compatible configuration the
+     * catalog carries (LanceS3StorageProvider prefers a concrete family over the generic
+     * s3 keys), while an oss dataset reads the oss keys only. Other properties are not
+     * target-changing and stay unguarded. Keys match case-insensitively because the
+     * catalog property chain performs no key normalization.
      */
     private static final Set<String> LANCE_TARGET_IDENTITY_KEYS = ImmutableSet.of(
             "lance.catalog.type", "warehouse",
@@ -337,12 +337,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + catalogName);
             }
-            if (catalog instanceof LanceExternalCatalog
-                    && Env.getCurrentEnv().getLanceIndexJobManager().hasUnresolvedJobsForCatalog(catalog.getId())) {
-                throw new DdlException("catalog '" + catalogName + "' has unresolved Lance index jobs; "
-                        + "they must be released via FORCE_RELEASE (available in a later release) "
-                        + "before dropping the catalog");
-            }
             CatalogLog log = new CatalogLog();
             log.setCatalogId(catalog.getId());
             removedCatalog = removeCatalog(log.getCatalogId());
@@ -458,13 +452,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     .equalsIgnoreCase(newProperties.get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
             }
-            if (catalog instanceof LanceExternalCatalog
-                    && hasLanceIdentityKeyChange(oldProperties, newProperties)
-                    && Env.getCurrentEnv().getLanceIndexJobManager().hasUnresolvedJobsForCatalog(catalog.getId())) {
-                throw new DdlException("catalog '" + catalogName + "' has unresolved Lance index jobs; "
-                        + "they must be released via FORCE_RELEASE (available in a later release) "
-                        + "before changing target identity properties");
-            }
             CatalogLog log = new CatalogLog();
             log.setCatalogId(catalog.getId());
             Map<String, String> loggedProperties = Maps.newHashMap(newProperties);
@@ -518,10 +505,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Revalidate the target and transfer a prepared admission to the job manager atomically
-     * with DROP CATALOG and identity ALTER. The action must contain only local job creation or a no-op;
-     * all metadata loading must finish before entering this short critical section.
-     * Lock order is CatalogMgr then LanceIndexJobManager, as on the catalog DDL path.
+     * Revalidate the target and run the prepared admission action atomically with DROP CATALOG
+     * and identity ALTER. The action must contain only local work or a no-op; all metadata
+     * loading must finish before entering this short critical section.
      */
     public <T> T withLanceIndexAdmission(LanceExternalCatalog catalog, LanceIndexTarget expectedTarget,
             LanceIndexAdmissionAction<T> action) throws Exception {
@@ -561,9 +547,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Whether the supplied properties change any Lance target identity key relative to the
      * currently persisted values. A same-value rewrite is an idempotent no-op and is not a
      * change; a newly supplied identity key counts as a change when the persisted value
-     * differs (including when it was never set).
+     * differs (including when it was never set). Package-private for the guard test.
      */
-    private static boolean hasLanceIdentityKeyChange(Map<String, String> oldProperties,
+    static boolean hasLanceIdentityKeyChange(Map<String, String> oldProperties,
             Map<String, String> newProperties) {
         for (Map.Entry<String, String> entry : newProperties.entrySet()) {
             String key = entry.getKey();

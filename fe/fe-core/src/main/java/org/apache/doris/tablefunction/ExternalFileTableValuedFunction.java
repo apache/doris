@@ -199,6 +199,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        parseFile(null);
+    }
+
+    protected void parseFile(List<TBrokerFileStatus> files) throws AnalysisException {
         long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
@@ -208,6 +212,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
                 String endpoint = storageProperties.getEndpoint();
                 S3Util.validateAndTestEndpoint(endpoint);
+            }
+            if (files != null) {
+                fileStatuses.addAll(files);
+                return;
             }
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {

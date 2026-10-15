@@ -222,6 +222,9 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         sql """set runtime_filter_wait_infinitely=true"""
         // TRuntimeFilterType.IN == 1: force the IN runtime-filter shape.
         sql """set runtime_filter_type=1"""
+        // Fuzzy sessions can set this limit to zero, disabling IN filters even when awaited.
+        // The positive pushdown checks require the small IN sets to remain enabled.
+        sql "set runtime_filter_max_in_num=1024"
 
         // Reuse the framework's profile readiness polling and configured HTTP credentials.
         def profileAction = new ProfileAction(context)

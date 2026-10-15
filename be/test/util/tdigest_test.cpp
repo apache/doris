@@ -123,6 +123,35 @@ TEST_F(TDigestTest, EmptyDigest) {
     EXPECT_EQ(0, digest.processed().size());
 }
 
+TEST_F(TDigestTest, NonPositiveValuesHaveCorrectMaximum) {
+    for (const auto& values : {std::vector<Value> {-3, -2, -1}, std::vector<Value> {-3, -2, 0}}) {
+        SCOPED_TRACE(values.back());
+        const auto expect_extrema = [&](TDigest& digest) {
+            EXPECT_EQ(values.front(), digest.quantile(0));
+            EXPECT_EQ(values.back(), digest.quantile(1));
+        };
+        TDigest digest(2048);
+        for (auto value : values) {
+            digest.add(value);
+        }
+        expect_extrema(digest);
+
+        std::vector<uint8_t> bytes(digest.serialized_size());
+        ASSERT_EQ(bytes.size(), digest.serialize(bytes.data()));
+        TDigest restored(0);
+        restored.unserialize(bytes.data());
+        expect_extrema(restored);
+
+        TDigest merged(2048);
+        merged.merge(&digest);
+        expect_extrema(merged);
+
+        std::vector<Centroid> processed(digest.processed());
+        TDigest from_centroids(std::move(processed), {}, 2048, 0, 0);
+        expect_extrema(from_centroids);
+    }
+}
+
 TEST_F(TDigestTest, SingleValue) {
     TDigest digest(100);
     std::random_device gen;

@@ -35,6 +35,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -101,6 +102,33 @@ public class CdcStreamTableValuedFunctionTest {
                 () -> new CdcStreamTableValuedFunction(properties));
 
         Assert.assertTrue(exception.getMessage().contains("include_delete_sign"));
+    }
+
+    @Test
+    public void testInvalidSnapshotPropertiesAreRejected() {
+        for (String key : Arrays.asList(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
+                DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            for (String value : Arrays.asList("oops", "0", "-1", "2147483648")) {
+                Map<String, String> properties = baseProperties();
+                properties.put(key, value);
+                AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                        () -> CdcStreamTableValuedFunction.validateProperties(properties));
+                Assert.assertTrue(exception.getMessage().contains(key));
+            }
+        }
+    }
+
+    @Test
+    public void testSnapshotParallelismRequiresEnoughServerIds() throws Exception {
+        Map<String, String> properties = baseProperties();
+        properties.put(DataSourceConfigKeys.SERVER_ID, "5400-5401");
+        properties.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "3");
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> CdcStreamTableValuedFunction.validateProperties(properties));
+        Assert.assertTrue(exception.getMessage().contains("server_id range size 2"));
+
+        properties.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+        CdcStreamTableValuedFunction.validateProperties(properties);
     }
 
     @Test

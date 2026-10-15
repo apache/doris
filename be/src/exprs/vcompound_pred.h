@@ -610,7 +610,8 @@ private:
             if constexpr (is_and) {
                 lhs[i] &= rhs[i];
             } else {
-                lhs[i] |= rhs[i];
+                // Logical OR must produce a canonical Boolean instead of preserving input bits.
+                lhs[i] = (lhs[i] | rhs[i]) != 0;
             }
         }
     }
@@ -633,7 +634,9 @@ private:
                 res_data[i] = lhs_data[i] & rhs_data[i];
             } else {
                 res_null[i] = apply_or_null(lhs_data[i], lhs_null[i], rhs_data[i], rhs_null[i]);
-                res_data[i] = lhs_data[i] | rhs_data[i];
+                // A NULL row may carry an arbitrary nested byte. If the result remains NULL the
+                // byte is ignored; otherwise normalization prevents it from becoming visible.
+                res_data[i] = (lhs_data[i] | rhs_data[i]) != 0;
             }
         }
     }

@@ -111,7 +111,6 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
-import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
@@ -572,8 +571,6 @@ public class Env {
 
     private InsertOverwriteManager insertOverwriteManager;
 
-    private LanceIndexJobManager lanceIndexJobManager;
-
     private DNSCache dnsCache;
 
     private final NereidsSqlCacheManager sqlCacheManager;
@@ -859,7 +856,6 @@ public class Env {
         this.mtmvService = new MTMVService();
         this.eventProcessor = new EventProcessor(mtmvService);
         this.insertOverwriteManager = new InsertOverwriteManager();
-        this.lanceIndexJobManager = new LanceIndexJobManager();
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.sortedPartitionsCacheManager = new NereidsSortedPartitionsCacheManager();
@@ -983,10 +979,6 @@ public class Env {
 
     public InsertOverwriteManager getInsertOverwriteManager() {
         return insertOverwriteManager;
-    }
-
-    public LanceIndexJobManager getLanceIndexJobManager() {
-        return lanceIndexJobManager;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -1829,11 +1821,6 @@ public class Env {
             catalogMgr.migrateVarbinaryMappingProperties();
 
             insertOverwriteManager.allTaskFail();
-
-            // A durable RUNNING Lance index job at this point may have lost its result with the
-            // old master: sweep it to UNKNOWN (and refresh RUNNING back to REQUIRED) before any
-            // master-only dispatcher could start.
-            lanceIndexJobManager.onTransferToMaster();
 
             toMasterProgress = "start daemon threads";
 
@@ -2682,18 +2669,6 @@ public class Env {
     public long saveDictionaryManager(CountingDataOutputStream out, long checksum) throws IOException {
         this.dictionaryManager.write(out);
         LOG.info("finished save dictMgr to image");
-        return checksum;
-    }
-
-    public long loadLanceIndexJobManager(DataInputStream in, long checksum) throws IOException {
-        this.lanceIndexJobManager = LanceIndexJobManager.read(in);
-        LOG.info("finished replay lance index job manager from image");
-        return checksum;
-    }
-
-    public long saveLanceIndexJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        this.lanceIndexJobManager.write(out);
-        LOG.info("finished save lance index job manager to image");
         return checksum;
     }
 

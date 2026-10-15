@@ -19,8 +19,6 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorColumn;
-import org.apache.doris.thrift.TJdbcOperation;
-import org.apache.doris.thrift.TOdbcTableType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -35,6 +33,7 @@ import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -59,6 +58,83 @@ class MySqlTimestampIntegrationTest {
     @Test
     void testWriteAcrossDriverAndSessionTimezones() throws Exception {
         runMatrix(true);
+    }
+
+    @Test
+    void testReadIgnoresCachedServerTimezoneAfterUtcReset() throws Exception {
+        TimeZone original = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        URL driverUrl = new File(System.getProperty("mysql.integration.driverJar")).toURI().toURL();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {driverUrl}, getClass().getClassLoader())) {
+            Driver driver = (Driver) loader.loadClass(System.getProperty("mysql.integration.driverClass",
+                    "com.mysql.cj.jdbc.Driver")).getDeclaredConstructor().newInstance();
+            for (boolean serverPrepared : new boolean[] {false, true}) {
+                String baseUrl = System.getProperty("mysql.integration.url");
+                String url = baseUrl + (baseUrl.contains("?") ? "&" : "?")
+                        + "useTimezone=true&serverTimezone=Asia/Shanghai&useServerPrepStmts=" + serverPrepared;
+                Properties properties = new Properties();
+                properties.setProperty("user", System.getProperty("mysql.integration.user", "root"));
+                properties.setProperty("password", System.getProperty("mysql.integration.password", ""));
+                try (Connection connection = driver.connect(url, properties)) {
+                    seed(connection, "+08:00");
+                    MySQLJdbcExecutor handler = handler();
+                    try (PreparedStatement statement = prepare(handler, connection,
+                            "SELECT CAST(event_time AS CHAR) FROM timestamp_roundtrip ORDER BY id", 100);
+                            ResultSet rows = statement.executeQuery()) {
+                        for (String value : VALUES) {
+                            Assertions.assertTrue(rows.next());
+                            Assertions.assertEquals(LocalDateTime.ofInstant(Instant.parse(value), ZoneOffset.UTC),
+                                    read(handler, rows, 1, INSTANT_TYPE));
+                        }
+                        Assertions.assertTrue(rows.next());
+                        Assertions.assertNull(read(handler, rows, 1, INSTANT_TYPE));
+                        Assertions.assertFalse(rows.next());
+                    }
+                }
+            }
+        } finally {
+            TimeZone.setDefault(original);
+        }
+    }
+
+    @Test
+    void testZeroTimestampRespectsDriverPolicy() throws Exception {
+        URL driverUrl = new File(System.getProperty("mysql.integration.driverJar")).toURI().toURL();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {driverUrl}, getClass().getClassLoader())) {
+            Driver driver = (Driver) loader.loadClass(System.getProperty("mysql.integration.driverClass",
+                    "com.mysql.cj.jdbc.Driver")).getDeclaredConstructor().newInstance();
+            for (String policy : new String[] {"convertToNull", "round", "exception"}) {
+                for (boolean serverPrepared : new boolean[] {false, true}) {
+                    String baseUrl = System.getProperty("mysql.integration.url");
+                    String url = baseUrl + (baseUrl.contains("?") ? "&" : "?")
+                            + "zeroDateTimeBehavior=" + policy + "&useServerPrepStmts=" + serverPrepared;
+                    Properties properties = new Properties();
+                    properties.setProperty("user", System.getProperty("mysql.integration.user", "root"));
+                    properties.setProperty("password", System.getProperty("mysql.integration.password", ""));
+                    try (Connection connection = driver.connect(url, properties)) {
+                        try (Statement statement = connection.createStatement()) {
+                            statement.execute("SET SESSION sql_mode = ''");
+                            statement.execute("CREATE TEMPORARY TABLE zero_timestamp (ts TIMESTAMP(6) NULL)");
+                            statement.execute("INSERT INTO zero_timestamp VALUES ('0000-00-00 00:00:00')");
+                        }
+                        MySQLJdbcExecutor handler = handler();
+                        try (PreparedStatement statement = prepare(handler, connection,
+                                "SELECT CAST(ts AS CHAR) FROM zero_timestamp", 100);
+                                ResultSet rows = statement.executeQuery()) {
+                            Assertions.assertTrue(rows.next());
+                            if (policy.equals("exception")) {
+                                Assertions.assertThrows(SQLException.class,
+                                        () -> read(handler, rows, 1, INSTANT_TYPE));
+                            } else {
+                                Assertions.assertEquals(policy.equals("round")
+                                                ? LocalDateTime.of(1, 1, 1, 0, 0) : null,
+                                        read(handler, rows, 1, INSTANT_TYPE));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private void runMatrix(boolean write) throws Exception {
@@ -114,39 +190,37 @@ class MySqlTimestampIntegrationTest {
         }
     }
 
-    private MySQLJdbcExecutor executor(Connection connection, TJdbcOperation operation, String sql) throws Exception {
-        // Bypass only the JNI bootstrap; statements, result sets and timezone decoding use the real driver.
+    private MySQLJdbcExecutor handler() {
+        // OceanBase MySQL mode shares the same wire contract as MySQL.
         MySQLJdbcExecutor executor = Mockito.mock(MySQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
-        // The OceanBase MySQL-mode path must share this wire contract, not just the schema mapping.
-        TOdbcTableType tableType = TOdbcTableType.valueOf(System.getProperty("mysql.integration.tableType", "MYSQL"));
-        JdbcDataSourceConfig config = new JdbcDataSourceConfig().setOp(operation).setTableType(tableType);
-        executor.config = config;
-        executor.initializeStatement(connection, config, sql);
+        executor.config = new JdbcDataSourceConfig().setTableType(org.apache.doris.thrift.TOdbcTableType.valueOf(
+                System.getProperty("mysql.integration.tableType", "MYSQL")));
         return executor;
     }
 
     private void verifyRead(Connection connection) throws Exception {
-        MySQLJdbcExecutor executor = executor(connection, TJdbcOperation.READ,
-                "SELECT event_time, local_time FROM timestamp_roundtrip ORDER BY id");
-        try (PreparedStatement statement = (PreparedStatement) executor.stmt; ResultSet rows = statement.executeQuery()) {
-            executor.resultSet = rows;
+        MySQLJdbcExecutor executor = handler();
+        try (PreparedStatement statement = prepare(executor, connection,
+                "SELECT CAST(event_time AS CHAR), local_time FROM timestamp_roundtrip ORDER BY id", 100);
+                ResultSet rows = statement.executeQuery()) {
             for (String value : VALUES) {
                 Assertions.assertTrue(rows.next());
                 LocalDateTime expected = LocalDateTime.ofInstant(Instant.parse(value), ZoneOffset.UTC);
-                Assertions.assertEquals(expected, executor.getColumnValue(0, INSTANT_TYPE, new String[0]));
-                Assertions.assertEquals(expected, executor.getColumnValue(1, LOCAL_TYPE, new String[0]));
+                Assertions.assertEquals(expected, read(executor, rows, 1, INSTANT_TYPE));
+                Assertions.assertEquals(expected, read(executor, rows, 2, LOCAL_TYPE));
             }
             Assertions.assertTrue(rows.next());
-            Assertions.assertNull(executor.getColumnValue(0, INSTANT_TYPE, new String[0]));
-            Assertions.assertNull(executor.getColumnValue(1, LOCAL_TYPE, new String[0]));
+            Assertions.assertNull(read(executor, rows, 1, INSTANT_TYPE));
+            Assertions.assertNull(read(executor, rows, 2, LOCAL_TYPE));
             Assertions.assertFalse(rows.next());
         }
     }
 
     private void verifyWrite(Connection connection) throws Exception {
-        MySQLJdbcExecutor executor = executor(connection, TJdbcOperation.WRITE,
-                "INSERT INTO timestamp_roundtrip (id, event_time) VALUES (4, ?)");
+        MySQLJdbcExecutor executor = handler();
         Instant instant = Instant.parse(VALUES[0]);
+        executor.initializeStatement(connection, executor.config.setOp(org.apache.doris.thrift.TJdbcOperation.WRITE),
+                "INSERT INTO timestamp_roundtrip (id, event_time) VALUES (4, ?)");
         VectorColumn column = Mockito.mock(VectorColumn.class);
         Mockito.when(column.getColumnPrimitiveType()).thenReturn(ColumnType.Type.TIMESTAMPTZ);
         Mockito.when(column.getTimeStampTz(0)).thenReturn(LocalDateTime.ofInstant(instant, ZoneOffset.UTC));
@@ -163,5 +237,17 @@ class MySqlTimestampIntegrationTest {
             Assertions.assertEquals(instant.getEpochSecond() * 1_000_000 + instant.getNano() / 1000,
                     rows.getBigDecimal(1).movePointRight(6).longValueExact());
         }
+    }
+
+    private PreparedStatement prepare(MySQLJdbcExecutor executor, Connection connection, String sql, int batchSize)
+            throws SQLException {
+        executor.initializeStatement(connection,
+                executor.config.setOp(org.apache.doris.thrift.TJdbcOperation.READ).setBatchSize(batchSize), sql);
+        return (PreparedStatement) executor.stmt;
+    }
+
+    private Object read(MySQLJdbcExecutor executor, ResultSet rows, int index, ColumnType type) throws SQLException {
+        executor.resultSet = rows;
+        return executor.getColumnValue(index - 1, type, new String[0]);
     }
 }

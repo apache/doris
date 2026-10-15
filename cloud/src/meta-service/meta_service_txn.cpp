@@ -474,12 +474,14 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
         code = MetaServiceCode::TXN_ALREADY_VISIBLE;
         ss << "transaction is already visible: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
+        return;
     }
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_PRECOMMITTED) {
         code = MetaServiceCode::TXN_ALREADY_PRECOMMITED;
         ss << "transaction is already precommited: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
+        return;
     }
 
     LOG(INFO) << "before update txn_info=" << txn_info.ShortDebugString();
