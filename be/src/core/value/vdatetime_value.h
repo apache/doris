@@ -826,8 +826,8 @@ static_assert(std::is_trivially_destructible_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial destructible");
 static_assert(std::is_trivially_copyable_v<VecDateTimeValue>,
               "VecDateTimeValue must be trivial copyable");
-inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
-inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETIME, 0, 0, 0, 1970,
+inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TIME_DATETIME, 0, 0, 0, 1, 1, 1);
+inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TIME_DATETIME, 0, 0, 0, 1970,
                                                               1, 1);
 
 template <typename T>

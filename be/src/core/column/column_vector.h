@@ -413,7 +413,15 @@ public:
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {
-        if constexpr (is_date_type(T) || T == PrimitiveType::TYPE_TIMESTAMPTZ) {
+        if constexpr (T == PrimitiveType::TYPE_DATE) {
+            auto value = PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
+            value.cast_to_date();
+            return value;
+        } else if constexpr (T == PrimitiveType::TYPE_DATETIME) {
+            auto value = PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
+            value.to_datetime();
+            return value;
+        } else if constexpr (is_date_type(T) || T == PrimitiveType::TYPE_TIMESTAMPTZ) {
             return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();
