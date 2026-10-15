@@ -31,7 +31,10 @@ permissions:
 jobs:
   auto_cherry_pick:
     runs-on: ubuntu-latest
-    if: ${{(contains(github.event.pull_request.labels.*.name, 'dev/4.1.x') || github.event.label.name == 'dev/4.1.x') && github.event.pull_request.merged == true }}
+    if: >-
+      ${{ github.event.pull_request.merged == true &&
+          (contains(github.event.pull_request.labels.*.name, 'dev/4.1.x') ||
+           contains(github.event.pull_request.labels.*.name, 'dev/4.2.x')) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -45,6 +48,7 @@ jobs:
         run: |
           pip install PyGithub
       - name: Check SHA
+        id: check_sha
         run: |
             expected_sha="5439ca6304c986a5b26e8f48d528253909b417597088fe98969afee5c2eccbe6d60c5cd1eb03d452eb8082ce2a8ff4ea18854770375487a30bd4af7af9afd322"
             calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
@@ -56,10 +60,32 @@ jobs:
             fi    
 
       - name: Auto cherry-pick to branch-4.1
-        if: ${{ ((github.event.action == 'labeled' && github.event.label.name == 'dev/4.1.x'))|| ((github.event_name == 'pull_request_target' && github.event.action == 'closed') && contains(github.event.pull_request.labels.*.name, 'dev/4.1.x')) }}
+        # Match the opening JSON quote so p0_ must start a label name.
+        if: >-
+          ${{ contains(github.event.pull_request.labels.*.name, 'dev/4.1.x') &&
+              (contains(github.event.pull_request.labels.*.name, 'usercase') ||
+               contains(toJSON(github.event.pull_request.labels.*.name), '"p0_')) &&
+              (github.event.action == 'closed' ||
+               (github.event.action == 'labeled' &&
+                (github.event.label.name == 'dev/4.1.x' ||
+                 github.event.label.name == 'usercase' ||
+                 startsWith(github.event.label.name, 'p0_')))) }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
           CONFLICT_LABEL: dev/4.1.x-conflict
         run: |
           python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-4.1
+
+      - name: Auto cherry-pick to branch-4.2
+        if: >-
+          ${{ !cancelled() && steps.check_sha.outcome == 'success' &&
+              contains(github.event.pull_request.labels.*.name, 'dev/4.2.x') &&
+              (github.event.action == 'closed' ||
+               (github.event.action == 'labeled' && github.event.label.name == 'dev/4.2.x')) }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          CONFLICT_LABEL: dev/4.2.x-conflict
+        run: |
+          python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-4.2
