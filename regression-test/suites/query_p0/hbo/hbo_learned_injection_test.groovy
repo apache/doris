@@ -108,4 +108,29 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
     } finally {
         sql """ HBO DELETE LEARNED STATISTICS FINGERPRINT='${fingerprint}'; """
     }
+
+    // A learned entry of a join is honored under the literal carrying key of the join as well: the read
+    // side looks that key up first (HboStatsCalculator.JOIN_AGG_LOOKUP_MODES) and the learned lookup
+    // iterates the same modes as the pinned one. Without that, a learned entry injected for the key
+    // EXPLAIN prints for the join is never applied - and a revert of either loop keeps every suite green
+    // unless this case exists.
+    def usedLiteralJoin = { String text, String joinFp ->
+        (text =~ /\] join type=\w+ literal_mode=with_literal fingerprint='${joinFp}'[^\n]*used=true/).find()
+    }
+    def literalJoinFingerprint = { String text ->
+        def matcher = (text =~ /\] join type=\w+ literal_mode=with_literal fingerprint='([0-9a-f]+)' struct='J\{/)
+        assertTrue(matcher.find(), "no literal carrying join annotation in:\n" + text)
+        matcher.group(1)
+    }
+    def joinFingerprint = literalJoinFingerprint(explainText())
+    log.info("literal carrying join fingerprint: ${joinFingerprint}")
+    assertFalse(usedLiteralJoin(explainText(), joinFingerprint), explainText())
+    try {
+        sql """ HBO SET LEARNED STATISTICS VALUE=500000 FINGERPRINT='${joinFingerprint}'; """
+        assertTrue(usedLiteralJoin(explainText(), joinFingerprint),
+                "the learned entry of the literal carrying join key was not applied:\n" + explainText())
+    } finally {
+        sql """ HBO DELETE LEARNED STATISTICS FINGERPRINT='${joinFingerprint}'; """
+    }
+    assertFalse(usedLiteralJoin(explainText(), joinFingerprint), explainText())
 }
