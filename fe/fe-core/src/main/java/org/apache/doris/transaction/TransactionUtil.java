@@ -80,9 +80,6 @@ public class TransactionUtil {
     public static long getCommitTSO(long transactionId, Database db, Set<Long> tableIds)
             throws TransactionCommitFailedException {
         long tso = -1L;
-        if (!Config.enable_feature_binlog) {
-            return tso;
-        }
         if (tableIds == null || tableIds.isEmpty()) {
             return tso;
         }
@@ -97,6 +94,8 @@ public class TransactionUtil {
         if (!anyEnableTso) {
             return tso;
         }
+        // ROW binlog tables must obtain a TSO even when the feature is disabled. Let the service
+        // reject the commit instead of publishing ROW binlog with an invalid timestamp.
         try {
             Env env = Env.getCurrentEnv();
             if (env == null || env.getTSOService() == null) {
@@ -112,7 +111,8 @@ public class TransactionUtil {
             }
             return fetched;
         } catch (RuntimeException e) {
-            throw new TransactionCommitFailedException("failed to get TSO for txn " + transactionId, e);
+            throw new TransactionCommitFailedException(
+                    "failed to get TSO for txn " + transactionId + ": " + e.getMessage(), e);
         }
     }
 }

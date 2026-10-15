@@ -86,11 +86,13 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.FinalizeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
@@ -748,7 +750,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 "", Function.BinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
-        return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), function.nullable());
+        FunctionParams functionParams = new FunctionParams(false, arguments);
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
+                catalogFunction, functionParams, function.nullable());
+        functionCallExpr.setShortCircuitEvaluation(function instanceof RequiresShortCircuitEvaluation);
+        return functionCallExpr;
     }
 
     @Override
@@ -824,6 +830,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitIsNull(IsNull isNull, PlanTranslatorContext context) {
         IsNullPredicate isNullPredicate = new IsNullPredicate(isNull.child().accept(this, context), false);
         return isNullPredicate;
+    }
+
+    @Override
+    public Expr visitFinalizeCombinator(FinalizeCombinator combinator, PlanTranslatorContext context) {
+        FunctionCallExpr functionCallExpr = (FunctionCallExpr) visitScalarFunction(combinator, context);
+        functionCallExpr.getFn().setBinaryType(Function.BinaryType.AGG_STATE);
+        return functionCallExpr;
     }
 
     @Override

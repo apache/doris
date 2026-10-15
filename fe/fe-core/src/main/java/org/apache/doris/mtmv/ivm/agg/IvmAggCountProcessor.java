@@ -53,6 +53,12 @@ class IvmAggCountProcessor extends IvmAggFunctionProcessor {
     }
 
     @Override
+    boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        // COUNT(*) rewrites the visible column from the group count instead of merging it.
+        return !target.isCountStar();
+    }
+
+    @Override
     public void appendDeltaAggregateOutputs(IvmAggTarget target, Slot dmlFactorSlot,
             List<NamedExpression> outputs, IvmAggExpressionBuilder ctx) {
         if (!target.isCountStar()) {
@@ -92,7 +98,7 @@ class IvmAggCountProcessor extends IvmAggFunctionProcessor {
         }
 
         Expression newCount = ctx.assertNonNegative(new Add(
-                applyContext.oldMvSlotZeroIfNull(target.getVisibleSlot().getName()),
+                applyContext.oldMvSlotZeroIfNull(target.getValueStateColumnName()),
                 applyContext.deltaSlotValue(target, IvmAggFunctionKind.COUNT)),
                 "negative count for " + target.getVisibleSlot().getName());
         applyContext.putFinalExpression(target, target.getVisibleSlot().getName(),

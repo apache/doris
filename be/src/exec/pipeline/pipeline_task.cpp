@@ -569,8 +569,7 @@ Status PipelineTask::execute(bool* done) {
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
-                _block->clear_column_data(
-                        _root->operator_row_desc_after_projection().num_materialized_slots());
+                _block->clear_column_data(_root->operator_row_desc_after_projection().num_slots());
             }
         }};
         // `_wake_up_early` must be after `_is_blocked()`
@@ -871,6 +870,10 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         _spilling = true;
         return false;
     }
+    // The query made progress: a later reservation that fails for process memory starts a new
+    // bounded wait instead of continuing the one that this reservation may have been retried
+    // from.
+    _state->get_query_ctx()->resource_ctx()->task_controller()->end_process_memory_wait();
     return true;
 }
 

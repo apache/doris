@@ -302,3 +302,73 @@ TEST(SniiDictEntry, RejectPrefixLongerThanPrev) {
     Status s = decode_dict_entry(&src, "ab", IndexTier::kT1, &out);
     EXPECT_FALSE(s.ok());
 }
+
+// ---- stop-gram: an entry that keeps its term and df but drops its posting ----
+//
+// A gram whose df is high enough that the query-side cost gate refuses to read its
+// posting list still costs that list on disk and in S3. Dropping the list while keeping
+// the dictionary entry is what makes the saving available, and keeping the entry is what
+// lets a reader tell "this gram matches everything" from "this gram is absent" -- the
+// second is a strong filter, and mistaking the first for it drops matching rows.
+
+TEST(SniiDictEntry, PostingDroppedRoundTripKeepsTermAndDf) {
+    DictEntry in;
+    in.term = "the";
+    in.df = 987654;
+    in.posting_dropped = true;
+    DictEntry out = RoundTrip(in, "", IndexTier::kT1);
+    EXPECT_EQ(out.term, in.term);
+    EXPECT_EQ(out.df, in.df);
+    EXPECT_TRUE(out.posting_dropped);
+}
+
+// The point of the flag is size, so the encoding must actually drop the locator: a
+// dropped entry is strictly shorter than the same term carrying a posting.
+TEST(SniiDictEntry, PostingDroppedEncodesShorterThanALocator) {
+    DictEntry with_posting = MakePodRefSlim("common", 60000);
+    DictEntry dropped;
+    dropped.term = with_posting.term;
+    dropped.df = with_posting.df;
+    dropped.posting_dropped = true;
+
+    ByteSink a;
+    ASSERT_TRUE(encode_dict_entry(with_posting, "", IndexTier::kT1, &a).ok());
+    ByteSink b;
+    ASSERT_TRUE(encode_dict_entry(dropped, "", IndexTier::kT1, &b).ok());
+    EXPECT_LT(b.view().size(), a.view().size());
+}
+
+// Tier 2 entries also carry a prx locator; a dropped posting writes neither locator, so the
+// entry is df-only there as well.
+TEST(SniiDictEntry, PostingDroppedRoundTripAtTier2) {
+    DictEntry in;
+    in.term = "and";
+    in.df = 500000;
+    in.posting_dropped = true;
+    DictEntry out = RoundTrip(in, "", IndexTier::kT2);
+    EXPECT_EQ(out.term, in.term);
+    EXPECT_EQ(out.df, in.df);
+    EXPECT_TRUE(out.posting_dropped);
+    EXPECT_EQ(out.frq_len, 0U);
+    EXPECT_EQ(out.prx_len, 0U);
+}
+
+// An ordinary entry must not come back marked, or every term would read as matching all.
+TEST(SniiDictEntry, OrdinaryEntryIsNotMarkedDropped) {
+    DictEntry out = RoundTrip(MakePodRefSlim("plain", 3), "", IndexTier::kT1);
+    EXPECT_FALSE(out.posting_dropped);
+    DictEntry inl = RoundTrip(MakeInline("inline", 3), "", IndexTier::kT2);
+    EXPECT_FALSE(inl.posting_dropped);
+}
+
+// Front coding still applies: a dropped entry sits in a block like any other, so the
+// term key must survive being encoded against a shared prefix.
+TEST(SniiDictEntry, PostingDroppedParticipatesInFrontCoding) {
+    DictEntry dropped;
+    dropped.term = "prefix_common";
+    dropped.df = 70000;
+    dropped.posting_dropped = true;
+    DictEntry out = RoundTrip(dropped, "prefix_c", IndexTier::kT1);
+    EXPECT_EQ(out.term, "prefix_common");
+    EXPECT_TRUE(out.posting_dropped);
+}

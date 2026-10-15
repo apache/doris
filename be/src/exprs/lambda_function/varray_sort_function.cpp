@@ -50,7 +50,7 @@ using ConstSortableColumn =
         std::variant<const ColumnUInt8*, const ColumnInt8*, const ColumnInt16*, const ColumnInt32*,
                      const ColumnInt64*, const ColumnInt128*, const ColumnFloat32*,
                      const ColumnFloat64*, const ColumnString*, const ColumnVarbinary*,
-                     const ColumnArray*, const ColumnIPv4*, const ColumnIPv6*,
+                     const ColumnArray*, const ColumnIPv4*, const ColumnIPv6*, const ColumnUUID*,
                      const ColumnDecimal32*, const ColumnDecimal64*, const ColumnDecimal128V2*,
                      const ColumnDecimal128V3*, const ColumnDecimal256*, const ColumnDate*,
                      const ColumnDateTime*, const ColumnDateV2*, const ColumnDateTimeV2*,
@@ -237,6 +237,11 @@ public:
                     // length; an inconsistent comparator yields an unspecified order instead.
                     DorisVector<size_t> scratch;
                     for (int row = 0; row < input_rows; ++row) {
+                        // Hidden nested values of an outer-NULL array must not invoke the lambda.
+                        if (outside_null_map.get() != nullptr &&
+                            assert_cast<const ColumnUInt8&>(*outside_null_map).get_data()[row]) {
+                            continue;
+                        }
                         auto start = off_data[row - 1];
                         auto end = off_data[row];
                         sort_with_untrusted_comparator(permutation.data() + start,
@@ -425,6 +430,7 @@ private:
             DISPATCH_PRIMITIVE_TYPE(TYPE_ARRAY, ColumnArray)
             DISPATCH_PRIMITIVE_TYPE(TYPE_IPV4, ColumnIPv4)
             DISPATCH_PRIMITIVE_TYPE(TYPE_IPV6, ColumnIPv6)
+            DISPATCH_PRIMITIVE_TYPE(TYPE_UUID, ColumnUUID)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL32, ColumnDecimal32)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL64, ColumnDecimal64)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL128I, ColumnDecimal128V3)

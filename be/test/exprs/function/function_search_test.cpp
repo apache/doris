@@ -181,6 +181,9 @@ public:
     }
 
     segment_v2::InvertedIndexReaderType type() override { return _reader_type; }
+    bool is_gram_family() const override { return gram_family; }
+
+    bool gram_family = false;
 
 private:
     segment_v2::InvertedIndexReaderType _reader_type = segment_v2::InvertedIndexReaderType::BKD;
@@ -457,6 +460,44 @@ static Status resolve_non_variant_binding_with_mismatched_analyzer(const DataTyp
     FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
     FieldReaderBinding binding;
     return resolver.resolve("content", InvertedIndexQueryType::MATCH_ANY_QUERY, &binding);
+}
+
+// A gram index only accelerates LIKE / REGEXP. SEARCH cuts its value with the current analyzer
+// and cannot fall back to rows, so a gram index would answer it from a dictionary cut by another
+// scheme whenever a segment solved its own density -- the normal case for a sparse index -- and
+// silently miss rows. Binding refuses such a reader for every clause type.
+TEST_F(FunctionSearchTest, TestFieldReaderResolverRejectsGramIndex) {
+    const std::map<std::string, std::string> index_properties {
+            {INVERTED_INDEX_ANALYZER_NAME_KEY, "gram_sparse_analyzer"}};
+    auto index_meta = make_test_inverted_index(14, index_properties);
+    auto reader = std::make_shared<DummyInvertedIndexReader>(
+            &index_meta, nullptr, segment_v2::InvertedIndexReaderType::FULLTEXT);
+    reader->gram_family = true;
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "content", IndexFieldNameAndTypePair {"content", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["content"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "content";
+    field_binding.index_properties = index_properties;
+    field_binding.__isset.index_properties = true;
+
+    for (auto query_type :
+         {InvertedIndexQueryType::MATCH_ANY_QUERY, InvertedIndexQueryType::EQUAL_QUERY,
+          InvertedIndexQueryType::WILDCARD_QUERY}) {
+        SCOPED_TRACE(segment_v2::query_type_to_string(query_type));
+        auto context = std::make_shared<IndexQueryContext>();
+        FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+        FieldReaderBinding binding;
+        const auto status = resolver.resolve("content", query_type, &binding);
+        ASSERT_FALSE(status.ok());
+        EXPECT_EQ(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, status.code()) << status;
+        EXPECT_NE(status.to_string().find("gram index"), std::string::npos) << status;
+    }
 }
 
 TEST_F(FunctionSearchTest, TestGetName) {
@@ -3185,10 +3226,10 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledWhenScoring) {
     auto scoring_context = std::make_shared<IndexQueryContext>();
     scoring_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     InvertedIndexResultBitmap result;
-    std::unordered_map<std::string, int> field_name_to_column_id;
+    const TabletColumn* nested_column = nullptr;
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_type_with_names, iterators, 4, result, true, nullptr,
-            field_name_to_column_id, scoring_context);
+            search_param, data_type_with_names, iterators, 4, result, true, nullptr, nested_column,
+            scoring_context);
 
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(1, index_file_reader->init_calls);

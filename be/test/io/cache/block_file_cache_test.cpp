@@ -4260,6 +4260,50 @@ TEST_F(BlockFileCacheTest, create_file_caches_preserves_config_order) {
     }
 }
 
+TEST_F(BlockFileCacheTest, create_file_caches_rejects_a_factory_left_without_any_cache) {
+    reset_file_cache_factory_for_test();
+    // A regular file where a cache directory would go: no cache can be created below it.
+    const std::string blocker = (caches_dir / "cache_path_blocker").string();
+    const std::string broken_path = (caches_dir / "cache_path_blocker" / "cache" / "").string();
+    const std::string usable_path = (caches_dir / "usable_cache" / "").string();
+    fs::remove_all(blocker);
+    fs::remove_all(usable_path);
+    std::ofstream(blocker).close();
+    Defer cleanup {[&] {
+        reset_file_cache_factory_for_test();
+        fs::remove_all(blocker);
+        fs::remove_all(usable_path);
+    }};
+    auto cache_path = [](const std::string& path) {
+        return CachePath(path, 90, 30, DEFAULT_NORMAL_PERCENT, DEFAULT_DISPOSABLE_PERCENT,
+                         DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT, "disk");
+    };
+    std::vector<std::string> skipped;
+    auto skip_broken = [&skipped](const std::string& path, const Status&) {
+        skipped.push_back(path);
+        return true;
+    };
+
+    // ignore_broken_disk skips the only path. get_by_path() would then divide by zero, so the
+    // factory must report failure rather than an empty success.
+    EXPECT_FALSE(FileCacheFactory::instance()
+                         ->create_file_caches({cache_path(broken_path)}, skip_broken)
+                         .ok());
+    EXPECT_EQ(skipped, std::vector<std::string> {broken_path});
+    EXPECT_EQ(FileCacheFactory::instance()->get_cache_instance_size(), 0);
+
+    // With a usable path left, the broken one is still skipped and the usable one is kept.
+    skipped.clear();
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_caches({cache_path(broken_path), cache_path(usable_path)},
+                                             skip_broken)
+                        .ok());
+    EXPECT_EQ(skipped, std::vector<std::string> {broken_path});
+    ASSERT_EQ(FileCacheFactory::instance()->get_cache_instance_size(), 1);
+    EXPECT_EQ(FileCacheFactory::instance()->get_caches()[0]->get_base_path(), usable_path);
+    wait_until_cache_ready(*FileCacheFactory::instance()->get_caches()[0]);
+}
+
 TEST_F(BlockFileCacheTest, test_factory_2) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);

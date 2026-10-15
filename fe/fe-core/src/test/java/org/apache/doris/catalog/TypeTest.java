@@ -43,6 +43,14 @@ public class TypeTest {
         Assertions.assertTrue(Type.getVariantSubTypes().contains(Type.TIMESTAMP_NS));
     }
 
+    @Test
+    public void testTimestampTzIsNotVariantSubtype() {
+        Assertions.assertFalse(Type.VARIANT.supportSubType(ScalarType.createTimeStampTzType(6)));
+        Assertions.assertFalse(Type.VARIANT.supportSubType(
+                new ArrayType(ScalarType.createTimeStampTzType(3), true)));
+        Assertions.assertTrue(Type.VARIANT.supportSubType(ScalarType.createDatetimeV2Type(6)));
+    }
+
     // ===================== ArrayType =====================
     @Test
     public void testArrayOfArrayExactMatch() {

@@ -59,12 +59,6 @@ const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::variant_util {
 
-// Convert a restricted glob pattern into a regex (for tests/internal use).
-Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);
-
-// Match a glob pattern against a path using RE2.
-bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
-
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 
@@ -156,7 +150,11 @@ TabletColumn create_sparse_column(const TabletColumn& variant);
 // Create one bucket sparse column: name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b{index}"
 TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_index);
 
+// Physical doc bucket stored as MAP<STRING, STRING>.
 TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_index);
+
+// Decoded doc bucket used in compaction blocks, nullable with a SQL NULL default for old segments.
+TabletColumn create_doc_value_compaction_column(const TabletColumn& variant, int bucket_index);
 
 // Compute bucket id for given path string using SipHash64(path) % bucket_num.
 uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num);

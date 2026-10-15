@@ -28,9 +28,10 @@
 #include "exprs/score_runtime.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vexpr_context.h"
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
+#include "storage/schema.h"
 
 namespace doris {
 namespace {
@@ -135,7 +136,8 @@ TEST(VCompoundPredScoreTest, FailedAndBranchDoesNotContributeToOrScore) {
     segment_v2::ColumnIteratorOptions iterator_options;
     auto score_runtime = std::make_shared<ScoreRuntime>(nullptr, false, 0);
     auto index_context = std::make_shared<IndexExecContext>(
-            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options);
+            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
     auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
     query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     auto root_similarity = query_context->collection_similarity;
@@ -171,7 +173,8 @@ TEST(VCompoundPredScoreTest, NotBranchDoesNotContributeToOrScore) {
     segment_v2::ColumnIteratorOptions iterator_options;
     auto score_runtime = std::make_shared<ScoreRuntime>(nullptr, false, 0);
     auto index_context = std::make_shared<IndexExecContext>(
-            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options);
+            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
     auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
     query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     index_context->set_index_query_context(query_context);
@@ -204,7 +207,8 @@ TEST(VCompoundPredScoreTest, IncompleteScoredBranchReturnsErrorWithoutPublishing
     segment_v2::ColumnIteratorOptions iterator_options;
     auto score_runtime = std::make_shared<ScoreRuntime>(nullptr, false, 0);
     auto index_context = std::make_shared<IndexExecContext>(
-            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options);
+            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
     auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
     query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     auto parent_similarity = query_context->collection_similarity;

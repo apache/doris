@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.OlapTableSink;
@@ -30,6 +31,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -58,6 +60,21 @@ class CoordinatorBackendSelectionTest {
     @AfterEach
     void resetBackendSelectionProvider() {
         BackendSelectionManager.resetProviderForTest();
+    }
+
+    @Test
+    void testLegacyCoordinatorKeepsPlannerExecutionVersion() {
+        int original = Config.be_exec_version;
+        try {
+            int plannerVersion = Config.max_be_exec_version;
+            Config.be_exec_version = Config.min_be_exec_version;
+
+            Coordinator coordinator = coordinator(context(1L), Collections.emptyList(), plannerVersion);
+
+            Assertions.assertEquals(plannerVersion, coordinator.getQueryOptions().getBeExecVersion());
+        } finally {
+            Config.be_exec_version = original;
+        }
     }
 
     @Test
@@ -337,10 +354,18 @@ class CoordinatorBackendSelectionTest {
     }
 
     private Coordinator coordinator(ConnectContext context, List<PlanFragment> fragments) {
+        return coordinator(context, fragments, Config.be_exec_version);
+    }
+
+    private Coordinator coordinator(ConnectContext context, List<PlanFragment> fragments,
+            int beExecVersion) {
         Planner planner = Mockito.mock(Planner.class);
         Mockito.when(planner.getFragments()).thenReturn(fragments);
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.emptyList());
         Mockito.when(planner.getDescTable()).thenReturn(new DescriptorTable());
+        TQueryOptions queryOptions = context.getSessionVariable().toThrift();
+        queryOptions.setBeExecVersion(beExecVersion);
+        Mockito.when(planner.getQueryOptions()).thenReturn(queryOptions);
         return new Coordinator(context, planner);
     }
 

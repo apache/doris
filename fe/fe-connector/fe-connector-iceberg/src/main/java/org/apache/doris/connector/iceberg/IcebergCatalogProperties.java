@@ -163,7 +163,7 @@ public final class IcebergCatalogProperties {
     private static void checkMetaCacheProperties(
             Map<String, String> properties, Map<String, String> submittedProperties) {
         CacheSpec.checkWeightProperties(properties, submittedProperties, "iceberg",
-                "table", "partition", "manifest", "partition_view");
+                IcebergConnector.WEIGHTED_CACHE_ENTRIES);
         CacheSpec.checkBooleanProperty(properties.get(IcebergConnector.TABLE_CACHE_ENABLE),
                 IcebergConnector.TABLE_CACHE_ENABLE);
         CacheSpec.checkLongProperty(properties.get(IcebergConnector.TABLE_CACHE_TTL_SECOND),
@@ -185,11 +185,13 @@ public final class IcebergCatalogProperties {
     }
 
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        // Legacy properties remain parseable, but binary values always retain their bytes.
+        return true;
     }
 
     public boolean isEnableMappingTimestampTz() {
-        return enableMappingTimestampTz;
+        // Instant types cannot be downgraded to session-local wall clocks.
+        return true;
     }
 
     /** Empty when the catalog names no extra namespace level. */

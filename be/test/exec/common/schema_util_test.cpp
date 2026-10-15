@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
@@ -746,6 +747,26 @@ TEST_F(SchemaUtilTest, TestGetColumnByType) {
     EXPECT_EQ(variant_column.path_info_ptr()->get_path(), "test.path");
 }
 
+TEST_F(SchemaUtilTest, TestGetUuidColumnByType) {
+    const auto type = std::make_shared<DataTypeUUID>();
+    const variant_util::ExtraInfo ext_info {
+            .unique_id = 3, .parent_unique_id = 2, .path_info = PathInData("v.u")};
+    for (const auto& data_type : DataTypes {type, make_nullable(type)}) {
+        const auto column = variant_util::get_column_by_type(data_type, "v.u", ext_info);
+        EXPECT_EQ(column.type(), FieldType::OLAP_FIELD_TYPE_UUID);
+        EXPECT_EQ(column.length(), 16);
+        EXPECT_EQ(column.is_nullable(), data_type->is_nullable());
+        EXPECT_EQ(column.unique_id(), 3);
+        EXPECT_EQ(column.parent_unique_id(), 2);
+        EXPECT_EQ(column.path_info_ptr()->get_path(), "v.u");
+    }
+    const auto array = variant_util::get_column_by_type(
+            std::make_shared<DataTypeArray>(make_nullable(type)), "uuids", {});
+    EXPECT_EQ(array.get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_UUID);
+    EXPECT_EQ(array.get_sub_column(0).length(), 16);
+    EXPECT_TRUE(array.get_sub_column(0).is_nullable());
+}
+
 TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
     TabletSchemaPB schema1_pb;
     TabletSchemaPB schema2_pb;
@@ -1296,6 +1317,7 @@ TEST_F(SchemaUtilTest, TestCreateSparseColumn) {
     EXPECT_EQ(sparse_column.aggregation(), FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC);
     EXPECT_EQ(sparse_column.parent_unique_id(), 42);
     EXPECT_EQ(sparse_column.path_info_ptr()->get_path(), "test_variant." + SPARSE_COLUMN_PATH);
+    EXPECT_EQ(sparse_column.default_value(), "{}");
 
     // Check map value columns
     EXPECT_EQ(sparse_column.get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_STRING);

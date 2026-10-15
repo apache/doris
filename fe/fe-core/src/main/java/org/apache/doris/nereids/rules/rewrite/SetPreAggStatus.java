@@ -40,6 +40,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -55,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -706,6 +711,31 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             }
 
             @Override
+            public PreAggStatus visitMergeCombinator(MergeCombinator combinator, AggregateType aggregateType) {
+                return checkAggStateCombinator(combinator, aggregateType);
+            }
+
+            @Override
+            public PreAggStatus visitUnionCombinator(UnionCombinator combinator, AggregateType aggregateType) {
+                return checkAggStateCombinator(combinator, aggregateType);
+            }
+
+            private PreAggStatus checkAggStateCombinator(AggregateFunction aggregateFunction,
+                    AggregateType aggregateType) {
+                // GENERIC merges stored states with the same aggregate function. A matching
+                // merge/union can consume the partial states directly; REPLACE cannot.
+                // The caller requires a bare value slot, and the combinator builder derives
+                // the nested argument types and nullability from that slot's AggStateType.
+                AggStateType stateType = (AggStateType) aggregateFunction.child(0).getDataType();
+                String functionName = ((Combinator) aggregateFunction).getNestedFunction().getName();
+                if (aggregateType == AggregateType.GENERIC && stateType.getFunctionName().equals(functionName)) {
+                    return PreAggStatus.on();
+                }
+                return PreAggStatus.off(String.format("%s is not match agg mode %s or state function %s",
+                        aggregateFunction.toSql(), aggregateType, stateType.getFunctionName()));
+            }
+
+            @Override
             public PreAggStatus visitMax(Max max, AggregateType aggregateType) {
                 if (aggregateType == AggregateType.MAX && !max.isDistinct()) {
                     return PreAggStatus.on();
@@ -729,6 +759,15 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
             @Override
             public PreAggStatus visitSum(Sum sum, AggregateType aggregateType) {
+                return checkSumLike(sum, aggregateType);
+            }
+
+            @Override
+            public PreAggStatus visitSum0(Sum0 sum0, AggregateType aggregateType) {
+                return checkSumLike(sum0, aggregateType);
+            }
+
+            private PreAggStatus checkSumLike(AggregateFunction sum, AggregateType aggregateType) {
                 if (aggregateType == AggregateType.SUM && !sum.isDistinct()) {
                     return PreAggStatus.on();
                 } else {
@@ -831,6 +870,16 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
             @Override
             public PreAggStatus visitSum(Sum sum, List<Expression> returnValues) {
+                return checkSumLike(sum, returnValues);
+            }
+
+            @Override
+            public PreAggStatus visitSum0(Sum0 sum0, List<Expression> returnValues) {
+                // sum0 differs from sum only on an empty input, which pre-aggregation cannot produce
+                return checkSumLike(sum0, returnValues);
+            }
+
+            private PreAggStatus checkSumLike(AggregateFunction sum, List<Expression> returnValues) {
                 // DISTINCT breaks pre-agg: storage SUM merges duplicate full keys
                 // first (e.g. two rowsets with v7=1 become 2), so sum(DISTINCT ...)
                 // over the merged value differs from DISTINCT over the raw rows.

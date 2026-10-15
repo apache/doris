@@ -20,6 +20,8 @@
 #include <limits>
 #include <string>
 
+#include "cctz/time_zone.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
@@ -29,13 +31,40 @@
 #include "core/data_type/data_type_time.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
+#include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
 #include "exprs/function/function_test_util.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
 using namespace ut_type;
+
+TEST(VTimestampFunctionsTest, iso8601_preserves_negative_subhour_offset) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(-1800));
+    FunctionContext context;
+    context._state = &state;
+
+    DateV2Value<DateTimeV2ValueType> utc_datetime;
+    utc_datetime.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    TimestampTzValue value(utc_datetime);
+    ColumnString::Chars chars;
+    chars.resize(ToIso8601Impl<TYPE_TIMESTAMPTZ>::max_size);
+    size_t offset = 0;
+    ToIso8601Impl<TYPE_TIMESTAMPTZ>::execute(value, chars, offset, nullptr, &context);
+
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(chars.data()), offset),
+              "2023-12-31T23:30:00.000000-00:30");
+
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(8 * 3600 + 5 * 60 + 43));
+    offset = 0;
+    ToIso8601Impl<TYPE_TIMESTAMPTZ>::execute(value, chars, offset, nullptr, &context);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(chars.data()), offset),
+              "2024-01-01T08:05:43.000000+08:05:43");
+}
 
 template <typename Transform>
 void check_quarter_interval_overflow(const typename Transform::InputValueType& date) {

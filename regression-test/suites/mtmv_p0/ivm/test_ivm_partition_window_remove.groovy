@@ -73,8 +73,10 @@ suite("test_ivm_partition_window_remove") {
     waitingMTMVTaskFinishedByMvName("test_ivm_pwr_mv")
     order_qt_pwr_window_ignores_p1 """SELECT dt, k1, v1 FROM test_ivm_pwr_mv ORDER BY dt"""
 
-    // Remove the window. A strict manual INCREMENTAL cannot replay the lossy backlog
-    // safely: it must fail explicitly instead of returning SUCCESS with stale data.
+    // Remove the window. The ALTER changes the refresh baseline the MV's properties describe, so
+    // the MV goes into SCHEMA_CHANGE and the strict manual INCREMENTAL below runs as a whole-MV
+    // COMPLETE refresh. It must not report SUCCESS while leaving p1 stale: the widened range means
+    // p1's backlog -- skipped by the windowed refreshes -- has to be replayed by this refresh.
     sql """ALTER MATERIALIZED VIEW test_ivm_pwr_mv SET ("ivm_partition_window_limit" = "");"""
     def previousTaskId = sql("""
         SELECT TaskId FROM tasks('type'='mv')
@@ -100,13 +102,19 @@ suite("test_ivm_partition_window_remove") {
         WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'test_ivm_pwr_mv'
         ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
     """
-    order_qt_pwr_stale_after_strict """SELECT dt, k1, v1 FROM test_ivm_pwr_mv ORDER BY dt"""
+    // The upgraded refresh already replayed the p1 backlog, so the MV is caught up rather than
+    // stale: this is the assertion DORIS-28376 turns on.
+    order_qt_pwr_caught_up_after_strict """SELECT dt, k1, v1 FROM test_ivm_pwr_mv ORDER BY dt"""
 
-    // The next AUTO refresh rebuilds a complete baseline and replays the p1 backlog.
+    // The next AUTO refresh has nothing left to repair; the escalation above did the rebuild.
     sql """REFRESH MATERIALIZED VIEW test_ivm_pwr_mv AUTO"""
     waitingMTMVTaskFinishedByMvName("test_ivm_pwr_mv")
+    // The AUTO refresh has nothing left to do, so it leaves RefreshMode unset, which comes back as
+    // the literal two-character string "\N" that does not survive the .out round trip; fold it.
     order_qt_pwr_removed_refresh_mode """
-        SELECT RefreshMode FROM tasks('type'='mv')
+        SELECT CASE WHEN RefreshMode IN ('COMPLETE', 'PARTIAL', 'NOT_REFRESH')
+                    THEN RefreshMode ELSE 'NONE' END
+        FROM tasks('type'='mv')
         WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'test_ivm_pwr_mv'
         ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
     """

@@ -58,6 +58,7 @@ import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.TimeV2Literal;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
@@ -135,6 +136,7 @@ public class GsonUtilsCatalog {
             .registerSubtype(TimeStampNsLiteral.class, TimeStampNsLiteral.class.getSimpleName())
             .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
             .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
+            .registerSubtype(UuidLiteral.class, UuidLiteral.class.getSimpleName())
             .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
             .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
             .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())

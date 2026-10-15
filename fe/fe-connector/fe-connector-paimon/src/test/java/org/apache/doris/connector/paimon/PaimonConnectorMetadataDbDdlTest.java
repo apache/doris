@@ -30,7 +30,7 @@ import java.util.Map;
 /**
  * T14 database-DDL tests for {@link PaimonConnectorMetadata#createDatabase} and the 4-arg
  * {@link PaimonConnectorMetadata#dropDatabase}, pinning:
- * (1) the HMS-only-props gate runs as a pure local arg check BEFORE the authenticator,
+ * (1) the catalog-flavor property gate runs as a pure local arg check BEFORE the authenticator,
  * (2) raw paimon checked exceptions are wrapped as {@link DorisConnectorException},
  * (3) D7=B: every remote call runs INSIDE
  *     {@link org.apache.doris.connector.spi.ConnectorContext#executeAuthenticated}, and
@@ -50,8 +50,13 @@ public class PaimonConnectorMetadataDbDdlTest {
     /** Metadata with HMS flavor: catalogProperties carries paimon.catalog.type=hms. */
     private static PaimonConnectorMetadata hmsMetadata(RecordingPaimonCatalogOps ops,
             RecordingConnectorContext ctx) {
+        return metadata(PaimonCatalogProperties.HMS, ops, ctx);
+    }
+
+    private static PaimonConnectorMetadata metadata(String flavor, RecordingPaimonCatalogOps ops,
+            RecordingConnectorContext ctx) {
         Map<String, String> catalogProps = new HashMap<>();
-        catalogProps.put(PaimonCatalogProperties.PAIMON_CATALOG_TYPE, PaimonCatalogProperties.HMS);
+        catalogProps.put(PaimonCatalogProperties.PAIMON_CATALOG_TYPE, flavor);
         return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(catalogProps), ctx);
     }
 
@@ -61,15 +66,14 @@ public class PaimonConnectorMetadataDbDdlTest {
         return props;
     }
 
-    // ==================== createDatabase: HMS-only-props gate ====================
+    // ==================== createDatabase: catalog-flavor property gate ====================
 
     @Test
     public void createDatabaseRejectsPropsForNonHmsFlavorBeforeAuthenticator() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
 
-        // WHY (legacy performCreateDb:103-109): only the HMS catalog type accepts CREATE DATABASE
-        // properties; every other flavor (here: default filesystem) must reject non-empty props.
+        // WHY (legacy performCreateDb): filesystem does not accept CREATE DATABASE properties.
         // The gate is a pure local arg check, so it must run BEFORE executeAuthenticated and before
         // any seam call. MUTATION: if the gate were removed or placed AFTER executeAuthenticated,
         // authCount would be 1 and the seam log would contain createDatabase -> the two assertions
@@ -101,6 +105,33 @@ public class PaimonConnectorMetadataDbDdlTest {
         Assertions.assertFalse(ops.lastCreateDbIgnoreIfExists,
                 "ignoreIfExists must be false: FE already did the IF NOT EXISTS short-circuit");
         Assertions.assertEquals(1, ctx.authCount);
+    }
+
+    @Test
+    public void createDatabaseAllowsNonLocationPropsForJdbcFlavor() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        Map<String, String> props = Collections.singletonMap("owner", "doris");
+
+        metadata(PaimonCatalogProperties.JDBC, ops, ctx).createDatabase(null, "db1", props);
+
+        Assertions.assertEquals(props, ops.lastCreatedDbProps);
+        Assertions.assertEquals(1, ctx.authCount);
+    }
+
+    @Test
+    public void createDatabaseRejectsLocationForJdbcFlavor() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(PaimonCatalogProperties.JDBC, ops, ctx)
+                        .createDatabase(null, "db1", dbProps()));
+
+        Assertions.assertEquals("Not supported: database property 'location' for paimon catalog type: jdbc "
+                + "because it does not determine the default table location", ex.getMessage());
+        Assertions.assertEquals(0, ctx.authCount);
+        Assertions.assertTrue(ops.log.isEmpty());
     }
 
     @Test

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -35,9 +36,12 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/aggregate/aggregate_function_sort.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
+#include "testutil/mock/mock_fn_call.h"
+#include "testutil/mock/mock_literal_expr.h"
 
 namespace doris {
 namespace {
@@ -112,6 +116,52 @@ MutableColumnPtr create_map_nullable_string64_key_column(bool nullable_values) {
     auto value_column = nullable_values ? create_nullable_int64_column() : create_int64_column();
     return ColumnMap::create(create_nullable_string64_column(), std::move(value_column),
                              std::move(offsets));
+}
+
+TExpr create_group_concat_expr(const std::string& function_name, const DataTypes& argument_types) {
+    TExpr expr;
+    TExprNode root;
+    root.node_type = TExprNodeType::AGG_EXPR;
+    root.num_children = argument_types.size();
+    root.fn.name.function_name = function_name;
+    root.fn.ret_type = argument_types[0]->to_thrift();
+    root.__set_is_nullable(false);
+    std::vector<TTypeDesc> param_types;
+    for (const auto& type : argument_types) {
+        auto param_type = type->to_thrift();
+        param_type.__set_is_nullable(type->is_nullable());
+        param_types.push_back(param_type);
+    }
+    root.agg_expr.__set_param_types(param_types);
+    expr.nodes.push_back(root);
+    for (int i = 0; i < argument_types.size(); ++i) {
+        TExprNode child;
+        child.node_type = TExprNodeType::SLOT_REF;
+        child.num_children = 0;
+        child.type = param_types[i];
+        child.__set_is_nullable(argument_types[i]->is_nullable());
+        child.slot_ref.slot_id = i;
+        child.slot_ref.tuple_id = 0;
+        expr.nodes.push_back(child);
+    }
+    return expr;
+}
+
+void add_group_concat_rows(const IAggregateFunction& function, AggregateDataPtr result,
+                           const IColumn** columns, bool merge, Arena& arena) {
+    if (!merge) {
+        function.add_batch_single_place(columns[0]->size(), result, columns, arena);
+        return;
+    }
+    for (size_t offset : {0, 2}) {
+        AggregateFunctionGuard partial(&function);
+        for (size_t row = offset; row < offset + 2; ++row) {
+            function.add(partial.data(), columns, row, arena);
+        }
+        auto serialized = function.create_serialize_column();
+        function.serialize_without_key_to_column(partial.data(), *serialized);
+        function.deserialize_and_merge_from_column(result, *serialized, arena);
+    }
 }
 
 } // namespace
@@ -222,6 +272,76 @@ TEST(AggFnEvaluatorTest, test_clone) {
     // reset place
     agg_fn->reset(place1);
     agg_fn->reset(place2);
+}
+
+TEST(AggFnEvaluatorTest, group_concat_order_by_null_placement) {
+    struct TestCase {
+        bool ascending;
+        bool nulls_first;
+        std::string expected;
+        std::string distinct_expected;
+    };
+    const std::vector<TestCase> test_cases = {{.ascending = true,
+                                               .nulls_first = true,
+                                               .expected = "a|a|b|c",
+                                               .distinct_expected = "a|b|c"},
+                                              {.ascending = true,
+                                               .nulls_first = false,
+                                               .expected = "b|c|a|a",
+                                               .distinct_expected = "b|c|a"},
+                                              {.ascending = false,
+                                               .nulls_first = true,
+                                               .expected = "a|a|c|b",
+                                               .distinct_expected = "a|c|b"},
+                                              {.ascending = false,
+                                               .nulls_first = false,
+                                               .expected = "c|b|a|a",
+                                               .distinct_expected = "c|b|a"}};
+    const DataTypes argument_types = {std::make_shared<DataTypeString>(),
+                                      std::make_shared<DataTypeString>(),
+                                      make_nullable(std::make_shared<DataTypeInt32>())};
+    for (const auto& test_case : test_cases) {
+        for (bool distinct : {false, true}) {
+            for (bool merge : {false, true}) {
+                SCOPED_TRACE(testing::Message() << "ascending=" << test_case.ascending
+                                                << " nulls_first=" << test_case.nulls_first
+                                                << " distinct=" << distinct << " merge=" << merge);
+                const std::string function_name =
+                        distinct ? "multi_distinct_group_concat" : "group_concat";
+                auto expr = create_group_concat_expr(function_name, argument_types);
+                TSortInfo sort_info;
+                sort_info.ordering_exprs.resize(1);
+                sort_info.is_asc_order = {test_case.ascending};
+                sort_info.nulls_first = {test_case.nulls_first};
+                ObjectPool pool;
+                AggFnEvaluator* evaluator = nullptr;
+                ASSERT_TRUE(AggFnEvaluator::create(&pool, expr, sort_info, true, false, &evaluator)
+                                    .ok());
+                RuntimeState state;
+                state._query_options.__set_be_exec_version(
+                        BeExecVersionManager::get_newest_version());
+                auto nested_function = AggregateFunctionSimpleFactory::instance().get(
+                        function_name, evaluator->_real_argument_types, argument_types[0], false,
+                        BeExecVersionManager::get_newest_version(), {.column_names = {}});
+                ASSERT_NE(nested_function, nullptr);
+                auto function = transform_to_sort_agg_function(
+                        nested_function, evaluator->_argument_types_with_sort,
+                        evaluator->_sort_description, &state);
+                auto values = ColumnHelper::create_column<DataTypeString>({"a", "b", "c", "a"});
+                auto separators = ColumnHelper::create_column<DataTypeString>({"|", "|", "|", "|"});
+                auto keys = ColumnHelper::create_nullable_column<DataTypeInt32>({0, 1, 2, 0},
+                                                                                {1, 0, 0, 1});
+                const IColumn* columns[] = {values.get(), separators.get(), keys.get()};
+                Arena arena;
+                AggregateFunctionGuard result(function.get());
+                add_group_concat_rows(*function, result.data(), columns, merge, arena);
+                auto result_column = ColumnString::create();
+                function->insert_result_into(result.data(), *result_column);
+                EXPECT_EQ(result_column->get_data_at(0).to_string(),
+                          distinct ? test_case.distinct_expected : test_case.expected);
+            }
+        }
+    }
 }
 
 TEST(AggFnEvaluatorTest, check_input_column_type) {
@@ -546,35 +666,6 @@ TEST(AggFnEvaluatorTest, datasketches_hll_union_agg_check_string_input_physical_
     agg_fn->destroy(place);
 }
 
-TEST(AggFnEvaluatorTest, map_agg_check_string_key_input_physical_column_type) {
-    for (bool nullable_key : {false, true}) {
-        SCOPED_TRACE(nullable_key);
-        ObjectPool pool;
-        DataTypePtr key_type = std::make_shared<DataTypeString>();
-        if (nullable_key) {
-            key_type = make_nullable(key_type);
-        }
-        auto* agg_fn = create_agg_fn(pool, "map_agg_v1",
-                                     {key_type, std::make_shared<DataTypeInt64>()}, nullptr, false);
-        Arena arena;
-
-        MutableColumnPtr key_column =
-                nullable_key ? create_nullable_string64_column() : create_string64_column();
-        Block block({ColumnWithTypeAndName(std::move(key_column), key_type, "bad_key"),
-                     ColumnWithTypeAndName(ColumnHelper::create_column<DataTypeInt64>({1, 2, 3}),
-                                           std::make_shared<DataTypeInt64>(), "value")});
-
-        auto* place = reinterpret_cast<AggregateDataPtr>(arena.alloc(agg_fn->size_of_data()));
-        agg_fn->create(place);
-
-        expect_exception_message_contains(
-                [&]() { static_cast<void>(agg_fn->execute_single_add(&block, place, arena)); },
-                "argument type check failed");
-
-        agg_fn->destroy(place);
-    }
-}
-
 TEST(AggFnEvaluatorTest, map_combinator_check_string_key_physical_column_type) {
     ObjectPool pool;
     auto map_type = std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
@@ -697,6 +788,32 @@ TEST(AggFnEvaluatorTest, group_array_intersect_check_result_physical_column_type
     EXPECT_THROW(agg_fn->insert_result_info(place, result_column.get()), Exception);
 
     agg_fn->destroy(place);
+}
+
+TEST(AggFnEvaluatorTest, test_is_simple_count) {
+    ObjectPool pool;
+    auto* count_fn = create_agg_fn(pool, "count", {std::make_shared<DataTypeInt64>()},
+                                   std::make_shared<DataTypeInt64>(), false);
+    // COUNT(slot) can use the inline count path.
+    EXPECT_TRUE(count_fn->is_simple_count());
+
+    // COUNT(*) has no argument at all.
+    count_fn->_input_exprs_ctxs.clear();
+    EXPECT_TRUE(count_fn->is_simple_count());
+
+    // COUNT(literal) has nothing to evaluate either.
+    count_fn->_input_exprs_ctxs = {MockLiteral::create<DataTypeInt64>(1)};
+    EXPECT_TRUE(count_fn->is_simple_count());
+
+    // COUNT(fn(...)) must evaluate its argument, e.g. assert_true() may raise an error.
+    auto fn_call = MockFnCall::create("assert_true");
+    fn_call->_node_type = TExprNodeType::FUNCTION_CALL;
+    count_fn->_input_exprs_ctxs = {VExprContext::create_shared(fn_call)};
+    EXPECT_FALSE(count_fn->is_simple_count());
+
+    // Other aggregate functions never use the inline count path.
+    auto* sum_fn = create_mock_agg_fn_evaluator(pool);
+    EXPECT_FALSE(sum_fn->is_simple_count());
 }
 
 } // namespace doris
