@@ -27,8 +27,8 @@
 #include <benchmark/benchmark.h>
 
 #include <cstdint>
-#include <memory>
 #include <limits>
+#include <memory>
 #include <random>
 #include <string>
 #include <vector>
