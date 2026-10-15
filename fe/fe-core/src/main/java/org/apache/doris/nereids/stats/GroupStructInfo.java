@@ -1120,7 +1120,34 @@ public class GroupStructInfo {
         // the qualifier decides whether the rows of the operation are deduplicated, which changes the
         // row count, so it is part of the identity (an all and a distinct operation never share an entry)
         String qualifier = String.valueOf(setOperation.getQualifier()).toLowerCase();
-        String header = kind + "{" + qualifier + ",cols:[" + columns + "]}";
+        // MergeOneRowRelationIntoUnion moves the constant SELECT branches out of the children: they are not
+        // in the memo any more, and this header is the only place which can carry them. They belong to the
+        // identity - two distinct unions which differ only in their constants keep a different number of
+        // rows - so their values are written in both modes: folding them would let the two share a key.
+        StringBuilder constants = new StringBuilder();
+        if (setOperation instanceof Union) {
+            List<List<NamedExpression>> constantExprsList = ((Union) setOperation).getConstantExprsList();
+            if (!constantExprsList.isEmpty()) {
+                constants.append(",const:[");
+                for (int branch = 0; branch < constantExprsList.size(); branch++) {
+                    if (branch > 0) {
+                        constants.append(';');
+                    }
+                    List<NamedExpression> branchExpressions = constantExprsList.get(branch);
+                    for (int i = 0; i < branchExpressions.size(); i++) {
+                        if (i > 0) {
+                            constants.append(',');
+                        }
+                        StringBuilder withLiteral = new StringBuilder();
+                        StringBuilder noLiteral = new StringBuilder();
+                        appendNormalizedExpression(branchExpressions.get(i), withLiteral, noLiteral);
+                        constants.append(withLiteral);
+                    }
+                    constants.append(']');
+                }
+            }
+        }
+        String header = kind + "{" + qualifier + ",cols:[" + columns + "]" + constants + "}";
         List<GroupStructInfo> branches = new ArrayList<>(ge.arity());
         for (int i = 0; i < ge.arity(); i++) {
             GroupStructInfo branch = describeGroup(ge.child(i), ctx);

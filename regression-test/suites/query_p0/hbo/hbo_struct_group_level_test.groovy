@@ -167,6 +167,14 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
         assertNotEquals([], fingerprintsOf(windowByB, "aggregation"))
         assertNotEquals(fingerprintsOf(windowByB, "aggregation"), fingerprintsOf(windowByA, "aggregation"))
 
+        // (8) the constant branches of a union are moved out of its children by
+        // MergeOneRowRelationIntoUnion: they decide which rows the union produces, so they belong to the
+        // key of every node above it
+        def unionTwo = explainText("select count(*) from (select a from hbo_sg_t1 union select 2) x")
+        def unionThree = explainText("select count(*) from (select a from hbo_sg_t1 union select 3) x")
+        assertTrue(unionTwo.contains("const:["), unionTwo)
+        assertNotEquals(fingerprintsOf(unionTwo, "aggregation"), fingerprintsOf(unionThree, "aggregation"))
+
     } finally {
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }

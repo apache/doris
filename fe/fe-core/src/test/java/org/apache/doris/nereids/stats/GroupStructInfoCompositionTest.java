@@ -20,8 +20,10 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -44,7 +46,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -311,5 +315,36 @@ public class GroupStructInfoCompositionTest {
                 new EqualTo(v.withSubPath(ImmutableList.of("age", "min")), new IntegerLiteral(30))), t);
         Assertions.assertTrue(GroupStructInfo.describeGroup(new Memo(null, nested).getRoot())
                 .getShape(NO_LITERAL).contains("['age']['min']"));
+    }
+
+    @Test
+    void testTheConstantBranchesOfAUnionArePartOfTheKey() {
+        // MergeOneRowRelationIntoUnion takes the constant branches out of the children of the union, so
+        // only the header can carry them: two distinct unions which differ only in their constants keep a
+        // different number of rows (`select 1 union select 2` against `select 1 union select 1`)
+        LogicalOlapScan t1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        List<List<NamedExpression>> twoBranches = new ArrayList<>();
+        twoBranches.add(ImmutableList.<NamedExpression>of(new Alias(new IntegerLiteral(1), "c1")));
+        twoBranches.add(ImmutableList.<NamedExpression>of(new Alias(new IntegerLiteral(2), "c1")));
+        List<List<NamedExpression>> oneBranch = new ArrayList<>();
+        oneBranch.add(ImmutableList.<NamedExpression>of(new Alias(new IntegerLiteral(1), "c1")));
+        oneBranch.add(ImmutableList.<NamedExpression>of(new Alias(new IntegerLiteral(1), "c1")));
+        Memo twoConstants = new Memo(null,
+                new LogicalUnion(SetOperation.Qualifier.DISTINCT, twoBranches, ImmutableList.of(t1)));
+        Memo oneConstant = new Memo(null,
+                new LogicalUnion(SetOperation.Qualifier.DISTINCT, oneBranch, ImmutableList.of(t1)));
+        GroupStructInfo twoInfo = GroupStructInfo.describeGroup(twoConstants.getRoot());
+        GroupStructInfo oneInfo = GroupStructInfo.describeGroup(oneConstant.getRoot());
+        Assertions.assertTrue(twoInfo.isValid(), twoInfo.getSkipReason());
+        String twoShape = twoInfo.getShape(NO_LITERAL);
+        Assertions.assertTrue(twoShape.contains("const:["), twoShape);
+        // the values are rendered with their literal text in both modes: folding them would let two
+        // different constant branches share a key
+        Assertions.assertTrue(twoShape.contains("lit(1:INT)"), twoShape);
+        Assertions.assertTrue(twoShape.contains("lit(2:INT)"), twoShape);
+        Assertions.assertNotEquals(twoInfo.getFingerprint(NO_LITERAL), oneInfo.getFingerprint(NO_LITERAL),
+                "two different constant branches share one key");
+        // a constant is not folded away: the two modes name it as well
+        Assertions.assertEquals(twoInfo.getShape(WITH_LITERAL), twoInfo.getShape(NO_LITERAL));
     }
 }
