@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <butil/iobuf.h>
 #include <bvar/bvar.h>
 #include <glog/logging.h>
 
@@ -32,6 +33,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/cache/inflight_write_buffer_index.h"
+#include "io/cache/peer_file_cache_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "util/time.h"
@@ -54,6 +56,65 @@ bvar::Adder<uint64_t> g_cached_remote_reader_probe_downloading(
         "cached_remote_file_reader_probe_hit_downloading_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_probe_miss(
         "cached_remote_file_reader_probe_miss_count");
+
+// Copy the peer payload that overlaps file range [copy_left, copy_right] into `result`, whose first
+// byte is file offset `user_offset`, and regroup the chunks by reference into one IOBuf per
+// requested range. Chunks may split or reorder ranges; block_offset is a file offset and
+// block_index indexes `ranges`. Add the bytes copied into `result` to `copied_bytes`.
+std::vector<butil::IOBuf> take_peer_span(const PeerFetchResult& peer_result,
+                                         const std::vector<FileBlock::Range>& ranges,
+                                         size_t copy_left, size_t copy_right, size_t user_offset,
+                                         Slice result, size_t* copied_bytes) {
+    std::vector<const PeerFetchChunk*> chunks;
+    chunks.reserve(peer_result.chunks.size());
+    for (const auto& chunk : peer_result.chunks) {
+        chunks.push_back(&chunk);
+    }
+    std::sort(chunks.begin(), chunks.end(), [](const auto* lhs, const auto* rhs) {
+        return lhs->block_offset < rhs->block_offset;
+    });
+    std::vector<butil::IOBuf> peer_blocks(ranges.size());
+    for (const auto* chunk : chunks) {
+        DORIS_CHECK(chunk->block_index < ranges.size());
+        const size_t chunk_size = chunk->payload.length();
+        peer_blocks[chunk->block_index].append(chunk->payload); // shares blocks
+        if (chunk_size == 0) {
+            continue;
+        }
+        const size_t chunk_copy_left = std::max(copy_left, chunk->block_offset);
+        const size_t chunk_copy_right = std::min(copy_right, chunk->block_offset + chunk_size - 1);
+        if (chunk_copy_left > chunk_copy_right) {
+            continue;
+        }
+        const size_t copy_size = chunk_copy_right - chunk_copy_left + 1;
+        const size_t result_offset = chunk_copy_left - user_offset;
+        DORIS_CHECK(copy_size <= result.size - result_offset);
+        const size_t copied = chunk->payload.copy_to(result.data + result_offset, copy_size,
+                                                     chunk_copy_left - chunk->block_offset);
+        DORIS_CHECK(copied == copy_size);
+        *copied_bytes += copy_size;
+    }
+    for (size_t index = 0; index < ranges.size(); ++index) {
+        DORIS_CHECK(peer_blocks[index].length() == ranges[index].size());
+    }
+    return peer_blocks;
+}
+
+// Build the payload of one async write task. A peer block is wrapped without copying; storage bytes
+// are copied into a tracked buffer. Return nullptr when the tracked allocation fails.
+AsyncCacheWriteBufferPtr make_task_buffer(AsyncCacheWriteManager* manager,
+                                          const butil::IOBuf* peer_block, const char* storage_data,
+                                          size_t size, size_t capacity) {
+    if (peer_block != nullptr) {
+        return manager->wrap_iobuf(capacity, *peer_block); // copying an IOBuf shares its blocks
+    }
+    AsyncCacheWriteBufferPtr buffer;
+    if (!manager->allocate_tracked_buffer(capacity, &buffer).ok()) {
+        return nullptr;
+    }
+    memcpy(buffer->data(), storage_data, size);
+    return buffer;
+}
 
 } // namespace
 
@@ -170,7 +231,7 @@ struct CachedRemoteFileReader::AsyncReadPlan {
 
 // Resolve mode on every read so online configuration changes affect existing readers.
 CacheWriteMode CachedRemoteFileReader::_resolve_cache_write_mode(const IOContext* io_ctx) const {
-    if (io_ctx->is_dryrun || io_ctx->is_warmup || _should_read_from_peer(io_ctx)) {
+    if (io_ctx->is_dryrun || io_ctx->is_warmup) {
         return CacheWriteMode::SYNC_WRITE;
     }
     if (io_ctx->cache_write_mode_override.has_value()) {
@@ -343,7 +404,7 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
         DORIS_CHECK(entry != nullptr);
         const size_t entry_offset = copy_left - entry->buffer_offset;
         DORIS_CHECK(entry_offset + copy_size <= entry->buffer_size);
-        memcpy(result.data + result_offset, entry->buffer->data() + entry_offset, copy_size);
+        entry->buffer->copy_to(entry_offset, copy_size, result.data + result_offset);
         *materialized_bytes += copy_size;
         return true;
     }
@@ -438,14 +499,21 @@ bool CachedRemoteFileReader::_materialize_async_cached_sides(
     return true;
 }
 
+// Payload of the single remote operation: storage returns one contiguous buffer for the span; peer
+// returns one IOBuf per span block, after fetch_blocks() verified exact coverage.
+struct CachedRemoteFileReader::AsyncRemoteSpan {
+    std::unique_ptr<char[]> buffer;
+    std::vector<butil::IOBuf> peer_blocks;
+};
+
 // Read the single aligned range from the first REMOTE block through the last REMOTE block. Cache
 // hits inside that span are intentionally reread to keep one straightforward remote operation.
 Status CachedRemoteFileReader::_read_async_remote_range(
         const AsyncReadPlan& plan, size_t user_offset, Slice result, bool need_self_heal,
         const IOContext* io_ctx, ReadStatistics& stats, SourceReadBreakdown& source_read_breakdown,
-        size_t* indirect_read_bytes, std::unique_ptr<char[]>* remote_buffer) {
+        size_t* indirect_read_bytes, AsyncRemoteSpan* span) {
     DORIS_CHECK(indirect_read_bytes != nullptr);
-    DORIS_CHECK(remote_buffer != nullptr);
+    DORIS_CHECK(span != nullptr);
     DORIS_CHECK(plan.remote_block_count > 0);
     DORIS_CHECK(plan.first_remote_block < plan.blocks.size());
     const size_t remote_end = plan.first_remote_block + plan.remote_block_count;
@@ -463,38 +531,63 @@ Status CachedRemoteFileReader::_read_async_remote_range(
         _cache->remove_if_cached_async(_cache_hash);
     }
 
-    const std::vector<FileBlockSPtr> no_peer_blocks;
-    RETURN_IF_ERROR(_execute_remote_read(no_peer_blocks, remote_left, remote_size, *remote_buffer,
-                                         nullptr, stats, io_ctx));
-    DORIS_CHECK(*remote_buffer != nullptr);
+    // Peer fails the whole RPC when it misses any requested block, and the client then rotates the
+    // candidate. Only ask it for spans made purely of real misses; a span that rereads local hits
+    // (including the whole-range fallback) stays on direct remote storage.
+    std::vector<FileBlock::Range> remote_ranges;
+    remote_ranges.reserve(plan.remote_block_count);
+    bool all_misses = true;
+    for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
+        remote_ranges.push_back(plan.blocks[index].range);
+        all_misses = all_misses && plan.blocks[index].source == AsyncReadBlock::Source::REMOTE;
+    }
+    IOContext remote_io_ctx = *io_ctx;
+    remote_io_ctx.bypass_peer_read = remote_io_ctx.bypass_peer_read || !all_misses;
 
+    PeerFetchResult peer_result;
+    RETURN_IF_ERROR(_execute_remote_read(remote_ranges, remote_left, remote_size, span->buffer,
+                                         &peer_result, stats, &remote_io_ctx));
+
+    SCOPED_RAW_TIMER(&stats.async_copy_to_user_timer);
     const size_t copy_left = std::max(remote_left, plan.user_left);
     const size_t copy_right = std::min(remote_right, plan.user_right);
-    if (copy_left <= copy_right) {
-        const size_t copy_size = copy_right - copy_left + 1;
-        const size_t result_offset = copy_left - user_offset;
-        const size_t remote_buffer_offset = copy_left - remote_left;
-        DORIS_CHECK(copy_size <= result.size - result_offset);
-        DORIS_CHECK(copy_size <= remote_size - remote_buffer_offset);
-        memcpy(result.data + result_offset, remote_buffer->get() + remote_buffer_offset, copy_size);
-        *indirect_read_bytes += copy_size;
-        source_read_breakdown.remote_bytes += copy_size;
+    if (span->buffer != nullptr) {
+        if (copy_left <= copy_right) {
+            const size_t copy_size = copy_right - copy_left + 1;
+            const size_t result_offset = copy_left - user_offset;
+            const size_t remote_buffer_offset = copy_left - remote_left;
+            DORIS_CHECK(copy_size <= result.size - result_offset);
+            DORIS_CHECK(copy_size <= remote_size - remote_buffer_offset);
+            memcpy(result.data + result_offset, span->buffer.get() + remote_buffer_offset,
+                   copy_size);
+            *indirect_read_bytes += copy_size;
+            source_read_breakdown.remote_bytes += copy_size;
+        }
+        return Status::OK();
     }
 
+    // Peer won: fetch_blocks() verified that the chunks cover every requested byte exactly once.
+    DORIS_CHECK(stats.from_peer_cache);
+    DORIS_CHECK(peer_result.bytes_read == remote_size);
+    size_t copied = 0;
+    span->peer_blocks = take_peer_span(peer_result, remote_ranges, copy_left, copy_right,
+                                       user_offset, result, &copied);
+    *indirect_read_bytes += copied;
+    source_read_breakdown.peer_bytes += copied;
     return Status::OK();
 }
 
 // Submit exactly the real cache misses contained in the remote span. Inflight insertion happens after
 // remote IO and immediately before enqueueing, so a concurrent owner wins without duplicate work.
 void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan,
-                                                       const std::unique_ptr<char[]>& remote_buffer,
+                                                       const AsyncRemoteSpan& span,
                                                        const IOContext* io_ctx,
                                                        ReadStatistics& stats) {
     auto* manager = _cache->async_write_manager();
     auto* inflight_index = _cache->inflight_write_buffer_index();
     DORIS_CHECK(manager != nullptr);
     DORIS_CHECK(inflight_index != nullptr);
-    DORIS_CHECK(remote_buffer != nullptr);
+    DORIS_CHECK((span.buffer != nullptr) != !span.peer_blocks.empty());
 
     CacheContext cache_context(io_ctx);
     const CacheAdmissionContext admission_context =
@@ -523,19 +616,20 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
             continue;
         }
 
-        AsyncCacheWriteBufferPtr tracked_buffer;
-        Status status = manager->allocate_tracked_buffer(cache_block_size, &tracked_buffer);
-        if (!status.ok()) {
+        const size_t remote_buffer_offset = read_block.range.left - remote_left;
+        DORIS_CHECK(remote_buffer_offset <= remote_size);
+        DORIS_CHECK(read_block.range.size() <= remote_size - remote_buffer_offset);
+        const bool from_peer = span.buffer == nullptr;
+        AsyncCacheWriteBufferPtr tracked_buffer = make_task_buffer(
+                manager, from_peer ? &span.peer_blocks[index - plan.first_remote_block] : nullptr,
+                from_peer ? nullptr : span.buffer.get() + remote_buffer_offset,
+                read_block.range.size(), cache_block_size);
+        if (tracked_buffer == nullptr) {
             ++stats.async_cache_write_buffer_alloc_fail;
             continue;
         }
         DORIS_CHECK(tracked_buffer->size() == cache_block_size);
         DORIS_CHECK(read_block.range.size() <= tracked_buffer->size());
-        const size_t remote_buffer_offset = read_block.range.left - remote_left;
-        DORIS_CHECK(remote_buffer_offset <= remote_size);
-        DORIS_CHECK(read_block.range.size() <= remote_size - remote_buffer_offset);
-        memcpy(tracked_buffer->data(), remote_buffer.get() + remote_buffer_offset,
-               read_block.range.size());
 
         AsyncCacheWriteTask task {
                 .cache_hash = _cache_hash,
@@ -595,15 +689,6 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
     DORIS_CHECK(offset <= size());
     DORIS_CHECK(bytes_req <= size() - offset);
 
-    // Async write needs one contiguous direct-remote buffer whose blocks can outlive this call as
-    // queued task payloads. Peer reads may instead return segmented peer-owned payloads, so they
-    // are unsupported on this path. Mode resolution normally selects synchronous write when peer
-    // read is enabled, while this per-call copy also prevents an online peer-policy change between
-    // mode resolution and remote IO from changing the selected async read's source.
-    IOContext direct_remote_io_ctx = *io_ctx;
-    direct_remote_io_ctx.bypass_peer_read = true;
-    io_ctx = &direct_remote_io_ctx;
-
     g_read_cache_indirect_num << 1;
     if (already_read == bytes_req) {
         *bytes_read = bytes_req;
@@ -630,11 +715,12 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
         plan.remote_block_count = plan.blocks.size();
     }
     if (plan.remote_block_count > 0) {
-        std::unique_ptr<char[]> remote_buffer;
+        AsyncRemoteSpan remote_span;
         RETURN_IF_ERROR(_read_async_remote_range(plan, offset, result, need_self_heal, io_ctx,
                                                  stats, source_read_breakdown, &indirect_read_bytes,
-                                                 &remote_buffer));
-        _submit_async_write_tasks(plan, remote_buffer, io_ctx, stats);
+                                                 &remote_span));
+        SCOPED_RAW_TIMER(&stats.async_submit_write_timer);
+        _submit_async_write_tasks(plan, remote_span, io_ctx, stats);
     }
 
     DORIS_CHECK(indirect_read_bytes == bytes_req - already_read);

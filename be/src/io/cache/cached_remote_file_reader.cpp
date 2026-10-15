@@ -294,7 +294,7 @@ void copy_peer_chunk_to_result(const PeerFetchChunk& chunk, size_t offset, size_
 }
 
 // Execute peer read targeting a specific host:port.
-Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
+Status execute_peer_read(const std::vector<FileBlock::Range>& empty_ranges,
                          PeerFetchResult* peer_result, const std::string& file_path,
                          size_t file_size, bool is_doris_table, ReadStatistics& stats,
                          const IOContext* io_ctx, const std::string& host, int32_t port) {
@@ -312,7 +312,7 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
     peer_read_counter << 1;
     PeerFileCacheReader peer_reader(file_path, is_doris_table, host, port);
     // Serial peer read: source BE has the data from rebalance warm-up; no fill needed.
-    auto st = peer_reader.fetch_blocks(empty_blocks, peer_result, file_size, io_ctx,
+    auto st = peer_reader.fetch_blocks(empty_ranges, peer_result, file_size, io_ctx,
                                        /*request_fill=*/false);
     if (!st.ok()) {
         LOG_WARNING("PeerFileCacheReader read from peer failed")
@@ -367,7 +367,7 @@ struct RaceState {
 // Peer race logic: try candidates sequentially until one succeeds or all fail.
 // NOTE: Do NOT capture io_ctx here — it points into the caller's stack which may be destroyed
 // when S3 wins the race and the caller returns before this bthread finishes.
-void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> empty_blocks,
+void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlock::Range> empty_ranges,
                    const std::string& file_path, size_t file_sz, bool is_doris,
                    std::shared_ptr<CloudWarmUpManager> manager,
                    std::vector<doris::PeerCandidate> candidates, int64_t tablet_id,
@@ -403,7 +403,7 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
                 !resource_id.empty() && !file_path.empty();
         MonotonicStopWatch cand_sw;
         cand_sw.start();
-        auto st = peer_reader.fetch_blocks(empty_blocks, &local_peer_res, file_sz,
+        auto st = peer_reader.fetch_blocks(empty_ranges, &local_peer_res, file_sz,
                                            /*ctx=*/nullptr, request_fill, tablet_id, resource_id);
         if (st.ok()) {
             manager->update_peer_candidate_on_success(tablet_id, cand.compute_group_id);
@@ -594,7 +594,7 @@ Status CachedRemoteFileReader::_execute_s3_fallback(size_t empty_start, size_t s
 }
 
 Status CachedRemoteFileReader::_execute_sequential_peer_read(
-        const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start, size_t span_size,
+        const std::vector<FileBlock::Range>& empty_ranges, size_t empty_start, size_t span_size,
         std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result, ReadStatistics& stats,
         const IOContext* io_ctx, const std::vector<doris::PeerCandidate>& candidates,
         int64_t tablet_id) {
@@ -607,7 +607,7 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
     auto& manager = get_warm_up_manager();
     PeerFetchResult serial_res;
     const int64_t timer_before = stats.peer_read_timer;
-    auto st = execute_peer_read(empty_blocks, &serial_res, path().native(), this->size(),
+    auto st = execute_peer_read(empty_ranges, &serial_res, path().native(), this->size(),
                                 _is_doris_table, stats, io_ctx, candidates[0].host,
                                 candidates[0].brpc_port);
     if (st.ok()) {
@@ -655,12 +655,10 @@ Status CachedRemoteFileReader::_execute_sequential_peer_read(
     return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
 }
 
-Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockSPtr>& empty_blocks,
-                                                    size_t empty_start, size_t span_size,
-                                                    std::unique_ptr<char[]>& buffer,
-                                                    PeerFetchResult* peer_result,
-                                                    ReadStatistics& stats,
-                                                    const IOContext* io_ctx) {
+Status CachedRemoteFileReader::_execute_remote_read(
+        const std::vector<FileBlock::Range>& empty_ranges, size_t empty_start, size_t span_size,
+        std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result, ReadStatistics& stats,
+        const IOContext* io_ctx) {
     // --- Non-peer path: direct S3 ---
     if (!_should_read_from_peer(io_ctx)) {
         return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
@@ -673,7 +671,7 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         buffer.reset();
         DCHECK(peer_result != nullptr);
         peer_result->clear();
-        auto st = execute_peer_read(empty_blocks, peer_result, path().native(), this->size(),
+        auto st = execute_peer_read(empty_ranges, peer_result, path().native(), this->size(),
                                     _is_doris_table, stats, io_ctx, dp_host, dp_port);
         if (st.ok()) return st;
         return _execute_s3_fallback(empty_start, span_size, buffer, peer_result, stats, io_ctx);
@@ -701,15 +699,15 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
     // (stable_partition in get_peer_candidates), so the winner race peer bthread
     // naturally tries the most promising candidate first — whether same-CG or cross-CG.
     if (config::enable_peer_s3_race) {
-        return _execute_winner_race(empty_blocks, empty_start, span_size, buffer, peer_result,
+        return _execute_winner_race(empty_ranges, empty_start, span_size, buffer, peer_result,
                                     stats, io_ctx, candidates, tablet_id);
     }
-    return _execute_sequential_peer_read(empty_blocks, empty_start, span_size, buffer, peer_result,
+    return _execute_sequential_peer_read(empty_ranges, empty_start, span_size, buffer, peer_result,
                                          stats, io_ctx, candidates, tablet_id);
 }
 
 Status CachedRemoteFileReader::_execute_winner_race(
-        const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start, size_t span_size,
+        const std::vector<FileBlock::Range>& empty_ranges, size_t empty_start, size_t span_size,
         std::unique_ptr<char[]>& buffer, PeerFetchResult* peer_result, ReadStatistics& stats,
         const IOContext* io_ctx, const std::vector<doris::PeerCandidate>& candidates,
         int64_t tablet_id) {
@@ -717,7 +715,7 @@ Status CachedRemoteFileReader::_execute_winner_race(
     if (g_active_peer_races.fetch_add(1, std::memory_order_relaxed) >=
         config::max_concurrent_peer_races) {
         g_active_peer_races.fetch_sub(1, std::memory_order_relaxed);
-        return _execute_sequential_peer_read(empty_blocks, empty_start, span_size, buffer,
+        return _execute_sequential_peer_read(empty_ranges, empty_start, span_size, buffer,
                                              peer_result, stats, io_ctx, candidates, tablet_id);
     }
 
@@ -737,10 +735,10 @@ Status CachedRemoteFileReader::_execute_winner_race(
 
     // Launch peer bthread.
     start_bthread(
-            [race, empty_blocks = std::move(empty_blocks), file_path, file_sz, is_doris,
+            [race, empty_ranges = std::move(empty_ranges), file_path, file_sz, is_doris,
              manager = std::move(manager), candidates = std::move(candidates), tablet_id,
              resource_id = _storage_resource_id, parent_resource_ctx]() mutable {
-                run_peer_race(race, std::move(empty_blocks), file_path, file_sz, is_doris,
+                run_peer_race(race, std::move(empty_ranges), file_path, file_sz, is_doris,
                               std::move(manager), std::move(candidates), tablet_id,
                               std::move(resource_id), parent_resource_ctx);
             },
@@ -873,7 +871,12 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
     std::unique_ptr<char[]> buffer;
     PeerFetchResult peer_result;
 
-    RETURN_IF_ERROR(_execute_remote_read(empty_blocks, empty_start, span_read_size, buffer,
+    std::vector<FileBlock::Range> empty_ranges;
+    empty_ranges.reserve(empty_blocks.size());
+    for (const auto& block : empty_blocks) {
+        empty_ranges.push_back(block->range());
+    }
+    RETURN_IF_ERROR(_execute_remote_read(empty_ranges, empty_start, span_read_size, buffer,
                                          &peer_result, stats, io_ctx));
 
     std::vector<std::vector<const PeerFetchChunk*>> peer_chunks_by_block;
@@ -1404,6 +1407,8 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->async_cache_write_rejected += read_stats.async_cache_write_rejected;
     statis->async_cache_write_buffer_alloc_fail += read_stats.async_cache_write_buffer_alloc_fail;
     statis->async_cache_write_drop_stale_epoch += read_stats.async_cache_write_drop_stale_epoch;
+    statis->async_copy_to_user_timer += read_stats.async_copy_to_user_timer;
+    statis->async_submit_write_timer += read_stats.async_submit_write_timer;
     statis->inflight_write_buffer_index_hit += read_stats.inflight_write_buffer_index_hit;
     statis->inflight_write_buffer_index_miss += read_stats.inflight_write_buffer_index_miss;
     statis->probe_downloaded_hit += read_stats.probe_downloaded_hit;

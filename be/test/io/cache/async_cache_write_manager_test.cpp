@@ -17,6 +17,7 @@
 
 #include "io/cache/async_cache_write_manager.h"
 
+#include <butil/iobuf.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -435,6 +436,189 @@ TEST_F(AsyncCacheWriteManagerTest, TaskWritesDownloadedBlockAndCleansInflightEnt
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     EXPECT_EQ(manager->buffer_memory_bytes(), baseline_memory);
+}
+
+// Persist `payload` through an IOBuf-backed task and wait until the worker finalizes it.
+void submit_iobuf_task_and_wait(AsyncCacheWriteManager* manager, const UInt128Wrapper& hash,
+                                const std::string& payload, size_t capacity) {
+    butil::IOBuf iobuf;
+    // Reference the payload in 1000-byte user-data blocks so it spans several backing blocks.
+    // `payload` outlives the task because the caller waits for finalization.
+    for (size_t pos = 0; pos < payload.size(); pos += 1000) {
+        ASSERT_EQ(
+                iobuf.append_user_data(const_cast<char*>(payload.data()) + pos,
+                                       std::min<size_t>(1000, payload.size() - pos), [](void*) {}),
+                0);
+    }
+    ASSERT_GT(iobuf.backing_block_num(), 1);
+    auto buffer = manager->wrap_iobuf(capacity, std::move(iobuf));
+    EXPECT_EQ(buffer->size(), capacity);
+
+    // An inflight reader crossing a backing-block boundary sees the same bytes.
+    std::string copied(payload.size() - 10, '\0');
+    buffer->copy_to(10, copied.size(), copied.data());
+    EXPECT_EQ(copied, payload.substr(10));
+
+    std::promise<void> finished;
+    auto finished_future = finished.get_future();
+    AsyncCacheWriteTask task {
+            .cache_hash = hash,
+            .file_offset = 0,
+            .write_size = payload.size(),
+            .buffer = std::move(buffer),
+            .admission_ctx = {},
+            .submit_ts_us = MonotonicMicros(),
+            .write_epoch = manager->current_write_epoch(hash),
+            .on_finalized = [&finished](const AsyncCacheWriteTask&) { finished.set_value(); },
+    };
+    ASSERT_TRUE(manager->try_submit(std::move(task)));
+    ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+}
+
+std::string read_cached(BlockFileCache* cache, const UInt128Wrapper& hash, size_t size) {
+    ReadStatistics read_stats;
+    CacheContext context;
+    context.stats = &read_stats;
+    FileBlocks blocks;
+    bool fully_covered = false;
+    EXPECT_TRUE(cache->get_downloaded_blocks_if_fully_covered(hash, 0, size, context, &blocks,
+                                                              &fully_covered)
+                        .ok());
+    EXPECT_TRUE(fully_covered);
+    EXPECT_EQ(blocks.size(), 1);
+    std::string actual(size, '\0');
+    if (blocks.size() == 1) {
+        EXPECT_TRUE(blocks.front()->read(Slice(actual.data(), actual.size()), 0).ok());
+    }
+    return actual;
+}
+
+TEST_F(AsyncCacheWriteManagerTest, IOBufPayloadIsPersistedAndChargedToTracker) {
+    auto cache = create_cache("async_write_manager_iobuf_payload");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+
+    constexpr size_t block_size = 4096;
+    std::string payload(block_size, '\0');
+    for (size_t i = 0; i < payload.size(); ++i) {
+        payload[i] = static_cast<char>('a' + i % 26);
+    }
+    const auto hash = BlockFileCache::hash("async_iobuf_payload");
+    const int64_t baseline_memory = manager->buffer_memory_bytes();
+    {
+        butil::IOBuf iobuf;
+        iobuf.append(payload);
+        auto buffer = manager->wrap_iobuf(block_size, std::move(iobuf));
+        EXPECT_EQ(manager->buffer_memory_bytes(),
+                  baseline_memory + static_cast<int64_t>(block_size));
+    }
+    EXPECT_EQ(manager->buffer_memory_bytes(), baseline_memory);
+
+    submit_iobuf_task_and_wait(manager, hash, payload, block_size);
+    EXPECT_EQ(manager->pending_bytes(), 0);
+    EXPECT_EQ(read_cached(cache.get(), hash, block_size), payload);
+    for (int attempt = 0; attempt < 100 && manager->buffer_memory_bytes() != baseline_memory;
+         ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_EQ(manager->buffer_memory_bytes(), baseline_memory);
+}
+
+TEST_F(AsyncCacheWriteManagerTest, ShortIOBufPayloadPersistsEofBlock) {
+    auto cache = create_cache("async_write_manager_iobuf_eof");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+
+    const std::string payload(2500, 'z');
+    const auto hash = BlockFileCache::hash("async_iobuf_eof");
+    submit_iobuf_task_and_wait(manager, hash, payload, /*capacity=*/4096);
+    EXPECT_EQ(read_cached(cache.get(), hash, payload.size()), payload);
+}
+
+TEST_F(AsyncCacheWriteManagerTest, EvictedIOBufVictimReleasesTrackerCharge) {
+    auto cache = create_cache("async_write_manager_iobuf_victim");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+    auto options = manager->options();
+    options.worker_count = 1;
+    options.max_pending_bytes = 2 * 4096;
+    ASSERT_TRUE(manager->update_options(options).ok());
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool worker_entered = false;
+    bool release_worker = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteManager::_persist_task:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                worker_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_worker; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    // Hold the only worker so later tasks stay queued.
+    ASSERT_TRUE(manager->try_submit(make_async_write_task(manager, "iobuf_victim_active", 'a')));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entered; }));
+    }
+
+    // Queue an IOBuf task whose length differs from the block capacity, so a leak is visible.
+    constexpr size_t victim_size = 3000;
+    const int64_t before_victim = manager->buffer_memory_bytes();
+    butil::IOBuf payload;
+    payload.append(std::string(victim_size, 'v'));
+    auto victim_buffer = manager->wrap_iobuf(4096, std::move(payload));
+    const auto victim_hash = BlockFileCache::hash("iobuf_victim");
+    std::thread::id finalized_thread;
+    ASSERT_TRUE(manager->try_submit(AsyncCacheWriteTask {
+            .cache_hash = victim_hash,
+            .file_offset = 0,
+            .write_size = victim_size,
+            .buffer = std::move(victim_buffer),
+            .admission_ctx = {},
+            .submit_ts_us = MonotonicMicros(),
+            .write_epoch = manager->current_write_epoch(victim_hash),
+            .on_finalized =
+                    [&](const AsyncCacheWriteTask&) {
+                        finalized_thread = std::this_thread::get_id();
+                    },
+    }));
+    EXPECT_EQ(manager->buffer_memory_bytes(), before_victim + static_cast<int64_t>(victim_size));
+
+    // The queue is full, so the next submission evicts the IOBuf task on this thread.
+    auto replacer = make_async_write_task(manager, "iobuf_victim_replacer", 'r');
+    const uint64_t baseline_evicted = manager->_metrics->snapshot().evicted_oldest;
+    ASSERT_TRUE(manager->try_submit(std::move(replacer)));
+    EXPECT_EQ(manager->_metrics->snapshot().evicted_oldest - baseline_evicted, 1);
+    EXPECT_EQ(finalized_thread, std::this_thread::get_id());
+    EXPECT_EQ(manager->buffer_memory_bytes(), before_victim + 4096);
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), victim_hash, 0, victim_size));
+
+    // Drain while the sync-point state the blocked worker reads is still in scope.
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    cv.notify_all();
+    for (int attempt = 0; attempt < 5000 && manager->pending_count() != 0; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(manager->pending_count(), 0);
 }
 
 TEST_F(AsyncCacheWriteManagerTest, LockedQueuePreservesFifoWithSingleWorker) {

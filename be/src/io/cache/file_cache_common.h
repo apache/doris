@@ -96,6 +96,10 @@ struct ReadStatistics {
     int64_t async_cache_write_rejected = 0;
     int64_t async_cache_write_buffer_alloc_fail = 0;
     int64_t async_cache_write_drop_stale_epoch = 0;
+    // Async-write read path, query thread only: copying remote/peer data into the user buffer, and
+    // building plus enqueueing write tasks. Remote IO itself is in remote/peer_read_timer.
+    int64_t async_copy_to_user_timer = 0;
+    int64_t async_submit_write_timer = 0;
     int64_t inflight_write_buffer_index_hit = 0;
     int64_t inflight_write_buffer_index_miss = 0;
     int64_t probe_downloaded_hit = 0;

@@ -80,6 +80,8 @@ struct FileCacheStatistics {
     int64_t async_cache_write_rejected = 0;
     int64_t async_cache_write_buffer_alloc_fail = 0;
     int64_t async_cache_write_drop_stale_epoch = 0;
+    int64_t async_copy_to_user_timer = 0;
+    int64_t async_submit_write_timer = 0;
     int64_t inflight_write_buffer_index_hit = 0;
     int64_t inflight_write_buffer_index_miss = 0;
     int64_t probe_downloaded_hit = 0;
@@ -157,6 +159,8 @@ struct FileCacheStatistics {
         async_cache_write_rejected += other.async_cache_write_rejected;
         async_cache_write_buffer_alloc_fail += other.async_cache_write_buffer_alloc_fail;
         async_cache_write_drop_stale_epoch += other.async_cache_write_drop_stale_epoch;
+        async_copy_to_user_timer += other.async_copy_to_user_timer;
+        async_submit_write_timer += other.async_submit_write_timer;
         inflight_write_buffer_index_hit += other.inflight_write_buffer_index_hit;
         inflight_write_buffer_index_miss += other.inflight_write_buffer_index_miss;
         probe_downloaded_hit += other.probe_downloaded_hit;
