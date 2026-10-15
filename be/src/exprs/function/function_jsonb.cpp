@@ -2186,8 +2186,9 @@ public:
         if (root->isArray()) {
             writer.writeStartArray();
             const auto* array_val = root->unpack<ArrayVal>();
-            for (int i = 0; i != array_val->numElem(); ++i) {
-                auto* it = array_val->get(i);
+            int i = 0;
+            for (auto iter = array_val->begin(); iter < array_val->end(); ++iter, ++i) {
+                const auto* it = &*iter;
 
                 if (is_last_parent && last_leg->array_index == i) {
                     value_written = true;
@@ -2412,12 +2413,12 @@ private:
         } else if (element->isArray()) {
             const auto* array = element->unpack<ArrayVal>();
             bool find = false;
-            for (int i = 0; i < array->numElem(); ++i) {
-                auto leg = std::make_unique<leg_info>(nullptr, 0, i, ARRAY_CODE);
-                cur_path->add_leg_to_leg_vector(std::move(leg));
-                const auto* child_element = array->get(i);
+            int index = 0;
+            for (auto it = array->begin(); it < array->end(); ++it, ++index) {
                 // construct an array cell path leg.
-                find |= find_matches(child_element, one_match, state, cur_path, matches);
+                auto leg = std::make_unique<leg_info>(nullptr, 0, index, ARRAY_CODE);
+                cur_path->add_leg_to_leg_vector(std::move(leg));
+                find |= find_matches(&*it, one_match, state, cur_path, matches);
                 cur_path->pop_leg_from_leg_vector();
                 if (one_match && find) {
                     return true;
