@@ -21,6 +21,9 @@ suite("agg_scalar_empty_input") {
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "set runtime_filter_mode=OFF"
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
+    // The same query text runs once with the rewrite off and once with it on, so the cached result of the
+    // first run would be replayed for the second one instead of the rewritten plan being executed.
+    sql "SET enable_sql_cache=false"
 
     sql """DROP MATERIALIZED VIEW IF EXISTS scalar_agg_empty_mv"""
     sql """DROP MATERIALIZED VIEW IF EXISTS scalar_agg_uniform_mv"""

@@ -283,13 +283,33 @@ public class Predicates {
         return new PredicateCompensation(equalCandidates, rangeCandidates, residualCandidates);
     }
 
-    /** Compensate predicates in one step. */
+    /**
+     * Compensate predicates in one step, for a rewrite which reads the aggregate values of the view as the
+     * view stored them.
+     */
     public static PredicateCompensation compensatePredicates(
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
             ComparisonResult comparisonResult,
             CascadesContext cascadesContext) {
+        return compensatePredicates(queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult,
+                cascadesContext, false);
+    }
+
+    /**
+     * Compensate predicates in one step.
+     *
+     * @param aggregateOutputRecomputed whether the rewrite answers the query by aggregating the view rows
+     *         again, rather than reading the aggregate values that the view already stored
+     */
+    public static PredicateCompensation compensatePredicates(
+            StructInfo queryStructInfo,
+            StructInfo viewStructInfo,
+            SlotMapping viewToQuerySlotMapping,
+            ComparisonResult comparisonResult,
+            CascadesContext cascadesContext,
+            boolean aggregateOutputRecomputed) {
         PredicateCompensation compensationCandidates = collectCompensationCandidates(
                 queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult, cascadesContext);
         if (compensationCandidates == null) {
@@ -297,12 +317,10 @@ public class Predicates {
         }
         Set<Expression> queryBasedViewResidualPredicates = collectNonInferredQueryBasedExpressions(
                 viewStructInfo.getSplitPredicate().getResidualPredicateMap().keySet(), viewToQuerySlotMapping);
-        // Only a candidate the view enforces over the same value is redundant. A candidate which constrains
-        // an aggregate or window output is not, even when the view states the identical condition: the view
-        // enforced it over the rows it materialized, the query needs it over the value its own aggregate
-        // produces from those rows, and a roll up changes that value, an aggregate over no row at all. Keep
-        // such candidates, so that the check at the end refuses the rewrite instead of dropping the filter.
-        Set<Expression> prunableCandidates = collectPrunableCandidates(compensationCandidates);
+        // A candidate the view already answers is pruned here; one over a value the query computes again is
+        // kept, so that the check at the end refuses the rewrite instead of dropping the filter.
+        Set<Expression> prunableCandidates = collectPrunableCandidates(
+                compensationCandidates, aggregateOutputRecomputed);
         Set<Expression> exactCoveredPredicates = new LinkedHashSet<>(
                 Sets.intersection(prunableCandidates, queryBasedViewResidualPredicates));
         Set<Expression> remainingQueryBasedViewResidualPredicates = new LinkedHashSet<>(
@@ -334,12 +352,12 @@ public class Predicates {
             }
 
             PredicateCompensation finalCompensation = new PredicateCompensation(
-                    removePredicatesImpliedByViewResidual(
-                            exactPrunedCompensationCandidates.getEquals(), combinedQueryBasedViewResidual),
-                    removePredicatesImpliedByViewResidual(
-                            exactPrunedCompensationCandidates.getRanges(), combinedQueryBasedViewResidual),
-                    removePredicatesImpliedByViewResidual(
-                            exactPrunedCompensationCandidates.getResiduals(), combinedQueryBasedViewResidual));
+                    removePredicatesImpliedByViewResidual(exactPrunedCompensationCandidates.getEquals(),
+                            combinedQueryBasedViewResidual, aggregateOutputRecomputed),
+                    removePredicatesImpliedByViewResidual(exactPrunedCompensationCandidates.getRanges(),
+                            combinedQueryBasedViewResidual, aggregateOutputRecomputed),
+                    removePredicatesImpliedByViewResidual(exactPrunedCompensationCandidates.getResiduals(),
+                            combinedQueryBasedViewResidual, aggregateOutputRecomputed));
             return rejectUnsafeResidualCompensation(finalCompensation);
         } catch (DnfBranchOverflowException e) {
             // DNF branch expansion may explode exponentially; fail compensation conservatively.
@@ -357,12 +375,13 @@ public class Predicates {
         return ImmutableMap.copyOf(residualCandidates);
     }
 
-    private static Set<Expression> collectPrunableCandidates(PredicateCompensation candidates) {
+    private static Set<Expression> collectPrunableCandidates(
+            PredicateCompensation candidates, boolean aggregateOutputRecomputed) {
         Set<Expression> prunableCandidates = new LinkedHashSet<>();
         for (Map<Expression, ExpressionInfo> predicateMap : ImmutableList.of(
                 candidates.getEquals(), candidates.getRanges(), candidates.getResiduals())) {
             for (Expression candidate : predicateMap.keySet()) {
-                if (!constrainsAggregateOrWindowOutput(candidate)) {
+                if (isPrunable(candidate, aggregateOutputRecomputed)) {
                     prunableCandidates.add(candidate);
                 }
             }
@@ -416,19 +435,25 @@ public class Predicates {
 
     private static Map<Expression, ExpressionInfo> removePredicatesImpliedByViewResidual(
             Map<Expression, ExpressionInfo> predicates,
-            Expression viewResidual) {
+            Expression viewResidual,
+            boolean aggregateOutputRecomputed) {
         // Remove candidates already implied by the view residual predicate.
         Map<Expression, ExpressionInfo> remainingPredicates = new LinkedHashMap<>();
         for (Map.Entry<Expression, ExpressionInfo> entry : predicates.entrySet()) {
-            // A candidate which constrains an aggregate or window output stays: the view residual speaks
-            // about the value the view aggregated, not about the value the query aggregates from the view.
-            // Otherwise, if viewResidual => candidate, candidate is redundant and can be dropped.
-            if (constrainsAggregateOrWindowOutput(entry.getKey())
+            if (!isPrunable(entry.getKey(), aggregateOutputRecomputed)
                     || !impliesByDnf(viewResidual, entry.getKey())) {
                 remainingPredicates.put(entry.getKey(), entry.getValue());
             }
         }
         return ImmutableMap.copyOf(remainingPredicates);
+    }
+
+    /**
+     * Whether the view already answers the candidate. A candidate over an aggregate or window output does
+     * not follow from the view while the query computes that value again from the view rows.
+     */
+    private static boolean isPrunable(Expression candidate, boolean aggregateOutputRecomputed) {
+        return !(aggregateOutputRecomputed && constrainsAggregateOrWindowOutput(candidate));
     }
 
     private static Map<Expression, ExpressionInfo> removeExactCoveredPredicates(

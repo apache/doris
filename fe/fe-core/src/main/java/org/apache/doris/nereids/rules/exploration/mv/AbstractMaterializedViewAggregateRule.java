@@ -580,6 +580,23 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         return true;
     }
 
+    @Override
+    protected boolean aggregateOutputIsRecomputed(StructInfo queryStructInfo, StructInfo viewStructInfo) {
+        // A predicate the view enforces over its own aggregate output answers the query only while the query
+        // reads the value the view stored. isGroupByEquals keeps the aggregate for a query without grouping
+        // over a view which groups by something, and that roll up aggregates the stored values, of no row at
+        // all when the filter matches none. The roll ups of the other shapes are the ones upstream has.
+        Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair = splitToTopPlanAndAggregate(queryStructInfo);
+        Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair = splitToTopPlanAndAggregate(viewStructInfo);
+        if (queryTopPlanAndAggPair == null || viewTopPlanAndAggPair == null) {
+            // Without an aggregate on both sides, the view has no aggregate output of its own to have
+            // enforced a predicate over, so there is no recomputed value to protect.
+            return false;
+        }
+        return queryTopPlanAndAggPair.value().getGroupByExpressions().isEmpty()
+                && !viewTopPlanAndAggPair.value().getGroupByExpressions().isEmpty();
+    }
+
     private boolean isGroupByEquals(Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair,
             Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair,
             SlotMapping viewToQuerySlotMapping,
