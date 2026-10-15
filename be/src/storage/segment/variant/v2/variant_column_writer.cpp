@@ -27,7 +27,6 @@
 #include "core/column/column_string.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/variant/v2/variant_shredder.h"
 #include "storage/segment/variant/variant_column_writer_impl.h"
@@ -38,16 +37,15 @@
 namespace doris::segment_v2 {
 namespace {
 
-Status build_root_only_batch(const VariantColumnData& column, size_t num_rows,
+Status build_root_only_batch(const IColumn& column, size_t row_pos, size_t num_rows,
                              std::span<const uint8_t> outer_nulls,
                              ColumnString::MutablePtr* root_jsonb) {
-    DORIS_CHECK(column.column_data != nullptr);
     DORIS_CHECK(root_jsonb != nullptr);
-    const auto* source = check_and_get_column<ColumnVariantV2>(*column.column_data);
+    const auto* source = check_and_get_column<ColumnVariantV2>(column);
     DORIS_CHECK(source != nullptr);
-    if (column.row_pos > source->size() || num_rows > source->size() - column.row_pos) {
+    if (row_pos > source->size() || num_rows > source->size() - row_pos) {
         return Status::InvalidArgument("ColumnVariantV2 writer range [{}, {}) exceeds {} rows",
-                                       column.row_pos, column.row_pos + num_rows, source->size());
+                                       row_pos, row_pos + num_rows, source->size());
     }
     if (!outer_nulls.empty() && outer_nulls.size() != num_rows) {
         return Status::InvalidArgument("ColumnVariantV2 outer-null span has {} rows, expected {}",
@@ -85,12 +83,12 @@ Status build_root_only_batch(const VariantColumnData& column, size_t num_rows,
 
     const auto view = source->read_view();
     if (!view.is_typed()) {
-        return build_from_encoded(view, column.row_pos);
+        return build_from_encoded(view, row_pos);
     }
 
     auto encoded_batch = ColumnVariantV2::create();
     RETURN_IF_CATCH_EXCEPTION({
-        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+        encoded_batch->insert_range_from(*source, row_pos, num_rows);
         encoded_batch->ensure_encoded();
     });
     return build_from_encoded(encoded_batch->read_view(), 0);
@@ -123,7 +121,7 @@ Status VariantV2ColumnWriter::init() {
     return Status::OK();
 }
 
-Status VariantV2ColumnWriter::append(const VariantColumnData& column, size_t num_rows,
+Status VariantV2ColumnWriter::append(const IColumn& column, size_t row_pos, size_t num_rows,
                                      std::span<const uint8_t> outer_nulls) {
     if (_is_finalized) {
         return Status::InternalError("Cannot append ColumnVariantV2 after writer finalization");
@@ -134,13 +132,14 @@ Status VariantV2ColumnWriter::append(const VariantColumnData& column, size_t num
             return Status::InvalidArgument("Variant writer row count overflows size_t");
         }
         ColumnString::MutablePtr batch_root_jsonb;
-        RETURN_IF_ERROR(build_root_only_batch(column, num_rows, outer_nulls, &batch_root_jsonb));
+        RETURN_IF_ERROR(
+                build_root_only_batch(column, row_pos, num_rows, outer_nulls, &batch_root_jsonb));
         DORIS_CHECK_EQ(batch_root_jsonb->size(), num_rows);
         RETURN_IF_CATCH_EXCEPTION(
                 { _root_jsonb->insert_range_from(*batch_root_jsonb, 0, num_rows); });
     } else {
         RETURN_IF_ERROR(variant_writer_helpers::append_variant_v2_to_shredder(
-                _shredder.get(), column, num_rows, outer_nulls));
+                _shredder.get(), column, row_pos, num_rows, outer_nulls));
     }
     if (outer_nulls.empty()) {
         _outer_nulls->insert_many_defaults(num_rows);
@@ -162,15 +161,16 @@ Status VariantV2ColumnWriter::_write_root(const IColumn* root_jsonb, int& column
             _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
     RETURN_IF_ERROR(_root_writer->init());
 
-    const auto& values = assert_cast<const ColumnString&>(*root_jsonb);
-    DorisVector<Slice> slices(_num_rows);
-    for (size_t row = 0; row < _num_rows; ++row) {
-        slices[row] = values.get_data_at(row).to_slice();
-    }
-    const uint8_t* outer_nulls =
-            _tablet_column->is_nullable() ? _outer_nulls->get_data().data() : nullptr;
     if (_num_rows > 0) {
-        RETURN_IF_ERROR(_root_writer->append(outer_nulls, slices.data(), _num_rows));
+        // The values and the null bits live in two different columns here: the
+        // root jsonb is never nullable, the outer nulls were collected across
+        // appends. Pair them up so the writer sees one nullable column.
+        if (_tablet_column->is_nullable()) {
+            auto nullable = ColumnNullable::create(root_jsonb->get_ptr(), _outer_nulls->get_ptr());
+            RETURN_IF_ERROR(_root_writer->append(*nullable, 0, _num_rows));
+        } else {
+            RETURN_IF_ERROR(_root_writer->append(*root_jsonb, 0, _num_rows));
+        }
     }
     _opts.meta->set_num_rows(_num_rows);
     ++column_id;
@@ -178,7 +178,6 @@ Status VariantV2ColumnWriter::_write_root(const IColumn* root_jsonb, int& column
 }
 
 Status VariantV2ColumnWriter::_write_materialized(const VariantShreddedColumns& shredded,
-                                                  OlapBlockDataConvertor* converter,
                                                   int& column_id) {
     for (const VariantPathColumn& path_column : shredded.materialized) {
         if (!path_column.column || path_column.column->size() != path_column.rowids.size()) {
@@ -196,9 +195,9 @@ Status VariantV2ColumnWriter::_write_materialized(const VariantShreddedColumns& 
                 _opts, *_tablet_column, current_column_id, path_column.path, path_column.type,
                 cast_set<int64_t>(path_column.rowids.size()), _num_rows, nullptr, true, &indexes,
                 &opts, &writer, &tablet_column));
-        RETURN_IF_ERROR(variant_writer_helpers::append_sparse_converted_column(
-                tablet_column, writer.get(), converter, current_column_id, path_column.type,
-                path_column.column, path_column.rowids, _num_rows));
+        RETURN_IF_ERROR(variant_writer_helpers::append_sparse_column(
+                tablet_column, writer.get(), path_column.type, path_column.column,
+                path_column.rowids, _num_rows));
         _subcolumn_indexes.push_back(std::move(indexes));
         _subcolumn_opts.push_back(opts);
         _subcolumn_writers.push_back(std::move(writer));
@@ -207,12 +206,12 @@ Status VariantV2ColumnWriter::_write_materialized(const VariantShreddedColumns& 
 }
 
 Status VariantV2ColumnWriter::_write_binary(const VariantShreddedColumns& shredded,
-                                            OlapBlockDataConvertor* converter, int& column_id) {
+                                            int& column_id) {
     if (_tablet_column->variant_enable_doc_mode()) {
         auto writer = std::make_unique<VariantDocWriter>();
         const int bucket_count = std::max(1, _tablet_column->variant_doc_hash_shard_count());
         RETURN_IF_ERROR(writer->init(_tablet_column, bucket_count, column_id, _opts, _opts.footer));
-        RETURN_IF_ERROR(writer->append_shredded(_tablet_column, shredded, _num_rows, converter));
+        RETURN_IF_ERROR(writer->append_shredded(shredded, _num_rows));
         _binary_writer = std::move(writer);
         return Status::OK();
     }
@@ -220,7 +219,7 @@ Status VariantV2ColumnWriter::_write_binary(const VariantShreddedColumns& shredd
     auto writer = std::make_unique<UnifiedSparseColumnWriter>();
     const int bucket_count = std::max(1, _tablet_column->variant_sparse_hash_shard_count());
     RETURN_IF_ERROR(writer->init(_tablet_column, bucket_count, column_id, _opts, _opts.footer));
-    RETURN_IF_ERROR(writer->append_shredded(_tablet_column, shredded, _num_rows, converter));
+    RETURN_IF_ERROR(writer->append_shredded(shredded, _num_rows));
     _binary_writer = std::move(writer);
     return Status::OK();
 }
@@ -245,17 +244,15 @@ Status VariantV2ColumnWriter::finalize() {
     DORIS_CHECK_EQ(shredded.num_rows, _num_rows);
     _shredder.reset();
 
-    auto converter = std::make_unique<OlapBlockDataConvertor>();
     int column_id = 0;
     RETURN_IF_ERROR(_write_root(shredded.root_jsonb.get(), column_id));
-    converter->add_column_data_convertor(*_tablet_column);
 
     if (_tablet_column->variant_enable_doc_mode()) {
-        RETURN_IF_ERROR(_write_binary(shredded, converter.get(), column_id));
-        RETURN_IF_ERROR(_write_materialized(shredded, converter.get(), column_id));
+        RETURN_IF_ERROR(_write_binary(shredded, column_id));
+        RETURN_IF_ERROR(_write_materialized(shredded, column_id));
     } else {
-        RETURN_IF_ERROR(_write_materialized(shredded, converter.get(), column_id));
-        RETURN_IF_ERROR(_write_binary(shredded, converter.get(), column_id));
+        RETURN_IF_ERROR(_write_materialized(shredded, column_id));
+        RETURN_IF_ERROR(_write_binary(shredded, column_id));
     }
     shredded.statistics.to_pb(_opts.meta->mutable_variant_statistics());
     _is_finalized = true;

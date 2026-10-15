@@ -30,6 +30,7 @@
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/slice.h"
@@ -122,8 +123,9 @@ void RowCursor::_encode_column_value(const TabletColumn* column, const Field& va
         if (ft == FieldType::OLAP_FIELD_TYPE_CHAR) {
             // CHAR type: must pad with \0 to the declared column length
             size_t col_len = column->length();
-            String padded(col_len, '\0');
-            memcpy(padded.data(), str.data(), std::min(str.size(), col_len));
+            String padded;
+            StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::append_padded(
+                    StringRef(str.data(), std::min(str.size(), col_len)), col_len, &padded);
 
             Slice slice(padded.data(), col_len);
             if (full_encode) {

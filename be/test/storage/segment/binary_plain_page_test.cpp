@@ -53,7 +53,7 @@ public:
         size_t count = slices.size();
 
         Slice* ptr = &slices[0];
-        Status ret = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        Status ret = static_cast<StringPageBuilder*>(page_builder.get())->add_slices(ptr, &count);
         EXPECT_TRUE(ret.ok());
 
         OwnedSlice owned_slice;

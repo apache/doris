@@ -43,6 +43,7 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
@@ -143,7 +144,7 @@ protected:
         for (const auto& value : _values) {
             slices.emplace_back(value);
         }
-        RETURN_IF_ERROR(writer.add_values("p", slices.data(), slices.size()));
+        RETURN_IF_ERROR(segment_v2::add_slices(writer, slices.data(), slices.size()));
         return writer.finish();
     }
 

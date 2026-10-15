@@ -35,6 +35,7 @@
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/query/phrase_query.h"
@@ -240,7 +241,7 @@ protected:
         for (const auto& row : kRows) {
             values.emplace_back(row);
         }
-        ASSERT_TRUE(writer->add_values("c2", values.data(), values.size()).ok());
+        ASSERT_TRUE(add_slices(*writer, values.data(), values.size()).ok());
         ASSERT_TRUE(writer->finish().ok());
         ASSERT_TRUE(index_file_writer->begin_close().ok());
         ASSERT_TRUE(index_file_writer->finish_close().ok());
@@ -274,10 +275,7 @@ protected:
             values.emplace_back(row);
         }
         const std::vector<uint64_t> offsets = {0, 1, 2, 3};
-        ASSERT_TRUE(writer->add_array_values(field_type_size(item_column.type()), values.data(),
-                                             /*nested_null_map=*/nullptr,
-                                             reinterpret_cast<const uint8_t*>(offsets.data()),
-                                             kRows.size())
+        ASSERT_TRUE(add_slice_arrays(*writer, values.data(), nullptr, offsets.data(), kRows.size())
                             .ok());
         ASSERT_TRUE(writer->finish().ok());
         ASSERT_TRUE(index_file_writer->begin_close().ok());

@@ -138,7 +138,7 @@ public:
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         if (!status.ok()) {
             return nullptr;
         }
@@ -191,7 +191,7 @@ public:
         size_t count = slices.size();
 
         const Slice* ptr = &slices[0];
-        Status ret = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        Status ret = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(ret.ok());
 
         OwnedSlice s;
@@ -320,7 +320,7 @@ public:
         for (size_t i = 0; i < count;) {
             size_t add_num = 1;
             const Slice* ptr = &contents[i];
-            Status ret = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
+            Status ret = page_builder->add_slices(ptr, &add_num);
             EXPECT_TRUE(ret.ok());
             if (page_builder->is_page_full()) {
                 OwnedSlice s;
@@ -624,7 +624,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsDictionaryPageEncoding) {
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(status.ok());
 
         // Get dictionary page
@@ -664,7 +664,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsDictionaryPageEncoding) {
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(status.ok());
 
         // Get dictionary page
@@ -729,7 +729,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsFallbackEncoding) {
         for (size_t i = 0; i < slices.size() && !page_builder->is_page_full(); ++i) {
             size_t count = 1;
             const Slice* ptr = &slices[i];
-            status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+            status = page_builder->add_slices(ptr, &count);
             EXPECT_TRUE(status.ok());
             if (count > 0) {
                 total_added++;
@@ -774,7 +774,7 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsFallbackEncoding) {
         for (size_t i = 0; i < slices.size() && !page_builder->is_page_full(); ++i) {
             size_t count = 1;
             const Slice* ptr = &slices[i];
-            status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+            status = page_builder->add_slices(ptr, &count);
             EXPECT_TRUE(status.ok());
             if (count > 0) {
                 total_added++;

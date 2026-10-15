@@ -54,6 +54,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/gram/gram_family.h"
 #include "storage/index/inverted/gram/gram_query.h"
 #include "storage/index/inverted/gram/gram_scheme.h"
@@ -212,7 +213,7 @@ std::vector<std::optional<std::string>> build_corpus() {
 }
 
 // Feed the corpus to a real SniiIndexColumnWriter and produce a real .idx file. Consecutive
-// non-NULL rows form one add_values batch and consecutive NULL rows one add_nulls batch, matching
+// non-NULL rows form one add batch and consecutive NULL rows one add_nulls batch, matching
 // how SegmentWriter calls the writer in production.
 void write_segment(const std::string& path, const TabletIndex& index_meta,
                    const std::vector<std::optional<std::string>>& corpus) {
@@ -242,7 +243,7 @@ void write_segment(const std::string& path, const TabletIndex& index_meta,
             slices.emplace_back(*corpus[i]);
             ++i;
         }
-        assert_ok(writer.add_values("c1", slices.data(), slices.size()));
+        assert_ok(add_slices(writer, slices.data(), slices.size()));
     }
 
     assert_ok(writer.finish());

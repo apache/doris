@@ -62,9 +62,9 @@ public:
     ~SniiBkdIndexColumnWriter() override;
 
     Status init() override;
-    Status add_values(const std::string name, const void* values, size_t count) override;
-    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
-                            const uint8_t* offsets_ptr, size_t count) override;
+    Status add(const IColumn& column, size_t row_pos, size_t n) override;
+    Status add_array(const IColumn& items, size_t first_item, const uint64_t* offsets,
+                     size_t num_rows) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
     Status finish() override;
@@ -75,12 +75,21 @@ private:
     // Encodes one CppType-wide value at `value` through the index's own key
     // coder and appends it as a point for `docid`.
     Status _add_value(const void* value, uint32_t docid);
+    // The cells [first, first + n) of `column`, as points; the cells `null_map`
+    // marks NULL are skipped and docid_of(i) is the i-th cell's row.
+    template <FieldType FT, class DocIdOf>
+    Status _add_cells_of(const IColumn& column, size_t first, size_t n, const uint8_t* null_map,
+                         DocIdOf docid_of);
+    // The same, with _value_type resolved once per call.
+    template <class DocIdOf>
+    Status _add_cells(const IColumn& column, size_t first, size_t n, const uint8_t* null_map,
+                      DocIdOf docid_of);
 
     IndexFileWriter* _index_file_writer = nullptr;
     const TabletIndex* _index_meta = nullptr;
     const FieldType _value_type;
-    // sizeof(CppType) for _value_type: both the source stride and the point
-    // width, which is why they cannot disagree.
+    // The point width: sizeof(CppType) of _value_type, what every encoded
+    // value has to measure.
     uint32_t _value_size = 0;
     const KeyCoder* _value_key_coder = nullptr;
 

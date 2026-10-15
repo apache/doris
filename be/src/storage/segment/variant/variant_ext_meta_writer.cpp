@@ -55,7 +55,7 @@ Status VariantExtMetaWriter::add(int32_t root_uid, const Slice& key) {
     // Column Meta Region will be derived on the reader side using:
     //   col_id = root_column_id + 1 + key_ordinal
     // based on the agreed layout of ColumnMetaEntryPB in SegmentFooterPB.
-    RETURN_IF_ERROR(w.key_writer->add(&key));
+    RETURN_IF_ERROR(w.key_writer->add(key));
     ++w.count;
     return Status::OK();
 }

@@ -53,7 +53,7 @@ public:
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
-        Status ret = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        Status ret = static_cast<StringPageBuilder*>(page_builder.get())->add_slices(ptr, &count);
 
         OwnedSlice dict_slice;
         EXPECT_TRUE(page_builder->finish(&dict_slice).ok());
@@ -158,7 +158,7 @@ public:
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
-        Status ret = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        Status ret = static_cast<StringPageBuilder*>(page_builder.get())->add_slices(ptr, &count);
 
         OwnedSlice dict_slice;
         EXPECT_TRUE(page_builder->finish(&dict_slice).ok());

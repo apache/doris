@@ -93,7 +93,7 @@ private:
     faststring _min_key;
     faststring _max_key;
     std::unique_ptr<segment_v2::IndexedColumnWriter> _primary_key_index_builder;
-    std::unique_ptr<segment_v2::BloomFilterIndexWriter> _bloom_filter_index_builder;
+    std::unique_ptr<segment_v2::PrimaryKeyBloomFilterIndexWriterImpl> _bloom_filter_index_builder;
 };
 
 class PrimaryKeyIndexReader {

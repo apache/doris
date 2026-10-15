@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "io/fs/file_writer.h"
@@ -134,9 +136,11 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
             std::unique_ptr<segment_v2::ZoneMapIndexWriter> builder(nullptr);
             static_cast<void>(
                     segment_v2::ZoneMapIndexWriter::create(int_data_type_ptr, int_field, builder));
+            auto ints = ColumnInt32::create();
             for (int i = 0; i < 100; i++) {
-                builder->add_values((const uint8_t*)&i, 1);
+                ints->insert_value(i);
             }
+            builder->add(*ints, 0, ints->size());
             static_cast<void>(builder->flush());
             {
                 io::FileWriterPtr file_writer;
@@ -171,10 +175,11 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
             static_cast<void>(
                     segment_v2::ZoneMapIndexWriter::create(str_data_type_ptr, str_field, builder));
             std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
+            auto strings = ColumnString::create();
             for (auto& value : values1) {
-                Slice slice(value);
-                builder->add_values((const uint8_t*)&slice, 1);
+                strings->insert_data(value.data(), value.size());
             }
+            builder->add(*strings, 0, strings->size());
             static_cast<void>(builder->flush());
             {
                 io::FileWriterPtr file_writer;

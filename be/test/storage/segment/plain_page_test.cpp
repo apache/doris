@@ -65,7 +65,9 @@ public:
         ASSERT_TRUE(PageBuilderType::create(&builder, options).ok());
         std::unique_ptr<PageBuilder> page_builder(builder);
 
-        EXPECT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(src), &size).ok());
+        EXPECT_TRUE(static_cast<FixedWidthPageBuilder<Type>*>(page_builder.get())
+                            ->add_cells(src, &size)
+                            .ok());
         OwnedSlice s;
         EXPECT_TRUE(page_builder->finish(&s).ok());
 
@@ -111,7 +113,9 @@ public:
         ASSERT_TRUE(PageBuilderType::create(&builder, options).ok());
         std::unique_ptr<PageBuilder> page_builder(builder);
 
-        EXPECT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(src), &size).ok());
+        EXPECT_TRUE(static_cast<FixedWidthPageBuilder<Type>*>(page_builder.get())
+                            ->add_cells(src, &size)
+                            .ok());
         OwnedSlice s;
         EXPECT_TRUE(page_builder->finish(&s).ok());
 
