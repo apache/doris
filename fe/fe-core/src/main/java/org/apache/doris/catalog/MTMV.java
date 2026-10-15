@@ -282,12 +282,19 @@ public class MTMV extends OlapTable {
     }
 
     /**
+     * Whether this MV is an IVM MV built as UNIQUE KEY + merge-on-write, which is one of the two table
+     * models: it is maintained through the hidden row-id, and the layout its refresh reads is pinned
+     * down by a plan signature. The MV's own key model is where the table model is recorded, and a key
+     * model cannot be altered, so this reads back what CREATE decided. A non-IVM MV is DUP, hence the
+     * {@link #isIvm()} conjunct.
+     */
+    public boolean isIvmUniqueKeysTable() {
+        return isIvm() && getKeysType() == KeysType.UNIQUE_KEYS;
+    }
+
+    /**
      * Whether this MV is an IVM MV built as a plain DUP detail table, that is one whose table model
      * is a detail table a refresh only ever appends to.
-     *
-     * <p>The MV's own key model is where the table model is recorded: an IVM MV is created either as
-     * UNIQUE KEY + merge-on-write or as DUP, and a key model cannot be altered, so this reads back
-     * what CREATE decided. A non-IVM MV is DUP as well, hence the {@link #isIvm()} conjunct.
      */
     public boolean isIvmAppendOnlyDupTable() {
         return isIvm() && getKeysType() == KeysType.DUP_KEYS;

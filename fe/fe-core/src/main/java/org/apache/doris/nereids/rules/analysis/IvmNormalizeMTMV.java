@@ -87,7 +87,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
             // A detail MV holds the query's own rows, so its normalized plan is the query itself:
             // there is nothing to rewrite, only a query to check, and no row-id for a signature to
             // pin down.
-            result = IvmNormalizeDupKeysMTMV.normalize(plan, statementContext.getExcludedTriggerTables());
+            result = new IvmNormalizeDupKeysMTMV().normalize(plan, statementContext.getExcludedTriggerTables());
         } else {
             result = new IvmNormalizeUniqKeysMTMV().normalize(plan, jobContext);
         }

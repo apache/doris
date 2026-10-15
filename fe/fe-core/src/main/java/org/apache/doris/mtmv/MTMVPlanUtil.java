@@ -1144,7 +1144,7 @@ public class MTMVPlanUtil {
         List<Column> analyzedColumns = analyzedColumnDefinitions.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-        if (mtmv.isIvm() && !mtmv.isIvmAppendOnlyDupTable()) {
+        if (mtmv.isIvmUniqueKeysTable()) {
             // Only the unique-key model carries a sequence column, and this reads its type from the MV's
             // own schema.
             analyzedColumns.add(ColumnDefinition.newSequenceColumnDefinition(

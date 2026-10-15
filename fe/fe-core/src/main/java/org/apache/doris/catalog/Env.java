@@ -3946,7 +3946,7 @@ public class Env {
             // An IVM MV of the unique-key model prints KEY whatever its physical layout says, so that what
             // SHOW CREATE prints rebuilds an MV of the same model. An append-only detail MV has no such
             // layout: it prints the DUPLICATE KEY of the table it is, which rebuilds that table too.
-            String keySql = mtmv.isIvm() && !mtmv.isIvmAppendOnlyDupTable() ? "KEY" : mtmv.getKeysType().toSql();
+            String keySql = mtmv.isIvmUniqueKeysTable() ? "KEY" : mtmv.getKeysType().toSql();
             sb.append("\n").append(keySql).append("(");
             sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
         }

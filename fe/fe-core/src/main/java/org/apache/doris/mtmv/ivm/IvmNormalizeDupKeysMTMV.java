@@ -52,25 +52,22 @@ import java.util.Set;
  * as the unique-key normalize does. That is what keeps the two in step: a shape the normalize does
  * not support is rejected here as well, and a shape it supports only through the row-id path is
  * rejected by name below.
+ *
+ * <p>The rewriter carries no state of its own: what the traversal needs is the statement's excluded
+ * trigger tables, which is also all the scan check below reads, so they are the rewriter's context.
  */
-public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
-    private final Set<TableNameInfo> excludedTriggerTables;
-
-    private IvmNormalizeDupKeysMTMV(Set<TableNameInfo> excludedTriggerTables) {
-        this.excludedTriggerTables = excludedTriggerTables;
-    }
-
+public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Set<TableNameInfo>> {
     /**
      * Checks that {@code plan} is a query a DUP detail MV can maintain.
      *
      * @return {@code plan} itself, which is what such an MV's normalized plan is
      */
-    public static Plan normalize(Plan plan, Set<TableNameInfo> excludedTriggerTables) {
-        return plan.accept(new IvmNormalizeDupKeysMTMV(excludedTriggerTables), null);
+    public Plan normalize(Plan plan, Set<TableNameInfo> excludedTriggerTables) {
+        return plan.accept(this, excludedTriggerTables);
     }
 
     @Override
-    public Plan visit(Plan plan, Void context) {
+    public Plan visit(Plan plan, Set<TableNameInfo> excludedTriggerTables) {
         // Every node type not accepted below lands here, which is where the unique-key normalize
         // rejects it too: a detail MV's query may hold no other shape.
         throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
@@ -78,7 +75,7 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
     }
 
     @Override
-    public Plan visitLogicalOlapScan(LogicalOlapScan scan, Void context) {
+    public Plan visitLogicalOlapScan(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
         OlapTable table = scan.getTable();
         if (table.getKeysType() != KeysType.DUP_KEYS) {
             // An AnalysisException rather than an IvmException: a refresh turns every IvmException into a
@@ -94,31 +91,36 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
     }
 
     @Override
-    public Plan visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, Void context) {
-        return visitChildren(this, oneRowRelation, context);
+    public Plan visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation,
+            Set<TableNameInfo> excludedTriggerTables) {
+        return visitChildren(this, oneRowRelation, excludedTriggerTables);
     }
 
     @Override
-    public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
+    public Plan visitLogicalProject(LogicalProject<? extends Plan> project,
+            Set<TableNameInfo> excludedTriggerTables) {
         if (project.isDistinct()) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support DISTINCT project.");
         }
-        return visitChildren(this, project, context);
+        return visitChildren(this, project, excludedTriggerTables);
     }
 
     @Override
-    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
-        return visitChildren(this, filter, context);
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter,
+            Set<TableNameInfo> excludedTriggerTables) {
+        return visitChildren(this, filter, excludedTriggerTables);
     }
 
     @Override
-    public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias, Void context) {
-        return visitChildren(this, alias, context);
+    public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
+            Set<TableNameInfo> excludedTriggerTables) {
+        return visitChildren(this, alias, excludedTriggerTables);
     }
 
     @Override
-    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
+    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+            Set<TableNameInfo> excludedTriggerTables) {
         if (!join.getJoinType().isInnerOrCrossJoin()) {
             // An outer join retracts the rows its null side stopped matching, which means reaching
             // rows the MV already holds.
@@ -126,11 +128,11 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
                     "IVM detail MV error: a detail MV can only maintain INNER_JOIN and CROSS_JOIN, "
                             + "but the query has " + join.getJoinType());
         }
-        return visitChildren(this, join, context);
+        return visitChildren(this, join, excludedTriggerTables);
     }
 
     @Override
-    public Plan visitLogicalUnion(LogicalUnion union, Void context) {
+    public Plan visitLogicalUnion(LogicalUnion union, Set<TableNameInfo> excludedTriggerTables) {
         if (union.getQualifier() != Qualifier.ALL) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
@@ -139,21 +141,24 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support UNION ALL with constant expressions.");
         }
-        return visitChildren(this, union, context);
+        return visitChildren(this, union, excludedTriggerTables);
     }
 
     @Override
-    public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, Void context) {
-        return visitChildren(this, sink, context);
+    public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink,
+            Set<TableNameInfo> excludedTriggerTables) {
+        return visitChildren(this, sink, excludedTriggerTables);
     }
 
     @Override
-    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink, Void context) {
-        return visitChildren(this, sink, context);
+    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink,
+            Set<TableNameInfo> excludedTriggerTables) {
+        return visitChildren(this, sink, excludedTriggerTables);
     }
 
     @Override
-    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
+    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
+            Set<TableNameInfo> excludedTriggerTables) {
         // An aggregate's delta changes the row of a group, and DISTINCT folds rows together: both
         // mean reaching and correcting rows the MV already holds.
         throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
@@ -162,7 +167,8 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Void> {
     }
 
     @Override
-    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Void context) {
+    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat,
+            Set<TableNameInfo> excludedTriggerTables) {
         // GROUPING SETS is a repeat of aggregates, so it needs each group row corrected as well.
         throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                 "IVM detail MV error: a detail MV holds no GROUPING SETS, so GROUPING SETS cannot be "
