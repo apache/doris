@@ -101,6 +101,7 @@ public class SplitSource {
             }
             Collection<TScanRangeLocations> batch = splits.poll();
             if (batch != null) {
+                splitAssignment.notifyQueueSpace(backend);
                 pendingSplits = batch.iterator();
                 continue;
             }
@@ -115,6 +116,7 @@ public class SplitSource {
                 batch = splits.poll(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(WAIT_TIME_OUT)),
                         TimeUnit.NANOSECONDS);
                 if (batch != null) {
+                    splitAssignment.notifyQueueSpace(backend);
                     pendingSplits = batch.iterator();
                 }
             } catch (InterruptedException e) {

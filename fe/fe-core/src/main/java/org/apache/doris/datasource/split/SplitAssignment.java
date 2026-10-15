@@ -31,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +67,7 @@ public class SplitAssignment {
 
     private volatile UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
+    private final Map<Backend, Set<Runnable>> queueSpaceListeners = new HashMap<>();
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
@@ -129,20 +131,7 @@ public class SplitAssignment {
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
         for (Backend backend : batch.keySet()) {
-            Collection<Split> splits = batch.get(backend);
-            List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
-            for (Split split : splits) {
-                locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys,
-                        fileCacheAdmission));
-            }
-            // The scan-level parameters are initialized by range conversion. Publish readiness
-            // afterwards, but before a bounded offer can block waiting for the BE to start.
-            synchronized (assignLock) {
-                if (sampleSplit == null) {
-                    sampleSplit = splits.iterator().next();
-                    assignLock.notifyAll();
-                }
-            }
+            Collection<TScanRangeLocations> locations = createScanRanges(backend, batch.get(backend));
             while (needMoreSplit()) {
                 BlockingQueue<Collection<TScanRangeLocations>> queue =
                         getOrCreateAssignmentQueue(backend);
@@ -155,6 +144,69 @@ public class SplitAssignment {
                     addUserException(new UserException("Failed to offer batch split by interrupted", e));
                 }
             }
+        }
+    }
+
+    Multimap<Backend, Split> assignBatch(List<Split> splits) throws UserException {
+        Preconditions.checkArgument(splits.size() <= splitBatchSize, "Producer batch exceeds split batch size");
+        synchronized (assignLock) {
+            return backendPolicy.computeScanRangeAssignment(splits);
+        }
+    }
+
+    Collection<TScanRangeLocations> createScanRanges(Backend backend, Collection<Split> splits)
+            throws UserException {
+        List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
+        for (Split split : splits) {
+            locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys,
+                    fileCacheAdmission));
+        }
+        // Publish readiness after range conversion initializes the scan-level parameters.
+        synchronized (assignLock) {
+            if (sampleSplit == null) {
+                sampleSplit = splits.iterator().next();
+                assignLock.notifyAll();
+            }
+        }
+        return locations;
+    }
+
+    boolean offerBatch(Backend backend, Collection<TScanRangeLocations> locations, Runnable resume) {
+        // Coordinate the failed offer and listener registration with consumer notifications so
+        // capacity released just before suspension cannot be missed.
+        synchronized (queueSpaceListeners) {
+            // An error/stop may race range conversion. Do not register a waiter after its wakeup.
+            if (!needMoreSplit()) {
+                return false;
+            }
+            if (getOrCreateAssignmentQueue(backend).offer(locations)) {
+                removeQueueSpaceListener(backend, resume);
+                return true;
+            }
+            queueSpaceListeners.computeIfAbsent(backend, key -> new HashSet<>()).add(resume);
+            return false;
+        }
+    }
+
+    void removeQueueSpaceListener(Backend backend, Runnable listener) {
+        synchronized (queueSpaceListeners) {
+            Set<Runnable> listeners = queueSpaceListeners.get(backend);
+            if (listeners != null) {
+                listeners.remove(listener);
+                if (listeners.isEmpty()) {
+                    queueSpaceListeners.remove(backend);
+                }
+            }
+        }
+    }
+
+    void notifyQueueSpace(Backend backend) {
+        Set<Runnable> listeners;
+        synchronized (queueSpaceListeners) {
+            listeners = queueSpaceListeners.remove(backend);
+        }
+        if (listeners != null) {
+            listeners.forEach(Runnable::run);
         }
     }
 
@@ -174,11 +226,7 @@ public class SplitAssignment {
         for (int begin = 0; begin < splits.size() && needMoreSplit();) {
             int end = begin + Math.min(splitBatchSize, splits.size() - begin);
             List<Split> batchSplits = new ArrayList<>(splits.subList(begin, end));
-            Multimap<Backend, Split> batch;
-            synchronized (assignLock) {
-                batch = backendPolicy.computeScanRangeAssignment(batchSplits);
-            }
-            appendBatch(batch);
+            appendBatch(assignBatch(batchSplits));
             begin = end;
         }
     }
@@ -211,6 +259,12 @@ public class SplitAssignment {
     public void setException(UserException e) {
         addUserException(e);
         notifyAssignment();
+        Set<Runnable> listeners = new HashSet<>();
+        synchronized (queueSpaceListeners) {
+            queueSpaceListeners.values().forEach(listeners::addAll);
+            queueSpaceListeners.clear();
+        }
+        listeners.forEach(Runnable::run);
     }
 
     private synchronized void addUserException(UserException e) {
@@ -254,6 +308,12 @@ public class SplitAssignment {
             }
         }
         closeResource(resource);
+    }
+
+    void removeCloseable(Closeable resource) {
+        synchronized (closeableResources) {
+            closeableResources.remove(resource);
+        }
     }
 
     private void closeResource(Closeable resource) {

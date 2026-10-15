@@ -51,6 +51,15 @@
 -- !synchronous_empty_partitions --
 0	\N
 
+-- !synchronous_join_aggregate --
+120	7140	240
+
+-- !synchronous_union_aggregate --
+240	14280
+
+-- !synchronous_union_limit --
+10
+
 -- !streaming_3_1_unpartitioned_aggregate --
 120	7140	120	660
 
@@ -96,6 +105,15 @@
 
 -- !streaming_3_1_empty_partitions --
 0	\N
+
+-- !streaming_3_1_join_aggregate --
+120	7140	240
+
+-- !streaming_3_1_union_aggregate --
+240	14280
+
+-- !streaming_3_1_union_limit --
+10
 
 -- !streaming_7_2_unpartitioned_aggregate --
 120	7140	120	660
@@ -143,6 +161,15 @@
 -- !streaming_7_2_empty_partitions --
 0	\N
 
+-- !streaming_7_2_join_aggregate --
+120	7140	240
+
+-- !streaming_7_2_union_aggregate --
+240	14280
+
+-- !streaming_7_2_union_limit --
+10
+
 -- !streaming_128_32_unpartitioned_aggregate --
 120	7140	120	660
 
@@ -188,6 +215,15 @@
 
 -- !streaming_128_32_empty_partitions --
 0	\N
+
+-- !streaming_128_32_join_aggregate --
+120	7140	240
+
+-- !streaming_128_32_union_aggregate --
+240	14280
+
+-- !streaming_128_32_union_limit --
+10
 
 -- !ctas --
 120	7140	120	660

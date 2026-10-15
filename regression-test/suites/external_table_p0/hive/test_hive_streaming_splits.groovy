@@ -82,6 +82,14 @@ suite("test_hive_streaming_splits", "p0,external") {
                 (select id from streaming_partitioned where p=1 limit 10) limited""", true)
             quickTest("${label}_empty_partitions", """select count(*), sum(id)
                 from streaming_partitioned where p>3""", true)
+            quickTest("${label}_join_aggregate", """select count(*), sum(u.id), sum(p.p)
+                from streaming_unpartitioned u join streaming_partitioned p on u.id=p.id""", true)
+            quickTest("${label}_union_aggregate", """select count(*), sum(id) from
+                (select id from streaming_unpartitioned union all
+                 select id from streaming_partitioned) combined""", true)
+            quickTest("${label}_union_limit", """select count(*) from
+                (select id from streaming_unpartitioned union all
+                 select id from streaming_partitioned limit 10) limited""", true)
         }
         sql "set enable_external_table_batch_mode=false"
         sql "set num_partitions_in_batch_mode=0"
